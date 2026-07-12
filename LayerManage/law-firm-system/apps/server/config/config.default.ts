@@ -1,9 +1,11 @@
 import { EggAppConfig, EggAppInfo, PowerPartial } from 'egg';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import { loadEnvironment } from './env';
 
 // 加载环境变量
 dotenv.config();
+const env = loadEnvironment(process.env);
 
 export type DefaultConfig = PowerPartial<EggAppConfig>;
 
@@ -11,7 +13,7 @@ export default (appInfo: EggAppInfo) => {
   const config = {} as DefaultConfig;
 
   // 应用密钥
-  config.keys = appInfo.name + '_law_firm_2026';
+  config.keys = env.appKeys.join(',');
 
   // 中间件配置
   config.middleware = ['errorHandler', 'auth'];
@@ -32,7 +34,7 @@ export default (appInfo: EggAppInfo) => {
 
   // JWT 配置 (egg-jwt 插件类型不包含 expiresIn，使用 as any 绕过类型检查)
   (config as any).jwt = {
-    secret: process.env.JWT_SECRET || 'law-firm-secret-key',
+    secret: env.jwtSecret,
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   };
 

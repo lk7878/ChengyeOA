@@ -10,12 +10,18 @@
     "build:server": "cd apps/server && npm run build",
     "package": "cd apps/web && npm run build && cd ../server && node scripts/build-package.js",
     "installer": "cd ../scripts && build-installer.bat",
-    "build:all": "npm run build:web && npm run build:server"
+    "build:all": "npm run build:web && npm run build:server",
+    "db:up": "docker compose -f infra/postgres/compose.yml up -d postgres",
+    "db:down": "docker compose -f infra/postgres/compose.yml down",
+    "db:logs": "docker compose -f infra/postgres/compose.yml logs -f postgres"
   },
   "devDependencies": {
     "prisma": "^5.22.0"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0"
+  },
+  "engines": {
+    "node": ">=22.12.0 <23"
   }
 }
