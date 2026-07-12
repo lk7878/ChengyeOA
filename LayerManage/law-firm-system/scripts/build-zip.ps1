@@ -1,0 +1,42 @@
+# Build a portable ZIP package for distribution
+# Alternative to Inno Setup installer
+
+$projectRoot = Split-Path -Parent $PSScriptRoot
+$sourceDir = Join-Path $projectRoot "apps\dist\law-firm-system"
+$outputDir = Join-Path $projectRoot "apps\dist\installer"
+$zipFile = Join-Path $outputDir "LawFirmSystem-Portable-1.0.0.zip"
+
+if (-not (Test-Path $sourceDir)) {
+    Write-Host "ERROR: Portable directory not found. Run build-package.js first." -ForegroundColor Red
+    Write-Host "  cd apps\server && node scripts\build-package.js" -ForegroundColor Yellow
+    exit 1
+}
+
+# Create output directory
+if (-not (Test-Path $outputDir)) {
+    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+}
+
+# Remove old zip if exists
+if (Test-Path $zipFile) {
+    Remove-Item $zipFile -Force
+}
+
+Write-Host "Creating ZIP package..." -ForegroundColor Cyan
+Write-Host "  Source: $sourceDir"
+Write-Host "  Output: $zipFile"
+
+# Compress
+Compress-Archive -Path "$sourceDir\*" -DestinationPath $zipFile -CompressionLevel Optimal -Force
+
+$zipSize = [math]::Round((Get-Item $zipFile).Length / 1MB, 1)
+Write-Host ""
+Write-Host "ZIP package created: $zipFile" -ForegroundColor Green
+Write-Host "  Size: ${zipSize}MB"
+Write-Host ""
+Write-Host "To use on another computer:"
+Write-Host "  1. Copy $zipFile to the target computer"
+Write-Host "  2. Extract to any folder (e.g., C:\LawFirmSystem)"
+Write-Host "  3. Double-click launch.bat"
+Write-Host "  4. Open http://localhost:7001 in browser"
+Write-Host "  5. Login: admin / 123456"

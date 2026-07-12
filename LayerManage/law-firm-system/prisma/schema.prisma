@@ -1,0 +1,444 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 组织架构模块 ====================
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  type        String   // FIRM | BRANCH | DEPARTMENT
+  parentId    String?
+  sort        Int      @default(0)
+  status      String   @default("ENABLED") // ENABLED | DISABLED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  parent      Organization?  @relation("OrgHierarchy", fields: [parentId], references: [id])
+  children    Organization[] @relation("OrgHierarchy")
+  positions   Position[]
+  employees   Employee[]
+
+  @@map("organization")
+}
+
+model Position {
+  id              String   @id @default(uuid())
+  name            String
+  orgId           String
+  level           Int      @default(0)
+  responsibilities String?
+  status          String   @default("ENABLED")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [orgId], references: [id])
+  employees       Employee[]
+
+  @@map("position")
+}
+
+// ==================== 人事/员工模块 ====================
+
+model Employee {
+  id          String    @id @default(uuid())
+  employeeNo  String    @unique
+  name        String
+  idCard      String?   @unique
+  phone       String
+  email       String?
+  type        String    // PARTNER | SENIOR_LAWYER | JUNIOR_LAWYER | ASSISTANT | SALES | ADMIN | HR | FINANCE | OPERATOR
+  status      String    @default("PROBATION") // PROBATION | FORMAL | LEAVED
+  entryDate   DateTime
+  leaveDate   DateTime?
+  orgId       String
+  positionId  String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  organization  Organization @relation(fields: [orgId], references: [id])
+  position      Position     @relation(fields: [positionId], references: [id])
+  user          User?
+  leads         Lead[]       @relation("LeadAssignee")
+  cases         Case[]       @relation("CaseLawyer")
+  performance   Performance[]
+
+  @@map("employee")
+}
+
+// ==================== 用户/权限模块 ====================
+
+model User {
+  id          String   @id @default(uuid())
+  username    String   @unique
+  password    String   // bcrypt hash
+  status      String   @default("ENABLED") // ENABLED | DISABLED
+  employeeId  String?  @unique
+  lastLoginAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employee    Employee?   @relation(fields: [employeeId], references: [id])
+  userRoles   UserRole[]
+  loginLogs   LoginLog[]
+
+  @@map("user")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  type        String   // SYSTEM | BUSINESS
+  description String?
+  status      String   @default("ENABLED")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userRoles   UserRole[]
+  permissions RolePermission[]
+
+  @@map("role")
+}
+
+model UserRole {
+  id        String @id @default(uuid())
+  userId    String
+  roleId    String
+
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@map("user_role")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  parentId    String?
+  type        String   // MENU | BUTTON | API
+  path        String?
+  sort        Int      @default(0)
+  status      String   @default("ENABLED")
+  createdAt   DateTime @default(now())
+
+  parent      Permission?  @relation("PermHierarchy", fields: [parentId], references: [id])
+  children    Permission[] @relation("PermHierarchy")
+  roles       RolePermission[]
+
+  @@map("permission")
+}
+
+model RolePermission {
+  id           String @id @default(uuid())
+  roleId       String
+  permissionId String
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permission")
+}
+
+model LoginLog {
+  id        String   @id @default(uuid())
+  userId    String
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("login_log")
+}
+
+// ==================== 运营/渠道模块 ====================
+
+model Channel {
+  id          String   @id @default(uuid())
+  name        String
+  type        String   // SEARCH | SHORT_VIDEO | LIVE | INFO_FLOW | WECHAT | REFERRAL | NATURAL | OFFLINE | OTHER
+  accountInfo String?
+  cost        Decimal? @default(0)
+  status      String   @default("ENABLED")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  leads       Lead[]
+
+  @@map("channel")
+}
+
+// ==================== 线索/销转模块 ====================
+
+model Lead {
+  id              String   @id @default(uuid())
+  name            String
+  phone           String
+  wechat          String?
+  channelId       String?
+  sourceDetail    String?  // 具体来源，如"百度推广-关键词XX"
+  intentionLevel  Int      @default(3) // 1-5星
+  status          String   @default("NEW") // NEW | CONTACTED | SCREENED | INVITED | VISITED | NEGOTIATING | QUOTED | SIGNED | LOST
+  assignedTo      String?  // 负责人ID
+  isValid         Boolean  @default(true)
+  invalidReason   String?
+  tags            String?  // JSON数组，客户标签
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  channel         Channel?  @relation(fields: [channelId], references: [id])
+  assignee        Employee? @relation("LeadAssignee", fields: [assignedTo], references: [id])
+  followRecords   LeadFollow[]
+  customer        Customer?
+
+  @@index([status])
+  @@index([assignedTo])
+  @@index([channelId])
+  @@map("lead")
+}
+
+model LeadFollow {
+  id          String   @id @default(uuid())
+  leadId      String
+  type        String   // PHONE | WECHAT | VISIT | ONLINE | OTHER
+  content     String   // 跟进内容
+  nextPlan    String?  // 下次计划
+  nextTime    DateTime? // 下次跟进时间
+  createdBy   String   // 跟进人
+  createdAt   DateTime @default(now())
+
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@map("lead_follow")
+}
+
+// ==================== 客户模块 ====================
+
+model Customer {
+  id          String   @id @default(uuid())
+  name        String
+  phone       String
+  wechat      String?
+  idCard      String?  @unique
+  email       String?
+  address     String?
+  status      String   @default("POTENTIAL") // POTENTIAL | INTENT | SIGNED | INACTIVE
+  leadId      String?  @unique // 关联线索
+  tags        String?  // JSON数组
+  remark      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lead        Lead?      @relation(fields: [leadId], references: [id])
+  contracts   Contract[]
+  cases       Case[]
+  payments    Payment[]
+
+  @@index([status])
+  @@map("customer")
+}
+
+// ==================== 合同模块 ====================
+
+model Contract {
+  id              String    @id @default(uuid())
+  contractNo      String    @unique
+  title           String
+  type            String    // CONSULTING | RETAINER | LITIGATION | ARBITRATION | MEDIATION | OTHER
+  customerId      String
+  amount          Decimal   @default(0) // 合同金额
+  paidAmount      Decimal   @default(0) // 已付款
+  status          String    @default("DRAFT") // DRAFT | PENDING | APPROVED | SIGNED | EXECUTING | COMPLETED | TERMINATED | CANCELLED
+  signDate        DateTime?
+  startDate       DateTime?
+  endDate         DateTime?
+  paymentTerms    String?   // 付款条件，JSON
+  terms           String?   // 特殊条款
+  createdBy       String
+  approvedBy      String?
+  approvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  customer        Customer   @relation(fields: [customerId], references: [id])
+  payments        Payment[]
+  case            Case?
+
+  @@index([status])
+  @@index([customerId])
+  @@map("contract")
+}
+
+// ==================== 财务/收款模块 ====================
+
+model Payment {
+  id              String   @id @default(uuid())
+  contractId      String?
+  customerId      String
+  amount          Decimal  @default(0) // 应收金额
+  receivedAmount  Decimal  @default(0) // 已收金额
+  status          String   @default("PENDING") // PENDING | RECEIVED | OVERDUE | REFUNDED
+  dueDate         DateTime? // 应收日期
+  receivedDate    DateTime? // 实收日期
+  paymentMethod   String?  // 收款方式
+  paymentAccount  String?  // 收款账户
+  remark          String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  contract        Contract? @relation(fields: [contractId], references: [id])
+  customer        Customer  @relation(fields: [customerId], references: [id])
+
+  @@index([status])
+  @@index([contractId])
+  @@map("payment")
+}
+
+// ==================== 案件模块 ====================
+
+model Case {
+  id              String   @id @default(uuid())
+  caseNo          String   @unique
+  title           String
+  customerId      String
+  contractId      String?  @unique
+  lawyerId        String   // 主办律师
+  teamIds         String?  // 协办团队，JSON数组
+  caseType        String   // 案由/案件类型
+  status          String   @default("PENDING") // PENDING | ACCEPTED | PROCESSING | CLOSED | ARCHIVED
+  priority        String   @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+  fee             Decimal  @default(0)
+  description     String?
+  result          String?  // 案件结果
+  satisfaction    Int?     // 满意度 1-5
+  isReferrable    Boolean  @default(false) // 是否可转介绍
+  closedAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  contract        Contract? @relation(fields: [contractId], references: [id])
+  lawyer          Employee  @relation("CaseLawyer", fields: [lawyerId], references: [id])
+  tasks           CaseTask[]
+  communications  Communication[]
+
+  @@index([status])
+  @@index([lawyerId])
+  @@map("case")
+}
+
+model CaseTask {
+  id          String   @id @default(uuid())
+  caseId      String
+  name        String   // 任务名称
+  nodeType    String   // 立案准备 | 材料收集 | 立案提交 | 开庭 | 文书提交 | 裁判反馈 | 执行 | 结案
+  status      String   @default("PENDING") // PENDING | IN_PROGRESS | COMPLETED | OVERDUE
+  dueDate     DateTime?
+  completedAt DateTime?
+  remark      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@map("case_task")
+}
+
+model Communication {
+  id          String   @id @default(uuid())
+  caseId      String
+  type        String   // PHONE | MEETING | WECHAT | EMAIL | OTHER
+  content     String
+  isKey       Boolean  @default(false) // 是否关键沟通
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@map("communication")
+}
+
+// ==================== 绩效模块 ====================
+
+model Performance {
+  id          String   @id @default(uuid())
+  employeeId  String
+  period      String   // 考核周期，如"2026-04"
+  type        String   // MONTHLY | QUARTERLY | YEARLY
+  kpiData     String   // KPI数据，JSON
+  score       Decimal? // 绩效分数
+  bonus       Decimal? // 奖金
+  remark      String?
+  status      String   @default("PENDING") // PENDING | CONFIRMED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employee    Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, period, type])
+  @@map("performance")
+}
+
+// ==================== 审批/流程模块 ====================
+
+model Approval {
+  id          String   @id @default(uuid())
+  type        String   // REFUND | EXPENSE | CONTRACT_CHANGE | SEAL | LEAVE | TRANSFER | OTHER
+  title       String
+  applicantId String
+  content     String   // 申请内容，JSON
+  status      String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  approverId  String?
+  approvedAt  DateTime?
+  remark      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@map("approval")
+}
+
+// ==================== 通知/提醒模块 ====================
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String
+  type        String   // SYSTEM | TASK | REMINDER | APPROVAL
+  title       String
+  content     String
+  isRead      Boolean  @default(false)
+  relatedId   String?  // 关联的业务ID
+  relatedType String?  // 关联的业务类型
+  createdAt   DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@map("notification")
+}
+
+// ==================== 操作日志模块 ====================
+
+model OperationLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  action      String   // CREATE | UPDATE | DELETE | ASSIGN | TRANSFER | APPROVE
+  targetType  String   // LEAD | CUSTOMER | CONTRACT | CASE | PAYMENT | EMPLOYEE
+  targetId    String
+  oldValues   String?  // 修改前数据，JSON
+  newValues   String?  // 修改后数据，JSON
+  ip          String?
+  createdAt   DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@map("operation_log")
+}

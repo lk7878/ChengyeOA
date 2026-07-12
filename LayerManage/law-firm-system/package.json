@@ -1,0 +1,21 @@
+{
+  "name": "law-firm-system",
+  "version": "1.0.0",
+  "description": "律所闭环管理系统 - Law Firm Management System",
+  "private": true,
+  "scripts": {
+    "dev:server": "cd apps/server && npm run dev",
+    "dev:web": "cd apps/web && npm run dev",
+    "build:web": "cd apps/web && npm run build",
+    "build:server": "cd apps/server && npm run build",
+    "package": "cd apps/web && npm run build && cd ../server && node scripts/build-package.js",
+    "installer": "cd ../scripts && build-installer.bat",
+    "build:all": "npm run build:web && npm run build:server"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0"
+  }
+}

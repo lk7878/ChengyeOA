@@ -1,0 +1,71 @@
+{
+  "name": "law-firm-server",
+  "version": "1.0.0",
+  "description": "律所管理系统后端服务",
+  "private": true,
+  "egg": {
+    "typescript": true
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
+  "scripts": {
+    "start": "egg-scripts start --daemon --title=law-firm-server",
+    "stop": "egg-scripts stop --title=law-firm-server",
+    "dev": "egg-bin dev",
+    "debug": "egg-bin debug",
+    "test": "npm run lint -- --fix && npm run test-local",
+    "test-local": "egg-bin test",
+    "cov": "egg-bin cov",
+    "lint": "eslint . --ext .ts",
+    "ci": "npm run lint && npm run cov",
+    "clean": "ets clean",
+    "build": "tsc && prisma generate && node scripts/build.js",
+    "pkg": "pkg . --targets node22-win-x64 --output ../dist/law-firm-system.exe",
+    "build-dist": "node scripts/build-dist.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "db:seed": "ts-node ./prisma/seed.ts",
+    "package": "node scripts/build-package.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "egg": "^3.17.0",
+    "egg-cors": "^2.2.3",
+    "egg-jwt": "^3.1.6",
+    "egg-scripts": "^2.15.2",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.12.0",
+    "@yao-pkg/pkg": "^6.19.0",
+    "egg-bin": "^5.19.0",
+    "egg-ts-helper": "^1.30.3",
+    "prisma": "^5.22.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  },
+  "pkg": {
+    "assets": [
+      "dist/**/*",
+      "node_modules/.prisma/**/*",
+      "node_modules/@prisma/engines/**/*",
+      "node_modules/@prisma/client/**/*",
+      "public/**/*"
+    ],
+    "scripts": [
+      "node_modules/.prisma/**/*.js",
+      "node_modules/.prisma/**/*.node"
+    ]
+  },
+  "bin": "server-entry.js",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
