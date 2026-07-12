@@ -185,155 +185,6 @@ function buildPortable() {
   console.log('  OK: portable directory ready');
 }
 
-// ─── step 6: copy pre-built database to output ──────────
-function initDatabase() {
-  console.log('\n[6/7] Copying pre-built database...');
-
-  // The database was already migrated + seeded in preInitDatabase()
-  const srcDb = path.join(serverDir, 'prisma', 'law_firm.db');
-  const destDb = path.join(outputDir, 'law_firm.db');
-  const destPrismaDb = path.join(outputDir, 'prisma', 'law_firm.db');
-
-  if (fs.existsSync(srcDb)) {
-    fs.copyFileSync(srcDb, destDb);
-    console.log('  copy: law_firm.db -> root (' + fmt(sizeOf(srcDb)) + ')');
-
-    // Also copy to prisma/ for Prisma schema-relative resolution
-    mkdirIfNeeded(path.dirname(destPrismaDb));
-    fs.copyFileSync(srcDb, destPrismaDb);
-    console.log('  copy: law_firm.db -> prisma/');
-  } else {
-    console.log('  WARNING: pre-built database not found at ' + srcDb);
-    console.log('  Will be auto-created on first launch.');
-  }
-
-  // Ensure migration SQL is available for runtime DB recreate
-  const migrationDir = path.join(outputDir, 'prisma', 'migrations');
-  if (!fs.existsSync(migrationDir)) {
-    const srcMigration = path.join(serverDir, 'prisma', 'migrations');
-    if (fs.existsSync(srcMigration)) {
-      mkdirIfNeeded(migrationDir);
-      fs.cpSync(srcMigration, migrationDir, { recursive: true });
-      console.log('  copy: migration SQL for runtime fallback');
-    }
-  }
-
-  console.log('  OK: database ready');
-}
-
-function createDatabaseProgrammatically(outputDir, nodeExe, dbEnv) {
-  // Use PrismaClient to execute migration SQL programmatically
-  const migrationSqlPath = path.join(outputDir, 'prisma', 'migrations', '20260426030733_init', 'migration.sql');
-  if (!fs.existsSync(migrationSqlPath)) {
-    console.log('  WARNING: migration.sql not found, skipping programmatic migration');
-    return;
-  }
-
-  const migrationSql = fs.readFileSync(migrationSqlPath, 'utf-8');
-  const statements = migrationSql
-    .split(';\n')
-    .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith('--'));
-
-  const initScript = [
-    "const { PrismaClient } = require('./node_modules/@prisma/client');",
-    "const prisma = new PrismaClient({ datasources: { db: { url: '" + dbEnv + "' } } });",
-    "",
-    "async function main() {",
-  ];
-
-  for (const stmt of statements) {
-    const escaped = stmt.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ');
-    initScript.push("  await prisma.$executeRawUnsafe('" + escaped + "');");
-  }
-
-  initScript.push("  console.log('  Programmatic migration complete');");
-  initScript.push("  await prisma.$disconnect();");
-  initScript.push("}");
-  initScript.push("main().catch(e => { console.error(e.message); process.exit(1); });");
-
-  const tempScript = path.join(outputDir, '_migrate.js');
-  fs.writeFileSync(tempScript, initScript.join('\n'));
-
-  try {
-    execSync('"' + nodeExe + '" "' + tempScript + '"',
-      { env: { ...process.env, DATABASE_URL: dbEnv }, cwd: outputDir, stdio: 'pipe' }
-    );
-  } catch (e) {
-    console.log('  migration error: ' + (e.stderr || e.message || '').toString().substring(0, 200));
-  }
-  rmIfExists(tempScript);
-}
-
-function inlineSeed(outputDir, nodeExe, dbEnv) {
-  const seedJs = [
-    "const { PrismaClient } = require('./node_modules/@prisma/client');",
-    "const bcrypt = require('./node_modules/bcryptjs');",
-    "function uuid() { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) { var r = Math.random()*16|0, v = c=='x'?r:r&0x3|0x8; return v.toString(16); }); }",
-    "",
-    "async function seed() {",
-    "  const prisma = new PrismaClient();",
-    "",
-    "  // 1. Organizations",
-    "  const hq = await prisma.organization.create({ data: { id: uuid(), name: '总所', type: 'FIRM', sort: 1 } });",
-    "  const dept = await prisma.organization.create({ data: { id: uuid(), name: '民事部', type: 'DEPARTMENT', parentId: hq.id, sort: 1 } });",
-    "",
-    "  // 2. Positions",
-    "  const partnerPos = await prisma.position.create({ data: { id: uuid(), name: '合伙人', orgId: hq.id, level: 10 } });",
-    "  const lawyerPos = await prisma.position.create({ data: { id: uuid(), name: '主办律师', orgId: dept.id, level: 5 } });",
-    "",
-    "  // 3. Employees",
-    "  const emp1 = await prisma.employee.create({ data: { id: uuid(), employeeNo: 'E001', name: '张三', phone: '13800138000', type: 'PARTNER', status: 'FORMAL', entryDate: new Date('2020-01-01'), orgId: hq.id, positionId: partnerPos.id } });",
-    "  const emp2 = await prisma.employee.create({ data: { id: uuid(), employeeNo: 'E002', name: '李四', phone: '13800138001', type: 'SENIOR_LAWYER', status: 'FORMAL', entryDate: new Date('2021-03-15'), orgId: dept.id, positionId: lawyerPos.id } });",
-    "",
-    "  // 4. Users (admin/123456, lawyer1/123456)",
-    "  const hash = bcrypt.hashSync('123456', 10);",
-    "  const adminUser = await prisma.user.create({ data: { id: uuid(), username: 'admin', password: hash, status: 'ENABLED', employeeId: emp1.id } });",
-    "  const lawyerUser = await prisma.user.create({ data: { id: uuid(), username: 'lawyer1', password: hash, status: 'ENABLED', employeeId: emp2.id } });",
-    "",
-    "  // 5. Roles",
-    "  const adminRole = await prisma.role.create({ data: { id: uuid(), name: '超级管理员', type: 'SYSTEM', description: '系统超级管理员' } });",
-    "  const lawyerRole = await prisma.role.create({ data: { id: uuid(), name: '律师', type: 'BUSINESS', description: '普通律师角色' } });",
-    "",
-    "  // 6. UserRoles",
-    "  await prisma.userRole.create({ data: { id: uuid(), userId: adminUser.id, roleId: adminRole.id } });",
-    "  await prisma.userRole.create({ data: { id: uuid(), userId: lawyerUser.id, roleId: lawyerRole.id } });",
-    "",
-    "  // 7. Channel",
-    "  const channel = await prisma.channel.create({ data: { id: uuid(), name: '百度搜索推广', type: 'SEARCH', cost: 5000 } });",
-    "",
-    "  // 8. Lead",
-    "  const lead = await prisma.lead.create({ data: { id: uuid(), name: '王五', phone: '13900139000', channelId: channel.id, intentionLevel: 4, status: 'CONTACTED', assignedTo: emp2.id } });",
-    "",
-    "  // 9. Customer",
-    "  const customer = await prisma.customer.create({ data: { id: uuid(), name: '王五', phone: '13900139000', status: 'INTENT', leadId: lead.id } });",
-    "",
-    "  // 10. Contract",
-    "  const contract = await prisma.contract.create({ data: { id: uuid(), contractNo: 'C-2026-001', title: '离婚纠纷法律服务合同', type: 'LITIGATION', customerId: customer.id, amount: 30000, status: 'SIGNED', signDate: new Date('2026-04-01'), createdBy: emp1.id } });",
-    "",
-    "  // 11. Case",
-    "  await prisma.case.create({ data: { id: uuid(), caseNo: 'CASE-2026-001', title: '王五诉赵六离婚纠纷案', customerId: customer.id, contractId: contract.id, lawyerId: emp2.id, caseType: '离婚纠纷', status: 'PROCESSING', priority: 'HIGH', fee: 30000 } });",
-    "",
-    "  // 12. Payment",
-    "  await prisma.payment.create({ data: { id: uuid(), contractId: contract.id, customerId: customer.id, amount: 15000, receivedAmount: 15000, status: 'RECEIVED', receivedDate: new Date('2026-04-01'), paymentMethod: '银行转账' } });",
-    "",
-    "  console.log('  Inline seed complete (admin/123456, lawyer1/123456)');",
-    "  await prisma.$disconnect();",
-    "}",
-    "seed().catch(e => { console.error(e.message); process.exit(1); });",
-  ].join('\n');
-
-  const seedPath = path.join(outputDir, 'seed.js');
-  fs.writeFileSync(seedPath, seedJs);
-  try {
-    execSync('"' + nodeExe + '" "' + seedPath + '"',
-      { env: { ...process.env, DATABASE_URL: dbEnv }, cwd: outputDir, stdio: 'inherit' }
-    );
-  } catch (e) {
-    console.log('  inline seed error: ' + (e.stderr || e.message || '').toString().substring(0, 300));
-  }
-}
-
 // ─── step 7: create launcher files ─────────────────────
 function createLauncherFiles() {
   console.log('\n[7/7] Creating launcher files...');
@@ -351,6 +202,7 @@ function createAppEntryJs() {
     "const path = require('path');",
     "const fs = require('fs');",
     "const { exec } = require('child_process');",
+    "const { loadEnvironment } = require('./config/env');",
     "",
     "const baseDir = __dirname;",
     "",
@@ -442,16 +294,11 @@ function createAppEntryJs() {
     "  console.log('╚══════════════════════════════════════════╝');",
     "  console.log('');",
     "",
+    "  loadEnvironment(process.env);",
+    "",
     "  // Data directory (portable: same as exe location)",
     "  var userDataDir = baseDir;",
     "",
-    "  // Database",
-    "  var dbPath = path.join(userDataDir, 'law_firm.db');",
-    "  process.env.DATABASE_URL = 'file:' + dbPath;",
-    "",
-    "  // JWT",
-    "  var jwtSecret = process.env.JWT_SECRET || 'law-firm-system-' + Date.now().toString(36);",
-    "  process.env.JWT_SECRET = jwtSecret;",
     "  process.env.JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';",
     "  process.env.JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '30d';",
     "",
@@ -469,12 +316,8 @@ function createAppEntryJs() {
     "  // Port",
     "  var port = parseInt(process.env.PORT || '7001');",
     "",
-    "  console.log('[启动] 数据库: ' + dbPath);",
     "  console.log('[启动] 端口: ' + port);",
     "  console.log('[启动] 环境: ' + process.env.NODE_ENV);",
-    "",
-    "  // Ensure database",
-    "  await ensureDatabase(dbPath);",
     "",
     "  // Start Egg.js",
     "  console.log('[启动] 正在启动服务器...');",
@@ -507,7 +350,6 @@ function createAppEntryJs() {
     "  console.error('请尝试以下操作:');",
     "  console.error('  1. 确保端口 ' + (process.env.PORT || '7001') + ' 未被占用');",
     "  console.error('  2. 确保此目录有写入权限');",
-    "  console.error('  3. 删除 law_firm.db 后重试（会创建新数据库）');",
     "  process.exit(1);",
     "});"
   ].join('\n');
@@ -539,80 +381,6 @@ function createLaunchBat() {
   console.log('  create: launch.bat');
 }
 
-// ─── phase: init DB before prune (needs Prisma CLI) ────
-function preInitDatabase() {
-  console.log('\n[4/7] Pre-initializing database...');
-
-  // Use Prisma CLI to migrate + seed while it's still available
-  const prismaCli = path.join(serverDir, 'node_modules', 'prisma', 'build', 'index.js');
-  const schemaPath = path.join(serverDir, 'prisma', 'schema.prisma');
-  const dbPath = path.join(serverDir, 'prisma', 'law_firm.db');
-  // IMPORTANT: Prisma resolves file: URLs relative to schema file location.
-  // Schema is at prisma/schema.prisma, so file:./law_firm.db resolves to prisma/law_firm.db
-  const dbEnv = 'file:./law_firm.db';
-
-  // Start fresh: delete existing DB to avoid unique constraint violations
-  if (fs.existsSync(dbPath)) {
-    fs.unlinkSync(dbPath);
-    console.log('  Removed existing database for fresh build');
-  }
-
-  if (fs.existsSync(prismaCli)) {
-    console.log('  Running prisma migrate deploy...');
-    try {
-      execSync(
-        '"' + process.execPath + '" "' + prismaCli + '" migrate deploy --schema "' + schemaPath + '"',
-        { env: { ...process.env, DATABASE_URL: dbEnv }, cwd: serverDir, stdio: 'pipe' }
-      );
-      console.log('  database migrated');
-    } catch (e) {
-      console.log('  migration warning: ' + (e.stderr || e.message || '').toString().substring(0, 300));
-    }
-
-    console.log('  Running prisma db seed...');
-    try {
-      execSync('npx prisma db seed', { env: { ...process.env, DATABASE_URL: dbEnv }, cwd: serverDir, stdio: 'pipe' });
-      console.log('  database seeded (admin/123456, lawyer1/123456)');
-    } catch (e) {
-      console.log('  seed via CLI failed, using ts-node fallback...');
-      try {
-        execSync('npx ts-node ./prisma/seed.ts', { env: { ...process.env, DATABASE_URL: dbEnv }, cwd: serverDir, stdio: 'pipe' });
-        console.log('  database seeded (admin/123456, lawyer1/123456)');
-      } catch (e2) {
-        console.log('  seed warning: ' + (e2.stderr || e2.message || '').toString().substring(0, 200));
-      }
-    }
-  } else {
-    console.log('  Prisma CLI not found, will init after build...');
-    preInitViaProgrammatic();
-  }
-
-  // Verify DB exists
-  if (fs.existsSync(dbPath)) {
-    console.log('  OK: database ready (' + fmt(sizeOf(dbPath)) + ')');
-  } else {
-    console.log('  WARNING: database not created, will try after pruning');
-    preInitViaProgrammatic();
-  }
-}
-
-function preInitViaProgrammatic() {
-  // Fallback: create DB via the compiled seed + PrismaClient directly
-  const { execSync: execSync_ } = require('child_process');
-  const seedPath = path.join(serverDir, 'prisma', 'seed.ts');
-
-  // Try running ts-node on the original TS seed
-  try {
-    execSync_('npx ts-node "' + seedPath + '"', {
-      env: { ...process.env, DATABASE_URL: 'file:./law_firm.db' },
-      cwd: serverDir, stdio: 'pipe'
-    });
-    console.log('  Programmatic seed OK');
-  } catch (e) {
-    console.log('  Programmatic seed note: ' + (e.stderr || e.message || '').toString().substring(0, 200));
-  }
-}
-
 // ─── Main (reordered) ──────────────────────────────────
 async function main() {
   console.log('╔══════════════════════════════════════════╗');
@@ -623,10 +391,8 @@ async function main() {
   buildFrontend();        // 1: npm run build in web
   copyFrontend();         // 2: copy to server/public/
   buildBackend();         // 3: tsc + prisma generate + copy assets
-  preInitDatabase();      // 4: migrate + seed BEFORE pruning (needs CLI)
-  buildPortable();        // 5: copy to output, then prune inside output dir
-  initDatabase();         // 6: copy pre-built DB to output
-  createLauncherFiles();  // 7: app-entry.js + launch.bat
+  buildPortable();        // 4: copy to output, then prune inside output dir
+  createLauncherFiles();  // 5: app-entry.js + launch.bat
 
   // Summary
   const totalSize = sizeOf(outputDir);

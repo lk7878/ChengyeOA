@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -166,7 +166,7 @@ model Channel {
   name        String
   type        String // SEARCH | SHORT_VIDEO | LIVE | INFO_FLOW | WECHAT | REFERRAL | NATURAL | OFFLINE | OTHER
   accountInfo String?
-  cost        Decimal? @default(0)
+  cost        Decimal? @default(0) @db.Decimal(18, 2)
   status      String   @default("ENABLED")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -255,8 +255,8 @@ model Contract {
   title        String
   type         String // CONSULTING | RETAINER | LITIGATION | ARBITRATION | MEDIATION | OTHER
   customerId   String
-  amount       Decimal   @default(0) // 合同金额
-  paidAmount   Decimal   @default(0) // 已付款
+  amount       Decimal   @default(0) @db.Decimal(18, 2) // 合同金额
+  paidAmount   Decimal   @default(0) @db.Decimal(18, 2) // 已付款
   status       String    @default("DRAFT") // DRAFT | PENDING | APPROVED | SIGNED | EXECUTING | COMPLETED | TERMINATED | CANCELLED
   signDate     DateTime?
   startDate    DateTime?
@@ -284,8 +284,8 @@ model Payment {
   id             String    @id @default(uuid())
   contractId     String?
   customerId     String
-  amount         Decimal   @default(0) // 应收金额
-  receivedAmount Decimal   @default(0) // 已收金额
+  amount         Decimal   @default(0) @db.Decimal(18, 2) // 应收金额
+  receivedAmount Decimal   @default(0) @db.Decimal(18, 2) // 已收金额
   status         String    @default("PENDING") // PENDING | RECEIVED | OVERDUE | REFUNDED
   dueDate        DateTime? // 应收日期
   receivedDate   DateTime? // 实收日期
@@ -316,7 +316,7 @@ model Case {
   caseType     String // 案由/案件类型
   status       String    @default("PENDING") // PENDING | ACCEPTED | PROCESSING | CLOSED | ARCHIVED
   priority     String    @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
-  fee          Decimal   @default(0)
+  fee          Decimal   @default(0) @db.Decimal(18, 2)
   description  String?
   result       String? // 案件结果
   satisfaction Int? // 满意度 1-5
@@ -377,8 +377,8 @@ model Performance {
   period     String // 考核周期，如"2026-04"
   type       String // MONTHLY | QUARTERLY | YEARLY
   kpiData    String // KPI数据，JSON
-  score      Decimal? // 绩效分数
-  bonus      Decimal? // 奖金
+  score      Decimal? @db.Decimal(18, 2) // 绩效分数
+  bonus      Decimal? @db.Decimal(18, 2) // 奖金
   remark     String?
   status     String   @default("PENDING") // PENDING | CONFIRMED
   createdAt  DateTime @default(now())
