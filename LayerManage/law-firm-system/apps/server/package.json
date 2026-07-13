@@ -29,6 +29,10 @@
     "db:studio": "prisma studio",
     "db:seed": "ts-node ./prisma/seed.ts",
     "db:reset:test": "tsx scripts/db/reset-test-db.ts",
+    "migration:inventory": "tsx scripts/migration/cli.ts inventory",
+    "migration:diff": "tsx scripts/migration/cli.ts diff",
+    "migration:import": "tsx scripts/migration/cli.ts import",
+    "migration:validate": "tsx scripts/migration/cli.ts validate",
     "package": "node scripts/build-package.js"
   },
   "dependencies": {
