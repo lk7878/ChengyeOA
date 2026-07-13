@@ -1,212 +1,133 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
-const prisma = new PrismaClient();
+type PermissionDefinition = {
+  code: string;
+  name: string;
+  type: string;
+  parentCode?: string;
+  sort: number;
+};
 
-async function main() {
-  console.log('🌱 Starting seed...');
+const permissions: PermissionDefinition[] = [
+  { code: 'system', name: 'System', type: 'MENU', parentCode: undefined, sort: 1 },
+  { code: 'user:manage', name: 'User Management', type: 'MENU', parentCode: 'system', sort: 1 },
+  { code: 'user:create', name: 'Create User', type: 'BUTTON', parentCode: 'user:manage', sort: 1 },
+  { code: 'user:read', name: 'Read User', type: 'BUTTON', parentCode: 'user:manage', sort: 2 },
+  { code: 'user:update', name: 'Update User', type: 'BUTTON', parentCode: 'user:manage', sort: 3 },
+  { code: 'user:delete', name: 'Delete User', type: 'BUTTON', parentCode: 'user:manage', sort: 4 },
+  { code: 'role:manage', name: 'Role Management', type: 'MENU', parentCode: 'system', sort: 2 },
+  { code: 'role:create', name: 'Create Role', type: 'BUTTON', parentCode: 'role:manage', sort: 1 },
+  { code: 'role:read', name: 'Read Role', type: 'BUTTON', parentCode: 'role:manage', sort: 2 },
+  { code: 'role:update', name: 'Update Role', type: 'BUTTON', parentCode: 'role:manage', sort: 3 },
+  { code: 'role:delete', name: 'Delete Role', type: 'BUTTON', parentCode: 'role:manage', sort: 4 },
+];
 
-  // 1. 创建组织架构
-  const hq = await prisma.organization.create({
-    data: {
-      name: '总所',
-      type: 'FIRM',
-      sort: 1,
-    },
+export async function seed(prisma: PrismaClient, adminPassword: string): Promise<void> {
+  const firm = await prisma.organization.upsert({
+    where: { id: 'firm-001' },
+    update: { name: 'System Firm', type: 'FIRM', parentId: null, sort: 1 },
+    create: { id: 'firm-001', name: 'System Firm', type: 'FIRM', sort: 1 },
   });
 
-  const dept1 = await prisma.organization.create({
-    data: {
-      name: '民事部',
+  const department = await prisma.organization.upsert({
+    where: { id: 'dept-001' },
+    update: { name: 'System Administration', type: 'DEPARTMENT', parentId: firm.id, sort: 1 },
+    create: {
+      id: 'dept-001',
+      name: 'System Administration',
       type: 'DEPARTMENT',
-      parentId: hq.id,
+      parentId: firm.id,
       sort: 1,
     },
   });
 
-  // 2. 创建岗位
-  const partnerPos = await prisma.position.create({
-    data: {
-      name: '合伙人',
-      orgId: hq.id,
-      level: 10,
-    },
+  const position = await prisma.position.upsert({
+    where: { id: 'pos-001' },
+    update: { name: 'System Administrator', orgId: department.id, level: 1 },
+    create: { id: 'pos-001', name: 'System Administrator', orgId: department.id, level: 1 },
   });
 
-  const lawyerPos = await prisma.position.create({
-    data: {
-      name: '主办律师',
-      orgId: dept1.id,
-      level: 5,
-    },
-  });
-
-  // 3. 创建员工
-  const emp1 = await prisma.employee.create({
-    data: {
-      employeeNo: 'E001',
-      name: '张三',
+  const employee = await prisma.employee.upsert({
+    where: { employeeNo: 'EMP001' },
+    update: {
+      name: 'System Administrator',
       phone: '13800138000',
-      type: 'PARTNER',
+      email: 'admin@law.local',
+      type: 'ADMIN',
       status: 'FORMAL',
-      entryDate: new Date('2020-01-01'),
-      orgId: hq.id,
-      positionId: partnerPos.id,
+      entryDate: new Date('2020-01-01T00:00:00.000Z'),
+      orgId: department.id,
+      positionId: position.id,
+    },
+    create: {
+      employeeNo: 'EMP001',
+      name: 'System Administrator',
+      phone: '13800138000',
+      email: 'admin@law.local',
+      type: 'ADMIN',
+      status: 'FORMAL',
+      entryDate: new Date('2020-01-01T00:00:00.000Z'),
+      orgId: department.id,
+      positionId: position.id,
     },
   });
 
-  const emp2 = await prisma.employee.create({
-    data: {
-      employeeNo: 'E002',
-      name: '李四',
-      phone: '13800138001',
-      type: 'SENIOR_LAWYER',
-      status: 'FORMAL',
-      entryDate: new Date('2021-03-15'),
-      orgId: dept1.id,
-      positionId: lawyerPos.id,
-    },
-  });
-
-  // 4. 创建用户
-  const hashedPassword = await bcrypt.hash('123456', 10);
-  
-  const adminUser = await prisma.user.create({
-    data: {
+  const adminUser = await prisma.user.upsert({
+    where: { username: 'admin' },
+    update: { status: 'ENABLED', employeeId: employee.id },
+    create: {
       username: 'admin',
-      password: hashedPassword,
+      password: await bcrypt.hash(adminPassword, 10),
       status: 'ENABLED',
-      employeeId: emp1.id,
+      employeeId: employee.id,
     },
   });
 
-  const user2 = await prisma.user.create({
-    data: {
-      username: 'lawyer1',
-      password: hashedPassword,
-      status: 'ENABLED',
-      employeeId: emp2.id,
-    },
+  const adminRole = await prisma.role.upsert({
+    where: { name: 'System Administrator' },
+    update: { type: 'SYSTEM', description: 'Full system access' },
+    create: { name: 'System Administrator', type: 'SYSTEM', description: 'Full system access' },
   });
 
-  // 5. 创建角色和权限
-  const adminRole = await prisma.role.create({
-    data: {
-      name: '超级管理员',
-      type: 'SYSTEM',
-      description: '系统超级管理员',
-    },
+  await prisma.role.upsert({
+    where: { name: 'System Manager' },
+    update: { type: 'SYSTEM', description: 'System management role' },
+    create: { name: 'System Manager', type: 'SYSTEM', description: 'System management role' },
   });
 
-  const lawyerRole = await prisma.role.create({
-    data: {
-      name: '律师',
-      type: 'BUSINESS',
-      description: '普通律师角色',
-    },
+  const permissionByCode = new Map<string, string>();
+  for (const permission of permissions) {
+    const parentId = permission.parentCode ? permissionByCode.get(permission.parentCode) : null;
+    if (permission.parentCode && !parentId) throw new Error(`Missing parent permission: ${permission.parentCode}`);
+
+    const seededPermission = await prisma.permission.upsert({
+      where: { code: permission.code },
+      update: { name: permission.name, type: permission.type, parentId, sort: permission.sort },
+      create: { code: permission.code, name: permission.name, type: permission.type, parentId, sort: permission.sort },
+    });
+    permissionByCode.set(permission.code, seededPermission.id);
+  }
+
+  await prisma.userRole.upsert({
+    where: { userId_roleId: { userId: adminUser.id, roleId: adminRole.id } },
+    update: {},
+    create: { userId: adminUser.id, roleId: adminRole.id },
   });
 
-  // 6. 分配角色
-  await prisma.userRole.create({
-    data: { userId: adminUser.id, roleId: adminRole.id },
-  });
-
-  await prisma.userRole.create({
-    data: { userId: user2.id, roleId: lawyerRole.id },
-  });
-
-  // 7. 创建渠道
-  const channel1 = await prisma.channel.create({
-    data: {
-      name: '百度搜索推广',
-      type: 'SEARCH',
-      cost: 5000,
-    },
-  });
-
-  // 8. 创建线索
-  const lead1 = await prisma.lead.create({
-    data: {
-      name: '王五',
-      phone: '13900139000',
-      channelId: channel1.id,
-      intentionLevel: 4,
-      status: 'CONTACTED',
-      assignedTo: emp2.id,
-    },
-  });
-
-  // 9. 创建客户
-  const customer1 = await prisma.customer.create({
-    data: {
-      name: '王五',
-      phone: '13900139000',
-      status: 'INTENT',
-      leadId: lead1.id,
-    },
-  });
-
-  // 10. 创建合同
-  const contract1 = await prisma.contract.create({
-    data: {
-      contractNo: 'C-2026-001',
-      title: '离婚纠纷法律服务合同',
-      type: 'LITIGATION',
-      customerId: customer1.id,
-      amount: 30000,
-      status: 'SIGNED',
-      signDate: new Date('2026-04-01'),
-      createdBy: emp1.id,
-    },
-  });
-
-  // 11. 创建案件
-  const case1 = await prisma.case.create({
-    data: {
-      caseNo: 'CASE-2026-001',
-      title: '王五诉赵六离婚纠纷案',
-      customerId: customer1.id,
-      contractId: contract1.id,
-      lawyerId: emp2.id,
-      caseType: '离婚纠纷',
-      status: 'PROCESSING',
-      priority: 'HIGH',
-      fee: 30000,
-    },
-  });
-
-  // 12. 创建收款记录
-  await prisma.payment.create({
-    data: {
-      contractId: contract1.id,
-      customerId: customer1.id,
-      amount: 15000,
-      receivedAmount: 15000,
-      status: 'RECEIVED',
-      receivedDate: new Date('2026-04-01'),
-      paymentMethod: '银行转账',
-    },
-  });
-
-  console.log('✅ Seed completed!');
-  console.log(`  - Organizations: 2`);
-  console.log(`  - Positions: 2`);
-  console.log(`  - Employees: 2`);
-  console.log(`  - Users: 2 (admin/123456, lawyer1/123456)`);
-  console.log(`  - Roles: 2`);
-  console.log(`  - Channels: 1`);
-  console.log(`  - Leads: 1`);
-  console.log(`  - Customers: 1`);
-  console.log(`  - Contracts: 1`);
-  console.log(`  - Cases: 1`);
-  console.log(`  - Payments: 1`);
+  for (const permissionId of permissionByCode.values()) {
+    await prisma.rolePermission.upsert({
+      where: { roleId_permissionId: { roleId: adminRole.id, permissionId } },
+      update: {},
+      create: { roleId: adminRole.id, permissionId },
+    });
+  }
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+if (require.main === module) {
+  const password = process.env.SEED_ADMIN_PASSWORD;
+  if (!password) throw new Error('SEED_ADMIN_PASSWORD is required');
+  const prisma = new PrismaClient();
+  seed(prisma, password)
+    .finally(async () => prisma.$disconnect());
+}
