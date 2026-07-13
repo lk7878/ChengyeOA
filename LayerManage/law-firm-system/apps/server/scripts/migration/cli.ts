@@ -5,7 +5,17 @@ import { Pool } from 'pg';
 import { diffSnapshots } from './diff';
 import { ImportFailure, importSnapshotFromDatabaseUrl, type ImportPool, type ImportPoolFactory } from './import-postgres';
 import { inventoryFromSnapshot, snapshotSqlite } from './sqlite-source';
-import { MIGRATION_OUTPUT_ROOT, assertMigrationRunId, migrationRunDirectory, parseMigrationReport, writeMigrationReport, writeSnapshotExport } from './report-writer';
+import {
+  abortImportReportReservation,
+  MIGRATION_OUTPUT_ROOT,
+  assertMigrationRunId,
+  migrationRunDirectory,
+  parseMigrationReport,
+  publishReservedImportReport,
+  reserveImportReport,
+  writeMigrationReport,
+  writeSnapshotExport,
+} from './report-writer';
 import type { DiffReport, SourceSnapshot } from './types';
 import { validateMigration, type ValidationQueryable } from './validate';
 
@@ -61,6 +71,13 @@ export class MigrationValidationFailedError extends Error {
   constructor() {
     super('Migration validation failed');
     this.name = 'MigrationValidationFailedError';
+  }
+}
+
+export class ImportReportRecoveryRequiredError extends Error {
+  constructor() {
+    super('Import report recovery required');
+    this.name = 'ImportReportRecoveryRequiredError';
   }
 }
 
@@ -130,7 +147,9 @@ function confirmedDiffReport(outputRoot: string, diffRunId: string, confirmation
     const actual = createHash('sha256').update(bytes).digest();
     const expected = Buffer.from(confirmation, 'hex');
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) throw new Error('hash mismatch');
-    return parseMigrationReport('diff-report.json', JSON.parse(bytes.toString('utf8')));
+    const report = parseMigrationReport('diff-report.json', JSON.parse(bytes.toString('utf8')));
+    if (report.runId !== diffRunId) throw new Error('run ID mismatch');
+    return report;
   } catch {
     throw new Error('Diff report confirmation failed');
   }
@@ -175,12 +194,38 @@ async function runImport(args: ImportArgs, dependencies: CliDependencies, output
   if (snapshot.source.sha256.toLowerCase() !== diff.sources.primary.sha256.toLowerCase()) {
     throw new Error('Confirmed diff does not match source');
   }
-  writeSnapshotExport(args.runId, 'source-snapshot.json', snapshot, outputRoot);
+  const resolvedDatabaseUrl = databaseUrl(dependencies);
+  const reservation = reserveImportReport(args.runId, outputRoot);
+  let committed = false;
+  let transactionStarted = false;
+
   try {
-    const report = await importSnapshotFromDatabaseUrl(databaseUrl(dependencies), snapshot, dependencies.createPool ?? defaultImportPool);
-    writeMigrationReport(args.runId, 'import-report.json', report, outputRoot);
+    writeSnapshotExport(args.runId, 'source-snapshot.json', snapshot, outputRoot);
+    const report = await importSnapshotFromDatabaseUrl(
+      resolvedDatabaseUrl,
+      snapshot,
+      dependencies.createPool ?? defaultImportPool,
+      {
+        committed() { committed = true; },
+        transactionStarted() { transactionStarted = true; },
+      },
+    );
+    publishReservedImportReport(reservation, report);
   } catch (error) {
-    if (error instanceof ImportFailure) writeMigrationReport(args.runId, 'import-report.json', error.report, outputRoot);
+    if (error instanceof ImportFailure) {
+      try {
+        publishReservedImportReport(reservation, error.report);
+      } catch {
+        throw new ImportReportRecoveryRequiredError();
+      }
+      throw error;
+    }
+    if (committed || transactionStarted) throw new ImportReportRecoveryRequiredError();
+    try {
+      abortImportReportReservation(reservation);
+    } catch {
+      throw new ImportReportRecoveryRequiredError();
+    }
     throw error;
   }
 }
@@ -206,7 +251,7 @@ export async function executeCommand(args: ParsedArgs, dependencies: CliDependen
 
 function safeCliError(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
-  return /^(A migration command is required|Invalid migration CLI arguments|Invalid migration run ID|--[a-z-]+ is required|Diff report confirmation failed|Confirmed diff does not match source|DATABASE_URL is required|Migration validation failed)$/.test(message)
+  return /^(A migration command is required|Invalid migration CLI arguments|Invalid migration run ID|--[a-z-]+ is required|Diff report confirmation failed|Confirmed diff does not match source|DATABASE_URL is required|Import report recovery required|Migration validation failed)$/.test(message)
     ? message
     : 'Migration command failed';
 }

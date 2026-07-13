@@ -25,6 +25,11 @@ export interface ImportPool {
 
 export type ImportPoolFactory = (databaseUrl: string) => ImportPool;
 
+export interface ImportLifecycle {
+  committed?(): void;
+  transactionStarted?(): void;
+}
+
 export class ImportFailure extends Error {
   constructor(public readonly report: ImportReport) {
     super('PostgreSQL import failed');
@@ -139,7 +144,11 @@ async function importRow(client: PoolClient, table: TableName, sourceRow: Snapsh
   }
 }
 
-export async function importSnapshot(client: PoolClient, snapshot: SourceSnapshot): Promise<ImportReport> {
+export async function importSnapshot(
+  client: PoolClient,
+  snapshot: SourceSnapshot,
+  lifecycle: ImportLifecycle = {},
+): Promise<ImportReport> {
   const report: ImportReport = { inserted: 0, updated: 0, skipped: 0, failed: 0, failures: [] };
   let currentTable: TableName = TABLE_ORDER[0];
   let currentRow: SnapshotRecord = {};
@@ -148,6 +157,7 @@ export async function importSnapshot(client: PoolClient, snapshot: SourceSnapsho
   await client.query('BEGIN');
 
   try {
+    lifecycle.transactionStarted?.();
     for (const table of TABLE_ORDER) {
       currentTable = table;
       for (const row of snapshot.tables[table].records) {
@@ -157,13 +167,15 @@ export async function importSnapshot(client: PoolClient, snapshot: SourceSnapsho
     }
 
     await client.query('COMMIT');
-    return report;
   } catch (error) {
     await client.query('ROLLBACK');
     report.failed += 1;
     report.failures.push({ table: currentTable, id: recordId(currentRow), code: failureCode(error) });
     throw new ImportFailure(report);
   }
+
+  lifecycle.committed?.();
+  return report;
 }
 
 const createImportPool: ImportPoolFactory = databaseUrl => new Pool({ connectionString: databaseUrl });
@@ -172,6 +184,7 @@ export async function importSnapshotFromDatabaseUrl(
   databaseUrl: string | undefined,
   snapshot: SourceSnapshot,
   poolFactory: ImportPoolFactory = createImportPool,
+  lifecycle: ImportLifecycle = {},
 ): Promise<ImportReport> {
   const resolvedDatabaseUrl = databaseUrl ?? process.env.DATABASE_URL;
   if (!resolvedDatabaseUrl) throw new Error('DATABASE_URL is required');
@@ -181,7 +194,7 @@ export async function importSnapshotFromDatabaseUrl(
     try {
       const client = await pool.connect();
       try {
-        return await importSnapshot(client, snapshot);
+        return await importSnapshot(client, snapshot, lifecycle);
       } finally {
         client.release();
       }
