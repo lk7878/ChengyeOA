@@ -30,6 +30,10 @@ export interface TableSnapshot extends TableInventory {
   records: SnapshotRecord[];
 }
 
+/**
+ * Full-fidelity migration data that may contain passwords and private business
+ * content. Persist only under ignored export storage; never write it as report JSON.
+ */
 export interface SourceSnapshot {
   generatedAt: string;
   runId: string;

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { compareUnicodeCodePoints } from './ordering';
 import { BUSINESS_KEYS, TABLE_ORDER, type TableName } from './table-plan';
 import type { ConflictKind, DiffReport, RecordConflict, SnapshotRecord, SourceSnapshot } from './types';
 
@@ -16,7 +17,7 @@ function recordId(record: SnapshotRecord): string {
 function changedFields(primary: SnapshotRecord, secondary: SnapshotRecord): string[] {
   return [...new Set([...Object.keys(primary), ...Object.keys(secondary)])]
     .filter(field => JSON.stringify(primary[field]) !== JSON.stringify(secondary[field]))
-    .sort((left, right) => left.localeCompare(right));
+    .sort(compareUnicodeCodePoints);
 }
 
 function businessKey(record: SnapshotRecord, fields: string[]): string | undefined {
@@ -30,9 +31,9 @@ function businessKey(record: SnapshotRecord, fields: string[]): string | undefin
 function compareConflicts(left: RecordConflict, right: RecordConflict): number {
   return TABLE_ORDER.indexOf(left.table) - TABLE_ORDER.indexOf(right.table)
     || CONFLICT_KINDS.indexOf(left.kind) - CONFLICT_KINDS.indexOf(right.kind)
-    || (left.primaryId ?? '').localeCompare(right.primaryId ?? '')
-    || (left.secondaryId ?? '').localeCompare(right.secondaryId ?? '')
-    || left.changedFields.join('\u0000').localeCompare(right.changedFields.join('\u0000'));
+    || compareUnicodeCodePoints(left.primaryId ?? '', right.primaryId ?? '')
+    || compareUnicodeCodePoints(left.secondaryId ?? '', right.secondaryId ?? '')
+    || compareUnicodeCodePoints(left.changedFields.join('\u0000'), right.changedFields.join('\u0000'));
 }
 
 function compareTable(primary: SourceSnapshot, secondary: SourceSnapshot, table: TableName): RecordConflict[] {
@@ -67,7 +68,7 @@ function compareTable(primary: SourceSnapshot, secondary: SourceSnapshot, table:
           primaryCollisionIds.add(primaryId);
           secondaryCollisionIds.add(secondaryId);
           conflicts.push({
-            changedFields: [...fields].sort((left, right) => left.localeCompare(right)),
+            changedFields: [...fields].sort(compareUnicodeCodePoints),
             kind: 'BUSINESS_KEY_COLLISION',
             primaryId,
             secondaryId,

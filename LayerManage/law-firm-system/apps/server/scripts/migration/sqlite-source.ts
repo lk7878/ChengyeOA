@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
+import { compareUnicodeCodePoints } from './ordering';
 import { TABLE_ORDER, type TableName } from './table-plan';
 import type {
   SnapshotRecord,
@@ -11,8 +12,6 @@ import type {
   TableInventory,
   TableSnapshot,
 } from './types';
-
-const SENSITIVE_FIELD = /password|phone|email|idCard/i;
 
 interface TableInfoRow {
   name: string;
@@ -45,23 +44,19 @@ function normalizeValue(value: unknown): SnapshotValue {
   throw new TypeError(`Unsupported SQLite value type: ${typeof value}`);
 }
 
-function hashValue(value: SnapshotValue): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
-
 function canonicalizeRow(row: Record<string, unknown>): SnapshotRecord {
   return Object.keys(row)
-    .sort((left, right) => left.localeCompare(right))
+    .sort(compareUnicodeCodePoints)
     .reduce<SnapshotRecord>((canonical, field) => {
-      const value = normalizeValue(row[field]);
-      canonical[field] = SENSITIVE_FIELD.test(field) ? hashValue(value) : value;
+      // Snapshot rows feed the importer, so source scalar values stay intact.
+      canonical[field] = normalizeValue(row[field]);
       return canonical;
     }, {});
 }
 
 function compareRecords(left: SnapshotRecord, right: SnapshotRecord): number {
-  return String(left.id ?? '').localeCompare(String(right.id ?? ''))
-    || JSON.stringify(left).localeCompare(JSON.stringify(right));
+  return compareUnicodeCodePoints(String(left.id ?? ''), String(right.id ?? ''))
+    || compareUnicodeCodePoints(JSON.stringify(left), JSON.stringify(right));
 }
 
 function tableColumns(database: Database.Database, table: TableName): string[] {
@@ -69,7 +64,7 @@ function tableColumns(database: Database.Database, table: TableName): string[] {
     .prepare(`PRAGMA table_info(${quoteIdentifier(table)})`)
     .all() as TableInfoRow[])
     .map(column => column.name)
-    .sort((left, right) => left.localeCompare(right));
+    .sort(compareUnicodeCodePoints);
 }
 
 function readTableInventory(database: Database.Database, table: TableName): TableInventory {
