@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Pool, type PoolClient } from 'pg';
 import {
+  ImportCommitUncertain,
   ImportFailure,
   importSnapshot,
   importSnapshotFromDatabaseUrl,
@@ -223,6 +224,37 @@ test('database URL wrapper releases and ends on failure without leaking the conn
   assert.deepEqual(events, ['connect', 'BEGIN', events[2], events[3], 'ROLLBACK', 'release', 'end']);
   assert.match(events[2], /^SELECT /);
   assert.match(events[3], /^INSERT /);
+});
+
+test('treats a rejected COMMIT as uncertain without issuing rollback or exposing the cause', async () => {
+  const events: string[] = [];
+  let serverCommitted = false;
+  const client = {
+    async query(text: string) {
+      events.push(text);
+      if (text === 'COMMIT') {
+        serverCommitted = true;
+        const error = new Error('private transport detail') as Error & { code: string };
+        error.code = 'ECONNRESET';
+        throw error;
+      }
+      return { rowCount: null, rows: [] };
+    },
+  } as unknown as PoolClient;
+
+  await assert.rejects(
+    () => importSnapshot(client, snapshot({})),
+    (error: unknown) => {
+      assert.ok(error instanceof ImportCommitUncertain);
+      assert.equal(error.message, 'PostgreSQL commit outcome uncertain');
+      assert.deepEqual(error.metadata, { stage: 'commit' });
+      assert.equal(JSON.stringify(error).includes('private transport detail'), false);
+      assert.equal(JSON.stringify(error).includes('ECONNRESET'), false);
+      return true;
+    },
+  );
+  assert.equal(serverCommitted, true);
+  assert.deepEqual(events, ['BEGIN', 'COMMIT']);
 });
 
 test('database URL wrapper consumes DATABASE_URL when no explicit string is supplied', async () => {

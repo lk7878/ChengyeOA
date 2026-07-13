@@ -36,6 +36,15 @@ export class ImportFailure extends Error {
   }
 }
 
+export class ImportCommitUncertain extends Error {
+  readonly metadata = Object.freeze({ stage: 'commit' as const });
+
+  constructor() {
+    super('PostgreSQL commit outcome uncertain');
+    this.name = 'ImportCommitUncertain';
+  }
+}
+
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`;
 }
@@ -155,6 +164,7 @@ export async function importSnapshot(
 
   preflightSnapshot(snapshot);
   await client.query('BEGIN');
+  let commitAttempted = false;
 
   try {
     lifecycle.transactionStarted?.();
@@ -166,8 +176,10 @@ export async function importSnapshot(
       }
     }
 
+    commitAttempted = true;
     await client.query('COMMIT');
   } catch (error) {
+    if (commitAttempted) throw new ImportCommitUncertain();
     await client.query('ROLLBACK');
     report.failed += 1;
     report.failures.push({ table: currentTable, id: recordId(currentRow), code: failureCode(error) });
@@ -202,7 +214,7 @@ export async function importSnapshotFromDatabaseUrl(
       await pool.end();
     }
   } catch (error) {
-    if (error instanceof ImportFailure) throw error;
+    if (error instanceof ImportFailure || error instanceof ImportCommitUncertain) throw error;
     throw new Error('PostgreSQL import failed');
   }
 }

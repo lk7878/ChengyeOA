@@ -463,6 +463,61 @@ test('keeps a sanitized recovery marker when final import report publication fai
   }
 });
 
+test('keeps recovery pending when COMMIT may have succeeded but returns a connection reset', async () => {
+  const outputRoot = temporaryOutputRoot();
+  const sourcePath = createImportSource(outputRoot);
+  const pendingPath = path.join(outputRoot, 'uncertain_import', IMPORT_REPORT_PENDING_FILE);
+  const finalPath = path.join(outputRoot, 'uncertain_import', 'import-report.json');
+  const stderr: string[] = [];
+  const events: string[] = [];
+  let serverCommitted = false;
+  try {
+    const diffPath = writeDiff(outputRoot, sourceHash(sourcePath));
+    const confirmation = sourceHash(diffPath);
+    const exitCode = await main(
+      ['import', '--source', sourcePath, '--confirm-diff', confirmation, '--diff-run-id', 'diff_run', '--run-id', 'uncertain_import'],
+      {
+        databaseUrl: 'postgresql://test:test@localhost:55432/chengye_oa_test',
+        outputRoot,
+        createPool: () => ({
+          async connect() {
+            events.push('connect');
+            return {
+              async query(text: string) {
+                events.push(text);
+                if (text.startsWith('SELECT')) return { rowCount: 0, rows: [] };
+                if (text === 'COMMIT') {
+                  serverCommitted = true;
+                  const error = new Error('private connection reset detail') as Error & { code: string };
+                  error.code = 'ECONNRESET';
+                  throw error;
+                }
+                return { rowCount: null, rows: [] };
+              },
+              release() { events.push('release'); },
+            } as never;
+          },
+          async end() { events.push('end'); },
+        }),
+      },
+      { stderr: { write(value: string) { stderr.push(value); } } },
+    );
+
+    assert.equal(exitCode, 1);
+    assert.deepEqual(stderr, ['Import report recovery required\n']);
+    assert.equal(serverCommitted, true);
+    assert.equal(events.includes('ROLLBACK'), false);
+    assert.equal(events.at(-2), 'release');
+    assert.equal(events.at(-1), 'end');
+    assert.equal(fs.existsSync(finalPath), false);
+    const markerText = fs.readFileSync(pendingPath, 'utf8');
+    assert.equal(markerText.includes('ECONNRESET'), false);
+    assert.equal(markerText.includes('private connection reset detail'), false);
+  } finally {
+    fs.rmSync(outputRoot, { force: true, recursive: true });
+  }
+});
+
 test('inventory derives report and export from one injected stable snapshot', async () => {
   const outputRoot = temporaryOutputRoot();
   let reads = 0;
