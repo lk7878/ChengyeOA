@@ -5,9 +5,11 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   abortImportReportReservation,
+  ARTIFACT_READY_SUFFIX,
   IMPORT_REPORT_PENDING_FILE,
   parseMigrationReport,
   publishReservedImportReport,
+  readPublishedArtifact,
   reserveImportReport,
   writeMigrationReport,
   writeSnapshotExport,
@@ -17,6 +19,42 @@ import type { DiffReport, SourceInventory, SourceSnapshot, TableInventory, Table
 
 function outputRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'chengye-report-writer-'));
+}
+
+function swapDirectoryAtNextPublicationOpen(directory: string, outside: string): {
+  displaced: string;
+  restore(): void;
+  wasTriggered(): boolean;
+} {
+  const displaced = `${directory}-checked`;
+  const originalOpen = fs.openSync;
+  let triggered = false;
+
+  (fs as unknown as { openSync: (...args: unknown[]) => number }).openSync = (...args: unknown[]) => {
+    const target = args[0];
+    if (!triggered && typeof target === 'string') {
+      triggered = true;
+      fs.renameSync(directory, displaced);
+      fs.symlinkSync(outside, directory, process.platform === 'win32' ? 'junction' : 'dir');
+    }
+    return (originalOpen as unknown as (...values: unknown[]) => number)(...args);
+  };
+
+  return {
+    displaced,
+    restore() {
+      (fs as unknown as { openSync: typeof fs.openSync }).openSync = originalOpen;
+    },
+    wasTriggered() { return triggered; },
+  };
+}
+
+function directoryText(directory: string): string {
+  if (!fs.existsSync(directory)) return '';
+  return fs.readdirSync(directory)
+    .filter(name => fs.lstatSync(path.join(directory, name)).isFile())
+    .map(name => fs.readFileSync(path.join(directory, name), 'utf8'))
+    .join('\n');
 }
 
 function inventory(): SourceInventory {
@@ -112,15 +150,40 @@ test('refuses to overwrite existing reports and exports with a stable safe error
   try {
     const first = writeMigrationReport('run_1', 'inventory.json', inventory(), root);
     const before = fs.readFileSync(first, 'utf8');
+    assert.equal(fs.existsSync(`${first}${ARTIFACT_READY_SUFFIX}`), true);
     assert.throws(() => writeMigrationReport('run_1', 'inventory.json', inventory(), root), /already exists/);
     assert.equal(fs.readFileSync(first, 'utf8'), before);
 
     const exported = writeSnapshotExport('run_1', 'source-snapshot.json', snapshot(), root);
     const exportBefore = fs.readFileSync(exported, 'utf8');
+    assert.equal(fs.existsSync(`${exported}${ARTIFACT_READY_SUFFIX}`), true);
     assert.throws(() => writeSnapshotExport('run_1', 'source-snapshot.json', snapshot(), root), /already exists/);
     assert.equal(fs.readFileSync(exported, 'utf8'), exportBefore);
     assert.equal(fs.readdirSync(path.dirname(first)).some(name => name.includes('.tmp-')), false);
     assert.equal(fs.readdirSync(path.dirname(exported)).some(name => name.includes('.tmp-')), false);
+  } finally {
+    fs.rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test('accepts only hash-bound ready artifacts and rejects missing or tampered readiness', () => {
+  const root = outputRoot();
+  try {
+    const destination = writeMigrationReport('ready_run', 'inventory.json', {
+      ...inventory(),
+      runId: 'ready_run',
+    }, root);
+    const readyPath = `${destination}${ARTIFACT_READY_SUFFIX}`;
+    assert.equal(fs.existsSync(readyPath), true);
+    assert.deepEqual(JSON.parse(readPublishedArtifact(destination).toString('utf8')), {
+      ...inventory(),
+      runId: 'ready_run',
+    });
+
+    fs.rmSync(readyPath);
+    assert.throws(() => readPublishedArtifact(destination), /not ready/);
+    fs.writeFileSync(readyPath, '{"kind":"migration-artifact-ready","sha256":"' + '0'.repeat(64) + '","token":"' + 'a'.repeat(64) + '","version":1}\n');
+    assert.throws(() => readPublishedArtifact(destination), /not ready/);
   } finally {
     fs.rmSync(root, { force: true, recursive: true });
   }
@@ -229,5 +292,136 @@ test('refuses existing final or pending import-report publication and supports p
     assert.equal(fs.existsSync(path.join(root, 'pending_exists', IMPORT_REPORT_PENDING_FILE)), false);
   } finally {
     fs.rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test('does not publish report content through a run-directory junction swapped immediately before open', t => {
+  const root = outputRoot();
+  const outside = outputRoot();
+  const runPath = path.join(root, 'race_report');
+  fs.mkdirSync(runPath);
+  let swap: ReturnType<typeof swapDirectoryAtNextPublicationOpen> | undefined;
+  try {
+    try {
+      swap = swapDirectoryAtNextPublicationOpen(runPath, outside);
+    } catch (error) {
+      t.skip(`directory links unavailable: ${(error as NodeJS.ErrnoException).code ?? 'unknown'}`);
+      return;
+    }
+
+    let caught: unknown;
+    try {
+      writeMigrationReport('race_report', 'inventory.json', {
+        ...inventory(),
+        runId: 'race_report',
+        source: { path: 'SENSITIVE-REPORT-PATH-LITERAL', sha256: 'a'.repeat(64) },
+      }, root);
+    } catch (error) {
+      caught = error;
+    }
+    assert.equal(swap.wasTriggered(), true);
+    assert.equal(directoryText(outside).includes('SENSITIVE-REPORT-PATH-LITERAL'), false);
+    assert.deepEqual(fs.readdirSync(outside), []);
+    assert.match(String(caught), /output path|publication/i);
+  } finally {
+    swap?.restore();
+    if (fs.existsSync(runPath) && fs.lstatSync(runPath).isSymbolicLink()) fs.unlinkSync(runPath);
+    fs.rmSync(root, { force: true, recursive: true });
+    fs.rmSync(outside, { force: true, recursive: true });
+  }
+});
+
+test('does not publish snapshot payload through an export-directory junction swap', t => {
+  const root = outputRoot();
+  const outside = outputRoot();
+  const exportPath = path.join(root, 'race_export', 'export');
+  fs.mkdirSync(exportPath, { recursive: true });
+  let swap: ReturnType<typeof swapDirectoryAtNextPublicationOpen> | undefined;
+  try {
+    try {
+      swap = swapDirectoryAtNextPublicationOpen(exportPath, outside);
+    } catch (error) {
+      t.skip(`directory links unavailable: ${(error as NodeJS.ErrnoException).code ?? 'unknown'}`);
+      return;
+    }
+
+    const sensitiveSnapshot = snapshot();
+    sensitiveSnapshot.source.path = 'SENSITIVE-EXPORT-PATH-LITERAL';
+    let caught: unknown;
+    try {
+      writeSnapshotExport('race_export', 'source-snapshot.json', sensitiveSnapshot, root);
+    } catch (error) {
+      caught = error;
+    }
+    assert.equal(swap.wasTriggered(), true);
+    assert.equal(directoryText(outside).includes('SENSITIVE-EXPORT-PATH-LITERAL'), false);
+    assert.deepEqual(fs.readdirSync(outside), []);
+    assert.match(String(caught), /output path|publication/i);
+  } finally {
+    swap?.restore();
+    if (fs.existsSync(exportPath) && fs.lstatSync(exportPath).isSymbolicLink()) fs.unlinkSync(exportPath);
+    fs.rmSync(root, { force: true, recursive: true });
+    fs.rmSync(outside, { force: true, recursive: true });
+  }
+});
+
+test('retains import recovery without publishing final report through a swapped run junction', t => {
+  const root = outputRoot();
+  const outside = outputRoot();
+  const reservation = reserveImportReport('race_import', root);
+  const runPath = path.join(root, 'race_import');
+  let swap: ReturnType<typeof swapDirectoryAtNextPublicationOpen> | undefined;
+  try {
+    try {
+      swap = swapDirectoryAtNextPublicationOpen(runPath, outside);
+    } catch (error) {
+      t.skip(`directory links unavailable: ${(error as NodeJS.ErrnoException).code ?? 'unknown'}`);
+      return;
+    }
+
+    assert.throws(
+      () => publishReservedImportReport(reservation, {
+        inserted: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 1,
+        failures: [{ table: 'Organization', id: 'race-internal-id', code: 'IMPORT_FAILED' }],
+      }),
+      /output path|publication/i,
+    );
+    assert.equal(swap.wasTriggered(), true);
+    assert.equal(directoryText(outside).includes('race-internal-id'), false);
+    assert.deepEqual(fs.readdirSync(outside), []);
+    assert.equal(fs.existsSync(path.join(swap.displaced, IMPORT_REPORT_PENDING_FILE)), true);
+  } finally {
+    swap?.restore();
+    if (fs.existsSync(runPath) && fs.lstatSync(runPath).isSymbolicLink()) fs.unlinkSync(runPath);
+    fs.rmSync(root, { force: true, recursive: true });
+    fs.rmSync(outside, { force: true, recursive: true });
+  }
+});
+
+test('does not create a reservation marker through a run-directory junction swap', t => {
+  const root = outputRoot();
+  const outside = outputRoot();
+  const runPath = path.join(root, 'race_reservation');
+  fs.mkdirSync(runPath);
+  let swap: ReturnType<typeof swapDirectoryAtNextPublicationOpen> | undefined;
+  try {
+    try {
+      swap = swapDirectoryAtNextPublicationOpen(runPath, outside);
+    } catch (error) {
+      t.skip(`directory links unavailable: ${(error as NodeJS.ErrnoException).code ?? 'unknown'}`);
+      return;
+    }
+
+    assert.throws(() => reserveImportReport('race_reservation', root), /output path|publication/i);
+    assert.equal(swap.wasTriggered(), true);
+    assert.equal(fs.existsSync(path.join(outside, IMPORT_REPORT_PENDING_FILE)), false);
+  } finally {
+    swap?.restore();
+    if (fs.existsSync(runPath) && fs.lstatSync(runPath).isSymbolicLink()) fs.unlinkSync(runPath);
+    fs.rmSync(root, { force: true, recursive: true });
+    fs.rmSync(outside, { force: true, recursive: true });
   }
 });

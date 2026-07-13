@@ -1,5 +1,4 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import fs from 'node:fs';
 import path from 'node:path';
 import { Pool } from 'pg';
 import { diffSnapshots } from './diff';
@@ -12,6 +11,7 @@ import {
   migrationRunDirectory,
   parseMigrationReport,
   publishReservedImportReport,
+  readPublishedArtifact,
   reserveImportReport,
   writeMigrationReport,
   writeSnapshotExport,
@@ -143,7 +143,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 function confirmedDiffReport(outputRoot: string, diffRunId: string, confirmation: string): DiffReport {
   try {
     if (!/^[a-f0-9]{64}$/i.test(confirmation)) throw new Error('invalid confirmation');
-    const bytes = fs.readFileSync(path.join(migrationRunDirectory(diffRunId, outputRoot), 'diff-report.json'));
+    const bytes = readPublishedArtifact(path.join(migrationRunDirectory(diffRunId, outputRoot), 'diff-report.json'));
     const actual = createHash('sha256').update(bytes).digest();
     const expected = Buffer.from(confirmation, 'hex');
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) throw new Error('hash mismatch');

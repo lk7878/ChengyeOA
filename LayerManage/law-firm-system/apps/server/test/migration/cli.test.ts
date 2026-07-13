@@ -90,7 +90,7 @@ test('requires a source and deterministic diff report locator for import', () =>
   );
 });
 
-test('rejects an invalid run ID and writes reports by atomic publication', () => {
+test('rejects an invalid run ID and writes reports through immutable ready publication', () => {
   const outputRoot = temporaryOutputRoot();
   try {
     const inventory = validInventory();
