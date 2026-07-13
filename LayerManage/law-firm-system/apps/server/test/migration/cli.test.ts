@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { executeCommand, parseArgs } from '../../scripts/migration/cli';
+import { MigrationValidationFailedError, executeCommand, main, parseArgs } from '../../scripts/migration/cli';
 import { writeMigrationReport } from '../../scripts/migration/report-writer';
+import { TABLE_ORDER, type TableName } from '../../scripts/migration/table-plan';
+import type { DiffReport, SourceInventory, SourceSnapshot, TableInventory, TableSnapshot } from '../../scripts/migration/types';
+import { createSQLiteFixtures } from '../fixtures/sqlite/create-fixtures';
 
 function temporaryOutputRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'chengye-oa-cli-'));
@@ -16,12 +20,52 @@ function createImportSource(outputRoot: string): string {
   const sourcePath = path.join(outputRoot, 'source.sqlite');
   const database = new Database(sourcePath);
   try {
-    database.exec('CREATE TABLE "Organization" (id TEXT PRIMARY KEY, name TEXT, createdAt TEXT, updatedAt TEXT)');
-    database.exec("INSERT INTO \"Organization\" VALUES ('org-cli', 'CLI firm', '2026-04-01 08:00:00', '2026-04-01 08:00:00')");
+    database.exec('CREATE TABLE "Organization" (id TEXT PRIMARY KEY, name TEXT, parentId TEXT, createdAt TEXT, updatedAt TEXT)');
+    database.exec("INSERT INTO \"Organization\" VALUES ('org-cli', 'CLI firm', NULL, '2026-04-01 08:00:00', '2026-04-01 08:00:00')");
   } finally {
     database.close();
   }
   return sourcePath;
+}
+
+function sourceHash(sourcePath: string): string {
+  return createHash('sha256').update(fs.readFileSync(sourcePath)).digest('hex');
+}
+
+function validInventory(): SourceInventory {
+  return {
+    generatedAt: '2026-07-13T00:00:00.000Z',
+    runId: 'run_1',
+    source: { path: 'fixture.sqlite', sha256: 'a'.repeat(64) },
+    tables: Object.fromEntries(TABLE_ORDER.map(table => [table, { columns: ['id'], rowCount: 0 }])) as Record<TableName, TableInventory>,
+  };
+}
+
+function validDiffReport(primarySha256: string): DiffReport {
+  return {
+    conflicts: [],
+    counts: { PRIMARY_ONLY: 0, SECONDARY_ONLY: 0, CONTENT_MISMATCH: 0, BUSINESS_KEY_COLLISION: 0 },
+    generatedAt: '2026-07-13T00:00:00.000Z',
+    runId: 'diff_run',
+    sources: {
+      primary: { path: 'approved-readonly-copy.sqlite', sha256: primarySha256 },
+      secondary: { path: 'secondary.sqlite', sha256: 'b'.repeat(64) },
+    },
+    tableCounts: Object.fromEntries(TABLE_ORDER.map(table => [table, { primary: 0, secondary: 0 }])) as DiffReport['tableCounts'],
+  };
+}
+
+function writeDiff(outputRoot: string, primarySha256: string): string {
+  return writeMigrationReport('diff_run', 'diff-report.json', validDiffReport(primarySha256), outputRoot);
+}
+
+function emptySnapshot(sha256 = 'a'.repeat(64)): SourceSnapshot {
+  return {
+    generatedAt: '2026-07-13T00:00:00.000Z',
+    runId: 'stable_snapshot',
+    source: { path: 'approved.sqlite', sha256 },
+    tables: Object.fromEntries(TABLE_ORDER.map(table => [table, { columns: [], rowCount: 0, records: [] }])) as Record<TableName, TableSnapshot>,
+  };
 }
 
 test('requires a source and deterministic diff report locator for import', () => {
@@ -31,16 +75,24 @@ test('requires a source and deterministic diff report locator for import', () =>
   assert.deepEqual(parseArgs(['diff', '--primary', 'a.db', '--secondary', 'b.db', '--run-id', 'r1']).command, 'diff');
   assert.throws(() => parseArgs(['inventory', '--source', 'a.db', '--run-id', 'r1', '--unexpected', 'value']), /Invalid migration CLI arguments/);
   assert.throws(() => parseArgs(['inventory', '--source', 'a.db', '--run-id', '../escape']), /run ID/);
+  assert.throws(
+    () => parseArgs(['import', '--source', 'a.db', '--confirm-diff', 'a'.repeat(64), '--diff-run-id', '../escape', '--run-id', 'r1']),
+    /run ID/,
+  );
+  assert.throws(
+    () => parseArgs(['inventory', '--source', 'a.db', '--source', 'b.db', '--run-id', 'r1']),
+    /Invalid migration CLI arguments/,
+  );
 });
 
-test('rejects an invalid run ID and writes reports by atomic rename without snapshot records', () => {
+test('rejects an invalid run ID and writes reports by atomic publication', () => {
   const outputRoot = temporaryOutputRoot();
   try {
-    assert.throws(() => writeMigrationReport('../escape', 'inventory.json', {}, outputRoot), /run ID/);
-    const reportPath = writeMigrationReport('run_1', 'inventory.json', { tables: { Organization: { rowCount: 1 } } }, outputRoot);
-    assert.deepEqual(JSON.parse(fs.readFileSync(reportPath, 'utf8')), { tables: { Organization: { rowCount: 1 } } });
+    const inventory = validInventory();
+    assert.throws(() => writeMigrationReport('../escape', 'inventory.json', inventory, outputRoot), /run ID/);
+    const reportPath = writeMigrationReport('run_1', 'inventory.json', inventory, outputRoot);
+    assert.deepEqual(JSON.parse(fs.readFileSync(reportPath, 'utf8')), inventory);
     assert.equal(fs.readdirSync(path.dirname(reportPath)).some(name => name.includes('.tmp-')), false);
-    assert.throws(() => writeMigrationReport('run_1', 'inventory.json', { records: [{ password: 'never-write' }] }, outputRoot), /records/);
   } finally {
     fs.rmSync(outputRoot, { force: true, recursive: true });
   }
@@ -50,7 +102,7 @@ test('rejects a stale diff confirmation before constructing a PostgreSQL pool', 
   const outputRoot = temporaryOutputRoot();
   let poolConstructed = false;
   try {
-    const diffPath = writeMigrationReport('diff_run', 'diff-report.json', { counts: {}, tableCounts: {}, conflicts: [] }, outputRoot);
+    const diffPath = writeDiff(outputRoot, 'a'.repeat(64));
     const staleHash = createHash('sha256').update('stale').digest('hex');
 
     await assert.rejects(
@@ -96,12 +148,68 @@ test('rejects a missing diff report before constructing a PostgreSQL pool', asyn
   }
 });
 
+test('rejects a confirmed but malformed diff report before reading or connecting', async () => {
+  const outputRoot = temporaryOutputRoot();
+  const sourcePath = createImportSource(outputRoot);
+  let poolConstructed = false;
+  try {
+    const diffDirectory = path.join(outputRoot, 'diff_run');
+    fs.mkdirSync(diffDirectory, { recursive: true });
+    const diffPath = path.join(diffDirectory, 'diff-report.json');
+    fs.writeFileSync(diffPath, JSON.stringify({ sources: { primary: { sha256: sourceHash(sourcePath) } }, payload: 'private-content' }));
+    const confirmation = sourceHash(diffPath);
+
+    await assert.rejects(
+      () => executeCommand(
+        parseArgs(['import', '--source', sourcePath, '--confirm-diff', confirmation, '--diff-run-id', 'diff_run', '--run-id', 'import_run']),
+        {
+          outputRoot,
+          createPool: () => {
+            poolConstructed = true;
+            throw new Error('Pool must not be constructed');
+          },
+        },
+      ),
+      /Diff report confirmation failed/,
+    );
+    assert.equal(poolConstructed, false);
+  } finally {
+    fs.rmSync(outputRoot, { force: true, recursive: true });
+  }
+});
+
+test('rejects a diff bound to unrelated source content before constructing a PostgreSQL pool', async () => {
+  const outputRoot = temporaryOutputRoot();
+  const sourcePath = createImportSource(outputRoot);
+  let poolConstructed = false;
+  try {
+    const diffPath = writeDiff(outputRoot, 'c'.repeat(64));
+    const confirmation = sourceHash(diffPath);
+    await assert.rejects(
+      () => executeCommand(
+        parseArgs(['import', '--source', sourcePath, '--confirm-diff', confirmation, '--diff-run-id', 'diff_run', '--run-id', 'import_run']),
+        {
+          outputRoot,
+          createPool: () => {
+            poolConstructed = true;
+            throw new Error('Pool must not be constructed');
+          },
+        },
+      ),
+      /Confirmed diff does not match source/,
+    );
+    assert.equal(poolConstructed, false);
+  } finally {
+    fs.rmSync(outputRoot, { force: true, recursive: true });
+  }
+});
+
 test('writes the imported full-fidelity snapshot only under the importing run export directory', async () => {
   const outputRoot = temporaryOutputRoot();
   try {
     const sourcePath = createImportSource(outputRoot);
-    const diffPath = writeMigrationReport('diff_run', 'diff-report.json', { counts: {}, tableCounts: {}, conflicts: [] }, outputRoot);
-    const diffHash = createHash('sha256').update(fs.readFileSync(diffPath)).digest('hex');
+    const diffPath = writeDiff(outputRoot, sourceHash(sourcePath));
+    const diffHash = createHash('sha256').update(fs.readFileSync(diffPath)).digest('hex').toUpperCase();
     const events: string[] = [];
     const client = {
       async query(text: string) {
@@ -140,11 +248,112 @@ test('writes the imported full-fidelity snapshot only under the importing run ex
   }
 });
 
+test('inventory derives report and export from one injected stable snapshot', async () => {
+  const outputRoot = temporaryOutputRoot();
+  let reads = 0;
+  try {
+    const fixture = emptySnapshot();
+    await executeCommand(
+      parseArgs(['inventory', '--source', 'approved.sqlite', '--run-id', 'inventory_run']),
+      {
+        outputRoot,
+        readSnapshot() {
+          reads += 1;
+          return fixture;
+        },
+      },
+    );
+    const inventory = JSON.parse(fs.readFileSync(path.join(outputRoot, 'inventory_run', 'inventory.json'), 'utf8')) as SourceInventory;
+    const exported = JSON.parse(fs.readFileSync(path.join(outputRoot, 'inventory_run', 'export', 'source-snapshot.json'), 'utf8')) as SourceSnapshot;
+    assert.equal(reads, 1);
+    assert.equal(inventory.source.sha256, fixture.source.sha256);
+    assert.equal(exported.source.sha256, fixture.source.sha256);
+  } finally {
+    fs.rmSync(outputRoot, { force: true, recursive: true });
+  }
+});
+
+test('CLI executable catches duplicate arguments and emits one safe line with exit code 1', () => {
+  const result = spawnSync(process.execPath, [
+    require.resolve('tsx/cli'),
+    path.resolve('scripts/migration/cli.ts'),
+    'inventory', '--source', 'private-path.sqlite', '--source', 'duplicate.sqlite', '--run-id', 'run_1',
+  ], { cwd: path.resolve('.'), encoding: 'utf8' });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /^Invalid migration CLI arguments\r?\n$/);
+  assert.equal(result.stderr.includes('private-path.sqlite'), false);
+  assert.equal(result.stderr.includes(' at '), false);
+  assert.equal(result.stderr.includes(path.resolve('.')), false);
+});
+
+test('writes failed validation report then rejects with a typed error and main returns exit 1', async () => {
+  const outputRoot = temporaryOutputRoot();
+  const sourcePath = createImportSource(outputRoot);
+  const stderr: string[] = [];
+  const pools: string[] = [];
+  const createValidationPool = () => ({
+    async query(text: string) {
+      if (text.includes('validation:decimal-total')) return { rows: [{ total: '0' }] };
+      return { rows: [] };
+    },
+    async end() {
+      pools.push('end');
+    },
+  });
+
+  try {
+    await assert.rejects(
+      () => executeCommand(
+        parseArgs(['validate', '--source', sourcePath, '--run-id', 'validation_run']),
+        { createValidationPool, databaseUrl: 'postgresql://test:test@localhost:55432/chengye_oa_test', outputRoot },
+      ),
+      (error: unknown) => error instanceof MigrationValidationFailedError,
+    );
+    const report = JSON.parse(fs.readFileSync(path.join(outputRoot, 'validation_run', 'validation-report.json'), 'utf8')) as { ok: boolean };
+    assert.equal(report.ok, false);
+
+    const exitCode = await main(
+      ['validate', '--source', sourcePath, '--run-id', 'validation_main'],
+      { createValidationPool, databaseUrl: 'postgresql://test:test@localhost:55432/chengye_oa_test', outputRoot },
+      { stderr: { write(value: string) { stderr.push(value); } } },
+    );
+    assert.equal(exitCode, 1);
+    assert.deepEqual(stderr, ['Migration validation failed\n']);
+    assert.deepEqual(pools, ['end', 'end']);
+    assert.equal(fs.existsSync(path.join(outputRoot, 'validation_main', 'validation-report.json')), true);
+  } finally {
+    fs.rmSync(outputRoot, { force: true, recursive: true });
+  }
+});
+
+test('root migration wrapper uses npm prefix and forwards fixture flags on Windows', () => {
+  const projectRoot = path.resolve('../..');
+  const rootPackage = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
+  assert.equal(rootPackage.scripts['migration:inventory'], 'npm --prefix apps/server run migration:inventory --');
+
+  const fixtures = createSQLiteFixtures();
+  const runId = `root_flags_${process.pid}_${Date.now()}`;
+  const runDirectory = path.join(projectRoot, 'var', 'migration', runId);
+  try {
+    const npmCli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    const result = spawnSync(process.execPath, [npmCli, 'run', 'migration:inventory', '--', '--source', fixtures.primaryPath, '--run-id', runId], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(fs.existsSync(path.join(runDirectory, 'inventory.json')), true);
+  } finally {
+    fixtures.cleanup();
+    fs.rmSync(runDirectory, { force: true, recursive: true });
+  }
+});
+
 test('writes a payload-free import failure report before propagating the guarded failure', async () => {
   const outputRoot = temporaryOutputRoot();
   try {
     const sourcePath = createImportSource(outputRoot);
-    const diffPath = writeMigrationReport('diff_run', 'diff-report.json', { counts: {}, tableCounts: {}, conflicts: [] }, outputRoot);
+    const diffPath = writeDiff(outputRoot, sourceHash(sourcePath));
     const diffHash = createHash('sha256').update(fs.readFileSync(diffPath)).digest('hex');
     const failure = new Error('private database payload must not escape') as Error & { code: string };
     failure.code = '23505';

@@ -43,3 +43,37 @@ test('preserves full-fidelity snapshot values without changing either source', (
     fixtures.cleanup();
   }
 });
+
+test('rejects a source that changes between snapshot read and final hash', () => {
+  const fixtures = createSQLiteFixtures();
+
+  try {
+    assert.throws(
+      () => snapshotSqlite(fixtures.primaryPath, {
+        afterRead() {
+          fs.appendFileSync(fixtures.primaryPath, 'controlled-fixture-mutation');
+        },
+      }),
+      /SQLite source changed during read/,
+    );
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test('rejects a source that changes between inventory read and final hash', () => {
+  const fixtures = createSQLiteFixtures();
+
+  try {
+    assert.throws(
+      () => inventorySqlite(fixtures.primaryPath, {
+        afterRead() {
+          fs.appendFileSync(fixtures.primaryPath, 'controlled-fixture-mutation');
+        },
+      }),
+      /SQLite source changed during read/,
+    );
+  } finally {
+    fixtures.cleanup();
+  }
+});

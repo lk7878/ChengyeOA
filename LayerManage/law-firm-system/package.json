@@ -15,10 +15,10 @@
     "db:down": "docker compose -f infra/postgres/compose.yml down",
     "db:logs": "docker compose -f infra/postgres/compose.yml logs -f postgres",
     "db:reset:test": "cd apps/server && npm run db:reset:test",
-    "migration:inventory": "cd apps/server && npm run migration:inventory",
-    "migration:diff": "cd apps/server && npm run migration:diff",
-    "migration:import": "cd apps/server && npm run migration:import",
-    "migration:validate": "cd apps/server && npm run migration:validate"
+    "migration:inventory": "npm --prefix apps/server run migration:inventory --",
+    "migration:diff": "npm --prefix apps/server run migration:diff --",
+    "migration:import": "npm --prefix apps/server run migration:import --",
+    "migration:validate": "npm --prefix apps/server run migration:validate --"
   },
   "devDependencies": {
     "prisma": "^5.22.0"

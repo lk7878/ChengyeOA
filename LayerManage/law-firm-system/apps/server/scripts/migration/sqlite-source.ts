@@ -17,6 +17,10 @@ interface TableInfoRow {
   name: string;
 }
 
+export interface SourceReadHooks {
+  afterRead?(): void;
+}
+
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`;
 }
@@ -26,6 +30,10 @@ function sourceManifest(sourcePath: string): SourceManifest {
     path: sourcePath,
     sha256: createHash('sha256').update(fs.readFileSync(sourcePath)).digest('hex'),
   };
+}
+
+function assertStableSource(before: SourceManifest, after: SourceManifest): void {
+  if (before.sha256 !== after.sha256) throw new Error('SQLite source changed during read');
 }
 
 function openReadOnly(sourcePath: string): Database.Database {
@@ -100,20 +108,43 @@ function readSource<T>(sourcePath: string, readTable: (database: Database.Databa
   }
 }
 
-export function inventorySqlite(sourcePath: string): SourceInventory {
+export function inventorySqlite(sourcePath: string, hooks: SourceReadHooks = {}): SourceInventory {
+  const source = sourceManifest(sourcePath);
+  const tables = readSource(sourcePath, readTableInventory);
+  hooks.afterRead?.();
+  assertStableSource(source, sourceManifest(sourcePath));
   return {
     generatedAt: new Date().toISOString(),
     runId: randomUUID(),
-    source: sourceManifest(sourcePath),
-    tables: readSource(sourcePath, readTableInventory),
+    source,
+    tables,
   };
 }
 
-export function snapshotSqlite(sourcePath: string): SourceSnapshot {
+export function snapshotSqlite(sourcePath: string, hooks: SourceReadHooks = {}): SourceSnapshot {
+  const source = sourceManifest(sourcePath);
+  const tables = readSource(sourcePath, readTableSnapshot);
+  hooks.afterRead?.();
+  assertStableSource(source, sourceManifest(sourcePath));
   return {
     generatedAt: new Date().toISOString(),
     runId: randomUUID(),
-    source: sourceManifest(sourcePath),
-    tables: readSource(sourcePath, readTableSnapshot),
+    source,
+    tables,
+  };
+}
+
+export function inventoryFromSnapshot(snapshot: SourceSnapshot): SourceInventory {
+  const tables = TABLE_ORDER.reduce<Record<TableName, TableInventory>>((result, table) => {
+    const { columns, rowCount } = snapshot.tables[table];
+    result[table] = { columns: [...columns], rowCount };
+    return result;
+  }, {} as Record<TableName, TableInventory>);
+
+  return {
+    generatedAt: snapshot.generatedAt,
+    runId: snapshot.runId,
+    source: { ...snapshot.source },
+    tables,
   };
 }
