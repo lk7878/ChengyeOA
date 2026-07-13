@@ -13,7 +13,11 @@ const JSON_STRING_FIELDS = new Set([
   'Customer.tags',
   'Contract.paymentTerms',
   'Case.teamIds',
+  'Performance.kpiData',
 ]);
+
+const LEGACY_NAIVE_TIMESTAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2}(?:\.\d{3})?)?$/;
+const OFFSET_TIMESTAMP = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 export class ImportInputError extends Error {
   constructor(
@@ -52,14 +56,17 @@ function normalizeDecimal(value: unknown, table: string, column: string): string
 }
 
 function normalizeDateTime(value: unknown, table: string, column: string): string {
-  const source = value instanceof Date
-    ? value
-    : typeof value === 'string'
-      // Legacy SQLite timestamps have no offset and are business-local Asia/Shanghai time.
-      ? new Date(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/.test(value)
-        ? `${value.replace(' ', 'T')}+08:00`
-        : value)
-      : new Date(Number.NaN);
+  let source: Date;
+
+  if (value instanceof Date) {
+    source = value;
+  } else if (typeof value === 'string' && LEGACY_NAIVE_TIMESTAMP.test(value)) {
+    source = new Date(`${value.replace(' ', 'T')}+08:00`);
+  } else if (typeof value === 'string' && OFFSET_TIMESTAMP.test(value)) {
+    source = new Date(value);
+  } else {
+    source = new Date(Number.NaN);
+  }
 
   if (Number.isNaN(source.getTime())) {
     throw new ImportInputError('INVALID_VALUE', `Invalid timestamp in ${table}.${column}`);

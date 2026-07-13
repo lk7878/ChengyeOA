@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { Pool } from 'pg';
-import { ImportFailure, importSnapshot } from '../../scripts/migration/import-postgres';
+import { Pool, type PoolClient } from 'pg';
+import {
+  ImportFailure,
+  importSnapshot,
+  importSnapshotFromDatabaseUrl,
+  type ImportPoolFactory,
+} from '../../scripts/migration/import-postgres';
 import { resetTestDatabase } from '../../scripts/db/reset-test-db';
 import { TABLE_ORDER, type TableName } from '../../scripts/migration/table-plan';
 import type { SnapshotRecord, SourceSnapshot, TableSnapshot } from '../../scripts/migration/types';
@@ -23,7 +28,7 @@ function organizationRecord(overrides: Partial<SnapshotRecord> = {}): SnapshotRe
   };
 }
 
-function userRecord(): SnapshotRecord {
+function userRecord(overrides: Partial<SnapshotRecord> = {}): SnapshotRecord {
   return {
     id: 'user-import',
     username: 'imported-user',
@@ -33,6 +38,7 @@ function userRecord(): SnapshotRecord {
     lastLoginAt: null,
     createdAt: LEGACY_TIMESTAMP,
     updatedAt: LEGACY_TIMESTAMP,
+    ...overrides,
   };
 }
 
@@ -73,6 +79,176 @@ function snapshot(recordsByTable: Partial<Record<TableName, SnapshotRecord[]>>):
     tables,
   };
 }
+
+function noQueryClient(): { client: PoolClient; queries: unknown[][] } {
+  const queries: unknown[][] = [];
+  const client = {
+    async query(...args: unknown[]) {
+      queries.push(args);
+      throw new Error('query must not start during snapshot preflight');
+    },
+  } as unknown as PoolClient;
+
+  return { client, queries };
+}
+
+async function assertPreflightFailure(
+  fixture: SourceSnapshot,
+  expected: { table: TableName; id: string; reason: 'missing-id' | 'duplicate-id' },
+): Promise<void> {
+  const { client, queries } = noQueryClient();
+
+  await assert.rejects(
+    () => importSnapshot(client, fixture),
+    (error: unknown) => {
+      assert.ok(error instanceof ImportFailure);
+      assert.deepEqual(error.report, {
+        inserted: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 1,
+        failures: [{ ...expected, code: 'INVALID_VALUE' }],
+      });
+      assert.equal(error.message, 'PostgreSQL import failed');
+      return true;
+    },
+  );
+  assert.deepEqual(queries, []);
+}
+
+test('preflights missing and empty snapshot IDs before starting any query or transaction', async () => {
+  await assertPreflightFailure(
+    snapshot({ Organization: [organizationRecord({ id: undefined as never })] }),
+    { table: 'Organization', id: 'unknown', reason: 'missing-id' },
+  );
+  await assertPreflightFailure(
+    snapshot({ Organization: [organizationRecord({ id: '' })] }),
+    { table: 'Organization', id: 'unknown', reason: 'missing-id' },
+  );
+});
+
+test('preflights identical duplicate IDs before starting any query or transaction', async () => {
+  await assertPreflightFailure(
+    snapshot({ Organization: [organizationRecord(), organizationRecord()] }),
+    { table: 'Organization', id: 'org-import', reason: 'duplicate-id' },
+  );
+});
+
+test('preflights conflicting duplicate IDs before starting any query or transaction', async () => {
+  await assertPreflightFailure(
+    snapshot({ Organization: [organizationRecord(), organizationRecord({ name: 'Conflicting duplicate' })] }),
+    { table: 'Organization', id: 'org-import', reason: 'duplicate-id' },
+  );
+});
+
+test('preserves a legitimate source ID equal to the reporting placeholder', async () => {
+  const queries: string[] = [];
+  const client = {
+    async query(text: string) {
+      queries.push(text);
+      if (text.startsWith('SELECT')) return { rowCount: 0, rows: [] };
+      return { rowCount: null, rows: [] };
+    },
+  } as unknown as PoolClient;
+
+  const report = await importSnapshot(client, snapshot({ Organization: [organizationRecord({ id: 'unknown' })] }));
+
+  assert.deepEqual(report, { inserted: 1, updated: 0, skipped: 0, failed: 0, failures: [] });
+  assert.equal(queries[0], 'BEGIN');
+  assert.equal(queries.at(-1), 'COMMIT');
+});
+
+function lifecyclePool(
+  events: string[],
+  query: (text: string) => Promise<{ rowCount: number | null; rows: unknown[] }>,
+) {
+  const client = {
+    query,
+    release() {
+      events.push('release');
+    },
+  } as unknown as PoolClient;
+
+  return {
+    async connect() {
+      events.push('connect');
+      return client;
+    },
+    async end() {
+      events.push('end');
+    },
+  };
+}
+
+test('database URL wrapper releases the client before ending the pool on success', async () => {
+  const events: string[] = [];
+  const factory: ImportPoolFactory = (_databaseUrl: string) => lifecyclePool(events, async text => {
+    events.push(text);
+    return { rowCount: null, rows: [] };
+  });
+
+  const report = await importSnapshotFromDatabaseUrl(
+    'postgresql://fixture-user:fixture-secret@localhost:55432/chengye_oa_test',
+    snapshot({}),
+    factory,
+  );
+
+  assert.deepEqual(report, { inserted: 0, updated: 0, skipped: 0, failed: 0, failures: [] });
+  assert.deepEqual(events, ['connect', 'BEGIN', 'COMMIT', 'release', 'end']);
+});
+
+test('database URL wrapper releases and ends on failure without leaking the connection string', async () => {
+  const databaseUrl = 'postgresql://fixture-user:fixture-secret@localhost:55432/chengye_oa_test';
+  const events: string[] = [];
+  const factory: ImportPoolFactory = (_databaseUrl: string) => lifecyclePool(events, async text => {
+    events.push(text);
+    if (text.startsWith('SELECT')) return { rowCount: 0, rows: [] };
+    if (text.startsWith('INSERT')) {
+      const error = new Error(`synthetic failure for ${databaseUrl}`) as Error & { code: string };
+      error.code = '23505';
+      throw error;
+    }
+    return { rowCount: null, rows: [] };
+  });
+
+  await assert.rejects(
+    () => importSnapshotFromDatabaseUrl(databaseUrl, snapshot({ Organization: [organizationRecord()] }), factory),
+    (error: unknown) => {
+      assert.ok(error instanceof ImportFailure);
+      assert.equal(String(error).includes(databaseUrl), false);
+      assert.equal(JSON.stringify(error.report).includes(databaseUrl), false);
+      return true;
+    },
+  );
+  assert.deepEqual(events, ['connect', 'BEGIN', events[2], events[3], 'ROLLBACK', 'release', 'end']);
+  assert.match(events[2], /^SELECT /);
+  assert.match(events[3], /^INSERT /);
+});
+
+test('database URL wrapper consumes DATABASE_URL when no explicit string is supplied', async () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  const expectedDatabaseUrl = 'postgresql://environment-user:environment-secret@localhost:55432/chengye_oa_test';
+  const receivedUrls: string[] = [];
+  const events: string[] = [];
+  process.env.DATABASE_URL = expectedDatabaseUrl;
+
+  try {
+    const factory: ImportPoolFactory = (databaseUrl: string) => {
+      receivedUrls.push(databaseUrl);
+      return lifecyclePool(events, async text => {
+        events.push(text);
+        return { rowCount: null, rows: [] };
+      });
+    };
+    await importSnapshotFromDatabaseUrl(undefined, snapshot({}), factory);
+  } finally {
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  }
+
+  assert.deepEqual(receivedUrls, [expectedDatabaseUrl]);
+  assert.deepEqual(events, ['connect', 'BEGIN', 'COMMIT', 'release', 'end']);
+});
 
 async function withProtectedTestDatabase(run: (pool: Pool) => Promise<void>): Promise<void> {
   const databaseUrl = assertSafeSeedTestDatabaseUrl(process.env.DATABASE_URL_TEST);
@@ -172,6 +348,48 @@ test('rolls back the entire ordered import and reports only failing table id and
 
       const count = await client.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM "organization"');
       assert.equal(count.rows[0].count, '0');
+    } finally {
+      client.release();
+    }
+  });
+});
+
+test('rolls back on a target-side business-key conflict without exposing the unique value', async () => {
+  await withProtectedTestDatabase(async pool => {
+    const client = await pool.connect();
+
+    try {
+      await importSnapshot(client, snapshot({
+        User: [userRecord({ id: 'user-existing', username: 'duplicate-business-key' })],
+      }));
+      const fixture = snapshot({
+        Organization: [organizationRecord()],
+        User: [userRecord({ id: 'user-conflict', username: 'duplicate-business-key' })],
+      });
+
+      await assert.rejects(
+        () => importSnapshot(client, fixture),
+        (error: unknown) => {
+          assert.ok(error instanceof ImportFailure);
+          assert.deepEqual(error.report, {
+            inserted: 1,
+            updated: 0,
+            skipped: 0,
+            failed: 1,
+            failures: [{ table: 'User', id: 'user-conflict', code: '23505' }],
+          });
+          assert.equal(error.message, 'PostgreSQL import failed');
+          assert.equal(JSON.stringify(error.report).includes('duplicate-business-key'), false);
+          return true;
+        },
+      );
+
+      const organizationCount = await client.query<{ count: string }>(
+        'SELECT COUNT(*)::text AS count FROM "organization"',
+      );
+      const users = await client.query<{ id: string }>('SELECT "id" FROM "user" ORDER BY "id"');
+      assert.equal(organizationCount.rows[0].count, '0');
+      assert.deepEqual(users.rows, [{ id: 'user-existing' }]);
     } finally {
       client.release();
     }

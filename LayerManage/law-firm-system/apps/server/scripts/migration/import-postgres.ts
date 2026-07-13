@@ -1,4 +1,4 @@
-import type { PoolClient, QueryResultRow } from 'pg';
+import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 import { TABLE_ORDER, type TableName } from './table-plan';
 import type { SnapshotRecord, SourceSnapshot } from './types';
 import { getTableSchema, ImportInputError, normalizeRow } from './normalize';
@@ -6,6 +6,7 @@ import { getTableSchema, ImportInputError, normalizeRow } from './normalize';
 export interface ImportFailureDetail {
   code: string;
   id: string;
+  reason?: 'missing-id' | 'duplicate-id';
   table: TableName;
 }
 
@@ -16,6 +17,13 @@ export interface ImportReport {
   skipped: number;
   updated: number;
 }
+
+export interface ImportPool {
+  connect(): Promise<PoolClient>;
+  end(): Promise<void>;
+}
+
+export type ImportPoolFactory = (databaseUrl: string) => ImportPool;
 
 export class ImportFailure extends Error {
   constructor(public readonly report: ImportReport) {
@@ -37,6 +45,33 @@ function failureCode(error: unknown): string {
 
 function recordId(row: SnapshotRecord): string {
   return typeof row.id === 'string' && row.id.length > 0 ? row.id : 'unknown';
+}
+
+function failedReport(detail: ImportFailureDetail): ImportReport {
+  return { inserted: 0, updated: 0, skipped: 0, failed: 1, failures: [detail] };
+}
+
+function preflightSnapshot(snapshot: SourceSnapshot): void {
+  for (const table of TABLE_ORDER) {
+    const seenIds = new Set<string>();
+
+    for (const row of snapshot.tables[table].records) {
+      if (typeof row.id !== 'string' || row.id.length === 0) {
+        throw new ImportFailure(failedReport({ table, id: 'unknown', code: 'INVALID_VALUE', reason: 'missing-id' }));
+      }
+      const id = row.id;
+      if (seenIds.has(id)) {
+        throw new ImportFailure(failedReport({ table, id, code: 'INVALID_VALUE', reason: 'duplicate-id' }));
+      }
+
+      seenIds.add(id);
+      try {
+        normalizeRow(table, row);
+      } catch (error) {
+        throw new ImportFailure(failedReport({ table, id, code: failureCode(error) }));
+      }
+    }
+  }
 }
 
 function normalizeStoredDateTime(value: unknown): unknown {
@@ -109,6 +144,7 @@ export async function importSnapshot(client: PoolClient, snapshot: SourceSnapsho
   let currentTable: TableName = TABLE_ORDER[0];
   let currentRow: SnapshotRecord = {};
 
+  preflightSnapshot(snapshot);
   await client.query('BEGIN');
 
   try {
@@ -127,5 +163,33 @@ export async function importSnapshot(client: PoolClient, snapshot: SourceSnapsho
     report.failed += 1;
     report.failures.push({ table: currentTable, id: recordId(currentRow), code: failureCode(error) });
     throw new ImportFailure(report);
+  }
+}
+
+const createImportPool: ImportPoolFactory = databaseUrl => new Pool({ connectionString: databaseUrl });
+
+export async function importSnapshotFromDatabaseUrl(
+  databaseUrl: string | undefined,
+  snapshot: SourceSnapshot,
+  poolFactory: ImportPoolFactory = createImportPool,
+): Promise<ImportReport> {
+  const resolvedDatabaseUrl = databaseUrl ?? process.env.DATABASE_URL;
+  if (!resolvedDatabaseUrl) throw new Error('DATABASE_URL is required');
+
+  try {
+    const pool = poolFactory(resolvedDatabaseUrl);
+    try {
+      const client = await pool.connect();
+      try {
+        return await importSnapshot(client, snapshot);
+      } finally {
+        client.release();
+      }
+    } finally {
+      await pool.end();
+    }
+  } catch (error) {
+    if (error instanceof ImportFailure) throw error;
+    throw new Error('PostgreSQL import failed');
   }
 }
