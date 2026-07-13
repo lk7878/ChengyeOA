@@ -16,8 +16,8 @@ const JSON_STRING_FIELDS = new Set([
   'Performance.kpiData',
 ]);
 
-const LEGACY_NAIVE_TIMESTAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2}(?:\.\d{3})?)?$/;
-const OFFSET_TIMESTAMP = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+const LEGACY_NAIVE_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{3}))?)?$/;
+const OFFSET_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2})$/;
 
 export class ImportInputError extends Error {
   constructor(
@@ -55,15 +55,54 @@ function normalizeDecimal(value: unknown, table: string, column: string): string
   }
 }
 
+function hasValidDateTimeComponents(match: RegExpMatchArray): boolean {
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6] ?? '0');
+  const millisecond = Number((match[7] ?? '').padEnd(3, '0'));
+
+  if (month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+
+  const roundTrip = new Date(0);
+  roundTrip.setUTCFullYear(year, month - 1, day);
+  roundTrip.setUTCHours(hour, minute, second, millisecond);
+  return roundTrip.getUTCFullYear() === year
+    && roundTrip.getUTCMonth() === month - 1
+    && roundTrip.getUTCDate() === day
+    && roundTrip.getUTCHours() === hour
+    && roundTrip.getUTCMinutes() === minute
+    && roundTrip.getUTCSeconds() === second
+    && roundTrip.getUTCMilliseconds() === millisecond;
+}
+
+function hasValidOffset(match: RegExpMatchArray): boolean {
+  const offset = match[8];
+  if (!offset || offset === 'Z') return true;
+  const offsetHour = Number(offset.slice(1, 3));
+  const offsetMinute = Number(offset.slice(4, 6));
+  return offsetHour <= 23 && offsetMinute <= 59;
+}
+
 function normalizeDateTime(value: unknown, table: string, column: string): string {
   let source: Date;
 
   if (value instanceof Date) {
     source = value;
-  } else if (typeof value === 'string' && LEGACY_NAIVE_TIMESTAMP.test(value)) {
-    source = new Date(`${value.replace(' ', 'T')}+08:00`);
-  } else if (typeof value === 'string' && OFFSET_TIMESTAMP.test(value)) {
-    source = new Date(value);
+  } else if (typeof value === 'string') {
+    const naiveMatch = value.match(LEGACY_NAIVE_TIMESTAMP);
+    const offsetMatch = value.match(OFFSET_TIMESTAMP);
+    if (naiveMatch && hasValidDateTimeComponents(naiveMatch)) {
+      source = new Date(`${value.replace(' ', 'T')}+08:00`);
+    } else if (offsetMatch && hasValidDateTimeComponents(offsetMatch) && hasValidOffset(offsetMatch)) {
+      source = new Date(value);
+    } else {
+      source = new Date(Number.NaN);
+    }
   } else {
     source = new Date(Number.NaN);
   }

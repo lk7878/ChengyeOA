@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeRow } from '../../scripts/migration/normalize';
+import { ImportInputError, normalizeRow } from '../../scripts/migration/normalize';
+
+function assertInvalidTimestamp(value: string): void {
+  assert.throws(
+    () => normalizeRow('Contract', { signDate: value }),
+    (error: unknown) => {
+      assert.ok(error instanceof ImportInputError);
+      assert.equal(error.code, 'INVALID_VALUE');
+      assert.equal(error.message.includes(value), false);
+      return true;
+    },
+  );
+}
 
 test('normalizes money values to two decimal places', () => {
   assert.equal(normalizeRow('Contract', { amount: 30000 }).amount, '30000.00');
@@ -21,6 +33,29 @@ test('interprets enumerated legacy SQLite timestamps as Asia/Shanghai even when 
     assert.equal(normalizeRow('Contract', { signDate: '2026-04-01 08:00:00+08:00' }).signDate, '2026-04-01T00:00:00.000Z');
     assert.throws(() => normalizeRow('Contract', { signDate: '2026-04-01T08:00:00' }), /Invalid timestamp/);
     assert.throws(() => normalizeRow('Contract', { signDate: '2026-04-01' }), /Invalid timestamp/);
+  } finally {
+    if (originalTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTimezone;
+  }
+});
+
+test('strictly validates legacy and explicit-offset calendar/time components when host TZ is UTC', () => {
+  const originalTimezone = process.env.TZ;
+  process.env.TZ = 'UTC';
+
+  try {
+    assertInvalidTimestamp('2025-02-29 08:00:00');
+    assertInvalidTimestamp('2026-02-30 08:00:00');
+    assertInvalidTimestamp('2026-04-31 08:00:00');
+    assertInvalidTimestamp('2026-04-01 24:00:00');
+    assertInvalidTimestamp('2026-04-01 08:60:00');
+    assertInvalidTimestamp('2026-02-30T08:00:00Z');
+    assertInvalidTimestamp('2026-04-31T08:00:00+08:00');
+    assertInvalidTimestamp('2026-04-01T24:00:00Z');
+    assert.equal(
+      normalizeRow('Contract', { signDate: '2024-02-29 08:00:00' }).signDate,
+      '2024-02-29T00:00:00.000Z',
+    );
   } finally {
     if (originalTimezone === undefined) delete process.env.TZ;
     else process.env.TZ = originalTimezone;
