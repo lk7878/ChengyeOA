@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 import { compareUnicodeCodePoints } from './ordering';
 import { TABLE_ORDER, type TableName } from './table-plan';
@@ -30,6 +31,23 @@ function sourceManifest(sourcePath: string): SourceManifest {
     path: sourcePath,
     sha256: createHash('sha256').update(fs.readFileSync(sourcePath)).digest('hex'),
   };
+}
+
+function assertStandaloneSource(sourcePath: string): void {
+  const resolved = path.resolve(sourcePath);
+  const directory = path.dirname(resolved);
+  const databaseName = path.basename(resolved);
+  const hasSidecar = fs.readdirSync(directory).some(entry => {
+    const comparableEntry = process.platform === 'win32' ? entry.toLowerCase() : entry;
+    const comparableDatabase = process.platform === 'win32' ? databaseName.toLowerCase() : databaseName;
+    if (!comparableEntry.startsWith(comparableDatabase)) return false;
+    const suffix = entry.slice(databaseName.length);
+    return suffix === '-journal'
+      || suffix === '-wal'
+      || suffix === '-shm'
+      || /^-mj[0-9a-f]+$/i.test(suffix);
+  });
+  if (hasSidecar) throw new Error('SQLite source has active sidecar');
 }
 
 function assertStableSource(before: SourceManifest, after: SourceManifest): void {
@@ -109,9 +127,11 @@ function readSource<T>(sourcePath: string, readTable: (database: Database.Databa
 }
 
 export function inventorySqlite(sourcePath: string, hooks: SourceReadHooks = {}): SourceInventory {
+  assertStandaloneSource(sourcePath);
   const source = sourceManifest(sourcePath);
   const tables = readSource(sourcePath, readTableInventory);
   hooks.afterRead?.();
+  assertStandaloneSource(sourcePath);
   assertStableSource(source, sourceManifest(sourcePath));
   return {
     generatedAt: new Date().toISOString(),
@@ -122,9 +142,11 @@ export function inventorySqlite(sourcePath: string, hooks: SourceReadHooks = {})
 }
 
 export function snapshotSqlite(sourcePath: string, hooks: SourceReadHooks = {}): SourceSnapshot {
+  assertStandaloneSource(sourcePath);
   const source = sourceManifest(sourcePath);
   const tables = readSource(sourcePath, readTableSnapshot);
   hooks.afterRead?.();
+  assertStandaloneSource(sourcePath);
   assertStableSource(source, sourceManifest(sourcePath));
   return {
     generatedAt: new Date().toISOString(),

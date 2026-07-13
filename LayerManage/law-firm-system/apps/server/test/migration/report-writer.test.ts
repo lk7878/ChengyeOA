@@ -3,7 +3,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { parseMigrationReport, writeMigrationReport, writeSnapshotExport } from '../../scripts/migration/report-writer';
+import {
+  abortImportReportReservation,
+  IMPORT_REPORT_PENDING_FILE,
+  parseMigrationReport,
+  publishReservedImportReport,
+  reserveImportReport,
+  writeMigrationReport,
+  writeSnapshotExport,
+} from '../../scripts/migration/report-writer';
 import { TABLE_ORDER, type TableName } from '../../scripts/migration/table-plan';
 import type { DiffReport, SourceInventory, SourceSnapshot, TableInventory, TableSnapshot } from '../../scripts/migration/types';
 
@@ -46,6 +54,10 @@ function diffReport(): DiffReport {
   };
 }
 
+function importReport() {
+  return { inserted: 1, updated: 0, skipped: 0, failed: 0, failures: [] };
+}
+
 test('strict report schemas reject unknown sensitive keys and invalid nested value shapes', () => {
   const root = outputRoot();
   try {
@@ -62,9 +74,9 @@ test('strict report schemas reject unknown sensitive keys and invalid nested val
       /Invalid inventory report/,
     );
     assert.throws(
-      () => writeMigrationReport('run_3', 'import-report.json', {
+      () => parseMigrationReport('import-report.json', {
         inserted: 0, updated: 0, skipped: 0, failed: 0, failures: [], phone: '13800138000',
-      }, root),
+      }),
       /Invalid import report/,
     );
     assert.throws(
@@ -152,5 +164,70 @@ test('rejects export-directory symlink or junction traversal when supported', t 
   } finally {
     fs.rmSync(root, { force: true, recursive: true });
     fs.rmSync(outside, { force: true, recursive: true });
+  }
+});
+
+test('rejects a symlink or junction in an output-root ancestor when supported', t => {
+  const container = outputRoot();
+  const outside = outputRoot();
+  const linkedAncestor = path.join(container, 'linked-ancestor');
+  const nestedOutputRoot = path.join(linkedAncestor, 'migration-output');
+
+  try {
+    try {
+      fs.symlinkSync(outside, linkedAncestor, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      t.skip(`directory links unavailable: ${(error as NodeJS.ErrnoException).code ?? 'unknown'}`);
+      return;
+    }
+
+    assert.throws(() => writeMigrationReport('run_1', 'inventory.json', inventory(), nestedOutputRoot), /output path/);
+    assert.equal(fs.existsSync(path.join(outside, 'migration-output', 'run_1', 'inventory.json')), false);
+  } finally {
+    if (fs.existsSync(linkedAncestor) && fs.lstatSync(linkedAncestor).isSymbolicLink()) fs.unlinkSync(linkedAncestor);
+    fs.rmSync(container, { force: true, recursive: true });
+    fs.rmSync(outside, { force: true, recursive: true });
+  }
+});
+
+test('reserves and durably publishes an import report through a sanitized token marker', () => {
+  const root = outputRoot();
+  try {
+    const reservation = reserveImportReport('run_1', root);
+    const pendingPath = path.join(root, 'run_1', IMPORT_REPORT_PENDING_FILE);
+    const marker = JSON.parse(fs.readFileSync(pendingPath, 'utf8')) as Record<string, unknown>;
+
+    assert.deepEqual(Object.keys(marker).sort(), ['kind', 'token', 'version']);
+    assert.equal(marker.kind, 'migration-import-report-reservation');
+    assert.equal(marker.version, 1);
+    assert.match(String(marker.token), /^[a-f0-9]{64}$/);
+    assert.equal(fs.readFileSync(pendingPath, 'utf8').includes('fixture.sqlite'), false);
+
+    const destination = publishReservedImportReport(reservation, importReport());
+    assert.deepEqual(JSON.parse(fs.readFileSync(destination, 'utf8')), importReport());
+    assert.equal(fs.existsSync(pendingPath), false);
+    assert.throws(() => publishReservedImportReport(reservation, importReport()), /reservation/);
+  } finally {
+    fs.rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test('refuses existing final or pending import-report publication and supports pre-mutation abort', () => {
+  const root = outputRoot();
+  try {
+    publishReservedImportReport(reserveImportReport('final_exists', root), importReport());
+    assert.throws(() => reserveImportReport('final_exists', root), /already exists/);
+
+    assert.throws(
+      () => writeMigrationReport('direct_write', 'import-report.json', importReport(), root),
+      /reservation required/,
+    );
+
+    const reservation = reserveImportReport('pending_exists', root);
+    assert.throws(() => reserveImportReport('pending_exists', root), /already exists/);
+    abortImportReportReservation(reservation);
+    assert.equal(fs.existsSync(path.join(root, 'pending_exists', IMPORT_REPORT_PENDING_FILE)), false);
+  } finally {
+    fs.rmSync(root, { force: true, recursive: true });
   }
 });

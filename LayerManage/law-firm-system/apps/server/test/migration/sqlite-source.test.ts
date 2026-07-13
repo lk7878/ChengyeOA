@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import Database from 'better-sqlite3';
 import { createSQLiteFixtures, FIXTURE_LITERALS } from '../fixtures/sqlite/create-fixtures';
 import { inventorySqlite, snapshotSqlite } from '../../scripts/migration/sqlite-source';
 
@@ -72,6 +75,84 @@ test('rejects a source that changes between inventory read and final hash', () =
         },
       }),
       /SQLite source changed during read/,
+    );
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test('rejects a WAL-backed source whose committed row is absent from the unchanged main database', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'chengye-oa-wal-source-'));
+  const sourcePath = path.join(directory, 'wal-only.db');
+  const database = new Database(sourcePath);
+
+  try {
+    database.pragma('journal_mode = WAL');
+    database.exec('CREATE TABLE "Organization" (id TEXT PRIMARY KEY)');
+    database.pragma('wal_checkpoint(TRUNCATE)');
+    const mainBefore = hashFile(sourcePath);
+
+    database.exec("INSERT INTO \"Organization\" (id) VALUES ('wal-only-row')");
+
+    assert.equal(hashFile(sourcePath), mainBefore);
+    assert.equal(fs.existsSync(`${sourcePath}-wal`), true);
+    assert.equal(database.prepare('SELECT COUNT(*) AS count FROM "Organization"').get().count, 1);
+    assert.throws(() => snapshotSqlite(sourcePath), /^Error: SQLite source has active sidecar$/);
+    assert.throws(() => inventorySqlite(sourcePath), /^Error: SQLite source has active sidecar$/);
+  } finally {
+    database.close();
+    fs.rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test('rejects a journal sidecar created after a readonly snapshot read', () => {
+  const fixtures = createSQLiteFixtures();
+  const sidecar = `${fixtures.primaryPath}-journal`;
+
+  try {
+    assert.throws(
+      () => snapshotSqlite(fixtures.primaryPath, {
+        afterRead() {
+          fs.writeFileSync(sidecar, 'fixture-sidecar');
+        },
+      }),
+      /^Error: SQLite source has active sidecar$/,
+    );
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test('rejects a super-journal sidecar created after a readonly inventory read', () => {
+  const fixtures = createSQLiteFixtures();
+  const sidecar = `${fixtures.primaryPath}-mjABCDEF912`;
+
+  try {
+    assert.throws(
+      () => inventorySqlite(fixtures.primaryPath, {
+        afterRead() {
+          fs.writeFileSync(sidecar, 'fixture-sidecar');
+        },
+      }),
+      /^Error: SQLite source has active sidecar$/,
+    );
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test('rejects sidecars when Windows source-path casing differs from its directory entry', t => {
+  if (process.platform !== 'win32') {
+    t.skip('case-insensitive source path fixture is Windows-specific');
+    return;
+  }
+  const fixtures = createSQLiteFixtures();
+
+  try {
+    fs.writeFileSync(`${fixtures.primaryPath}-journal`, 'fixture-sidecar');
+    assert.throws(
+      () => snapshotSqlite(fixtures.primaryPath.toUpperCase()),
+      /^Error: SQLite source has active sidecar$/,
     );
   } finally {
     fixtures.cleanup();

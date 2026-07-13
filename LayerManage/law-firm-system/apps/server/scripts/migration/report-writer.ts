@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ImportReport } from './import-postgres';
@@ -25,12 +25,23 @@ const VALIDATION_CHECKS = new Set([
   'decimal-total', 'timestamp-sample', 'password-hash',
 ]);
 
+export const IMPORT_REPORT_PENDING_FILE = '.import-report.pending.json';
+const IMPORT_REPORT_RESERVATION_KIND = 'migration-import-report-reservation';
+
+export interface ImportReportReservation {
+  readonly outputRoot: string;
+  readonly runId: string;
+  readonly token: string;
+}
+
 export type ReportFileName =
   | 'source-manifest.json'
   | 'inventory.json'
   | 'diff-report.json'
   | 'import-report.json'
   | 'validation-report.json';
+
+export type DirectReportFileName = Exclude<ReportFileName, 'import-report.json'>;
 
 export interface SourceManifestPair {
   primary: SourceManifest;
@@ -221,21 +232,47 @@ function contained(root: string, candidate: string): boolean {
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }
 
+function comparablePath(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function assertOrdinaryDirectory(directory: string): void {
+  const status = fs.lstatSync(directory);
+  if (status.isSymbolicLink() || !status.isDirectory()) throw new Error('Invalid migration output path');
+  if (comparablePath(fs.realpathSync.native(directory)) !== comparablePath(directory)) {
+    throw new Error('Invalid migration output path');
+  }
+}
+
+function createSecureDirectory(directory: string): string {
+  const resolved = path.resolve(directory);
+  const volumeRoot = path.parse(resolved).root;
+  assertOrdinaryDirectory(volumeRoot);
+  let current = volumeRoot;
+
+  for (const segment of path.relative(volumeRoot, resolved).split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment);
+    if (!fs.existsSync(current)) {
+      try {
+        fs.mkdirSync(current);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+    }
+    assertOrdinaryDirectory(current);
+  }
+
+  return resolved;
+}
+
 function secureDirectory(outputRoot: string, segments: readonly string[]): string {
-  const resolvedRoot = path.resolve(outputRoot);
-  fs.mkdirSync(resolvedRoot, { recursive: true });
-  if (fs.lstatSync(resolvedRoot).isSymbolicLink()) throw new Error('Invalid migration output path');
-  const root = fs.realpathSync.native(resolvedRoot);
+  const root = createSecureDirectory(outputRoot);
   let current = root;
 
   for (const segment of segments) {
     const candidate = path.join(current, segment);
-    if (fs.existsSync(candidate)) {
-      const status = fs.lstatSync(candidate);
-      if (status.isSymbolicLink() || !status.isDirectory()) throw new Error('Invalid migration output path');
-    } else {
-      fs.mkdirSync(candidate);
-    }
+    createSecureDirectory(candidate);
     const real = fs.realpathSync.native(candidate);
     if (!contained(root, real)) throw new Error('Invalid migration output path');
     current = real;
@@ -248,32 +285,150 @@ function runDirectory(runId: string, outputRoot: string): string {
   return secureDirectory(outputRoot, [runId]);
 }
 
+function syncDirectory(directory: string): void {
+  let descriptor: number | undefined;
+  try {
+    descriptor = fs.openSync(directory, 'r');
+    fs.fsyncSync(descriptor);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (!['EPERM', 'EISDIR', 'EINVAL', 'ENOTSUP'].includes(code ?? '')) throw error;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function writeExclusiveFsynced(destination: string, contents: string): void {
+  let descriptor: number | undefined;
+  let created = false;
+  try {
+    descriptor = fs.openSync(destination, 'wx', 0o600);
+    created = true;
+    fs.writeFileSync(descriptor, contents, { encoding: 'utf8' });
+    fs.fsyncSync(descriptor);
+  } catch (error) {
+    if (descriptor !== undefined) {
+      fs.closeSync(descriptor);
+      descriptor = undefined;
+    }
+    if (created) fs.rmSync(destination, { force: true });
+    throw error;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function syncFile(filePath: string): void {
+  const descriptor = fs.openSync(filePath, 'r+');
+  try {
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
 function writeAtomically(destination: string, payload: unknown): void {
   if (fs.existsSync(destination)) throw new Error('Migration artifact already exists');
   const temporary = path.join(path.dirname(destination), `.${path.basename(destination)}.tmp-${process.pid}-${randomUUID()}`);
   try {
-    fs.writeFileSync(temporary, `${JSON.stringify(payload, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
+    writeExclusiveFsynced(temporary, `${JSON.stringify(payload, null, 2)}\n`);
     try {
       fs.linkSync(temporary, destination);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Migration artifact already exists');
       throw error;
     }
+    syncFile(destination);
+    syncDirectory(path.dirname(destination));
   } finally {
     if (fs.existsSync(temporary)) fs.rmSync(temporary, { force: true });
   }
+}
+
+function reservationPaths(reservation: ImportReportReservation): { destination: string; directory: string; pending: string } {
+  const directory = runDirectory(reservation.runId, reservation.outputRoot);
+  return {
+    destination: path.join(directory, 'import-report.json'),
+    directory,
+    pending: path.join(directory, IMPORT_REPORT_PENDING_FILE),
+  };
+}
+
+function assertReservation(reservation: ImportReportReservation): ReturnType<typeof reservationPaths> {
+  const paths = reservationPaths(reservation);
+  try {
+    const marker = objectValue(JSON.parse(fs.readFileSync(paths.pending, 'utf8')), 'import report reservation');
+    exactKeys(marker, ['kind', 'token', 'version'], [], 'import report reservation');
+    if (marker.kind !== IMPORT_REPORT_RESERVATION_KIND || marker.version !== 1 || marker.token !== reservation.token) {
+      invalid('import report reservation');
+    }
+  } catch {
+    throw new Error('Invalid import report reservation');
+  }
+  return paths;
+}
+
+export function reserveImportReport(runId: string, outputRoot = MIGRATION_OUTPUT_ROOT): ImportReportReservation {
+  const reservation: ImportReportReservation = {
+    outputRoot,
+    runId,
+    token: randomBytes(32).toString('hex'),
+  };
+  const paths = reservationPaths(reservation);
+  if (fs.existsSync(paths.destination)) throw new Error('Migration artifact already exists');
+
+  try {
+    writeExclusiveFsynced(paths.pending, `${JSON.stringify({
+      kind: IMPORT_REPORT_RESERVATION_KIND,
+      token: reservation.token,
+      version: 1,
+    })}\n`);
+    syncDirectory(paths.directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Migration artifact already exists');
+    throw error;
+  }
+
+  if (fs.existsSync(paths.destination)) {
+    fs.rmSync(paths.pending, { force: true });
+    syncDirectory(paths.directory);
+    throw new Error('Migration artifact already exists');
+  }
+  return reservation;
+}
+
+export function abortImportReportReservation(reservation: ImportReportReservation): void {
+  const paths = assertReservation(reservation);
+  fs.rmSync(paths.pending);
+  syncDirectory(paths.directory);
+}
+
+export function publishReservedImportReport(reservation: ImportReportReservation, report: ImportReport): string {
+  const paths = assertReservation(reservation);
+  const validated = parseMigrationReport('import-report.json', report);
+  writeAtomically(paths.destination, validated);
+  fs.rmSync(paths.pending);
+  syncDirectory(paths.directory);
+  return paths.destination;
 }
 
 export function migrationRunDirectory(runId: string, outputRoot = MIGRATION_OUTPUT_ROOT): string {
   return runDirectory(runId, outputRoot);
 }
 
-export function writeMigrationReport<K extends ReportFileName>(
+export function writeMigrationReport<K extends DirectReportFileName>(
   runId: string,
   fileName: K,
   payload: ReportPayloadMap[K],
+  outputRoot?: string,
+): string;
+export function writeMigrationReport(
+  runId: string,
+  fileName: ReportFileName,
+  payload: ReportPayloadMap[ReportFileName],
   outputRoot = MIGRATION_OUTPUT_ROOT,
 ): string {
+  if (fileName === 'import-report.json') throw new Error('Import report reservation required');
   const validated = parseMigrationReport(fileName, payload);
   const destination = path.join(runDirectory(runId, outputRoot), fileName);
   writeAtomically(destination, validated);
