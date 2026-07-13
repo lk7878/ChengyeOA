@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validateMigration, type ValidationQueryable } from '../../scripts/migration/validate';
+import { RELATION_RULES, validateMigration, type ValidationQueryable } from '../../scripts/migration/validate';
 import { TABLE_ORDER, type TableName } from '../../scripts/migration/table-plan';
 import type { SnapshotRecord, SourceSnapshot, TableSnapshot } from '../../scripts/migration/types';
 
@@ -23,7 +23,11 @@ function snapshot(recordsByTable: Partial<Record<TableName, SnapshotRecord[]>> =
 
 function fixtureSnapshot(): SourceSnapshot {
   return snapshot({
-    Organization: [{ id: 'org-1', name: 'Fixture firm', createdAt: TIMESTAMP, updatedAt: TIMESTAMP }],
+    Organization: [
+      { id: 'org-1', parentId: null, name: 'Fixture firm', createdAt: TIMESTAMP, updatedAt: TIMESTAMP },
+      { id: 'org-2', parentId: null, name: 'Second firm', createdAt: TIMESTAMP, updatedAt: TIMESTAMP },
+      { id: 'org-child', parentId: 'org-1', name: 'Child office', createdAt: TIMESTAMP, updatedAt: TIMESTAMP },
+    ],
     Position: [{ id: 'position-1', orgId: 'org-1', name: 'Lawyer', createdAt: TIMESTAMP, updatedAt: TIMESTAMP }],
     Employee: [{ id: 'employee-1', employeeNo: 'E-001', orgId: 'org-1', positionId: 'position-1', entryDate: TIMESTAMP, createdAt: TIMESTAMP, updatedAt: TIMESTAMP }],
     User: [{ id: 'user-1', username: 'fixture-user', password: '$2b$10$fixturePasswordHashLiteral', employeeId: 'employee-1', createdAt: TIMESTAMP, updatedAt: TIMESTAMP }],
@@ -35,6 +39,10 @@ function fixtureSnapshot(): SourceSnapshot {
     Case: [{ id: 'case-1', caseNo: 'CASE-001', customerId: 'customer-1', contractId: 'contract-1', lawyerId: 'employee-1', fee: '200.00', createdAt: TIMESTAMP, updatedAt: TIMESTAMP }],
     CaseTask: [{ id: 'task-1', caseId: 'case-1', name: 'Fixture task', createdAt: TIMESTAMP, updatedAt: TIMESTAMP }],
     Communication: [{ id: 'communication-1', caseId: 'case-1', content: 'private communication free text', createdAt: TIMESTAMP }],
+    Permission: [
+      { id: 'permission-root', code: 'system', parentId: null },
+      { id: 'permission-child', code: 'system:read', parentId: 'permission-root' },
+    ],
   });
 }
 
@@ -44,6 +52,7 @@ interface TargetOptions {
   orphanForeignKey?: boolean;
   password?: string;
   removeId?: string;
+  rewiredForeignKey?: { field: string; id: string; table: TableName; value: string | null };
   shiftedTimestamp?: boolean;
 }
 
@@ -57,6 +66,25 @@ function targetFor(source: SourceSnapshot, options: TargetOptions = {}): Validat
         return { rows: records.filter(record => record.id !== options.removeId).map(record => ({ id: record.id })) };
       }
       if (kind === 'foreign-key') return { rows: options.orphanForeignKey ? [{ id: 'orphan-id' }] : [] };
+      if (kind === 'foreign-key-values') {
+        const requestedIds = values?.[0] as string[];
+        const fields = String(field).split(',');
+        return {
+          rows: records
+            .filter(record => requestedIds.includes(String(record.id)))
+            .map(record => Object.fromEntries([
+              ['id', record.id],
+              ...fields.map(name => [
+                name,
+                options.rewiredForeignKey?.table === table
+                  && options.rewiredForeignKey.id === record.id
+                  && options.rewiredForeignKey.field === name
+                  ? options.rewiredForeignKey.value
+                  : record[name],
+              ]),
+            ])),
+        };
+      }
       if (kind === 'business-key') return { rows: options.duplicateBusinessKey ? [{ duplicateCount: 2 }] : [] };
       if (kind === 'decimal-total') {
         const total = options.amountTotal ?? records.reduce((sum, record) => sum + Number(record[field] ?? 0), 0).toFixed(2);
@@ -82,6 +110,13 @@ function targetFor(source: SourceSnapshot, options: TargetOptions = {}): Validat
     },
   };
 }
+
+test('derives all genuine Prisma foreign keys including self-parent relations only', () => {
+  assert.equal(RELATION_RULES.length, 24);
+  assert.equal(RELATION_RULES.some(rule => rule.child === 'Organization' && rule.fields.includes('parentId')), true);
+  assert.equal(RELATION_RULES.some(rule => rule.child === 'Permission' && rule.fields.includes('parentId')), true);
+  assert.equal(RELATION_RULES.some(rule => rule.child === 'Notification' && rule.fields.includes('userId')), false);
+});
 
 function check(report: Awaited<ReturnType<typeof validateMigration>>, name: string): { status: string; expected: unknown; actual: unknown } {
   const result = report.checks.find(candidate => candidate.check === name);
@@ -116,6 +151,33 @@ test('reports orphaned required foreign keys', async () => {
   const report = await validateMigration(targetFor(source, { orphanForeignKey: true }), source);
 
   assert.equal(report.checks.some(result => result.check === 'foreign-key' && result.status === 'FAIL'), true);
+});
+
+test('fails when a target foreign key is rewired to another valid parent', async () => {
+  const source = fixtureSnapshot();
+  const report = await validateMigration(targetFor(source, {
+    rewiredForeignKey: { table: 'Position', id: 'position-1', field: 'orgId', value: 'org-2' },
+  }), source);
+  const result = report.checks.find(candidate => candidate.check === 'foreign-key-values'
+    && candidate.table === 'Position' && candidate.field === 'orgId');
+
+  assert.deepEqual(result, {
+    check: 'foreign-key-values', table: 'Position', field: 'orgId',
+    expected: ['position-1'], actual: [], status: 'FAIL',
+  });
+  assert.equal(report.ok, false);
+});
+
+test('fails when a source null self-parent is rewired to a valid parent', async () => {
+  const source = fixtureSnapshot();
+  const report = await validateMigration(targetFor(source, {
+    rewiredForeignKey: { table: 'Organization', id: 'org-1', field: 'parentId', value: 'org-2' },
+  }), source);
+  const result = report.checks.find(candidate => candidate.check === 'foreign-key-values'
+    && candidate.table === 'Organization' && candidate.field === 'parentId');
+
+  assert.equal(result?.status, 'FAIL');
+  assert.equal((result?.actual as string[]).includes('org-1'), false);
 });
 
 test('reports duplicate configured business keys', async () => {

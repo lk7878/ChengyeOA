@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { BUSINESS_KEYS, TABLE_ORDER, type TableName } from './table-plan';
 import { getTableSchema, normalizeRow } from './normalize';
@@ -9,7 +10,7 @@ export interface ValidationQueryable {
 
 export interface ValidationCheck {
   actual: number | string[];
-  check: 'row-count' | 'primary-ids' | 'foreign-key' | 'business-key' | 'decimal-total' | 'timestamp-sample' | 'password-hash';
+  check: 'row-count' | 'primary-ids' | 'foreign-key' | 'foreign-key-values' | 'business-key' | 'decimal-total' | 'timestamp-sample' | 'password-hash';
   expected: number | string[];
   field?: string;
   status: 'PASS' | 'FAIL';
@@ -29,37 +30,29 @@ export class MigrationValidationError extends Error {
   }
 }
 
-interface ForeignKeyRule {
+export interface RelationRule {
   child: TableName;
-  field: string;
+  fields: readonly string[];
   parent: TableName;
+  references: readonly string[];
 }
 
-const FOREIGN_KEY_RULES: readonly ForeignKeyRule[] = [
-  { child: 'Position', field: 'orgId', parent: 'Organization' },
-  { child: 'Employee', field: 'orgId', parent: 'Organization' },
-  { child: 'Employee', field: 'positionId', parent: 'Position' },
-  { child: 'User', field: 'employeeId', parent: 'Employee' },
-  { child: 'UserRole', field: 'userId', parent: 'User' },
-  { child: 'UserRole', field: 'roleId', parent: 'Role' },
-  { child: 'RolePermission', field: 'roleId', parent: 'Role' },
-  { child: 'RolePermission', field: 'permissionId', parent: 'Permission' },
-  { child: 'LoginLog', field: 'userId', parent: 'User' },
-  { child: 'Lead', field: 'channelId', parent: 'Channel' },
-  { child: 'Lead', field: 'assignedTo', parent: 'Employee' },
-  { child: 'LeadFollow', field: 'leadId', parent: 'Lead' },
-  { child: 'Customer', field: 'leadId', parent: 'Lead' },
-  { child: 'Contract', field: 'customerId', parent: 'Customer' },
-  { child: 'Payment', field: 'contractId', parent: 'Contract' },
-  { child: 'Payment', field: 'customerId', parent: 'Customer' },
-  { child: 'Case', field: 'customerId', parent: 'Customer' },
-  { child: 'Case', field: 'contractId', parent: 'Contract' },
-  { child: 'Case', field: 'lawyerId', parent: 'Employee' },
-  { child: 'CaseTask', field: 'caseId', parent: 'Case' },
-  { child: 'Communication', field: 'caseId', parent: 'Case' },
-  { child: 'Performance', field: 'employeeId', parent: 'Employee' },
-  { child: 'Notification', field: 'userId', parent: 'User' },
-] as const;
+function dmmfTableName(name: string): TableName {
+  if (!TABLE_ORDER.includes(name as TableName)) throw new Error('Unexpected Prisma relation model');
+  return name as TableName;
+}
+
+export const RELATION_RULES: readonly RelationRule[] = Prisma.dmmf.datamodel.models
+  .flatMap(model => model.fields
+    .filter(field => field.kind === 'object' && (field.relationFromFields?.length ?? 0) > 0)
+    .map(field => ({
+      child: dmmfTableName(model.name),
+      fields: [...(field.relationFromFields ?? [])],
+      parent: dmmfTableName(field.type),
+      references: [...(field.relationToFields ?? [])],
+    })))
+  .sort((left, right) => TABLE_ORDER.indexOf(left.child) - TABLE_ORDER.indexOf(right.child)
+    || left.fields.join(',').localeCompare(right.fields.join(',')));
 
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`;
@@ -115,14 +108,37 @@ async function validateCountsAndIds(client: ValidationQueryable, snapshot: Sourc
   }
 }
 
-async function validateForeignKeys(client: ValidationQueryable, checks: ValidationCheck[]): Promise<void> {
-  for (const rule of FOREIGN_KEY_RULES) {
+async function validateForeignKeys(client: ValidationQueryable, snapshot: SourceSnapshot, checks: ValidationCheck[]): Promise<void> {
+  for (const rule of RELATION_RULES) {
+    const fieldLabel = rule.fields.join(',');
+    const sourceRecords = snapshot.tables[rule.child].records
+      .filter(record => typeof record.id === 'string')
+      .sort((left, right) => compareIds(String(left.id), String(right.id)));
+    const expectedIds = sourceRecords.map(record => String(record.id));
+    const targetRows = expectedIds.length === 0
+      ? []
+      : await query<Record<string, unknown>>(client,
+        `/* validation:foreign-key-values:${rule.child}:${fieldLabel} */ SELECT "id", ${rule.fields.map(quoteIdentifier).join(', ')} `
+          + `FROM ${tableName(rule.child)} WHERE "id" = ANY($1::text[])`,
+        [expectedIds],
+      );
+    const targetById = new Map(targetRows.map(row => [String(row.id), row]));
+    const matchingIds = sourceRecords
+      .filter(record => {
+        const target = targetById.get(String(record.id));
+        return target !== undefined && rule.fields.every(field => Object.hasOwn(record, field) && record[field] === target[field]);
+      })
+      .map(record => String(record.id));
+    reportCheck(checks, 'foreign-key-values', expectedIds, matchingIds, rule.child, fieldLabel);
+
+    const join = rule.fields.map((field, index) => `child.${quoteIdentifier(field)} = parent.${quoteIdentifier(rule.references[index])}`).join(' AND ');
+    const present = rule.fields.map(field => `child.${quoteIdentifier(field)} IS NOT NULL`).join(' OR ');
     const rows = await query<{ id: string }>(client,
-      `/* validation:foreign-key:${rule.child}:${rule.field} */ SELECT child."id" FROM ${tableName(rule.child)} AS child `
-        + `LEFT JOIN ${tableName(rule.parent)} AS parent ON child.${quoteIdentifier(rule.field)} = parent."id" `
-        + `WHERE child.${quoteIdentifier(rule.field)} IS NOT NULL AND parent."id" IS NULL`,
+      `/* validation:foreign-key:${rule.child}:${fieldLabel} */ SELECT child."id" FROM ${tableName(rule.child)} AS child `
+        + `LEFT JOIN ${tableName(rule.parent)} AS parent ON ${join} `
+        + `WHERE (${present}) AND parent.${quoteIdentifier(rule.references[0])} IS NULL`,
     );
-    reportCheck(checks, 'foreign-key', 0, rows.length, rule.child, rule.field);
+    reportCheck(checks, 'foreign-key', 0, rows.length, rule.child, fieldLabel);
   }
 }
 
@@ -205,7 +221,7 @@ async function validatePasswords(client: ValidationQueryable, snapshot: SourceSn
 export async function validateMigration(client: ValidationQueryable, snapshot: SourceSnapshot): Promise<ValidationReport> {
   const checks: ValidationCheck[] = [];
   await validateCountsAndIds(client, snapshot, checks);
-  await validateForeignKeys(client, checks);
+  await validateForeignKeys(client, snapshot, checks);
   await validateBusinessKeys(client, checks);
   await validateDecimalTotals(client, snapshot, checks);
   await validateTimestampSamples(client, snapshot, checks);
