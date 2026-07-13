@@ -158,3 +158,53 @@ test('rejects sidecars when Windows source-path casing differs from its director
     fixtures.cleanup();
   }
 });
+
+test('rejects uppercase and mixed-case Windows WAL, SHM, and journal sidecars before readonly open', t => {
+  if (process.platform !== 'win32') {
+    t.skip('case-insensitive sidecar fixture is Windows-specific');
+    return;
+  }
+
+  for (const suffix of ['-WAL', '-sHm', '-JoUrNaL']) {
+    const fixtures = createSQLiteFixtures();
+    const mainBefore = hashFile(fixtures.primaryPath);
+    let afterReadReached = false;
+    try {
+      fs.writeFileSync(`${fixtures.primaryPath}${suffix}`, 'fixture-sidecar');
+      assert.throws(
+        () => snapshotSqlite(fixtures.primaryPath, {
+          afterRead() { afterReadReached = true; },
+        }),
+        /^Error: SQLite source has active sidecar$/,
+      );
+      assert.equal(afterReadReached, false);
+      assert.equal(hashFile(fixtures.primaryPath), mainBefore);
+    } finally {
+      fixtures.cleanup();
+    }
+  }
+});
+
+test('rejects a mixed-case Windows super-journal before inventory open or hook', t => {
+  if (process.platform !== 'win32') {
+    t.skip('case-insensitive sidecar fixture is Windows-specific');
+    return;
+  }
+  const fixtures = createSQLiteFixtures();
+  const mainBefore = hashFile(fixtures.primaryPath);
+  let afterReadReached = false;
+
+  try {
+    fs.writeFileSync(`${fixtures.primaryPath}-mJaBcDeF912`, 'fixture-sidecar');
+    assert.throws(
+      () => inventorySqlite(fixtures.primaryPath, {
+        afterRead() { afterReadReached = true; },
+      }),
+      /^Error: SQLite source has active sidecar$/,
+    );
+    assert.equal(afterReadReached, false);
+    assert.equal(hashFile(fixtures.primaryPath), mainBefore);
+  } finally {
+    fixtures.cleanup();
+  }
+});

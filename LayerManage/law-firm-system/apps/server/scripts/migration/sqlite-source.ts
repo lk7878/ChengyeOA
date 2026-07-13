@@ -41,7 +41,7 @@ function assertStandaloneSource(sourcePath: string): void {
     const comparableEntry = process.platform === 'win32' ? entry.toLowerCase() : entry;
     const comparableDatabase = process.platform === 'win32' ? databaseName.toLowerCase() : databaseName;
     if (!comparableEntry.startsWith(comparableDatabase)) return false;
-    const suffix = entry.slice(databaseName.length);
+    const suffix = comparableEntry.slice(comparableDatabase.length);
     return suffix === '-journal'
       || suffix === '-wal'
       || suffix === '-shm'
