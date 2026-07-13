@@ -119,6 +119,14 @@ npx prisma migrate dev --name init
 npx prisma studio
 ```
 
+生产环境初始化系统数据时，必须由部署密钥管理为当前 PowerShell 进程提供 `SEED_ADMIN_PASSWORD`。不要将密码写入脚本、文档或命令历史：
+
+```powershell
+cd apps/server
+if (-not $env:SEED_ADMIN_PASSWORD) { throw 'SEED_ADMIN_PASSWORD is required' }
+npm run db:seed
+```
+
 ### 2.5 启动开发服务器
 
 #### 方式一：分别启动
@@ -415,7 +423,7 @@ JWT_SECRET="your-generated-key"
     "db:migrate": "cd apps/server && npx prisma migrate dev",
     "db:deploy": "cd apps/server && npx prisma migrate deploy",
     "db:studio": "cd apps/server && npx prisma studio",
-    "db:seed": "cd apps/server && npx ts-node scripts/seed.ts",
+    "db:seed": "cd apps/server && npm run db:seed",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
   }
