@@ -24,6 +24,12 @@ const prefixedAndSuffixedVariants = documentedPlaceholders.flatMap(placeholder =
   `semantic@fixture@prefix@${placeholder}`,
   `${placeholder}/semantic/fixture/suffix`,
   `${placeholder}+semantic+fixture+suffix`,
+  `-${placeholder}`,
+  `${placeholder}-`,
+  `:${placeholder}`,
+  `${placeholder}@`,
+  `!${placeholder}`,
+  `${placeholder}%`,
 ]);
 
 function parseGitleaksAllowlistRegexes(config) {

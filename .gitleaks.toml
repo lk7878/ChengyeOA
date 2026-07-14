@@ -2,10 +2,22 @@
 useDefault = true
 
 [[rules]]
-id = "chengye-placeholder-variant"
-description = "Reject modified SPEC-001 placeholder secrets"
-regex = '''(([A-Za-z0-9_][A-Za-z0-9_./@+-]*)?(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)([A-Za-z0-9_.+-]*[A-Za-z0-9_]|/[A-Za-z0-9_+/-]*[A-Za-z0-9_])?)'''
-secretGroup = 1
+id = "chengye-placeholder-equals-assignment"
+description = "Reject modified SPEC-001 placeholders in equals assignments"
+regex = '''(?i)([A-Za-z0-9_-]*(password|secret|api[_-]?key|app[_-]?key|jwt)[A-Za-z0-9_-]*)[ \t]*=[ \t]*["']?([^"'\s}$\\]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s}$\\]*)'''
+secretGroup = 3
+
+[[rules]]
+id = "chengye-placeholder-colon-assignment"
+description = "Reject modified SPEC-001 placeholders in colon assignments"
+regex = '''(?i)([A-Za-z0-9_-]*(password|secret|api[_-]?key|app[_-]?key|jwt)[A-Za-z0-9_-]*)[ \t]*:[ \t]+["']?([^"'\s}$\\]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s}$\\]*)'''
+secretGroup = 3
+
+[[rules]]
+id = "chengye-placeholder-default-assignment"
+description = "Reject modified SPEC-001 placeholders in shell-style defaults"
+regex = '''(?i)([A-Za-z0-9_-]*(password|secret|api[_-]?key|app[_-]?key|jwt)[A-Za-z0-9_-]*)[ \t]*:[-=]["']?([^"'\s}$\\]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s}$\\]*)'''
+secretGroup = 3
 
 [allowlist]
 description = "SPEC-001 documented local and CI placeholders"
@@ -19,4 +31,6 @@ regexes = [
   '''^replace_with_at_least_32_random_characters$''',
   '''^replace_with_first_application_key$''',
   '''^replace_with_second_application_key$''',
+  '''^first-32-character-application-key,second-32-character-app-key$''',
+  '''^replace_with_first_application_key,replace_with_second_application_key$''',
 ]
