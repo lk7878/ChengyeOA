@@ -64,7 +64,9 @@ test('distribution verifier rejects forbidden extras anywhere in the package tre
   );
 });
 
-test('actual ZIP builder packages the verified npm run pkg tree', t => {
+test('actual ZIP builder packages the verified npm run pkg tree', {
+  skip: process.platform !== 'win32' ? 'PowerShell ZIP packaging is Windows-specific' : false,
+}, t => {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chengye-zip-input-'));
   t.after(() => fs.rmSync(projectRoot, { force: true, recursive: true }));
   const packageDirectory = path.join(projectRoot, 'apps', 'dist', 'law-firm-system');
@@ -109,7 +111,9 @@ test('actual ZIP builder packages the verified npm run pkg tree', t => {
   assert.equal(fs.existsSync(path.join(extracted, 'launch.bat')), false);
 });
 
-test('actual ZIP builder rejects a forbidden pkg tree and cleans package/archive output', t => {
+test('actual ZIP builder rejects a forbidden pkg tree and cleans package/archive output', {
+  skip: process.platform !== 'win32' ? 'PowerShell ZIP packaging is Windows-specific' : false,
+}, t => {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chengye-zip-forbidden-'));
   t.after(() => fs.rmSync(projectRoot, { force: true, recursive: true }));
   const packageDirectory = path.join(projectRoot, 'apps', 'dist', 'law-firm-system');
