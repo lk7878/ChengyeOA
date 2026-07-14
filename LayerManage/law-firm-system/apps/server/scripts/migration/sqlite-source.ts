@@ -166,7 +166,7 @@ export function inventoryFromSnapshot(snapshot: SourceSnapshot): SourceInventory
   return {
     generatedAt: snapshot.generatedAt,
     runId: snapshot.runId,
-    source: { ...snapshot.source },
+    source: { sha256: snapshot.source.sha256 },
     tables,
   };
 }

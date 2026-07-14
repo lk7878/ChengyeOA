@@ -11,13 +11,30 @@ export interface SQLiteFixtures {
 
 export const FIXTURE_LITERALS = {
   approvalContent: '{"purpose":"preserve approval business data"}',
+  approvalId: 'approval-sensitive',
+  approvalRemark: 'private approval remark',
+  approvalTitle: 'Sensitive approval',
   customerEmail: 'migration-fixture@example.test',
+  customerId: 'customer-sensitive',
   customerIdCard: '110101199001011234',
+  customerName: 'Sensitive customer',
   customerPhone: '13800138000',
   customerRemark: 'private customer free-text remark',
+  duplicateUsername: 'duplicate-username',
+  followId: 'follow-sensitive',
   leadFollowContent: 'literal lead follow free-text content',
+  nextPlan: 'private next plan',
+  organizationMismatchId: 'org-mismatch',
+  organizationPrimaryName: 'Primary organization',
+  organizationSecondaryName: 'Secondary organization',
+  organizationSecondaryOnlyId: 'org-secondary-only',
+  organizationSecondaryOnlyName: 'Secondary only organization',
+  organizationSharedId: 'org-shared',
+  organizationSharedName: 'Shared organization',
   primaryPassword: '$2b$10$primaryPasswordHashLiteral',
+  primaryUserId: 'user-primary',
   secondaryPassword: '$2b$10$secondaryPasswordHashLiteral',
+  secondaryUserId: 'user-secondary',
 } as const;
 
 function createDatabase(databasePath: string, statements: string[]): void {

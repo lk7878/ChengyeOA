@@ -32,7 +32,7 @@
     "check:gitleaks-semantics": "node scripts/ci/check-gitleaks-semantics.js",
     "migration:inventory": "tsx scripts/migration/cli.ts inventory",
     "migration:diff": "tsx scripts/migration/cli.ts diff",
-    "package": "node scripts/build-package.js"
+    "package": "npm run pkg"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

@@ -8,17 +8,25 @@ import { executeCommand, parseArgs } from '../../scripts/migration/cli';
 import { writeMigrationReport } from '../../scripts/migration/report-writer';
 import { TABLE_ORDER, type TableName } from '../../scripts/migration/table-plan';
 import type { DiffReport, SourceInventory, SourceSnapshot, TableInventory, TableSnapshot } from '../../scripts/migration/types';
-import { createSQLiteFixtures } from '../fixtures/sqlite/create-fixtures';
+import { createSQLiteFixtures, FIXTURE_LITERALS } from '../fixtures/sqlite/create-fixtures';
 
 function temporaryOutputRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'chengye-oa-cli-'));
+}
+
+function emittedFiles(directory: string): string[] {
+  if (!fs.existsSync(directory)) return [];
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const candidate = path.join(directory, entry.name);
+    return entry.isDirectory() ? emittedFiles(candidate) : [candidate];
+  }).sort();
 }
 
 function validInventory(): SourceInventory {
   return {
     generatedAt: '2026-07-13T00:00:00.000Z',
     runId: 'run_1',
-    source: { path: 'fixture.sqlite', sha256: 'a'.repeat(64) },
+    source: { sha256: 'a'.repeat(64) },
     tables: Object.fromEntries(TABLE_ORDER.map(table => [table, { columns: ['id'], rowCount: 0 }])) as Record<TableName, TableInventory>,
   };
 }
@@ -74,11 +82,55 @@ test('inventory derives report and export from one injected stable snapshot', as
       },
     );
     const inventory = JSON.parse(fs.readFileSync(path.join(outputRoot, 'inventory_run', 'inventory.json'), 'utf8')) as SourceInventory;
-    const exported = JSON.parse(fs.readFileSync(path.join(outputRoot, 'inventory_run', 'export', 'source-snapshot.json'), 'utf8')) as SourceSnapshot;
+    const exported = JSON.parse(fs.readFileSync(path.join(outputRoot, 'inventory_run', 'export', 'source-snapshot.json'), 'utf8')) as {
+      source: { sha256: string };
+      tables: Record<TableName, { columns: string[]; recordsSha256: string; rowCount: number }>;
+    };
     assert.equal(reads, 1);
     assert.equal(inventory.source.sha256, fixture.source.sha256);
     assert.equal(exported.source.sha256, fixture.source.sha256);
+    assert.equal(Object.hasOwn(exported.source, 'path'), false);
+    assert.match(exported.tables.Organization.recordsSha256, /^[a-f0-9]{64}$/);
   } finally {
+    fs.rmSync(outputRoot, { force: true, recursive: true });
+  }
+});
+
+test('inventory and diff publish no sensitive fixture values or raw rows in any artifact', async () => {
+  const outputRoot = temporaryOutputRoot();
+  const fixtures = createSQLiteFixtures();
+  try {
+    await executeCommand(
+      parseArgs(['inventory', '--source', fixtures.primaryPath, '--run-id', 'canary_inventory']),
+      { outputRoot },
+    );
+    await executeCommand(
+      parseArgs([
+        'diff', '--primary', fixtures.primaryPath, '--secondary', fixtures.secondaryPath, '--run-id', 'canary_diff',
+      ]),
+      { outputRoot },
+    );
+
+    const files = emittedFiles(outputRoot);
+    assert.equal(files.length, 14);
+    const emitted = files.map(file => fs.readFileSync(file, 'utf8')).join('\n');
+    for (const literal of Object.values(FIXTURE_LITERALS)) {
+      assert.equal(emitted.includes(literal), false, `artifact exposed sensitive fixture literal: ${literal}`);
+    }
+    assert.doesNotMatch(emitted, /"records"\s*:/);
+    assert.doesNotMatch(emitted, /"path"\s*:/);
+
+    const report = JSON.parse(fs.readFileSync(path.join(outputRoot, 'canary_diff', 'diff-report.json'), 'utf8')) as {
+      conflicts: Array<{ primaryIdHash?: string; secondaryIdHash?: string }>;
+    };
+    assert.ok(report.conflicts.length > 0);
+    for (const conflict of report.conflicts) {
+      for (const identifier of [conflict.primaryIdHash, conflict.secondaryIdHash].filter(Boolean)) {
+        assert.match(identifier as string, /^[a-f0-9]{64}$/);
+      }
+    }
+  } finally {
+    fixtures.cleanup();
     fs.rmSync(outputRoot, { force: true, recursive: true });
   }
 });

@@ -98,7 +98,10 @@ async function runDiff(args: DiffArgs, dependencies: CliDependencies, outputRoot
   const primary = readSnapshot(args.primary);
   const secondary = readSnapshot(args.secondary);
   const report = diffSnapshots(primary, secondary);
-  writeMigrationReport(args.runId, 'source-manifest.json', { primary: primary.source, secondary: secondary.source }, outputRoot);
+  writeMigrationReport(args.runId, 'source-manifest.json', {
+    primary: { sha256: primary.source.sha256 },
+    secondary: { sha256: secondary.source.sha256 },
+  }, outputRoot);
   writeMigrationReport(args.runId, 'diff-report.json', { ...report, runId: args.runId }, outputRoot);
   writeSnapshotExport(args.runId, 'primary-snapshot.json', primary, outputRoot);
   writeSnapshotExport(args.runId, 'secondary-snapshot.json', secondary, outputRoot);

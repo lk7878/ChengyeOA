@@ -30,20 +30,36 @@ function materializeStaticDirectory(serverRoot, portableDirectory) {
   return staticDirectory;
 }
 
+function materializeWebBuild(webRoot, serverRoot) {
+  const webBuildDirectory = path.join(webRoot, 'dist');
+  const serverStaticDirectory = path.join(serverRoot, 'dist', 'public');
+  requireDirectory(webBuildDirectory, 'Web build output');
+  fs.rmSync(serverStaticDirectory, { recursive: true, force: true });
+  fs.cpSync(webBuildDirectory, serverStaticDirectory, { recursive: true });
+  requireNonemptyFile(path.join(serverStaticDirectory, 'index.html'), 'Web entry point');
+  return serverStaticDirectory;
+}
+
 function materializeRunDirectory(portableDirectory) {
   const runDirectory = path.join(portableDirectory, 'run');
   fs.mkdirSync(runDirectory, { recursive: true });
+  fs.writeFileSync(path.join(runDirectory, '.keep'), 'runtime directory\n');
   requireDirectory(runDirectory, 'Packaged run directory');
   return runDirectory;
 }
 
 function buildPkg({ serverRoot, outputDirectory, runCommand }) {
+  const webRoot = path.join(serverRoot, '..', 'web');
+  const webBuildDirectory = path.join(webRoot, 'dist');
   const portableDirectory = path.join(outputDirectory, 'law-firm-system');
   const outputFile = path.join(portableDirectory, 'law-firm-system.exe');
 
   cleanBuildOutputs(serverRoot, outputDirectory);
+  fs.rmSync(webBuildDirectory, { recursive: true, force: true });
   try {
+    runCommand('npm run build', { cwd: webRoot, stdio: 'inherit' });
     runCommand('npm run build', { cwd: serverRoot, stdio: 'inherit' });
+    materializeWebBuild(webRoot, serverRoot);
     fs.mkdirSync(portableDirectory, { recursive: true });
     runCommand(`pkg . --targets node22-win-x64 --options no-experimental-require-module --output "${outputFile}"`, {
       cwd: serverRoot,
@@ -60,6 +76,7 @@ function buildPkg({ serverRoot, outputDirectory, runCommand }) {
     return { engineFile, outputFile, runDirectory, staticDirectory };
   } catch (error) {
     cleanBuildOutputs(serverRoot, outputDirectory);
+    fs.rmSync(webBuildDirectory, { recursive: true, force: true });
     throw error;
   }
 }

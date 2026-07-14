@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { compareUnicodeCodePoints } from './ordering';
 import { BUSINESS_KEYS, TABLE_ORDER, type TableName } from './table-plan';
 import type { ConflictKind, DiffReport, RecordConflict, SnapshotRecord, SourceSnapshot } from './types';
@@ -12,6 +12,10 @@ const CONFLICT_KINDS: ConflictKind[] = [
 
 function recordId(record: SnapshotRecord): string {
   return String(record.id ?? '');
+}
+
+function recordIdHash(table: TableName, id: string): string {
+  return createHash('sha256').update(`migration-record-id\u0000${table}\u0000${id}`).digest('hex');
 }
 
 function changedFields(primary: SnapshotRecord, secondary: SnapshotRecord): string[] {
@@ -31,8 +35,8 @@ function businessKey(record: SnapshotRecord, fields: string[]): string | undefin
 function compareConflicts(left: RecordConflict, right: RecordConflict): number {
   return TABLE_ORDER.indexOf(left.table) - TABLE_ORDER.indexOf(right.table)
     || CONFLICT_KINDS.indexOf(left.kind) - CONFLICT_KINDS.indexOf(right.kind)
-    || compareUnicodeCodePoints(left.primaryId ?? '', right.primaryId ?? '')
-    || compareUnicodeCodePoints(left.secondaryId ?? '', right.secondaryId ?? '')
+    || compareUnicodeCodePoints(left.primaryIdHash ?? '', right.primaryIdHash ?? '')
+    || compareUnicodeCodePoints(left.secondaryIdHash ?? '', right.secondaryIdHash ?? '')
     || compareUnicodeCodePoints(left.changedFields.join('\u0000'), right.changedFields.join('\u0000'));
 }
 
@@ -70,8 +74,8 @@ function compareTable(primary: SourceSnapshot, secondary: SourceSnapshot, table:
           conflicts.push({
             changedFields: [...fields].sort(compareUnicodeCodePoints),
             kind: 'BUSINESS_KEY_COLLISION',
-            primaryId,
-            secondaryId,
+            primaryIdHash: recordIdHash(table, primaryId),
+            secondaryIdHash: recordIdHash(table, secondaryId),
             table,
           });
         }
@@ -83,19 +87,26 @@ function compareTable(primary: SourceSnapshot, secondary: SourceSnapshot, table:
     const secondaryRecord = secondaryById.get(id);
     if (secondaryRecord === undefined) {
       if (!primaryCollisionIds.has(id)) {
-        conflicts.push({ changedFields: [], kind: 'PRIMARY_ONLY', primaryId: id, table });
+        conflicts.push({ changedFields: [], kind: 'PRIMARY_ONLY', primaryIdHash: recordIdHash(table, id), table });
       }
     } else {
       const fields = changedFields(primaryRecord, secondaryRecord);
       if (fields.length > 0) {
-        conflicts.push({ changedFields: fields, kind: 'CONTENT_MISMATCH', primaryId: id, secondaryId: id, table });
+        const identifierHash = recordIdHash(table, id);
+        conflicts.push({
+          changedFields: fields,
+          kind: 'CONTENT_MISMATCH',
+          primaryIdHash: identifierHash,
+          secondaryIdHash: identifierHash,
+          table,
+        });
       }
     }
   }
 
   for (const id of secondaryById.keys()) {
     if (!primaryById.has(id) && !secondaryCollisionIds.has(id)) {
-      conflicts.push({ changedFields: [], kind: 'SECONDARY_ONLY', secondaryId: id, table });
+      conflicts.push({ changedFields: [], kind: 'SECONDARY_ONLY', secondaryIdHash: recordIdHash(table, id), table });
     }
   }
 
@@ -123,7 +134,10 @@ export function diffSnapshots(primary: SourceSnapshot, secondary: SourceSnapshot
     counts,
     generatedAt: new Date().toISOString(),
     runId: randomUUID(),
-    sources: { primary: primary.source, secondary: secondary.source },
+    sources: {
+      primary: { sha256: primary.source.sha256 },
+      secondary: { sha256: secondary.source.sha256 },
+    },
     tableCounts,
   };
 }

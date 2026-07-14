@@ -22,7 +22,7 @@ function createProjectFixture() {
   fs.writeFileSync(path.join(serverRoot, 'package.json'), JSON.stringify({ scripts: {} }));
   fs.writeFileSync(path.join(serverRoot, 'prisma', 'schema.prisma'), '');
   fs.writeFileSync(path.join(serverRoot, 'server-entry.js'), '');
-  fs.writeFileSync(path.join(serverRoot, 'scripts', 'build-package.js'), '');
+  fs.writeFileSync(path.join(serverRoot, 'scripts', 'build-pkg.js'), '');
   fs.writeFileSync(path.join(serverRoot, 'scripts', 'build.js'), '');
   fs.writeFileSync(path.join(projectRoot, 'scripts', 'build-zip.ps1'), '');
   fs.writeFileSync(path.join(projectRoot, 'scripts', 'installer.iss'), '');

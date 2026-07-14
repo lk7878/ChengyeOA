@@ -18,19 +18,25 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [1/2] Packaging application...
-echo Running: cd apps\server && node scripts\build-package.js
+echo [1/2] Packaging and verifying application...
+echo Running: npm.cmd run pkg
 echo.
 
-cd /d "%~dp0..\apps\server"
-call node scripts\build-package.js
+pushd "%~dp0.."
+call npm.cmd run pkg
 if %errorlevel% neq 0 (
     echo ERROR: Package build failed.
-    pause
+    popd
     exit /b 1
 )
+call node.exe "%~dp0verify-package-output.js" "%~dp0..\apps\dist\law-firm-system"
+if %errorlevel% neq 0 (
+    echo ERROR: Package output verification failed.
+    popd
+    exit /b 1
+)
+popd
 
-cd /d "%~dp0"
 echo.
 echo [2/2] Building installer...
 echo Running: iscc installer.iss
@@ -39,7 +45,6 @@ echo.
 iscc "%~dp0installer.iss"
 if %errorlevel% neq 0 (
     echo ERROR: Installer build failed.
-    pause
     exit /b 1
 )
 
@@ -49,4 +54,3 @@ echo  Installer build complete!
 echo  Output: apps\dist\installer\
 echo ========================================
 echo.
-pause

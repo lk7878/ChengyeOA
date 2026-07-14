@@ -1,17 +1,27 @@
-# Build a portable ZIP package for distribution
-# Alternative to Inno Setup installer
+param(
+    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot)
+)
 
 $ErrorActionPreference = 'Stop'
 
-$projectRoot = Split-Path -Parent $PSScriptRoot
+$projectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
 $sourceDir = Join-Path $projectRoot "apps\dist\law-firm-system"
 $outputDir = Join-Path $projectRoot "apps\dist\installer"
 $zipFile = Join-Path $outputDir "LawFirmSystem-Portable-1.0.0.zip"
 
-if (-not (Test-Path $sourceDir)) {
-    Write-Host "ERROR: Portable directory not found. Run build-package.js first." -ForegroundColor Red
-    Write-Host "  cd apps\server && node scripts\build-package.js" -ForegroundColor Yellow
-    exit 1
+Push-Location $projectRoot
+try {
+    & npm.cmd run pkg
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm run pkg failed with exit code $LASTEXITCODE"
+    }
+} finally {
+    Pop-Location
+}
+
+& node.exe (Join-Path $PSScriptRoot 'verify-package-output.js') $sourceDir
+if ($LASTEXITCODE -ne 0) {
+    throw "Package output verification failed with exit code $LASTEXITCODE"
 }
 
 # Create output directory
@@ -47,6 +57,6 @@ Write-Host ""
 Write-Host "To use on another computer:"
 Write-Host "  1. Copy $zipFile to the target computer"
 Write-Host "  2. Extract to any folder (e.g., C:\LawFirmSystem)"
-Write-Host "  3. Double-click launch.bat"
+Write-Host "  3. Run law-firm-system.exe"
 Write-Host "  4. Open http://localhost:7001 in browser"
 Write-Host "  5. Configure DATABASE_URL, JWT_SECRET, and APP_KEYS before launch"

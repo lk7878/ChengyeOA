@@ -58,7 +58,6 @@ function runtimeSourceFiles(serverRoot: string): string[] {
     path.join(serverRoot, 'server-entry.js'),
     path.join(serverRoot, 'app.ts'),
     path.join(serverRoot, 'app.js'),
-    path.join(serverRoot, 'scripts', 'build-package.js'),
     path.join(serverRoot, 'scripts', 'build-pkg.js'),
     path.join(serverRoot, 'scripts', 'build.js'),
   ].filter(filePath => fs.existsSync(filePath));
@@ -93,7 +92,6 @@ export function checkBaselineContract(projectRoot: string): string[] {
 
   const buildSources = [
     path.join(serverRoot, 'scripts', 'build.js'),
-    path.join(serverRoot, 'scripts', 'build-package.js'),
     path.join(serverRoot, 'scripts', 'build-pkg.js'),
   ].filter(filePath => fs.existsSync(filePath)).map(filePath => fs.readFileSync(filePath, 'utf8')).join('\n');
   if (/\[['"]\.env(?:\.[^'"]*)?['"]\s*,/i.test(buildSources)) {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -10,35 +11,49 @@ type BuildPkg = (options: {
   runCommand: (command: string, options: { cwd: string; stdio: 'inherit' }) => void;
 }) => { engineFile: string; outputFile: string; runDirectory: string; staticDirectory: string };
 
+const requireCjs = createRequire(__filename);
+
 function loadBuildPkg(): BuildPkg {
-  return (require('../../scripts/lib/pkg-build') as { buildPkg: BuildPkg }).buildPkg;
+  return (requireCjs('../../scripts/lib/pkg-build') as { buildPkg: BuildPkg }).buildPkg;
 }
 
-function createFixture(): { outputDirectory: string; serverRoot: string } {
+function createFixture(): { outputDirectory: string; serverRoot: string; webRoot: string } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-build-'));
   const serverRoot = path.join(root, 'apps', 'server');
+  const webRoot = path.join(root, 'apps', 'web');
   const outputDirectory = path.join(root, 'apps', 'dist');
   const generatedClient = path.join(serverRoot, 'node_modules', '.prisma', 'client');
   fs.mkdirSync(generatedClient, { recursive: true });
   fs.writeFileSync(path.join(generatedClient, 'query_engine-windows.dll.node'), 'generated engine');
-  return { outputDirectory, serverRoot };
+  fs.mkdirSync(webRoot, { recursive: true });
+  return { outputDirectory, serverRoot, webRoot };
 }
 
-test('pkg build emits the executable and physical Prisma engine in the installer portable directory', (t) => {
+test('pkg build creates frontend assets from a checkout with no server/public and packages only the fresh dist copy', (t) => {
   const fixture = createFixture();
   t.after(() => fs.rmSync(path.dirname(path.dirname(fixture.serverRoot)), { recursive: true, force: true }));
-  const commands: string[] = [];
+  const commands: Array<{ command: string; cwd: string }> = [];
+
+  assert.equal(fs.existsSync(path.join(fixture.serverRoot, 'public')), false);
 
   const result = loadBuildPkg()({
     ...fixture,
-    runCommand(command) {
-      commands.push(command);
-      if (command === 'npm run build') {
-        const staticDirectory = path.join(fixture.serverRoot, 'dist', 'public');
+    runCommand(command, options) {
+      commands.push({ command, cwd: options.cwd });
+      if (command === 'npm run build' && options.cwd === fixture.webRoot) {
+        const staticDirectory = path.join(fixture.webRoot, 'dist');
         fs.mkdirSync(staticDirectory, { recursive: true });
-        fs.writeFileSync(path.join(staticDirectory, 'index.html'), 'packaged static asset');
+        fs.writeFileSync(path.join(staticDirectory, 'index.html'), 'fresh web build');
+      }
+      if (command === 'npm run build' && options.cwd === fixture.serverRoot) {
+        fs.mkdirSync(path.join(fixture.serverRoot, 'dist'), { recursive: true });
       }
       if (command.startsWith('pkg .')) {
+        assert.equal(
+          fs.readFileSync(path.join(fixture.serverRoot, 'dist', 'public', 'index.html'), 'utf8'),
+          'fresh web build',
+        );
+        assert.equal(fs.existsSync(path.join(fixture.serverRoot, 'public')), false);
         const outputFile = path.join(fixture.outputDirectory, 'law-firm-system', 'law-firm-system.exe');
         fs.mkdirSync(path.dirname(outputFile), { recursive: true });
         fs.writeFileSync(outputFile, 'packaged executable');
@@ -46,9 +61,16 @@ test('pkg build emits the executable and physical Prisma engine in the installer
     },
   });
 
-  assert.deepEqual(commands.map(command => command.split(' ')[0]), ['npm', 'pkg']);
+  assert.deepEqual(commands, [
+    { command: 'npm run build', cwd: fixture.webRoot },
+    { command: 'npm run build', cwd: fixture.serverRoot },
+    {
+      command: `pkg . --targets node22-win-x64 --options no-experimental-require-module --output "${result.outputFile}"`,
+      cwd: fixture.serverRoot,
+    },
+  ]);
   assert.equal(
-    commands[1],
+    commands[2].command,
     `pkg . --targets node22-win-x64 --options no-experimental-require-module --output "${result.outputFile}"`,
   );
   assert.equal(result.outputFile, path.join(fixture.outputDirectory, 'law-firm-system', 'law-firm-system.exe'));
@@ -63,18 +85,21 @@ test('pkg build emits the executable and physical Prisma engine in the installer
   assert.equal(fs.statSync(result.runDirectory).isDirectory(), true);
   assert.equal(
     fs.readFileSync(path.join(result.staticDirectory, 'index.html'), 'utf8'),
-    'packaged static asset',
+    'fresh web build',
   );
 });
 
-test('pkg build cleans package output when the static build directory is missing', (t) => {
+test('pkg build cleans package output when the fresh web build directory is missing', (t) => {
   const fixture = createFixture();
   t.after(() => fs.rmSync(path.dirname(path.dirname(fixture.serverRoot)), { recursive: true, force: true }));
 
   assert.throws(
     () => loadBuildPkg()({
       ...fixture,
-      runCommand(command) {
+      runCommand(command, options) {
+        if (command === 'npm run build' && options.cwd === fixture.serverRoot) {
+          fs.mkdirSync(path.join(fixture.serverRoot, 'dist'), { recursive: true });
+        }
         if (command.startsWith('pkg .')) {
           const outputFile = path.join(fixture.outputDirectory, 'law-firm-system', 'law-firm-system.exe');
           fs.mkdirSync(path.dirname(outputFile), { recursive: true });
@@ -82,7 +107,7 @@ test('pkg build cleans package output when the static build directory is missing
         }
       },
     }),
-    /Packaged static source is missing or not a directory/,
+    /Web build output is missing or not a directory/,
   );
 
   assert.equal(fs.existsSync(fixture.outputDirectory), false);
@@ -98,9 +123,15 @@ test('pkg build removes stale output before assembly and cleans partial output a
   assert.throws(
     () => loadBuildPkg()({
       ...fixture,
-      runCommand(command) {
-        if (command === 'npm run build') {
+      runCommand(command, options) {
+        if (command === 'npm run build' && options.cwd === fixture.webRoot) {
           assert.equal(fs.existsSync(staleFile), false);
+          fs.mkdirSync(path.join(fixture.webRoot, 'dist'), { recursive: true });
+          fs.writeFileSync(path.join(fixture.webRoot, 'dist', 'index.html'), 'fresh web build');
+          return;
+        }
+        if (command === 'npm run build' && options.cwd === fixture.serverRoot) {
+          fs.mkdirSync(path.join(fixture.serverRoot, 'dist'), { recursive: true });
           return;
         }
         fs.mkdirSync(path.join(fixture.outputDirectory, 'law-firm-system'), { recursive: true });

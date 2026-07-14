@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+
+const requireCjs = createRequire(__filename);
 
 const {
   materializePrismaQueryEngineLibrary,
   resolvePackagedPrismaQueryEngineLibrary,
   resolvePrismaQueryEngineLibrary,
-} = require('../../scripts/lib/prisma-engine-path') as {
+} = requireCjs('../../scripts/lib/prisma-engine-path') as {
   materializePrismaQueryEngineLibrary: (clientDirectories: string[], executableDirectory: string) => string;
   resolvePackagedPrismaQueryEngineLibrary: (executablePath: string) => string;
   resolvePrismaQueryEngineLibrary: (directories: string[]) => string | undefined;

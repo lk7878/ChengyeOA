@@ -58,7 +58,7 @@ function inventory(): SourceInventory {
   return {
     generatedAt: '2026-07-13T00:00:00.000Z',
     runId: 'run_1',
-    source: { path: 'fixture.sqlite', sha256: 'a'.repeat(64) },
+    source: { sha256: 'a'.repeat(64) },
     tables,
   };
 }
@@ -81,8 +81,8 @@ function diffReport(): DiffReport {
     generatedAt: '2026-07-13T00:00:00.000Z',
     runId: 'diff_run',
     sources: {
-      primary: { path: 'primary.sqlite', sha256: 'a'.repeat(64) },
-      secondary: { path: 'secondary.sqlite', sha256: 'b'.repeat(64) },
+      primary: { sha256: 'a'.repeat(64) },
+      secondary: { sha256: 'b'.repeat(64) },
     },
     tableCounts,
   };
@@ -109,6 +109,38 @@ test('strict report schemas reject unknown sensitive keys and invalid nested val
       }, root),
       /Invalid source manifest report/,
     );
+  } finally {
+    fs.rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test('snapshot export publishes only file hash, schema, counts, and deterministic table hashes', () => {
+  const root = outputRoot();
+  try {
+    const sensitive = snapshot();
+    sensitive.source.path = 'SENSITIVE-SOURCE-PATH-CANARY';
+    sensitive.tables.Organization = {
+      columns: ['email', 'id', 'remark'],
+      rowCount: 1,
+      records: [{
+        email: 'SENSITIVE-EMAIL-CANARY@example.test',
+        id: 'SENSITIVE-RAW-ID-CANARY',
+        remark: 'SENSITIVE-FREE-TEXT-CANARY',
+      }],
+    };
+
+    const exported = writeSnapshotExport('redacted_snapshot', 'source-snapshot.json', sensitive, root);
+    const contents = fs.readFileSync(exported, 'utf8');
+    assert.equal(contents.includes('SENSITIVE-'), false);
+    assert.doesNotMatch(contents, /"records"\s*:/);
+    assert.doesNotMatch(contents, /"path"\s*:/);
+    const published = JSON.parse(contents) as {
+      source: { sha256: string };
+      tables: Record<TableName, { columns: string[]; recordsSha256: string; rowCount: number }>;
+    };
+    assert.deepEqual(published.tables.Organization.columns, ['email', 'id', 'remark']);
+    assert.equal(published.tables.Organization.rowCount, 1);
+    assert.match(published.tables.Organization.recordsSha256, /^[a-f0-9]{64}$/);
   } finally {
     fs.rmSync(root, { force: true, recursive: true });
   }
@@ -262,13 +294,11 @@ test('does not publish report content through a run-directory junction swapped i
       writeMigrationReport('race_report', 'inventory.json', {
         ...inventory(),
         runId: 'race_report',
-        source: { path: 'SENSITIVE-REPORT-PATH-LITERAL', sha256: 'a'.repeat(64) },
       }, root);
     } catch (error) {
       caught = error;
     }
     assert.equal(swap.wasTriggered(), true);
-    assert.equal(directoryText(outside).includes('SENSITIVE-REPORT-PATH-LITERAL'), false);
     assert.deepEqual(fs.readdirSync(outside), []);
     assert.match(String(caught), /output path|publication/i);
   } finally {
@@ -295,6 +325,11 @@ test('does not publish snapshot payload through an export-directory junction swa
 
     const sensitiveSnapshot = snapshot();
     sensitiveSnapshot.source.path = 'SENSITIVE-EXPORT-PATH-LITERAL';
+    sensitiveSnapshot.tables.Organization = {
+      columns: ['id', 'remark'],
+      rowCount: 1,
+      records: [{ id: 'SENSITIVE-EXPORT-ID-LITERAL', remark: 'SENSITIVE-EXPORT-ROW-LITERAL' }],
+    };
     let caught: unknown;
     try {
       writeSnapshotExport('race_export', 'source-snapshot.json', sensitiveSnapshot, root);
@@ -303,6 +338,7 @@ test('does not publish snapshot payload through an export-directory junction swa
     }
     assert.equal(swap.wasTriggered(), true);
     assert.equal(directoryText(outside).includes('SENSITIVE-EXPORT-PATH-LITERAL'), false);
+    assert.equal(directoryText(outside).includes('SENSITIVE-EXPORT-ROW-LITERAL'), false);
     assert.deepEqual(fs.readdirSync(outside), []);
     assert.match(String(caught), /output path|publication/i);
   } finally {

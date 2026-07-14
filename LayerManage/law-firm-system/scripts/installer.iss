@@ -8,7 +8,7 @@
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "LawFirm"
 #define MyAppURL "http://localhost:7001"
-#define MyAppExeName "launch.bat"
+#define MyAppExeName "law-firm-system.exe"
 
 [Setup]
 ; GUID - generate a unique one for your app
@@ -57,14 +57,11 @@ chinesesimplified.BeveledLabel={#MyAppName} v{#MyAppVersion}
 ; Main application (portable directory)
 Source: "..\apps\dist\law-firm-system\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Create empty logs directory (ensure it's writable)
-Source: "..\apps\dist\law-firm-system\logs\*"; DestDir: "{app}\logs"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
-
 [Icons]
 ; Start Menu shortcut
-Name: "{group}\{#MyAppName}"; Filename: "{app}\launch.bat"; WorkingDir: "{app}"; Comment: "启动律所管理系统"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Comment: "启动律所管理系统"
 ; Desktop shortcut
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\launch.bat"; WorkingDir: "{app}"; Comment: "启动律所管理系统"; Tasks: desktopicon
+Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Comment: "启动律所管理系统"; Tasks: desktopicon
 ; Uninstall shortcut
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
 
@@ -72,12 +69,11 @@ Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加图标:"; Flags: checkedonce
 
 [Run]
-; Launch the app after installation (silent CMD window)
-Filename: "cmd.exe"; Parameters: "/c ""{app}\launch.bat"""; Description: "启动律所管理系统"; Flags: nowait postinstall skipifsilent runminimized shellexec
+Filename: "{app}\{#MyAppExeName}"; Description: "启动律所管理系统"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 ; Notify user to stop the server before uninstall
-Filename: "taskkill"; Parameters: "/f /im node.exe /fi ""WINDOWTITLE eq 律所管理系统"""; Flags: runhidden
+Filename: "taskkill"; Parameters: "/f /im {#MyAppExeName}"; Flags: runhidden
 
 [Code]
 // Optional: detect if port 7001 is already in use

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -11,9 +12,10 @@ type SemanticFixtures = {
 };
 
 const fixtureModulePath = '../../scripts/ci/gitleaks-semantic-fixtures';
+const requireCjs = createRequire(__filename);
 
 function loadFixtures() {
-  return require(fixtureModulePath) as {
+  return requireCjs(fixtureModulePath) as {
     documentedPlaceholders: string[];
     materializeGitleaksSemanticFixtures: () => SemanticFixtures;
     parseGitleaksAllowlistRegexes: (config: string) => RegExp[];

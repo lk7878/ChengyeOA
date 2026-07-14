@@ -9,9 +9,12 @@ export type ConflictKind =
 export type SnapshotValue = boolean | null | number | string;
 export type SnapshotRecord = Record<string, SnapshotValue>;
 
-export interface SourceManifest {
-  path: string;
+export interface SourceFileHash {
   sha256: string;
+}
+
+export interface SourceManifest extends SourceFileHash {
+  path: string;
 }
 
 export interface TableInventory {
@@ -22,7 +25,7 @@ export interface TableInventory {
 export interface SourceInventory {
   generatedAt: string;
   runId: string;
-  source: SourceManifest;
+  source: SourceFileHash;
   tables: Record<TableName, TableInventory>;
 }
 
@@ -30,10 +33,7 @@ export interface TableSnapshot extends TableInventory {
   records: SnapshotRecord[];
 }
 
-/**
- * Full-fidelity migration data that may contain passwords and private business
- * content. Persist only under ignored export storage; never write it as report JSON.
- */
+/** Full-fidelity migration data. Keep in memory only; never publish or export records. */
 export interface SourceSnapshot {
   generatedAt: string;
   runId: string;
@@ -41,11 +41,22 @@ export interface SourceSnapshot {
   tables: Record<TableName, TableSnapshot>;
 }
 
+export interface TableSnapshotExport extends TableInventory {
+  recordsSha256: string;
+}
+
+export interface SnapshotExport {
+  generatedAt: string;
+  runId: string;
+  source: SourceFileHash;
+  tables: Record<TableName, TableSnapshotExport>;
+}
+
 export interface RecordConflict {
   changedFields: string[];
   kind: ConflictKind;
-  primaryId?: string;
-  secondaryId?: string;
+  primaryIdHash?: string;
+  secondaryIdHash?: string;
   table: TableName;
 }
 
@@ -55,8 +66,8 @@ export interface DiffReport {
   generatedAt: string;
   runId: string;
   sources: {
-    primary: SourceManifest;
-    secondary: SourceManifest;
+    primary: SourceFileHash;
+    secondary: SourceFileHash;
   };
   tableCounts: Record<TableName, { primary: number; secondary: number }>;
 }

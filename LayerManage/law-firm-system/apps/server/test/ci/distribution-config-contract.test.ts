@@ -12,16 +12,36 @@ test('active Windows distribution surfaces contain no bootstrap credentials or S
     scripts: Record<string, string>;
   };
   const zipScript = fs.readFileSync(path.join(projectRoot, 'scripts', 'build-zip.ps1'), 'utf8');
+  const installerBuild = fs.readFileSync(path.join(projectRoot, 'scripts', 'build-installer.bat'), 'utf8');
   const installer = fs.readFileSync(path.join(projectRoot, 'scripts', 'installer.iss'), 'utf8');
 
+  assert.equal(manifest.scripts.pkg, 'npm --prefix apps/server run pkg');
+  assert.equal(manifest.scripts.package, 'npm run pkg');
   assert.equal(manifest.scripts['build:installer'], 'cd scripts && build-installer.bat');
   assert.equal(manifest.scripts.installer, 'npm run build:installer');
   assert.match(zipScript, /\$sourceDir\s*=\s*Join-Path \$projectRoot ["']apps\\dist\\law-firm-system["']/);
   assert.match(zipScript, /\$outputDir\s*=\s*Join-Path \$projectRoot ["']apps\\dist\\installer["']/);
   assert.match(installer, /^OutputDir=\.\.\\apps\\dist\\installer$/m);
   assert.match(installer, /^Source: "\.\.\\apps\\dist\\law-firm-system\\\*";/m);
+  assert.match(installerBuild, /npm\.cmd run pkg/i);
+  assert.match(zipScript, /npm\.cmd run pkg/i);
+  assert.match(installerBuild, /verify-package-output\.js/i);
+  assert.match(zipScript, /verify-package-output\.js/i);
+  assert.doesNotMatch(installerBuild, /build-package\.js|process\.execPath|launch\.bat/i);
+  assert.doesNotMatch(zipScript, /build-package\.js|process\.execPath|launch\.bat/i);
   assert.doesNotMatch(zipScript, /admin\s*\/\s*123456/i);
   assert.doesNotMatch(installer, /sqlite/i);
+});
+
+test('Inno Setup installs, launches, shortcuts, and uninstalls the pkg executable target', () => {
+  const installer = fs.readFileSync(path.join(projectRoot, 'scripts', 'installer.iss'), 'utf8');
+
+  assert.match(installer, /^#define MyAppExeName "law-firm-system\.exe"$/m);
+  assert.match(installer, /Name: "\{group\}\\\{#MyAppName\}"; Filename: "\{app\}\\\{#MyAppExeName\}";/);
+  assert.match(installer, /Name: "\{commondesktop\}\\\{#MyAppName\}"; Filename: "\{app\}\\\{#MyAppExeName\}";/);
+  assert.match(installer, /^Filename: "\{app\}\\\{#MyAppExeName\}";.*postinstall/m);
+  assert.match(installer, /^Filename: "taskkill"; Parameters: "\/f \/im \{#MyAppExeName\}";/m);
+  assert.doesNotMatch(installer, /launch\.bat|node\.exe|cmd\.exe/i);
 });
 
 test('ZIP builder fails fast and validates its output before reporting success', () => {

@@ -1,12 +1,15 @@
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { compareUnicodeCodePoints } from './ordering';
 import { TABLE_ORDER, type TableName } from './table-plan';
 import type {
   ConflictKind,
   DiffReport,
+  SnapshotExport,
+  SnapshotRecord,
+  SourceFileHash,
   SourceInventory,
-  SourceManifest,
   SourceSnapshot,
 } from './types';
 
@@ -42,13 +45,13 @@ export type ReportFileName =
   | 'inventory.json'
   | 'diff-report.json';
 
-export interface SourceManifestPair {
-  primary: SourceManifest;
-  secondary: SourceManifest;
+export interface SourceHashPair {
+  primary: SourceFileHash;
+  secondary: SourceFileHash;
 }
 
 export interface ReportPayloadMap {
-  'source-manifest.json': SourceManifest | SourceManifestPair;
+  'source-manifest.json': SourceFileHash | SourceHashPair;
   'inventory.json': SourceInventory;
   'diff-report.json': DiffReport;
 }
@@ -91,22 +94,21 @@ function tableName(value: unknown, label: string): TableName {
   return value as TableName;
 }
 
-function sourceManifest(value: unknown, label: string): SourceManifest {
+function sourceFileHash(value: unknown, label: string): SourceFileHash {
   const source = objectValue(value, label);
-  exactKeys(source, ['path', 'sha256'], [], label);
-  stringValue(source.path, label);
+  exactKeys(source, ['sha256'], [], label);
   stringValue(source.sha256, label, SHA256);
-  return source as unknown as SourceManifest;
+  return source as unknown as SourceFileHash;
 }
 
-function sourceManifestReport(value: unknown): SourceManifest | SourceManifestPair {
+function sourceManifestReport(value: unknown): SourceFileHash | SourceHashPair {
   const label = 'source manifest';
   const report = objectValue(value, label);
-  if (Object.hasOwn(report, 'path')) return sourceManifest(report, label);
+  if (Object.hasOwn(report, 'sha256')) return sourceFileHash(report, label);
   exactKeys(report, ['primary', 'secondary'], [], label);
-  sourceManifest(report.primary, label);
-  sourceManifest(report.secondary, label);
-  return report as unknown as SourceManifestPair;
+  sourceFileHash(report.primary, label);
+  sourceFileHash(report.secondary, label);
+  return report as unknown as SourceHashPair;
 }
 
 function inventoryReport(value: unknown): SourceInventory {
@@ -115,7 +117,7 @@ function inventoryReport(value: unknown): SourceInventory {
   exactKeys(report, ['generatedAt', 'runId', 'source', 'tables'], [], label);
   stringValue(report.generatedAt, label);
   stringValue(report.runId, label, RUN_ID);
-  sourceManifest(report.source, label);
+  sourceFileHash(report.source, label);
   const tables = objectValue(report.tables, label);
   exactKeys(tables, TABLE_ORDER, [], label);
   for (const table of TABLE_ORDER) {
@@ -136,8 +138,8 @@ function diffReport(value: unknown): DiffReport {
 
   const sources = objectValue(report.sources, label);
   exactKeys(sources, ['primary', 'secondary'], [], label);
-  sourceManifest(sources.primary, label);
-  sourceManifest(sources.secondary, label);
+  sourceFileHash(sources.primary, label);
+  sourceFileHash(sources.secondary, label);
 
   const counts = objectValue(report.counts, label);
   exactKeys(counts, CONFLICT_KINDS, [], label);
@@ -155,12 +157,12 @@ function diffReport(value: unknown): DiffReport {
   if (!Array.isArray(report.conflicts)) invalid(label);
   for (const candidate of report.conflicts) {
     const conflict = objectValue(candidate, label);
-    exactKeys(conflict, ['changedFields', 'kind', 'table'], ['primaryId', 'secondaryId'], label);
+    exactKeys(conflict, ['changedFields', 'kind', 'table'], ['primaryIdHash', 'secondaryIdHash'], label);
     stringArray(conflict.changedFields, label);
     if (typeof conflict.kind !== 'string' || !CONFLICT_KINDS.includes(conflict.kind as ConflictKind)) invalid(label);
     tableName(conflict.table, label);
-    if (conflict.primaryId !== undefined) stringValue(conflict.primaryId, label);
-    if (conflict.secondaryId !== undefined) stringValue(conflict.secondaryId, label);
+    if (conflict.primaryIdHash !== undefined) stringValue(conflict.primaryIdHash, label, SHA256);
+    if (conflict.secondaryIdHash !== undefined) stringValue(conflict.secondaryIdHash, label, SHA256);
   }
   return report as unknown as DiffReport;
 }
@@ -411,10 +413,40 @@ export function writeMigrationReport<K extends ReportFileName>(
   return publishAnchored(directoryAnchor(outputRoot, [runId]), fileName, validated);
 }
 
+function canonicalRecord(record: SnapshotRecord): string {
+  const canonical = Object.keys(record)
+    .sort(compareUnicodeCodePoints)
+    .reduce<SnapshotRecord>((result, field) => {
+      result[field] = record[field];
+      return result;
+    }, {});
+  return JSON.stringify(canonical);
+}
+
+function snapshotExport(runId: string, snapshot: SourceSnapshot): SnapshotExport {
+  const tables = TABLE_ORDER.reduce<SnapshotExport['tables']>((result, table) => {
+    const sourceTable = snapshot.tables[table];
+    const canonicalRecords = sourceTable.records.map(canonicalRecord).sort(compareUnicodeCodePoints);
+    result[table] = {
+      columns: [...sourceTable.columns].sort(compareUnicodeCodePoints),
+      recordsSha256: createHash('sha256').update(JSON.stringify(canonicalRecords)).digest('hex'),
+      rowCount: sourceTable.rowCount,
+    };
+    return result;
+  }, {} as SnapshotExport['tables']);
+
+  return {
+    generatedAt: snapshot.generatedAt,
+    runId,
+    source: { sha256: snapshot.source.sha256 },
+    tables,
+  };
+}
+
 export function writeSnapshotExport(runId: string, fileName: string, snapshot: SourceSnapshot, outputRoot = MIGRATION_OUTPUT_ROOT): string {
   if (!EXPORT_FILE.test(fileName)) throw new Error('Invalid migration export file');
   assertMigrationRunId(runId);
-  return publishAnchored(directoryAnchor(outputRoot, [runId, 'export']), fileName, snapshot);
+  return publishAnchored(directoryAnchor(outputRoot, [runId, 'export']), fileName, snapshotExport(runId, snapshot));
 }
 
 export function sha256File(filePath: string): string {
