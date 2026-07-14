@@ -108,6 +108,14 @@ export function checkBaselineContract(projectRoot: string): string[] {
     if (pattern.test(packagingSources)) issues.push(`forbidden packaging pattern: ${pattern.source}`);
   }
 
+  const activeRuntimeDocumentation = [path.join(projectRoot, 'docs', 'api-spec.md')];
+  for (const filePath of activeRuntimeDocumentation.filter(candidate => fs.existsSync(candidate))) {
+    const source = fs.readFileSync(filePath, 'utf8');
+    if (/sqlite/i.test(source) || /DATABASE_URL\s*=\s*file:/i.test(source)) {
+      issues.push(`active SQLite runtime documentation exists: ${normalizedRelative(projectRoot, filePath)}`);
+    }
+  }
+
   for (const outputRoot of [path.join(serverRoot, 'dist'), path.join(projectRoot, 'apps', 'dist')]) {
     for (const filePath of allFiles(outputRoot).filter(isForbiddenArtifact)) {
       issues.push(`forbidden build artifact: ${normalizedRelative(projectRoot, filePath)}`);
@@ -131,7 +139,7 @@ export function checkBaselineContract(projectRoot: string): string[] {
   }
 
   const runtimeSources = runtimeSourceFiles(serverRoot).map(filePath => fs.readFileSync(filePath, 'utf8')).join('\n');
-  for (const pattern of [/file:/i, /law_firm\.db/i, /admin\s*\/\s*123456/i, /organization\.create/i, /Run seed/i, new RegExp('\\u7ec9\\u5d85\\u74d9\\u93c1\\u7248\\u5d41', 'i')]) {
+  for (const pattern of [/file:/i, /law_firm\.db/i, /admin\s*\/\s*123456/i, /organization\.create/i, /Run seed/i, /种子数据/i]) {
     if (pattern.test(runtimeSources)) issues.push(`forbidden runtime pattern: ${pattern.source}`);
   }
   return issues;

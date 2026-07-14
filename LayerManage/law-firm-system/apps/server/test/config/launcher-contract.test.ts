@@ -22,6 +22,14 @@ test('portable launchers require validated external database and secret configur
   }
 });
 
+test('pkg launcher resolves Prisma to an exact Windows native engine file', () => {
+  const entrySource = launchers[0];
+
+  assert.match(entrySource, /resolvePrismaQueryEngineLibrary/);
+  assert.match(entrySource, /PRISMA_QUERY_ENGINE_LIBRARY\s*=\s*queryEngineLibrary/);
+  assert.doesNotMatch(entrySource, /PRISMA_QUERY_ENGINE_LIBRARY\s*=\s*enginePath/);
+});
+
 test('packaging cannot create SQLite or implicit bootstrap data', () => {
   const packageSource = fs.readFileSync(path.resolve('scripts/build-package.js'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {

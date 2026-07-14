@@ -16,6 +16,7 @@ function createProjectFixture() {
   fs.mkdirSync(path.join(serverRoot, 'prisma'), { recursive: true });
   fs.mkdirSync(path.join(serverRoot, 'scripts'), { recursive: true });
   fs.mkdirSync(path.join(projectRoot, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(projectRoot, 'docs'), { recursive: true });
   fs.mkdirSync(path.join(projectRoot, 'infra', 'postgres', 'init'), { recursive: true });
   fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ scripts: {} }));
   fs.writeFileSync(path.join(serverRoot, 'package.json'), JSON.stringify({ scripts: {} }));
@@ -25,6 +26,7 @@ function createProjectFixture() {
   fs.writeFileSync(path.join(serverRoot, 'scripts', 'build.js'), '');
   fs.writeFileSync(path.join(projectRoot, 'scripts', 'build-zip.ps1'), '');
   fs.writeFileSync(path.join(projectRoot, 'scripts', 'installer.iss'), '');
+  fs.writeFileSync(path.join(projectRoot, 'docs', 'api-spec.md'), 'PostgreSQL 16 external DATABASE_URL; prisma migrate deploy; empty baseline.');
   fs.writeFileSync(path.join(projectRoot, 'infra', 'postgres', 'compose.yml'), [
     'POSTGRES_DB: ${POSTGRES_DB:-chengye_oa}',
     'POSTGRES_USER: ${POSTGRES_USER:-chengye_app}',
@@ -91,6 +93,29 @@ test('reports forbidden database fallback in server configuration', (t) => {
   assert.deepEqual(checkBaselineContract(fixture.projectRoot), [
     'forbidden runtime pattern: file:',
     'forbidden runtime pattern: law_firm\\.db',
+  ]);
+});
+
+test('reports active SQLite runtime guidance in API documentation', (t) => {
+  const fixture = createProjectFixture();
+  t.after(() => fs.rmSync(fixture.projectRoot, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(fixture.projectRoot, 'docs', 'api-spec.md'), [
+    'Runtime database: SQLite 3',
+    'DATABASE_URL=file:./dev.db',
+  ].join('\n'));
+
+  assert.deepEqual(checkBaselineContract(fixture.projectRoot), [
+    'active SQLite runtime documentation exists: docs/api-spec.md',
+  ]);
+});
+
+test('reports the correct Chinese seed-data phrase in runtime sources', (t) => {
+  const fixture = createProjectFixture();
+  t.after(() => fs.rmSync(fixture.projectRoot, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(fixture.serverRoot, 'server-entry.js'), '启动时写入种子数据');
+
+  assert.deepEqual(checkBaselineContract(fixture.projectRoot), [
+    'forbidden runtime pattern: 种子数据',
   ]);
 });
 

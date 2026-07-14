@@ -1,6 +1,8 @@
 # Build a portable ZIP package for distribution
 # Alternative to Inno Setup installer
 
+$ErrorActionPreference = 'Stop'
+
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $sourceDir = Join-Path $projectRoot "apps\dist\law-firm-system"
 $outputDir = Join-Path $projectRoot "apps\dist\installer"
@@ -29,7 +31,15 @@ Write-Host "  Output: $zipFile"
 # Compress
 Compress-Archive -Path "$sourceDir\*" -DestinationPath $zipFile -CompressionLevel Optimal -Force
 
-$zipSize = [math]::Round((Get-Item $zipFile).Length / 1MB, 1)
+if (-not (Test-Path -LiteralPath $zipFile)) {
+    throw "ZIP package was not created: $zipFile"
+}
+$zipItem = Get-Item -LiteralPath $zipFile
+if ($zipItem.Length -le 0) {
+    throw "ZIP package is empty: $zipFile"
+}
+
+$zipSize = [math]::Round($zipItem.Length / 1MB, 1)
 Write-Host ""
 Write-Host "ZIP package created: $zipFile" -ForegroundColor Green
 Write-Host "  Size: ${zipSize}MB"

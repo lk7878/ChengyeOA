@@ -3,14 +3,14 @@ useDefault = true
 
 [allowlist]
 description = "SPEC-001 documented local and CI placeholders"
-regexTarget = "match"
+regexTarget = "secret"
 regexes = [
-  '''chengye_local_only''',
-  '''chengye_test_local_only''',
-  '''01234567890123456789012345678901''',
-  '''first-32-character-application-key''',
-  '''second-32-character-app-key''',
-  '''replace_with_at_least_32_random_characters''',
-  '''replace_with_first_application_key''',
-  '''replace_with_second_application_key''',
+  '''^chengye_local_only$''',
+  '''^chengye_test_local_only$''',
+  '''^01234567890123456789012345678901$''',
+  '''^first-32-character-application-key$''',
+  '''^second-32-character-app-key$''',
+  '''^replace_with_at_least_32_random_characters$''',
+  '''^replace_with_first_application_key$''',
+  '''^replace_with_second_application_key$''',
 ]

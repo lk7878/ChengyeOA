@@ -1,6 +1,6 @@
 # 律所管理系统 API 规范文档
 > 版本: v1.0 | 生成日期: 2026-04-26
-> 技术栈: Egg.js + TypeScript + Prisma + SQLite + JWT
+> 技术栈: Egg.js + TypeScript + Prisma + PostgreSQL 16 + JWT
 
 ---
 
@@ -1571,10 +1571,13 @@ Organization (组织架构)
 # .env
 JWT_SECRET=your-secret-key-here
 JWT_EXPIRES_IN=7d
-DATABASE_URL=file:./dev.db
+APP_KEYS=first-application-key,second-application-key
+DATABASE_URL=postgresql://chengye_app:<password>@<host>:5432/chengye_oa?schema=public
 ```
 
 > ⚠️ **重要**: 必须在 `config.default.ts` 顶部调用 `dotenv.config()` 以确保环境变量被正确加载。
+>
+> 运行时使用外部 PostgreSQL 16。数据库结构仅通过 `apps/server/prisma/migrations` 中的规范迁移管理，部署时运行 `npm --prefix apps/server run db:deploy`。SPEC-001 基线必须保持业务表为空，不执行种子、导入或备份恢复。
 
 ---
 
@@ -1610,7 +1613,7 @@ DATABASE_URL=file:./dev.db
 | 框架 | Egg.js | ^3.x |
 | 语言 | TypeScript | ^5.x |
 | ORM | Prisma | ^5.x |
-| 数据库 | SQLite | 3 |
+| 数据库 | PostgreSQL | 16 |
 | 认证 | jsonwebtoken | ^9.x |
 | 密码加密 | bcryptjs | ^2.x |
 | 环境变量 | dotenv | ^16.x |

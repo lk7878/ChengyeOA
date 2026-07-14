@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
 const { loadEnvironment, loadProductionEnvironment } = require('./dist/config/env');
+const { resolvePrismaQueryEngineLibrary } = require('./scripts/lib/prisma-engine-path');
 
 // 判断是否在 pkg 打包环境中运行
 const isPkg = typeof process.pkg !== 'undefined';
@@ -32,20 +33,12 @@ function setupEnv() {
 
   // Prisma 引擎路径处理（pkg 环境下需要特殊处理）
   if (isPkg) {
-    // pkg 将 assets 解压到临时目录，需要设置 PRISMA_QUERY_ENGINE_LIBRARY
     const snapshotDir = path.dirname(process.execPath);
-    // pkg 解压 .prisma 到 snapshot 文件系统，但原生 .node 需要绝对路径
-    // Prisma 5.x 需要这个环境变量来定位 query engine
-    const possibleEnginePaths = [
+    const queryEngineLibrary = resolvePrismaQueryEngineLibrary([
       path.join(snapshotDir, 'node_modules', '.prisma', 'client'),
       path.join(__dirname, 'node_modules', '.prisma', 'client'),
-    ];
-    for (const enginePath of possibleEnginePaths) {
-      if (fs.existsSync(enginePath)) {
-        process.env.PRISMA_QUERY_ENGINE_LIBRARY = enginePath;
-        break;
-      }
-    }
+    ]);
+    if (queryEngineLibrary) process.env.PRISMA_QUERY_ENGINE_LIBRARY = queryEngineLibrary;
   }
 }
 

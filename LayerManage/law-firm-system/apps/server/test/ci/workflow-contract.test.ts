@@ -17,5 +17,18 @@ test('CI runs Gitleaks from an immutable scanner image with repository config', 
   assert.match(workflow, /detect --source=\/repo --config=\/repo\/\.gitleaks\.toml --no-banner --redact --no-git/);
   assert.match(config, /SPEC-001 documented local and CI placeholders/);
   assert.match(config, /useDefault = true/);
+  assert.match(config, /regexTarget\s*=\s*['"]secret['"]/);
+  for (const placeholder of [
+    'chengye_local_only',
+    'chengye_test_local_only',
+    '01234567890123456789012345678901',
+    'first-32-character-application-key',
+    'second-32-character-app-key',
+    'replace_with_at_least_32_random_characters',
+    'replace_with_first_application_key',
+    'replace_with_second_application_key',
+  ]) {
+    assert.match(config, new RegExp(`\\^${placeholder}\\$`));
+  }
   assert.doesNotMatch(config, /stopwords|paths\s*=/i);
 });

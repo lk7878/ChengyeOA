@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import test from 'node:test';
 
 const projectRoot = path.resolve(__dirname, '../../../..');
@@ -15,8 +16,21 @@ test('active Windows distribution surfaces contain no bootstrap credentials or S
 
   assert.equal(manifest.scripts['build:installer'], 'cd scripts && build-installer.bat');
   assert.equal(manifest.scripts.installer, 'npm run build:installer');
+  assert.match(zipScript, /\$sourceDir\s*=\s*Join-Path \$projectRoot ["']apps\\dist\\law-firm-system["']/);
+  assert.match(zipScript, /\$outputDir\s*=\s*Join-Path \$projectRoot ["']apps\\dist\\installer["']/);
+  assert.match(installer, /^OutputDir=\.\.\\apps\\dist\\installer$/m);
+  assert.match(installer, /^Source: "\.\.\\apps\\dist\\law-firm-system\\\*";/m);
   assert.doesNotMatch(zipScript, /admin\s*\/\s*123456/i);
   assert.doesNotMatch(installer, /sqlite/i);
+});
+
+test('ZIP builder fails fast and validates its output before reporting success', () => {
+  const zipScript = fs.readFileSync(path.join(projectRoot, 'scripts', 'build-zip.ps1'), 'utf8');
+
+  assert.match(zipScript, /\$ErrorActionPreference\s*=\s*['"]Stop['"]/);
+  assert.match(zipScript, /Test-Path\s+(?:-LiteralPath\s+)?\$zipFile/);
+  assert.match(zipScript, /Get-Item\s+(?:-LiteralPath\s+)?\$zipFile/);
+  assert.ok(zipScript.indexOf('Test-Path') < zipScript.indexOf('ZIP package created'));
 });
 
 test('Compose parameterizes PostgreSQL defaults, healthcheck, and test database initialization', () => {
@@ -37,6 +51,16 @@ test('Compose parameterizes PostgreSQL defaults, healthcheck, and test database 
 test('shell initializers are checked out with LF line endings', () => {
   const attributes = fs.readFileSync(path.join(repositoryRoot, '.gitattributes'), 'utf8');
   assert.match(attributes, /^\*\.sh text eol=lf$/m);
+});
+
+test('PostgreSQL initializer is executable in the Git index', () => {
+  const relativePath = 'LayerManage/law-firm-system/infra/postgres/init/01-create-test-database.sh';
+  const stagedEntry = execFileSync('git', ['ls-files', '--stage', '--', relativePath], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+  });
+
+  assert.match(stagedEntry, /^100755\s/);
 });
 
 test('backup rehearsal checks every native command and deployment docs use the repository runbook link', () => {
