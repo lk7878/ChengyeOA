@@ -27,6 +27,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:reset:test": "tsx scripts/db/reset-test-db.ts",
+    "db:assert-empty": "tsx scripts/db/assert-empty-application-tables.ts",
     "migration:inventory": "tsx scripts/migration/cli.ts inventory",
     "migration:diff": "tsx scripts/migration/cli.ts diff",
     "package": "node scripts/build-package.js"

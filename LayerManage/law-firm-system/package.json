@@ -15,6 +15,7 @@
     "db:down": "docker compose -f infra/postgres/compose.yml down",
     "db:logs": "docker compose -f infra/postgres/compose.yml logs -f postgres",
     "db:reset:test": "cd apps/server && npm run db:reset:test",
+    "db:assert-empty": "npm --prefix apps/server run db:assert-empty",
     "migration:inventory": "npm --prefix apps/server run migration:inventory --",
     "migration:diff": "npm --prefix apps/server run migration:diff --",
     "setup": "npm ci && npm --prefix apps/server ci && npm --prefix apps/web ci && npm --prefix apps/server run db:generate",
