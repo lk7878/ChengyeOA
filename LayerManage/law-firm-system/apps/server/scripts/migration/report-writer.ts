@@ -1,7 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ImportReport } from './import-postgres';
 import { TABLE_ORDER, type TableName } from './table-plan';
 import type {
   ConflictKind,
@@ -10,31 +9,16 @@ import type {
   SourceManifest,
   SourceSnapshot,
 } from './types';
-import type { ValidationReport } from './validate';
 
 const RUN_ID = /^[a-zA-Z0-9_-]+$/;
 const SHA256 = /^[a-fA-F0-9]{64}$/;
 const EXPORT_FILE = /^[a-zA-Z0-9_.-]+\.json$/;
-const IMPORT_CODE = /^(?:[A-Z][A-Z0-9_]*|\d{5})$/;
-const IDENTIFIER = /^[a-zA-Z][a-zA-Z0-9]*(?:,[a-zA-Z][a-zA-Z0-9]*)*$/;
 const CONFLICT_KINDS: readonly ConflictKind[] = [
   'PRIMARY_ONLY', 'SECONDARY_ONLY', 'CONTENT_MISMATCH', 'BUSINESS_KEY_COLLISION',
 ] as const;
-const VALIDATION_CHECKS = new Set([
-  'row-count', 'primary-ids', 'foreign-key', 'foreign-key-values', 'business-key',
-  'decimal-total', 'timestamp-sample', 'password-hash',
-]);
 
-export const IMPORT_REPORT_PENDING_FILE = '.import-report.pending.json';
 export const ARTIFACT_READY_SUFFIX = '.ready.json';
-const IMPORT_REPORT_RESERVATION_KIND = 'migration-import-report-reservation';
 const ARTIFACT_READY_KIND = 'migration-artifact-ready';
-
-export interface ImportReportReservation {
-  readonly outputRoot: string;
-  readonly runId: string;
-  readonly token: string;
-}
 
 interface FileIdentity {
   dev: bigint;
@@ -56,11 +40,7 @@ interface OpenedArtifact {
 export type ReportFileName =
   | 'source-manifest.json'
   | 'inventory.json'
-  | 'diff-report.json'
-  | 'import-report.json'
-  | 'validation-report.json';
-
-export type DirectReportFileName = Exclude<ReportFileName, 'import-report.json'>;
+  | 'diff-report.json';
 
 export interface SourceManifestPair {
   primary: SourceManifest;
@@ -71,8 +51,6 @@ export interface ReportPayloadMap {
   'source-manifest.json': SourceManifest | SourceManifestPair;
   'inventory.json': SourceInventory;
   'diff-report.json': DiffReport;
-  'import-report.json': ImportReport;
-  'validation-report.json': ValidationReport;
 }
 
 export const MIGRATION_OUTPUT_ROOT = path.resolve(__dirname, '../../../../var/migration');
@@ -187,59 +165,11 @@ function diffReport(value: unknown): DiffReport {
   return report as unknown as DiffReport;
 }
 
-function importReport(value: unknown): ImportReport {
-  const label = 'import';
-  const report = objectValue(value, label);
-  exactKeys(report, ['failed', 'failures', 'inserted', 'skipped', 'updated'], [], label);
-  countValue(report.failed, label);
-  countValue(report.inserted, label);
-  countValue(report.skipped, label);
-  countValue(report.updated, label);
-  if (!Array.isArray(report.failures)) invalid(label);
-  for (const candidate of report.failures) {
-    const failure = objectValue(candidate, label);
-    exactKeys(failure, ['code', 'id', 'table'], ['reason'], label);
-    stringValue(failure.code, label, IMPORT_CODE);
-    stringValue(failure.id, label);
-    tableName(failure.table, label);
-    if (failure.reason !== undefined && failure.reason !== 'missing-id' && failure.reason !== 'duplicate-id') invalid(label);
-  }
-  return report as unknown as ImportReport;
-}
-
-function validationValue(value: unknown, label: string): number | string[] {
-  if (typeof value === 'number') return countValue(value, label);
-  return stringArray(value, label);
-}
-
-function validationReport(value: unknown): ValidationReport {
-  const label = 'validation';
-  const report = objectValue(value, label);
-  exactKeys(report, ['checks', 'generatedAt', 'ok', 'source'], [], label);
-  stringValue(report.generatedAt, label);
-  if (typeof report.ok !== 'boolean' || !Array.isArray(report.checks)) invalid(label);
-  const source = objectValue(report.source, label);
-  exactKeys(source, ['sha256'], [], label);
-  stringValue(source.sha256, label, SHA256);
-  for (const candidate of report.checks) {
-    const check = objectValue(candidate, label);
-    exactKeys(check, ['actual', 'check', 'expected', 'status'], ['field', 'table'], label);
-    if (typeof check.check !== 'string' || !VALIDATION_CHECKS.has(check.check)) invalid(label);
-    if (check.status !== 'PASS' && check.status !== 'FAIL') invalid(label);
-    validationValue(check.expected, label);
-    validationValue(check.actual, label);
-    if (check.field !== undefined) stringValue(check.field, label, IDENTIFIER);
-    if (check.table !== undefined) tableName(check.table, label);
-  }
-  return report as unknown as ValidationReport;
-}
-
 export function parseMigrationReport<K extends ReportFileName>(fileName: K, payload: unknown): ReportPayloadMap[K] {
   if (fileName === 'source-manifest.json') return sourceManifestReport(payload) as ReportPayloadMap[K];
   if (fileName === 'inventory.json') return inventoryReport(payload) as ReportPayloadMap[K];
   if (fileName === 'diff-report.json') return diffReport(payload) as ReportPayloadMap[K];
-  if (fileName === 'import-report.json') return importReport(payload) as ReportPayloadMap[K];
-  return validationReport(payload) as ReportPayloadMap[K];
+  throw new Error('Unknown migration report');
 }
 
 export function assertMigrationRunId(runId: string): void {
@@ -442,105 +372,12 @@ function publishAnchored(anchor: DirectoryAnchor, fileName: string, payload: unk
   }
 }
 
-function writeAnchoredMarker(anchor: DirectoryAnchor, fileName: string, contents: string): void {
-  let marker: OpenedArtifact | undefined;
-  let complete = false;
-  try {
-    marker = openAnchoredExclusive(anchor, fileName);
-    writeDescriptor(marker, contents);
-    assertOpenedArtifact(anchor, marker);
-    syncDirectory(anchor.directory);
-    complete = true;
-  } catch (error) {
-    throw publicationFailure(error);
-  } finally {
-    closeArtifact(marker);
-    if (!complete && marker) removeIfSamePath(marker);
-  }
-}
-
-function removeAnchoredFile(anchor: DirectoryAnchor, filePath: string): void {
-  assertAnchor(anchor);
-  const status = fs.lstatSync(filePath, { bigint: true });
-  if (status.isSymbolicLink() || !status.isFile()) throw new Error('Invalid migration publication path');
-  fs.rmSync(filePath);
-  assertAnchor(anchor);
-  syncDirectory(anchor.directory);
-}
-
-function reservationPaths(reservation: ImportReportReservation): {
-  anchor: DirectoryAnchor;
-  destination: string;
-  pending: string;
-} {
-  assertMigrationRunId(reservation.runId);
-  const anchor = directoryAnchor(reservation.outputRoot, [reservation.runId]);
-  return {
-    anchor,
-    destination: path.join(anchor.directory, 'import-report.json'),
-    pending: path.join(anchor.directory, IMPORT_REPORT_PENDING_FILE),
-  };
-}
-
-function assertReservation(reservation: ImportReportReservation): ReturnType<typeof reservationPaths> {
-  const paths = reservationPaths(reservation);
-  try {
-    assertAnchor(paths.anchor);
-    const status = fs.lstatSync(paths.pending);
-    if (status.isSymbolicLink() || !status.isFile()) throw new Error('invalid marker');
-    const marker = objectValue(JSON.parse(fs.readFileSync(paths.pending, 'utf8')), 'import report reservation');
-    exactKeys(marker, ['kind', 'token', 'version'], [], 'import report reservation');
-    if (marker.kind !== IMPORT_REPORT_RESERVATION_KIND || marker.version !== 1 || marker.token !== reservation.token) {
-      invalid('import report reservation');
-    }
-    assertAnchor(paths.anchor);
-  } catch {
-    throw new Error('Invalid import report reservation');
-  }
-  return paths;
-}
-
-export function reserveImportReport(runId: string, outputRoot = MIGRATION_OUTPUT_ROOT): ImportReportReservation {
-  const reservation: ImportReportReservation = { outputRoot: path.resolve(outputRoot), runId, token: randomBytes(32).toString('hex') };
-  const paths = reservationPaths(reservation);
-  if (fs.existsSync(paths.destination) || fs.existsSync(`${paths.destination}${ARTIFACT_READY_SUFFIX}`)) {
-    throw new Error('Migration artifact already exists');
-  }
-
-  writeAnchoredMarker(paths.anchor, IMPORT_REPORT_PENDING_FILE, `${JSON.stringify({
-    kind: IMPORT_REPORT_RESERVATION_KIND,
-    token: reservation.token,
-    version: 1,
-  })}\n`);
-
-  if (fs.existsSync(paths.destination) || fs.existsSync(`${paths.destination}${ARTIFACT_READY_SUFFIX}`)) {
-    removeAnchoredFile(paths.anchor, paths.pending);
-    throw new Error('Migration artifact already exists');
-  }
-  return reservation;
-}
-
-export function abortImportReportReservation(reservation: ImportReportReservation): void {
-  const paths = assertReservation(reservation);
-  removeAnchoredFile(paths.anchor, paths.pending);
-}
-
-export function publishReservedImportReport(reservation: ImportReportReservation, report: ImportReport): string {
-  const paths = assertReservation(reservation);
-  const validated = parseMigrationReport('import-report.json', report);
-  const destination = publishAnchored(paths.anchor, 'import-report.json', validated);
-  removeAnchoredFile(paths.anchor, paths.pending);
-  return destination;
-}
-
 function notReady(): never {
   throw new Error('Migration artifact is not ready');
 }
 
 export function readPublishedArtifact(destination: string): Buffer {
   try {
-    if (path.basename(destination) === 'import-report.json'
-      && fs.existsSync(path.join(path.dirname(destination), IMPORT_REPORT_PENDING_FILE))) notReady();
     const readyPath = `${destination}${ARTIFACT_READY_SUFFIX}`;
     const firstReady = fs.readFileSync(readyPath);
     const marker = objectValue(JSON.parse(firstReady.toString('utf8')), 'artifact readiness');
@@ -563,19 +400,12 @@ export function migrationRunDirectory(runId: string, outputRoot = MIGRATION_OUTP
   return runDirectory(runId, outputRoot);
 }
 
-export function writeMigrationReport<K extends DirectReportFileName>(
+export function writeMigrationReport<K extends ReportFileName>(
   runId: string,
   fileName: K,
   payload: ReportPayloadMap[K],
-  outputRoot?: string,
-): string;
-export function writeMigrationReport(
-  runId: string,
-  fileName: ReportFileName,
-  payload: ReportPayloadMap[ReportFileName],
   outputRoot = MIGRATION_OUTPUT_ROOT,
 ): string {
-  if (fileName === 'import-report.json') throw new Error('Import report reservation required');
   const validated = parseMigrationReport(fileName, payload);
   assertMigrationRunId(runId);
   return publishAnchored(directoryAnchor(outputRoot, [runId]), fileName, validated);

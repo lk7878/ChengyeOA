@@ -17,8 +17,6 @@
     "db:reset:test": "cd apps/server && npm run db:reset:test",
     "migration:inventory": "npm --prefix apps/server run migration:inventory --",
     "migration:diff": "npm --prefix apps/server run migration:diff --",
-    "migration:import": "npm --prefix apps/server run migration:import --",
-    "migration:validate": "npm --prefix apps/server run migration:validate --",
     "setup": "npm ci && npm --prefix apps/server ci && npm --prefix apps/web ci && npm --prefix apps/server run db:generate",
     "lint": "npm --prefix apps/server run lint && npm --prefix apps/web run lint",
     "typecheck": "npm --prefix apps/server run typecheck && npm --prefix apps/web run typecheck",

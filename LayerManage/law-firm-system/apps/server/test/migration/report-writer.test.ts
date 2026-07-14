@@ -4,13 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
-  abortImportReportReservation,
   ARTIFACT_READY_SUFFIX,
-  IMPORT_REPORT_PENDING_FILE,
   parseMigrationReport,
-  publishReservedImportReport,
   readPublishedArtifact,
-  reserveImportReport,
   writeMigrationReport,
   writeSnapshotExport,
 } from '../../scripts/migration/report-writer';
@@ -92,10 +88,6 @@ function diffReport(): DiffReport {
   };
 }
 
-function importReport() {
-  return { inserted: 1, updated: 0, skipped: 0, failed: 0, failures: [] };
-}
-
 test('strict report schemas reject unknown sensitive keys and invalid nested value shapes', () => {
   const root = outputRoot();
   try {
@@ -112,27 +104,25 @@ test('strict report schemas reject unknown sensitive keys and invalid nested val
       /Invalid inventory report/,
     );
     assert.throws(
-      () => parseMigrationReport('import-report.json', {
-        inserted: 0, updated: 0, skipped: 0, failed: 0, failures: [], phone: '13800138000',
-      }),
-      /Invalid import report/,
-    );
-    assert.throws(
       () => writeMigrationReport('run_4', 'source-manifest.json', {
         path: 'fixture.sqlite', sha256: 'a'.repeat(64), content: 'private free text',
       }, root),
       /Invalid source manifest report/,
     );
-    assert.throws(
-      () => writeMigrationReport('run_5', 'validation-report.json', {
-        checks: [], generatedAt: '2026-07-13T00:00:00.000Z', ok: true,
-        source: { sha256: 'a'.repeat(64) }, rows: [{ email: 'private@example.test' }],
-      }, root),
-      /Invalid validation report/,
-    );
   } finally {
     fs.rmSync(root, { force: true, recursive: true });
   }
+});
+
+test('accepts only source, inventory, and diff report kinds', () => {
+  assert.throws(
+    () => parseMigrationReport('import-report.json' as never, {}),
+    /Unknown migration report/,
+  );
+  assert.throws(
+    () => parseMigrationReport('validation-report.json' as never, {}),
+    /Unknown migration report/,
+  );
 });
 
 test('parses a strict diff report and rejects unknown or malformed confirmed content', () => {
@@ -253,48 +243,6 @@ test('rejects a symlink or junction in an output-root ancestor when supported', 
   }
 });
 
-test('reserves and durably publishes an import report through a sanitized token marker', () => {
-  const root = outputRoot();
-  try {
-    const reservation = reserveImportReport('run_1', root);
-    const pendingPath = path.join(root, 'run_1', IMPORT_REPORT_PENDING_FILE);
-    const marker = JSON.parse(fs.readFileSync(pendingPath, 'utf8')) as Record<string, unknown>;
-
-    assert.deepEqual(Object.keys(marker).sort(), ['kind', 'token', 'version']);
-    assert.equal(marker.kind, 'migration-import-report-reservation');
-    assert.equal(marker.version, 1);
-    assert.match(String(marker.token), /^[a-f0-9]{64}$/);
-    assert.equal(fs.readFileSync(pendingPath, 'utf8').includes('fixture.sqlite'), false);
-
-    const destination = publishReservedImportReport(reservation, importReport());
-    assert.deepEqual(JSON.parse(fs.readFileSync(destination, 'utf8')), importReport());
-    assert.equal(fs.existsSync(pendingPath), false);
-    assert.throws(() => publishReservedImportReport(reservation, importReport()), /reservation/);
-  } finally {
-    fs.rmSync(root, { force: true, recursive: true });
-  }
-});
-
-test('refuses existing final or pending import-report publication and supports pre-mutation abort', () => {
-  const root = outputRoot();
-  try {
-    publishReservedImportReport(reserveImportReport('final_exists', root), importReport());
-    assert.throws(() => reserveImportReport('final_exists', root), /already exists/);
-
-    assert.throws(
-      () => writeMigrationReport('direct_write', 'import-report.json', importReport(), root),
-      /reservation required/,
-    );
-
-    const reservation = reserveImportReport('pending_exists', root);
-    assert.throws(() => reserveImportReport('pending_exists', root), /already exists/);
-    abortImportReportReservation(reservation);
-    assert.equal(fs.existsSync(path.join(root, 'pending_exists', IMPORT_REPORT_PENDING_FILE)), false);
-  } finally {
-    fs.rmSync(root, { force: true, recursive: true });
-  }
-});
-
 test('does not publish report content through a run-directory junction swapped immediately before open', t => {
   const root = outputRoot();
   const outside = outputRoot();
@@ -360,67 +308,6 @@ test('does not publish snapshot payload through an export-directory junction swa
   } finally {
     swap?.restore();
     if (fs.existsSync(exportPath) && fs.lstatSync(exportPath).isSymbolicLink()) fs.unlinkSync(exportPath);
-    fs.rmSync(root, { force: true, recursive: true });
-    fs.rmSync(outside, { force: true, recursive: true });
-  }
-});
-
-test('retains import recovery without publishing final report through a swapped run junction', t => {
-  const root = outputRoot();
-  const outside = outputRoot();
-  const reservation = reserveImportReport('race_import', root);
-  const runPath = path.join(root, 'race_import');
-  let swap: ReturnType<typeof swapDirectoryAtNextPublicationOpen> | undefined;
-  try {
-    try {
-      swap = swapDirectoryAtNextPublicationOpen(runPath, outside);
-    } catch (error) {
-      t.skip(`directory links unavailable: ${(error as NodeJS.ErrnoException).code ?? 'unknown'}`);
-      return;
-    }
-
-    assert.throws(
-      () => publishReservedImportReport(reservation, {
-        inserted: 0,
-        updated: 0,
-        skipped: 0,
-        failed: 1,
-        failures: [{ table: 'Organization', id: 'race-internal-id', code: 'IMPORT_FAILED' }],
-      }),
-      /output path|publication/i,
-    );
-    assert.equal(swap.wasTriggered(), true);
-    assert.equal(directoryText(outside).includes('race-internal-id'), false);
-    assert.deepEqual(fs.readdirSync(outside), []);
-    assert.equal(fs.existsSync(path.join(swap.displaced, IMPORT_REPORT_PENDING_FILE)), true);
-  } finally {
-    swap?.restore();
-    if (fs.existsSync(runPath) && fs.lstatSync(runPath).isSymbolicLink()) fs.unlinkSync(runPath);
-    fs.rmSync(root, { force: true, recursive: true });
-    fs.rmSync(outside, { force: true, recursive: true });
-  }
-});
-
-test('does not create a reservation marker through a run-directory junction swap', t => {
-  const root = outputRoot();
-  const outside = outputRoot();
-  const runPath = path.join(root, 'race_reservation');
-  fs.mkdirSync(runPath);
-  let swap: ReturnType<typeof swapDirectoryAtNextPublicationOpen> | undefined;
-  try {
-    try {
-      swap = swapDirectoryAtNextPublicationOpen(runPath, outside);
-    } catch (error) {
-      t.skip(`directory links unavailable: ${(error as NodeJS.ErrnoException).code ?? 'unknown'}`);
-      return;
-    }
-
-    assert.throws(() => reserveImportReport('race_reservation', root), /output path|publication/i);
-    assert.equal(swap.wasTriggered(), true);
-    assert.equal(fs.existsSync(path.join(outside, IMPORT_REPORT_PENDING_FILE)), false);
-  } finally {
-    swap?.restore();
-    if (fs.existsSync(runPath) && fs.lstatSync(runPath).isSymbolicLink()) fs.unlinkSync(runPath);
     fs.rmSync(root, { force: true, recursive: true });
     fs.rmSync(outside, { force: true, recursive: true });
   }
