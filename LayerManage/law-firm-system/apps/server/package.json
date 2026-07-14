@@ -6,9 +6,6 @@
   "egg": {
     "typescript": true
   },
-  "prisma": {
-    "seed": "ts-node prisma/seed.ts"
-  },
   "scripts": {
     "start": "egg-scripts start --daemon --title=law-firm-server",
     "stop": "egg-scripts stop --title=law-firm-server",
@@ -29,7 +26,6 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
-    "db:seed": "ts-node ./prisma/seed.ts",
     "db:reset:test": "tsx scripts/db/reset-test-db.ts",
     "migration:inventory": "tsx scripts/migration/cli.ts inventory",
     "migration:diff": "tsx scripts/migration/cli.ts diff",
