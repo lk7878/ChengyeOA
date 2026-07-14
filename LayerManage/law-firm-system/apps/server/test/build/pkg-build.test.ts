@@ -42,6 +42,10 @@ test('pkg build emits the executable and physical Prisma engine in the installer
   });
 
   assert.deepEqual(commands.map(command => command.split(' ')[0]), ['npm', 'pkg']);
+  assert.equal(
+    commands[1],
+    `pkg . --targets node22-win-x64 --options no-experimental-require-module --output "${result.outputFile}"`,
+  );
   assert.equal(result.outputFile, path.join(fixture.outputDirectory, 'law-firm-system', 'law-firm-system.exe'));
   assert.equal(
     result.engineFile,

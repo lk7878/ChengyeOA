@@ -34,6 +34,14 @@ test('pkg launcher resolves Prisma to an exact Windows native engine file', () =
   );
 });
 
+test('pkg launcher does not forward its baked Node option to Egg workers', () => {
+  const entrySource = launchers[0];
+  const stripOption = "process.execArgv = process.execArgv.filter(arg => arg !== '--no-experimental-require-module')";
+
+  assert.match(entrySource, /process\.execArgv\s*=\s*process\.execArgv\.filter/);
+  assert.ok(entrySource.indexOf(stripOption) < entrySource.indexOf("require('egg')"));
+});
+
 test('packaging cannot create SQLite or implicit bootstrap data', () => {
   const packageSource = fs.readFileSync(path.resolve('scripts/build-package.js'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {

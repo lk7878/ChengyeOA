@@ -22,7 +22,7 @@ function buildPkg({ serverRoot, outputDirectory, runCommand }) {
   try {
     runCommand('npm run build', { cwd: serverRoot, stdio: 'inherit' });
     fs.mkdirSync(portableDirectory, { recursive: true });
-    runCommand(`pkg . --targets node22-win-x64 --output "${outputFile}"`, {
+    runCommand(`pkg . --targets node22-win-x64 --options no-experimental-require-module --output "${outputFile}"`, {
       cwd: serverRoot,
       stdio: 'inherit',
     });

@@ -22,6 +22,7 @@ function getUserDataDir() {
 function setupEnv() {
   const userDataDir = getUserDataDir();
   if (isPkg) {
+    process.execArgv = process.execArgv.filter(arg => arg !== '--no-experimental-require-module');
     const queryEngineLibrary = resolvePackagedPrismaQueryEngineLibrary(process.execPath);
     process.env.PRISMA_QUERY_ENGINE_LIBRARY = queryEngineLibrary;
     loadProductionEnvironment(process.env);
