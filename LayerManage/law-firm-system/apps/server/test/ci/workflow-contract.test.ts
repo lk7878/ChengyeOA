@@ -13,12 +13,16 @@ test('Node baseline supports the locked toolchain and stays aligned across CI me
   const rootLock = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package-lock.json'), 'utf8'));
   const serverManifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'apps', 'server', 'package.json'), 'utf8'));
   const serverLock = JSON.parse(fs.readFileSync(path.join(projectRoot, 'apps', 'server', 'package-lock.json'), 'utf8'));
+  const webManifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'apps', 'web', 'package.json'), 'utf8'));
+  const webLock = JSON.parse(fs.readFileSync(path.join(projectRoot, 'apps', 'web', 'package-lock.json'), 'utf8'));
 
   assert.equal(nvmVersion, '22.14.0');
   assert.equal(rootManifest.engines.node, '>=22.14.0 <23');
   assert.equal(rootLock.packages[''].engines.node, rootManifest.engines.node);
   assert.equal(serverManifest.engines.node, rootManifest.engines.node);
   assert.equal(serverLock.packages[''].engines.node, serverManifest.engines.node);
+  assert.equal(webManifest.engines.node, rootManifest.engines.node);
+  assert.equal(webLock.packages[''].engines.node, webManifest.engines.node);
   assert.match(workflow, /node-version: '22\.14\.0'/);
 });
 
