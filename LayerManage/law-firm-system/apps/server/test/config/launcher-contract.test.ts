@@ -20,3 +20,14 @@ test('portable launchers require validated external database and secret configur
     assert.doesNotMatch(source, /process\.env\.(?:DATABASE_URL|JWT_SECRET|APP_KEYS)\s*=/);
   }
 });
+
+test('packaging cannot create SQLite or implicit bootstrap data', () => {
+  const packageSource = fs.readFileSync(path.resolve('scripts/build-package.js'), 'utf8');
+  const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  assert.equal(fs.existsSync(path.resolve('scripts/build-dist.js')), false);
+  assert.equal(packageJson.scripts['build-dist'], undefined);
+  assert.doesNotMatch(packageSource, /ensureDatabase|\$executeRawUnsafe|law_firm\.db|file:|admin\s*\/\s*123456/i);
+  assert.doesNotMatch(packageSource, /organization\.create|user\.create|role\.create|Run seed|绉嶅瓙鏁版嵁/i);
+});

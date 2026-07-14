@@ -22,7 +22,6 @@
     "clean": "ets clean",
     "build": "tsc && prisma generate && node scripts/build.js",
     "pkg": "pkg . --targets node22-win-x64 --output ../dist/law-firm-system.exe",
-    "build-dist": "node scripts/build-dist.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
