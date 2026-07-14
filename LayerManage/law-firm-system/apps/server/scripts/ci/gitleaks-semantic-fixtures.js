@@ -39,9 +39,33 @@ function parseGitleaksAllowlistRegexes(config) {
   return [...regexBlock[1].matchAll(/'''([\s\S]*?)'''/g)].map(match => new RegExp(match[1]));
 }
 
-function fixtureText(values) {
+function apiKeyAssignment(value, index) {
   const assignmentName = ['api', 'key'].join('_');
-  return `${values.map((value, index) => `${assignmentName}_${index} = "${value}"`).join('\n')}\n`;
+  return `${assignmentName}_${index} = "${value}"`;
+}
+
+function databaseUrl(value) {
+  return `postgresql://fixture_user:${value}@localhost:5432/fixture_db`;
+}
+
+function allowedFixtureText(values) {
+  return `${values.flatMap((value, index) => [
+    apiKeyAssignment(value, index),
+    `DATABASE_URL_${index} = "${databaseUrl(value)}"`,
+    `DATABASE_URL_${index}: "${databaseUrl(value)}"`,
+    `\${DATABASE_URL_${index}:-${databaseUrl(value)}}`,
+  ]).join('\n')}\n`;
+}
+
+function detectedFixtureText(values) {
+  return `${values.map((value, index) => {
+    switch (index % 4) {
+      case 1: return `DATABASE_URL_${index} = "${databaseUrl(value)}"`;
+      case 2: return `DATABASE_URL_${index}: "${databaseUrl(value)}"`;
+      case 3: return `\${DATABASE_URL_${index}:-${databaseUrl(value)}}`;
+      default: return apiKeyAssignment(value, index);
+    }
+  }).join('\n')}\n`;
 }
 
 function materializeGitleaksSemanticFixtures() {
@@ -50,8 +74,8 @@ function materializeGitleaksSemanticFixtures() {
   const detectedDirectory = path.join(root, 'detected');
   fs.mkdirSync(allowedDirectory, { recursive: true });
   fs.mkdirSync(detectedDirectory, { recursive: true });
-  fs.writeFileSync(path.join(allowedDirectory, 'placeholders.txt'), fixtureText(documentedPlaceholders));
-  fs.writeFileSync(path.join(detectedDirectory, 'variants.txt'), fixtureText(prefixedAndSuffixedVariants));
+  fs.writeFileSync(path.join(allowedDirectory, 'placeholders.txt'), allowedFixtureText(documentedPlaceholders));
+  fs.writeFileSync(path.join(detectedDirectory, 'variants.txt'), detectedFixtureText(prefixedAndSuffixedVariants));
   return { allowedDirectory, detectedDirectory, root };
 }
 
