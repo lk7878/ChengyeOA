@@ -1,20 +1,15 @@
 import { Controller } from 'egg';
 import * as path from 'path';
 import * as fs from 'fs';
+import { databaseAvailability, databaseHealthResponse } from '../lib/database-health';
 
 export default class HomeController extends Controller {
   public async index() {
     const { ctx } = this;
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: {
-        name: 'law-firm-server',
-        version: '1.0.0',
-        status: 'running',
-        timestamp: Date.now(),
-      },
-    };
+    const database = await databaseAvailability(ctx.prisma);
+    const result = databaseHealthResponse(database);
+    ctx.status = result.statusCode;
+    ctx.body = result.body;
   }
 
   // SPA fallback：所有非 API 路由返回 index.html
