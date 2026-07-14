@@ -5,13 +5,15 @@ Deploy with Node 22, npm, PostgreSQL 16, and an externally managed `DATABASE_URL
 ## Release Sequence
 
 ```powershell
-npm.cmd ci
+npm.cmd run setup
 Set-Location apps\server
 npx.cmd prisma migrate deploy
 Set-Location ..\..
 npm.cmd run db:assert-empty
 npm.cmd run verify
 ```
+
+`npm.cmd run setup` installs the root, server, and web lockfiles and generates Prisma Client for a clean checkout.
 
 Set runtime secrets and the database URL through the deployment environment, never through committed files. Apply the canonical migrations before starting the application. The empty baseline intentionally creates no organization, user, role, permission, or other business record.
 
