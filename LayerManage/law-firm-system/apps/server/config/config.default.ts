@@ -1,7 +1,7 @@
 import { EggAppConfig, EggAppInfo, PowerPartial } from 'egg';
 import * as dotenv from 'dotenv';
-import * as path from 'path';
 import { loadEnvironment } from './env';
+import { resolveRunDirectory, resolveStaticDirectory } from './static-path';
 
 // 加载环境变量
 dotenv.config();
@@ -46,6 +46,8 @@ export default (appInfo: EggAppInfo) => {
     consoleLevel: 'INFO',
   };
 
+  config.rundir = resolveRunDirectory(appInfo.baseDir);
+
   // bodyParser 配置
   config.bodyParser = {
     jsonLimit: '1mb',
@@ -55,7 +57,7 @@ export default (appInfo: EggAppInfo) => {
   // 静态文件服务配置（前端 SPA build 输出）
   config.static = {
     prefix: '/',
-    dir: path.join(appInfo.baseDir, 'public'),
+    dir: resolveStaticDirectory(appInfo.baseDir),
     maxAge: 0, // 开发时不缓存，生产可设 31536000
     dynamic: true,
     preload: false,

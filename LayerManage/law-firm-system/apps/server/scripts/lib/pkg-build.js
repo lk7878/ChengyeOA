@@ -14,6 +14,29 @@ function requireNonemptyFile(file, description) {
   }
 }
 
+function requireDirectory(directory, description) {
+  if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) {
+    throw new Error(`${description} is missing or not a directory: ${directory}`);
+  }
+}
+
+function materializeStaticDirectory(serverRoot, portableDirectory) {
+  const sourceDirectory = path.join(serverRoot, 'dist', 'public');
+  const staticDirectory = path.join(portableDirectory, 'public');
+  requireDirectory(sourceDirectory, 'Packaged static source');
+  fs.rmSync(staticDirectory, { recursive: true, force: true });
+  fs.cpSync(sourceDirectory, staticDirectory, { recursive: true });
+  requireDirectory(staticDirectory, 'Packaged static directory');
+  return staticDirectory;
+}
+
+function materializeRunDirectory(portableDirectory) {
+  const runDirectory = path.join(portableDirectory, 'run');
+  fs.mkdirSync(runDirectory, { recursive: true });
+  requireDirectory(runDirectory, 'Packaged run directory');
+  return runDirectory;
+}
+
 function buildPkg({ serverRoot, outputDirectory, runCommand }) {
   const portableDirectory = path.join(outputDirectory, 'law-firm-system');
   const outputFile = path.join(portableDirectory, 'law-firm-system.exe');
@@ -31,8 +54,10 @@ function buildPkg({ serverRoot, outputDirectory, runCommand }) {
     const engineFile = materializePrismaQueryEngineLibrary([
       path.join(serverRoot, 'node_modules', '.prisma', 'client'),
     ], portableDirectory);
+    const staticDirectory = materializeStaticDirectory(serverRoot, portableDirectory);
+    const runDirectory = materializeRunDirectory(portableDirectory);
     resolvePackagedPrismaQueryEngineLibrary(outputFile);
-    return { engineFile, outputFile };
+    return { engineFile, outputFile, runDirectory, staticDirectory };
   } catch (error) {
     cleanBuildOutputs(serverRoot, outputDirectory);
     throw error;
