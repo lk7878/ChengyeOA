@@ -1,8 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-function packageScripts(filePath: string): Record<string, string> {
-  return (JSON.parse(fs.readFileSync(filePath, 'utf8')) as { scripts?: Record<string, string> }).scripts ?? {};
+interface PackageManifest {
+  scripts?: Record<string, string>;
+  prisma?: { seed?: unknown };
+}
+
+function packageManifest(filePath: string): PackageManifest {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8')) as PackageManifest;
+}
+
+function hasPrismaSeedConfiguration(manifest: PackageManifest): boolean {
+  return manifest.prisma !== undefined
+    && Object.prototype.hasOwnProperty.call(manifest.prisma, 'seed');
 }
 
 function sourceFiles(directory: string): string[] {
@@ -40,8 +50,12 @@ export function checkBaselineContract(projectRoot: string): string[] {
   if (hasGenericSeedScript(serverRoot)) issues.push('generic seed script exists');
   if (fs.existsSync(path.join(serverRoot, 'scripts', 'build-dist.js'))) issues.push('SQLite distribution builder exists');
 
-  const rootScripts = packageScripts(path.join(projectRoot, 'package.json'));
-  const serverScripts = packageScripts(path.join(serverRoot, 'package.json'));
+  const rootManifest = packageManifest(path.join(projectRoot, 'package.json'));
+  const serverManifest = packageManifest(path.join(serverRoot, 'package.json'));
+  const rootScripts = rootManifest.scripts ?? {};
+  const serverScripts = serverManifest.scripts ?? {};
+  if (hasPrismaSeedConfiguration(rootManifest)) issues.push('root Prisma seed configuration exists');
+  if (hasPrismaSeedConfiguration(serverManifest)) issues.push('server Prisma seed configuration exists');
   for (const name of ['seed', 'migration:import', 'migration:validate', 'db:seed']) {
     if (rootScripts[name] || serverScripts[name]) issues.push(`${name} command exists`);
   }

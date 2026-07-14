@@ -48,6 +48,24 @@ test('reports generic seed scripts and server db:seed commands', (t) => {
   ]);
 });
 
+test('reports package-level Prisma seed configuration in root and server manifests', (t) => {
+  const fixture = createProjectFixture();
+  t.after(() => fs.rmSync(fixture.projectRoot, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(fixture.projectRoot, 'package.json'), JSON.stringify({
+    scripts: {},
+    prisma: { seed: 'tsx scripts/bootstrap.ts' },
+  }));
+  fs.writeFileSync(path.join(fixture.serverRoot, 'package.json'), JSON.stringify({
+    scripts: {},
+    prisma: { seed: 'tsx scripts/bootstrap.ts' },
+  }));
+
+  assert.deepEqual(checkBaselineContract(fixture.projectRoot), [
+    'root Prisma seed configuration exists',
+    'server Prisma seed configuration exists',
+  ]);
+});
+
 test('reports forbidden database fallback in server configuration', (t) => {
   const fixture = createProjectFixture();
   t.after(() => fs.rmSync(fixture.projectRoot, { recursive: true, force: true }));
