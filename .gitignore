@@ -21,6 +21,7 @@
 **/*.sqlite
 **/*.sqlite3
 **/var/migration/
+**/var/backup/
 **/backups/
 
 /LayerManage/law-firm-system/apps/server/public/

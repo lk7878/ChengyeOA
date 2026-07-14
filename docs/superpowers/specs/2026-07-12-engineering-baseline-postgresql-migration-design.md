@@ -1,5 +1,7 @@
 # SPEC-001：工程基线与 PostgreSQL 空库基线设计
 
+> Task 14 implementation note, 2026-07-14: CI, baseline-contract checks, operator runbooks, and local recovery evidence are implemented. SPEC-001 status remains unchanged pending the controller's required review, fresh verification, and closeout commit. First organization and administrator initialization remains outside this Spec.
+
 > 状态：已批准  
 > 日期：2026-07-12  
 > 批准日期：2026-07-12  

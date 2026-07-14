@@ -24,7 +24,7 @@
     "test": "npm --prefix apps/server run test:focused && npm --prefix apps/web run test",
     "test:all": "npm --prefix apps/server run test:unit && npm --prefix apps/web run test",
     "build": "npm run build:server && npm run build:web",
-    "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
+    "verify": "npm run lint && npm run typecheck && npm run test && npm --prefix apps/server run check:baseline && npm run build"
   },
   "engines": {
     "node": ">=22.12.0 <23"
