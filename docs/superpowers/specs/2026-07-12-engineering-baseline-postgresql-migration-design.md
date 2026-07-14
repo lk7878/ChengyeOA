@@ -1,13 +1,15 @@
 # SPEC-001：工程基线与 PostgreSQL 空库基线设计
 
-> Task 14 implementation note, 2026-07-14: CI, baseline-contract checks, operator runbooks, and local recovery evidence are implemented. SPEC-001 status remains unchanged pending the controller's required review, fresh verification, and closeout commit. First organization and administrator initialization remains outside this Spec.
-
-> 状态：已批准  
-> 日期：2026-07-12  
-> 批准日期：2026-07-12  
-> 修订日期：2026-07-14（SQLite 数据不迁移，采用空 PostgreSQL 基线）
-> 需求基线：`律所闭环管理系统需求开发文档.md` V1.0  
-> 关联专项设计：`docs/专项设计/PostgreSQL迁移方案.md`、`docs/专项设计/数据库核心表设计草案.md`、`docs/专项设计/测试验收用例清单.md`  
+> 状态：已实施
+> 日期：2026-07-12
+> 批准日期：2026-07-12
+> 实施完成日期：2026-07-15
+> 发布状态：本地工程基线已完成；远程 CI、依赖安全分级整改与 Inno Setup 安装器编译仍为发布门禁
+> 实施代码基线：`6cd87fada03226416bd5eabfefa4ef8dd3f1d698`
+> 收尾证据：`docs/superpowers/reports/spec-001-closeout.md`
+> 修订日期：2026-07-15（完成本地验证、恢复演练与实施收尾）
+> 需求基线：`律所闭环管理系统需求开发文档.md` V1.0
+> 关联专项设计：`docs/专项设计/PostgreSQL迁移方案.md`、`docs/专项设计/数据库核心表设计草案.md`、`docs/专项设计/测试验收用例清单.md`
 > 实施约束：必须先依据本 Spec 生成并审核实施 Plan，再按任务执行；不得导入、合并或修改原 SQLite 数据。
 
 ## 1. 背景与问题

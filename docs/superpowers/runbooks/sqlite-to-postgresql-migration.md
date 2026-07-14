@@ -12,4 +12,4 @@ No importer, validation command, or seed command is part of the active baseline.
 
 ## Empty Baseline Evidence
 
-Canonical migrations create the 22 application models under `apps/server/prisma`. After migration or protected test reset, `npm.cmd run db:assert-empty` must report zero rows in every application table. Recovery evidence and final local verification are recorded in `.superpowers/sdd/task-14-report.md`; controller review still determines the SPEC-001 closeout.
+Canonical migrations create the 22 application models under `apps/server/prisma`. After migration or protected test reset, `npm.cmd run db:assert-empty` must report zero rows in every application table. Recovery evidence and final local verification are recorded in `../reports/spec-001-closeout.md`; SPEC-001 local implementation is complete.
