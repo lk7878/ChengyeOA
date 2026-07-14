@@ -1,11 +1,12 @@
-# SPEC-001：工程基线与 PostgreSQL 迁移设计
+# SPEC-001：工程基线与 PostgreSQL 空库基线设计
 
 > 状态：已批准  
 > 日期：2026-07-12  
 > 批准日期：2026-07-12  
+> 修订日期：2026-07-14（SQLite 数据不迁移，采用空 PostgreSQL 基线）
 > 需求基线：`律所闭环管理系统需求开发文档.md` V1.0  
 > 关联专项设计：`docs/专项设计/PostgreSQL迁移方案.md`、`docs/专项设计/数据库核心表设计草案.md`、`docs/专项设计/测试验收用例清单.md`  
-> 实施约束：必须先依据本 Spec 生成并审核实施 Plan，再按任务执行；不得跳过数据差异人工门禁。
+> 实施约束：必须先依据本 Spec 生成并审核实施 Plan，再按任务执行；不得导入、合并或修改原 SQLite 数据。
 
 ## 1. 背景与问题
 
@@ -17,6 +18,7 @@ LayerManage 已被确认作为闭环管理系统的经营 OA 基座，但当前�
 4. 当前 `.env.example`、部署文档和 Prisma provider 均仍指向 SQLite。
 5. 后端具备 lint/test 命令但未发现有效测试用例；前端没有测试命令，主工程没有统一验证入口和持续集成门禁。
 6. 当前文档仍描述 Node 18、SQLite 和多种包管理器，实际前端 Vite 8 要求 Node `^20.19.0 || >=22.12.0`，工程环境存在漂移。
+7. 2026-07-14 完成的双源审计确认两份 SQLite 均为历史演示或初始化数据，不包含需要保留的律所经营数据；项目负责人决定不迁移其中任何记录。
 
 本 Spec 的目标是先建立“可版本化、可复现、可验证、可回滚”的工程底座，再开始新增 PRD 业务功能。
 
@@ -24,23 +26,24 @@ LayerManage 已被确认作为闭环管理系统的经营 OA 基座，但当前�
 
 1. 建立统一的项目级版本管理、目录规范、环境模板和验证命令。
 2. 将 PostgreSQL 16 作为开发、测试、预发布和生产的唯一关系数据库类型。
-3. 将 `apps/server/prisma` 收敛为唯一 Prisma schema、migration 和 seed 来源。
-4. 对现有两份 SQLite 数据进行只读盘点、冲突识别、幂等迁移和结果核验。
-5. 保持现有 22 个模型、UUID、业务编号、密码 Hash、金额、关联和历史记录的业务语义不变。
+3. 将 `apps/server/prisma` 收敛为唯一 Prisma schema 和 migration 来源。
+4. 保留两份 SQLite 的只读盘点与差异审计能力，但不提供活动的数据导入或迁移验证入口。
+5. 在空 PostgreSQL 中保留现有 22 个模型的结构语义，不导入 UUID、业务编号、密码 Hash、金额、关联或历史记录。
 6. 建立最小但真实有效的自动化质量门禁，确保后续 Spec 可以在稳定基线上按测试驱动方式实施。
-7. 形成可执行的开发初始化、数据迁移、切换、回滚和恢复文档。
+7. 形成可执行的空库初始化、运行切换、回滚和恢复文档。
 
 ## 3. 非目标
 
 本 Spec 不包含以下事项：
 
 1. 不实现 PRD 中尚未存在的新业务域、页面、审批流、事件中心或 AI 能力。
-2. 不在迁移中完成完整目标数据库模型扩建；新增核心表应由后续业务 Spec 驱动。
+2. 不在本基线中完成完整目标数据库模型扩建；新增核心表应由后续业务 Spec 驱动。
 3. 不拆分微服务，不引入 Kubernetes、消息中间件或复杂 DevOps 平台。
 4. 不进行 React、Egg.js、Prisma 等主要依赖的版本升级。
 5. 不把现有字符串 JSON 字段批量改为 JSONB，不借迁移机会改变状态值或业务规则。
 6. 不在本 Spec 中确定生产服务器拓扑、云厂商或对象存储供应商。
 7. 不迁移 LawLink、LexNebulis 的代码；两者仅作为后续能力融合的源码参考。
+8. 不预置组织、管理员、角色、权限、字典或任何经营数据；首次系统初始化由后续独立 Spec 定义。
 
 ## 4. 方案比较与结论
 
@@ -68,10 +71,12 @@ LayerManage 已被确认作为闭环管理系统的经营 OA 基座，但当前�
 
 | 方案 | 说明 | 评价 |
 |---|---|---|
-| A. 新建空 PostgreSQL，丢弃 SQLite 数据 | 最简单 | 不满足历史数据保留要求 |
+| A. 新建空 PostgreSQL，仅应用 schema migration | 最简单、边界最清晰 | **采用**。SQLite 已确认无有价值经营数据，应用表保持 0 行 |
 | B. 直接认定一份 SQLite 为真并一次性导入 | 实施较快 | 两库 Hash 不同，存在静默丢数风险 |
-| C. 主源迁移 + 次源差异报告 + 人工门禁 | 以运行时数据库为主源，比较另一份数据库后再切换 | **采用**。风险可见、迁移可重复、结论可审计 |
+| C. 主源迁移 + 次源差异报告 + 人工门禁 | 以运行时数据库为主源，比较另一份数据库后再切换 | 审计已完成，但无真实经营数据，继续导入只会引入演示数据和维护成本 |
 | D. 双写一段时间 | 可降低停机切换风险 | 当前系统复杂度和使用规模不值得承担双写一致性成本 |
+
+结论：PostgreSQL 只接收已提交的 Prisma schema migration，不接收 SQLite 数据，也不执行 system seed。两份 SQLite 及其审计结果仅作为只读历史证据保留。
 
 ## 5. 目标工程结构
 
@@ -94,7 +99,7 @@ D:/2_test/16_ChengyeOA/
 │  ├─ infra/postgres/                      # Compose 与非敏感初始化配置
 │  └─ apps/
 │     ├─ server/
-│     │  └─ prisma/                        # 唯一 schema/migrations/seed
+│     │  └─ prisma/                        # 唯一 schema/migrations
 │     └─ web/
 ├─ LawLink/                                # 独立只读参考仓库，主仓库忽略
 └─ LexNebulis/                             # 独立只读参考仓库，主仓库忽略
@@ -148,7 +153,7 @@ APP_KEYS=replace_with_multiple_random_keys
 |---|---|---|
 | `npm run setup` | 安装各包依赖并生成 Prisma Client | 无错误，重复执行结果一致 |
 | `npm run db:up` / `db:down` | 启停本地 PostgreSQL | 健康检查通过；停止不删除数据卷 |
-| `npm run db:reset:test` | 仅重建测试库并应用 migration/seed | 必须拒绝非测试数据库 URL |
+| `npm run db:reset:test` | 仅重建测试库并应用 migration | 必须拒绝非测试数据库 URL；完成后应用表均为 0 行 |
 | `npm run db:migrate` | 开发环境创建/应用 migration | 只使用后端 canonical schema |
 | `npm run db:deploy` | 应用已提交 migration | 不生成新 migration，不重置数据 |
 | `npm run lint` | 前后端静态检查 | 零错误 |
@@ -163,19 +168,19 @@ APP_KEYS=replace_with_multiple_random_keys
 
 1. `apps/server/prisma/schema.prisma` 是唯一 Prisma schema。
 2. `apps/server/prisma/migrations/` 是唯一 PostgreSQL migration 历史。
-3. `apps/server/prisma/seed.ts` 是唯一 seed 入口，必须使用 upsert 或稳定唯一键实现幂等。
-4. 主工程根目录现有 `prisma/` 在数据审计和备份完成后移入只读迁移归档，再从运行路径删除。
-5. `apps/server/scripts/seed.ts` 的有效逻辑合并到 canonical seed 后删除，避免两个初始化口径。
+3. 本基线不执行 seed；现有 `apps/server/prisma/seed.ts`、`db:seed` 命令和 seed 专属测试从活动工程入口移除。
+4. 主工程根目录现有 `prisma/` 在数据审计完成后从运行路径删除；其中 SQLite 文件继续以未跟踪、只读方式保留。
+5. 后续如需创建首次组织、超级管理员、角色或权限，必须由独立初始化 Spec 定义接口、权限和审计要求，不得恢复隐式启动 seed。
 
 ### 7.2 Schema 转换规则
 
 1. datasource provider 从 `sqlite` 改为 `postgresql`，连接只读取 `DATABASE_URL`。
-2. 现有模型主键已经是 UUID 字符串，迁移时保留原 ID，不重新生成，也不建立无必要的 ID 映射。
-3. 现有 `Decimal` 金额字段显式映射为 `Decimal @db.Decimal(18, 2)`，迁移前后逐表核对合计。
-4. 现有 `DateTime` 写入 PostgreSQL 时统一按 UTC 解释和保存，前端按 `Asia/Shanghai` 展示；迁移报告必须说明 SQLite 原值的时区假设。
-5. 现有 `tags`、`paymentTerms`、`teamIds`、`kpiData` 等字符串 JSON 在本次迁移中保持 String 语义，仅执行“是否为合法 JSON”的数据质量检查，不自动改为 JSONB。
+2. 现有模型主键继续使用 UUID 字符串定义，但空库初始化不生成任何业务主键或记录。
+3. 现有 `Decimal` 金额字段显式映射为 `Decimal @db.Decimal(18, 2)`。
+4. 后续写入 PostgreSQL 的 `DateTime` 统一按 UTC 保存，前端按 `Asia/Shanghai` 展示。
+5. 现有 `tags`、`paymentTerms`、`teamIds`、`kpiData` 等字符串 JSON 保持 String 语义，不自动改为 JSONB。
 6. 现有状态字符串、软删除语义和外键删除策略不在本次迁移中重构。
-7. PostgreSQL baseline migration 从空库生成并审查，不继续复用 SQLite 方言 migration；SQLite migration 作为只读证据归档。
+7. PostgreSQL baseline migration 从空库生成并审查，不继续复用 SQLite 方言 migration；SQLite schema、migration 和数据库文件只作为只读证据归档。
 8. 所有后续物理表结构变化只能通过已提交的 Prisma migration 实施，系统配置页面不得直接执行 DDL。
 
 ### 7.3 PostgreSQL 实例
@@ -188,67 +193,53 @@ APP_KEYS=replace_with_multiple_random_keys
 4. 端口、数据库名、用户可由本地环境覆盖，默认值不得包含真实生产凭据。
 5. `docker compose down` 默认保留 volume；删除数据必须使用单独的显式命令并带环境保护。
 
-## 8. SQLite 数据迁移设计
+## 8. SQLite 只读审计与空库初始化设计
 
-### 8.1 数据源认定
+### 8.1 审计结论
 
-当前存在：
+2026-07-14 完成双源只读审计，结论如下：
 
-| 路径 | 角色 | 当前证据 |
+| 路径 | SHA-256 | 结论 |
 |---|---|---|
-| `LayerManage/law-firm-system/apps/server/prisma/law_firm.db` | **候选主源** | 后端 Prisma 命令与 schema 的实际运行路径 |
-| `LayerManage/law-firm-system/prisma/law_firm.db` | 次源与恢复证据 | 根目录重复 Prisma 入口，SHA-256 与候选主源不同 |
+| `LayerManage/law-firm-system/apps/server/prisma/law_firm.db` | `B61917FFA7823F15CA9F9A20EB95463B28F0A7AB161108338FFBE068CAD48E11` | 旧演示 seed 数据，不作为迁移源 |
+| `LayerManage/law-firm-system/prisma/law_firm.db` | `9A8F3EED9B429190643CE1A55F11F61A2B3DD4329C28DA3E4F6182F93A8C629C` | 旧初始化 seed 数据，不作为迁移源 |
 
-候选主源不是无条件最终真源。实施时必须先生成逐表差异报告；如次源存在主源没有的有效业务记录、金额差异或更新时间更晚的记录，迁移进入人工确认门禁，不得自动切换。
+完整审计决策记录见 `docs/superpowers/runbooks/sqlite-to-postgresql-migration.md`。原 SQLite 文件不得删除、改写、checkpoint 或纳入 Git；它们不再承担主源、恢复源或运行时回退数据库职责。
 
-### 8.2 迁移产物
+### 8.2 保留与退出的工具边界
 
-运行产物统一写入受 Git 忽略的 `LayerManage/law-firm-system/var/migration/<run-id>/`：
+1. 保留只读 `migration:inventory` 和 `migration:diff`，仅用于历史文件审计或未来未知数据源的诊断。
+2. 移除 `migration:import`、`migration:validate` 的命令入口、实现和专属测试，避免形成错误的数据导入预期。
+3. 审计运行产物继续写入受 Git 忽略的 `LayerManage/law-firm-system/var/migration/<run-id>/`，不得包含未脱敏个人信息。
+4. 已提交的非敏感审计摘要和 Hash 继续保留；完整导出和逐行报告不得提交。
 
-```text
-source-manifest.json      # 路径、大小、Hash、只读副本信息
-inventory.json            # 表结构、行数、主键、业务唯一键、时间范围
-diff-report.json          # 两源新增、缺失、冲突和金额差异
-export/                   # 规范化中间数据，仅本机保存
-import-report.json         # 成功、跳过、失败与原因
-validation-report.json    # 数量、关联、唯一性、金额、业务抽样结果
-```
+### 8.3 PostgreSQL 空库初始化
 
-报告不得包含明文密码、完整身份证号、完整手机号或录音文件内容；敏感字段只保留掩码、Hash 或内部 ID。
+1. 启动 PostgreSQL 16，并确认目标数据库是新建或已通过受保护命令清空的环境。
+2. 仅执行已提交的 Prisma migration，创建现有 22 个应用模型对应的结构。
+3. 不执行 `db:seed`，不导入 SQLite，不创建组织、人员、用户、角色、权限、渠道或其他记录。
+4. 校验 Prisma migration 状态为最新，并逐表确认所有应用表均为 0 行。
+5. Prisma 自身的 `_prisma_migrations` 元数据表允许存在 migration 记录，不计入“空数据库”的业务数据判定。
+6. 重复重建测试数据库并应用 migration，结果必须一致，且不依赖本机残留文件或历史 volume 内容。
 
-### 8.3 迁移步骤
-
-1. 停止对两份 SQLite 的写入，计算 Hash，并复制为只读备份；原文件不直接操作。
-2. 对两份数据库执行相同的结构与数据盘点，记录每表行数、主键集合、业务唯一键、金额合计和最大更新时间。
-3. 以候选主源生成规范化导出；次源只参与差异检测，不自动覆盖主源。
-4. 对冲突按“相同主键不同内容、相同业务键不同主键、仅次源存在、金额不一致、孤立外键”分类。
-5. 无冲突或冲突经人工确认后，在空 PostgreSQL 应用 baseline migration。
-6. 按外键拓扑顺序导入；导入器以原 UUID 或稳定业务键 upsert，保证同一批次可重复执行。
-7. 执行 seed，仅补齐系统必需且不存在的角色、权限和管理员初始化数据，不覆盖迁移数据。
-8. 运行自动验证和核心业务抽样；生成不可修改的结果报告。
-9. 通过所有切换门禁后修改应用连接，SQLite 保持只读归档，不立即删除。
-
-### 8.4 验证规则
+### 8.4 空库验收规则
 
 | 维度 | 必须通过的检查 |
 |---|---|
-| 数量 | 每表源记录数 = 导入成功 + 明确跳过 + 已登记异常；关键表不得存在未解释差异 |
-| 主键 | 所有原 UUID 保持不变；无重复主键 |
-| 关联 | 客户、合同、付款、案件、任务、用户角色等无新增孤立外键 |
-| 唯一性 | 用户名、员工编号、合同编号、案件编号等唯一键无冲突 |
-| 金额 | Channel、Contract、Payment、Case、Performance 等 Decimal 字段逐表总额一致，单条精度为两位小数 |
-| 时间 | 抽样核对创建、签约、收款、结案时间；UTC 转换前后业务日期无偏移 |
-| 认证 | 迁移后的密码 Hash 不重算，现有测试账号可正常登录 |
-| CRUD | 现有组织、员工、线索、客户、合同、付款、案件的读写烟雾测试通过 |
-| 幂等 | 同一导入批次重复执行不新增重复记录，不改变已确认结果 |
+| 数据源隔离 | PostgreSQL 中不存在来自任一 SQLite 的记录，原 SQLite Hash 保持不变 |
+| 结构 | canonical schema 的 22 个应用模型均可由已提交 migration 在空库创建 |
+| 数据 | 除 `_prisma_migrations` 外，全部应用表行数为 0 |
+| 初始化 | 安装、启动、migration 和 CI 不隐式调用 seed 或创建管理员 |
+| 单一来源 | 运行时仅识别 `apps/server/prisma/schema.prisma` 及其 migrations |
+| 可重复性 | 两次独立空库初始化得到相同 schema 和相同 0 行结果 |
 
 ## 9. 测试与持续集成
 
 ### 9.1 最小测试基线
 
-1. 后端保留 Egg 测试框架，新增 PostgreSQL 连接、migration、seed 幂等和核心 CRUD 集成测试。
+1. 后端保留 Egg 测试框架，新增 PostgreSQL 连接、migration、空库断言和核心 schema 集成测试。
 2. 前端引入 Vitest、React Testing Library 和 jsdom，至少覆盖应用启动、登录页渲染、路由保护和 API 错误态。
-3. 迁移工具必须覆盖：两库差异识别、Decimal 精度、时间转换、外键顺序、重复运行和错误中断。
+3. SQLite 审计工具必须覆盖：只读打开、源文件不变、两库差异识别、报告脱敏和错误中断；不测试或保留数据导入能力。
 4. 不以 SQLite 内存库替代 PostgreSQL 测试；数据库特性必须在真实 PostgreSQL 16 测试实例验证。
 5. 测试库每次重建前校验数据库名或显式安全标记，任何生产样式 URL 均拒绝 reset。
 
@@ -258,40 +249,40 @@ CI 在干净环境中执行：
 
 1. 校验 Node/npm 版本和 lockfile 安装。
 2. 启动 PostgreSQL 16 服务并等待健康检查。
-3. 应用全部 migration，执行幂等 seed。
+3. 应用全部 migration，不执行 seed，并断言全部应用表为 0 行。
 4. 执行 `npm run verify`。
 5. 再次在空测试库执行 migration，防止依赖本地残留状态。
 6. 检查 Git 工作区无未提交的生成文件或 schema 漂移。
 
-## 10. 切换与回滚
+## 10. 启用与回滚
 
-### 10.1 切换门禁
+### 10.1 PostgreSQL 启用门禁
 
-以下条件全部满足才允许从 SQLite 切换到 PostgreSQL：
+以下条件全部满足才允许将 PostgreSQL 作为唯一运行数据库：
 
-1. 两份 SQLite 的差异报告已生成，所有关键差异已有明确处理结论。
+1. 两份 SQLite 的审计结论已记录为“不迁移”，且导入命令已退出活动入口。
 2. PostgreSQL baseline migration 可在空库重复创建完整结构。
-3. 数据验证规则全部通过，关键表记录数、金额和关系无未解释差异。
-4. `npm run verify` 和核心登录/CRUD 烟雾测试通过。
-5. SQLite 只读备份和 PostgreSQL 切换前快照均可访问。
-6. 开发环境切换成功并稳定运行后，才允许进入预发布迁移演练。
+3. 除 `_prisma_migrations` 外，全部应用表为 0 行，启动过程不会隐式写入数据。
+4. `npm run verify`、数据库健康检查和 schema 烟雾测试通过。
+5. 原 SQLite Hash 未变化，且应用配置、脚本和文档不再连接 SQLite。
+6. 首次管理员尚未创建属于已知预期；需要登录的业务验收必须等待后续初始化 Spec。
 
 ### 10.2 回滚策略
 
-1. 开发阶段切换失败：停止 PostgreSQL 写入，恢复原 SQLite 连接，保留失败库和报告用于分析。
-2. 预发布/生产演练必须在维护窗口冻结写入后完成；出现登录失败、核心 CRUD 失败、金额不一致或关联缺失立即回滚。
-3. 若 PostgreSQL 已产生新写入，回滚前导出增量差异，不允许直接丢弃；由后续 runbook 定义补偿方式。
-4. SQLite 归档至少保留到 PostgreSQL 正式验收和备份恢复演练完成，删除需单独审批。
-5. Prisma migration 不承诺自动 down migration；回滚以数据库快照、应用版本和受控补偿脚本为主。
+1. 基线阶段不存在 SQLite 运行时回退；启用失败时停止应用，保留失败库和日志后重建空 PostgreSQL。
+2. 空库尚无业务写入时，可通过受保护的数据库重建命令恢复到 baseline migration 状态。
+3. 一旦后续 Spec 已产生真实业务写入，回滚必须使用 PostgreSQL 备份、应用版本和受控补偿脚本，不得切回 SQLite。
+4. SQLite 历史文件继续只读保留，删除需单独审批，但不影响 PostgreSQL 的启用与恢复。
+5. Prisma migration 不承诺自动 down migration；上线前仍须完成 PostgreSQL 备份与恢复演练。
 
 ## 11. 安全与可运维性
 
 1. 生产连接启用 TLS；数据库端口不直接暴露公网。
 2. 生产开启慢查询和连接监控，应用日志不得输出完整连接串或敏感字段。
-3. 开发备份用于迁移验证；生产备份延续 PRD 的 RPO 不超过 1 小时、RTO 不超过 4 小时目标，并在上线前完成恢复演练。
-4. migration 执行者、时间、版本、结果和失败原因必须留痕。
+3. 开发备份用于恢复验证；生产备份延续 PRD 的 RPO 不超过 1 小时、RTO 不超过 4 小时目标，并在上线前完成恢复演练。
+4. schema migration 执行者、时间、版本、结果和失败原因必须留痕。
 5. `/health` 只返回服务和数据库可用状态，不泄露版本、连接地址、表名或错误堆栈。
-6. 本 Spec 产生的迁移报告默认仅限开发和系统管理员查阅，不作为普通业务页面功能。
+6. 本 Spec 产生的 SQLite 审计报告默认仅限开发和系统管理员查阅，不作为普通业务页面功能。
 
 ## 12. 文档交付物
 
@@ -310,27 +301,28 @@ CI 在干净环境中执行：
 本 Spec 的实施只有在以下条件全部满足时才算完成：
 
 1. 主仓库已建立，文档和主工程可版本化，两个参考仓库未被主仓库误纳入。
-2. 新开发者仅依据 runbook 可在干净环境启动 PostgreSQL、安装依赖、迁移、seed 并运行系统。
-3. 工程中只有一套运行时 Prisma schema、migration 和 seed 来源。
+2. 新开发者仅依据 runbook 可在干净环境启动 PostgreSQL、安装依赖、应用 migration 并运行数据库健康检查。
+3. 工程中只有一套运行时 Prisma schema 和 migration 来源，基线不包含活动 seed 入口。
 4. 应用运行时不再依赖 SQLite，开发和测试均连接 PostgreSQL 16。
-5. 两份 SQLite 均有 Hash、盘点和差异报告；迁移结果通过数量、关联、唯一性、金额、时间和登录验证。
-6. 重复执行迁移导入和 seed 不产生重复数据。
+5. 两份 SQLite 均有 Hash、盘点和差异报告，审计结论明确为不迁移，原文件保持不变。
+6. `migration:import`、`migration:validate` 和 `db:seed` 不再是活动命令；仅保留只读 inventory/diff 能力。
 7. 前后端具备实际测试用例，统一 `verify` 命令和 CI 在干净环境通过。
 8. 密钥、本地数据库、备份、迁移明细和构建产物均未进入 Git。
-9. 开发迁移、切换和回滚演练完成并形成 runbook 记录。
-10. 既有业务功能没有因数据库切换出现已知阻断性回归。
+9. 两次独立空库初始化均可创建相同 schema，且除 `_prisma_migrations` 外全部应用表为 0 行。
+10. PostgreSQL 备份、恢复和空库重建演练完成并形成 runbook 记录。
 
 ## 14. 风险与控制
 
 | 风险 | 影响 | 控制措施 |
 |---|---|---|
-| 两份 SQLite 存在不同有效数据 | 静默丢数 | 双源盘点、差异报告、人工切换门禁 |
-| SQLite 与 PostgreSQL 类型行为不同 | 金额、时间、唯一性错误 | 显式 Decimal、时区规则、真实 PostgreSQL 集成测试 |
+| 误将 SQLite 演示数据导入 | 污染正式基线 | 移除 import/validate 活动入口，保留审计 Hash 与只读工具 |
+| 启动或 migration 隐式写入 seed | 空库不再为空 | CI 逐表 0 行断言，移除活动 seed 入口 |
+| SQLite 与 PostgreSQL 类型行为不同 | 后续金额、时间、唯一性错误 | 显式 Decimal、时区规则、真实 PostgreSQL 集成测试 |
 | 重复 Prisma 入口继续被误用 | schema 漂移 | 单一目录、移除重复依赖、CI 漂移检查 |
-| 本次迁移夹带业务模型重构 | 范围失控、难以定位回归 | 保持现有 22 模型语义，新增业务表另立 Spec |
+| 本次基线夹带业务模型重构 | 范围失控、难以定位回归 | 保持现有 22 模型语义，新增业务表另立 Spec |
 | 测试 reset 误连非测试库 | 数据破坏 | 数据库名/环境标记双重校验，生产 URL 拒绝执行 |
 | Node 与依赖环境漂移 | 无法复现构建 | Node 22 锁定、lockfile 安装、CI 版本检查 |
-| 迁移文件包含敏感数据 | 客户信息泄露 | 运行目录 Git 忽略、报告脱敏、最小访问权限 |
+| 审计文件包含敏感数据 | 信息泄露 | 运行目录 Git 忽略、报告脱敏、最小访问权限 |
 
 ## 15. 审核结论项
 
@@ -338,7 +330,9 @@ CI 在干净环境中执行：
 
 1. 以工作空间根目录建立主 Git 仓库，主工程和项目文档同库管理，LawLink/LexNebulis 继续作为独立参考仓库。
 2. 使用 Docker Compose 管理开发和测试 PostgreSQL 16，统一 Node 22 + npm。
-3. `apps/server/prisma` 是唯一 Prisma 来源，根目录重复 Prisma 入口在完成审计归档后移除。
-4. `apps/server/prisma/law_firm.db` 仅作为候选主源；两库差异未经报告和确认不得切换。
-5. 本次迁移保持现有 22 个模型与字符串 JSON 语义，不同步扩建完整 PRD 数据模型。
-6. Spec 批准后先生成逐任务实施 Plan，再按测试驱动与分支隔离方式执行，不直接开始批量生成业务代码。
+3. `apps/server/prisma` 是唯一 Prisma schema 和 migration 来源，根目录重复 Prisma 入口在完成审计归档后移除。
+4. 两份 SQLite 均不是迁移源或回退库，仅保留只读 inventory/diff 审计能力。
+5. 本次基线保持现有 22 个模型与字符串 JSON 语义，不同步扩建完整 PRD 数据模型。
+6. PostgreSQL 仅应用 schema migration；不导入数据、不执行 seed，全部应用表保持 0 行。
+7. 首次组织、管理员、角色和权限初始化由后续独立 Spec 处理，不属于本基线。
+8. Spec 批准后先生成逐任务实施 Plan，再按测试驱动与分支隔离方式执行，不直接开始批量生成业务代码。

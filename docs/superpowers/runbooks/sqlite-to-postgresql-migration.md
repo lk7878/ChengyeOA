@@ -1,12 +1,13 @@
-# SQLite to PostgreSQL Migration Runbook
+# SQLite Audit and PostgreSQL Baseline Runbook
 
 ## Status
 
 - SPEC: `SPEC-001 Engineering Baseline and PostgreSQL Migration`
-- Current gate: `REJECT_AND_INVESTIGATE`
+- Audit gate: `REJECT_AND_INVESTIGATE` (closed)
+- Replacement decision: `CLEAN_POSTGRESQL_BASELINE_APPROVED`
 - Decision date: `2026-07-14`
 - Reviewer: project owner
-- Plan state: stopped at Task 9; Tasks 10-14 must not start without a new approved source decision
+- Plan state: stopped at Task 9; Tasks 10-14 require a revised implementation Plan before execution
 
 ## Source Audit
 
@@ -49,19 +50,27 @@ Required effects:
 1. Do not import either SQLite dataset into PostgreSQL.
 2. Do not merge secondary-only records into the candidate primary.
 3. Do not delete, rewrite, checkpoint, or otherwise modify either SQLite source.
-4. Keep PostgreSQL migration Tasks 10-14 blocked.
+4. Keep the original PostgreSQL migration Tasks 10-14 blocked.
 5. Do not treat the reviewed diff hash as approval for a later import.
 
-## Reopening Conditions
+## Replacement Decision
 
-A new migration gate may be opened only after all applicable items are resolved:
+The project owner confirmed that the SQLite databases contain no valuable operating data and approved a clean PostgreSQL baseline.
 
-1. Confirm whether any real operating data exists in another database, backup, export, or deployed environment.
-2. If no real operating data exists, revise SPEC-001 and its implementation Plan to use a clean PostgreSQL database plus the system-only seed, with no SQLite import.
-3. Verify that the system seed cannot overwrite or rewire migrated users, employees, organizations, roles, or permissions when matching records already exist.
-4. If another source is found, create new read-only copies, recompute source hashes, generate a new inventory/diff run, and obtain a new explicit human gate decision.
-5. Record the replacement decision and evidence here before any import command is allowed.
+Required effects:
+
+1. PostgreSQL receives only committed Prisma schema migrations.
+2. Do not run a system seed or create organizations, users, roles, permissions, channels, or business records.
+3. All application tables must contain zero rows after baseline initialization; `_prisma_migrations` is the only allowed metadata exception.
+4. Retain only the read-only `migration:inventory` and `migration:diff` capabilities.
+5. Remove the `migration:import`, `migration:validate`, and `db:seed` active command surfaces through the revised implementation Plan.
+6. Keep both SQLite files unchanged and outside Git as historical evidence; they are not a runtime fallback.
+7. Define first-organization and first-administrator creation in a later dedicated Spec.
+
+## Future Source Discovery
+
+If a different source containing real operating data is discovered later, do not reuse this audit as import approval. Create a new Spec, new read-only copies, new source hashes, and a new explicit human decision before adding any import capability.
 
 ## Prohibited Commands
 
-Until a replacement decision is approved, do not run `migration:import`, remove either SQLite source, or start the PostgreSQL cutover rehearsal.
+Do not run `migration:import`, `migration:validate`, or `db:seed`. Do not remove or modify either SQLite source. Do not execute the original Tasks 10-14; follow only a revised Plan approved against the amended SPEC-001.
