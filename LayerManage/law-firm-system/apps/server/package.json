@@ -80,6 +80,9 @@
       "node_modules/generator-function/index.mjs",
       "node_modules/generator-function/legacy.js",
       "node_modules/generator-function/package.json",
+      "node_modules/nanoid/package.json",
+      "node_modules/nanoid/non-secure/package.json",
+      "node_modules/nanoid/non-secure/index.cjs",
       "public/**/*"
     ],
     "scripts": [
