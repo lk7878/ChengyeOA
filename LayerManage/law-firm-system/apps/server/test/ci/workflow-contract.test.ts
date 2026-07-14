@@ -68,3 +68,12 @@ test('CI runs the pinned-image Gitleaks semantic fixtures without weakening the 
   assert.match(semanticScript, /detected[^\n]+status[^\n]+===?\s*1|status[^\n]+!==?\s*1/);
   assert.equal((workflow.match(/detect --source=\/repo --config=\/repo\/\.gitleaks\.toml --no-banner --redact --no-git/g) ?? []).length, 1);
 });
+
+test('CI continuously exercises the real Windows ZIP builder', () => {
+  const workflow = fs.readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
+
+  assert.match(workflow, /windows-package:\s+[\s\S]*?runs-on: windows-latest/);
+  assert.match(workflow, /windows-package:[\s\S]*?node-version: '22\.14\.0'/);
+  assert.match(workflow, /windows-package:[\s\S]*?working-directory: LayerManage\/law-firm-system\/apps\/server\s+run: npm ci/);
+  assert.match(workflow, /windows-package:[\s\S]*?npx tsx --test --test-force-exit test\/build\/distribution-inputs\.test\.ts/);
+});

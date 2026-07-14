@@ -68,3 +68,19 @@ jobs:
         run: npm run db:assert-empty
       - name: Reject generated drift
         run: git diff --exit-code
+
+  windows-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+          cache-dependency-path: LayerManage/law-firm-system/apps/server/package-lock.json
+      - name: Install server test dependencies
+        working-directory: LayerManage/law-firm-system/apps/server
+        run: npm ci
+      - name: Exercise Windows ZIP builder
+        working-directory: LayerManage/law-firm-system/apps/server
+        run: npx tsx --test --test-force-exit test/build/distribution-inputs.test.ts
