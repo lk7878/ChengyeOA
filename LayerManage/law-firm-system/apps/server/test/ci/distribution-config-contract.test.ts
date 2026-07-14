@@ -33,12 +33,16 @@ test('active Windows distribution surfaces contain no bootstrap credentials or S
   assert.doesNotMatch(installer, /sqlite/i);
 });
 
-test('Inno Setup installs, launches, shortcuts, and uninstalls the pkg executable target', () => {
+test('Inno Setup is per-user only and targets the pkg executable for lifecycle actions', () => {
   const installer = fs.readFileSync(path.join(projectRoot, 'scripts', 'installer.iss'), 'utf8');
 
   assert.match(installer, /^#define MyAppExeName "law-firm-system\.exe"$/m);
+  assert.match(installer, /^DefaultDirName=\{localappdata\}\\\{#MyAppNameEn\}$/m);
+  assert.match(installer, /^PrivilegesRequired=lowest$/m);
+  assert.doesNotMatch(installer, /^PrivilegesRequiredOverridesAllowed=/m);
   assert.match(installer, /Name: "\{group\}\\\{#MyAppName\}"; Filename: "\{app\}\\\{#MyAppExeName\}";/);
-  assert.match(installer, /Name: "\{commondesktop\}\\\{#MyAppName\}"; Filename: "\{app\}\\\{#MyAppExeName\}";/);
+  assert.match(installer, /Name: "\{userdesktop\}\\\{#MyAppName\}"; Filename: "\{app\}\\\{#MyAppExeName\}";/);
+  assert.doesNotMatch(installer, /\{commondesktop\}/i);
   assert.match(installer, /^Filename: "\{app\}\\\{#MyAppExeName\}";.*postinstall/m);
   assert.match(installer, /^Filename: "taskkill"; Parameters: "\/f \/im \{#MyAppExeName\}";/m);
   assert.doesNotMatch(installer, /launch\.bat|node\.exe|cmd\.exe/i);

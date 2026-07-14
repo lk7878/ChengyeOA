@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { findForbiddenArtifacts } = require('../apps/server/scripts/lib/build-artifacts');
 
 function requirePhysicalDirectory(directory, description) {
   if (!fs.existsSync(directory)) throw new Error(`${description} is missing: ${directory}`);
@@ -34,6 +35,10 @@ function verifyPackageOutput(packageDirectory) {
   requireNonemptyPhysicalFile(path.join(publicDirectory, 'index.html'), 'Public entry point');
   requirePhysicalDirectory(runDirectory, 'Run directory');
   requireNonemptyPhysicalFile(path.join(runDirectory, '.keep'), 'Run directory marker');
+  const forbidden = findForbiddenArtifacts(resolvedPackageDirectory);
+  if (forbidden.length > 0) {
+    throw new Error(`Forbidden package artifacts: ${forbidden.map(file => path.relative(resolvedPackageDirectory, file)).join(', ')}`);
+  }
 
   return { engineFile, executable, packageDirectory: resolvedPackageDirectory, publicDirectory, runDirectory };
 }

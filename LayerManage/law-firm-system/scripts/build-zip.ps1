@@ -9,6 +9,13 @@ $sourceDir = Join-Path $projectRoot "apps\dist\law-firm-system"
 $outputDir = Join-Path $projectRoot "apps\dist\installer"
 $zipFile = Join-Path $outputDir "LawFirmSystem-Portable-1.0.0.zip"
 
+trap {
+    Remove-Item -LiteralPath $zipFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Error -ErrorRecord $_
+    exit 1
+}
+
 Push-Location $projectRoot
 try {
     & npm.cmd run pkg

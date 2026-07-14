@@ -35,8 +35,7 @@ WizardStyle=modern
 WizardSizePercent=120,140
 
 ; Permissions - no admin needed for LocalAppData
-PrivilegesRequired=none
-PrivilegesRequiredOverridesAllowed=commandline dialog
+PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 
 ; Uninstall
@@ -61,7 +60,7 @@ Source: "..\apps\dist\law-firm-system\*"; DestDir: "{app}"; Flags: ignoreversion
 ; Start Menu shortcut
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Comment: "启动律所管理系统"
 ; Desktop shortcut
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Comment: "启动律所管理系统"; Tasks: desktopicon
+Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Comment: "启动律所管理系统"; Tasks: desktopicon
 ; Uninstall shortcut
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
 

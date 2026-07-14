@@ -51,6 +51,19 @@ test('distribution verifier accepts only the pkg executable and physical runtime
   assert.throws(() => loadVerifier()(packageDirectory), /run directory.*physical directory/i);
 });
 
+test('distribution verifier rejects forbidden extras anywhere in the package tree', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chengye-dist-forbidden-'));
+  t.after(() => fs.rmSync(root, { force: true, recursive: true }));
+  const packageDirectory = path.join(root, 'law-firm-system');
+  materializePackage(packageDirectory);
+  fs.writeFileSync(path.join(packageDirectory, 'public', 'credentials.json'), 'FORBIDDEN_ZIP_FIXTURE');
+
+  assert.throws(
+    () => loadVerifier()(packageDirectory),
+    /Forbidden package artifacts: public[\\/]credentials\.json/,
+  );
+});
+
 test('actual ZIP builder packages the verified npm run pkg tree', t => {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chengye-zip-input-'));
   t.after(() => fs.rmSync(projectRoot, { force: true, recursive: true }));
@@ -94,4 +107,40 @@ test('actual ZIP builder packages the verified npm run pkg tree', t => {
   assert.equal(fs.existsSync(path.join(extracted, 'public', 'index.html')), true);
   assert.equal(fs.statSync(path.join(extracted, 'run')).isDirectory(), true);
   assert.equal(fs.existsSync(path.join(extracted, 'launch.bat')), false);
+});
+
+test('actual ZIP builder rejects a forbidden pkg tree and cleans package/archive output', t => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chengye-zip-forbidden-'));
+  t.after(() => fs.rmSync(projectRoot, { force: true, recursive: true }));
+  const packageDirectory = path.join(projectRoot, 'apps', 'dist', 'law-firm-system');
+  fs.writeFileSync(path.join(projectRoot, 'materialize-package.js'), [
+    "const fs = require('fs');",
+    "const path = require('path');",
+    "const root = path.join(__dirname, 'apps', 'dist', 'law-firm-system');",
+    "fs.mkdirSync(path.join(root, 'prisma-engine'), { recursive: true });",
+    "fs.mkdirSync(path.join(root, 'public'), { recursive: true });",
+    "fs.mkdirSync(path.join(root, 'run'), { recursive: true });",
+    "fs.writeFileSync(path.join(root, 'law-firm-system.exe'), 'fixture executable');",
+    "fs.writeFileSync(path.join(root, 'prisma-engine', 'query_engine-windows.dll.node'), 'fixture engine');",
+    "fs.writeFileSync(path.join(root, 'public', 'index.html'), '<!doctype html><title>fixture</title>');",
+    "fs.writeFileSync(path.join(root, 'public', 'credentials.json'), 'FORBIDDEN_ZIP_FIXTURE');",
+    "fs.writeFileSync(path.join(root, 'run', '.keep'), 'runtime directory');",
+  ].join('\n'));
+  fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({
+    name: 'forbidden-distribution-fixture',
+    private: true,
+    scripts: { pkg: 'node materialize-package.js' },
+  }));
+
+  const zipScript = path.resolve('../..', 'scripts', 'build-zip.ps1');
+  const result = spawnSync('powershell.exe', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', zipScript, '-ProjectRoot', projectRoot,
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(`${result.stdout}\n${result.stderr}`, /Forbidden package artifacts: public[\\/]credentials\.json/);
+  assert.equal(fs.existsSync(packageDirectory), false);
+  assert.equal(
+    fs.existsSync(path.join(projectRoot, 'apps', 'dist', 'installer', 'LawFirmSystem-Portable-1.0.0.zip')),
+    false,
+  );
 });

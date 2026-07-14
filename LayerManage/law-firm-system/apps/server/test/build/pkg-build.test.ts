@@ -113,6 +113,66 @@ test('pkg build cleans package output when the fresh web build directory is miss
   assert.equal(fs.existsSync(fixture.outputDirectory), false);
 });
 
+test('pkg build rejects forbidden files copied from the fresh web build and cleans every partial output', (t) => {
+  const fixture = createFixture();
+  t.after(() => fs.rmSync(path.dirname(path.dirname(fixture.serverRoot)), { recursive: true, force: true }));
+  let pkgWasCalled = false;
+
+  assert.throws(
+    () => loadBuildPkg()({
+      ...fixture,
+      runCommand(command, options) {
+        if (command === 'npm run build' && options.cwd === fixture.webRoot) {
+          fs.mkdirSync(path.join(fixture.webRoot, 'dist'), { recursive: true });
+          fs.writeFileSync(path.join(fixture.webRoot, 'dist', 'index.html'), 'fresh web build');
+          fs.writeFileSync(path.join(fixture.webRoot, 'dist', '.env.production'), 'FORBIDDEN_WEB_FIXTURE');
+        }
+        if (command === 'npm run build' && options.cwd === fixture.serverRoot) {
+          fs.mkdirSync(path.join(fixture.serverRoot, 'dist'), { recursive: true });
+        }
+        if (command.startsWith('pkg .')) pkgWasCalled = true;
+      },
+    }),
+    /Forbidden materialized web artifacts: \.env\.production/,
+  );
+
+  assert.equal(pkgWasCalled, false);
+  assert.equal(fs.existsSync(path.join(fixture.serverRoot, 'dist')), false);
+  assert.equal(fs.existsSync(path.join(fixture.webRoot, 'dist')), false);
+  assert.equal(fs.existsSync(fixture.outputDirectory), false);
+});
+
+test('pkg build rejects forbidden files in the final portable tree and cleans the package output', (t) => {
+  const fixture = createFixture();
+  t.after(() => fs.rmSync(path.dirname(path.dirname(fixture.serverRoot)), { recursive: true, force: true }));
+
+  assert.throws(
+    () => loadBuildPkg()({
+      ...fixture,
+      runCommand(command, options) {
+        if (command === 'npm run build' && options.cwd === fixture.webRoot) {
+          fs.mkdirSync(path.join(fixture.webRoot, 'dist'), { recursive: true });
+          fs.writeFileSync(path.join(fixture.webRoot, 'dist', 'index.html'), 'fresh web build');
+        }
+        if (command === 'npm run build' && options.cwd === fixture.serverRoot) {
+          fs.mkdirSync(path.join(fixture.serverRoot, 'dist'), { recursive: true });
+        }
+        if (command.startsWith('pkg .')) {
+          const portable = path.join(fixture.outputDirectory, 'law-firm-system');
+          fs.mkdirSync(portable, { recursive: true });
+          fs.writeFileSync(path.join(portable, 'law-firm-system.exe'), 'packaged executable');
+          fs.writeFileSync(path.join(portable, 'credentials.json'), 'FORBIDDEN_PACKAGE_FIXTURE');
+        }
+      },
+    }),
+    /Forbidden package artifacts: credentials\.json/,
+  );
+
+  assert.equal(fs.existsSync(path.join(fixture.serverRoot, 'dist')), false);
+  assert.equal(fs.existsSync(path.join(fixture.webRoot, 'dist')), false);
+  assert.equal(fs.existsSync(fixture.outputDirectory), false);
+});
+
 test('pkg build removes stale output before assembly and cleans partial output after failure', (t) => {
   const fixture = createFixture();
   t.after(() => fs.rmSync(path.dirname(path.dirname(fixture.serverRoot)), { recursive: true, force: true }));

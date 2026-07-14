@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { cleanBuildOutputs } = require('./build-artifacts');
+const { cleanBuildOutputs, findForbiddenArtifacts } = require('./build-artifacts');
 const {
   materializePrismaQueryEngineLibrary,
   resolvePackagedPrismaQueryEngineLibrary,
@@ -17,6 +17,13 @@ function requireNonemptyFile(file, description) {
 function requireDirectory(directory, description) {
   if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) {
     throw new Error(`${description} is missing or not a directory: ${directory}`);
+  }
+}
+
+function requireNoForbiddenArtifacts(directory, description) {
+  const forbidden = findForbiddenArtifacts(directory);
+  if (forbidden.length > 0) {
+    throw new Error(`${description}: ${forbidden.map(file => path.relative(directory, file)).join(', ')}`);
   }
 }
 
@@ -37,6 +44,7 @@ function materializeWebBuild(webRoot, serverRoot) {
   fs.rmSync(serverStaticDirectory, { recursive: true, force: true });
   fs.cpSync(webBuildDirectory, serverStaticDirectory, { recursive: true });
   requireNonemptyFile(path.join(serverStaticDirectory, 'index.html'), 'Web entry point');
+  requireNoForbiddenArtifacts(serverStaticDirectory, 'Forbidden materialized web artifacts');
   return serverStaticDirectory;
 }
 
@@ -72,6 +80,7 @@ function buildPkg({ serverRoot, outputDirectory, runCommand }) {
     ], portableDirectory);
     const staticDirectory = materializeStaticDirectory(serverRoot, portableDirectory);
     const runDirectory = materializeRunDirectory(portableDirectory);
+    requireNoForbiddenArtifacts(portableDirectory, 'Forbidden package artifacts');
     resolvePackagedPrismaQueryEngineLibrary(outputFile);
     return { engineFile, outputFile, runDirectory, staticDirectory };
   } catch (error) {
