@@ -11,7 +11,7 @@ import { notificationApi } from '@/api/organization';
 import type { Notification } from '@/types';
 import dayjs from 'dayjs';
 
-const typeMap: Record<string, { text: string; color: string; icon: any }> = {
+const typeMap: Record<string, { text: string; color: string; icon: React.ElementType }> = {
   SYSTEM: { text: '系统', color: 'blue', icon: InfoCircleOutlined },
   APPROVAL: { text: '审批', color: 'orange', icon: WarningOutlined },
   TASK: { text: '任务', color: 'purple', icon: CheckCircleOutlined },
@@ -27,13 +27,13 @@ const NotificationPage: React.FC = () => {
 
   useEffect(() => { fetchData(); fetchUnreadCount(); }, [pagination.current, pagination.pageSize, activeTab]);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const params: any = { page: pagination.current, pageSize: pagination.pageSize };
+      const params: Record<string, string | number | boolean | undefined> = { page: pagination.current, pageSize: pagination.pageSize };
       if (activeTab === 'unread') params.isRead = 'false';
       if (activeTab === 'read') params.isRead = 'true';
-      const res: any = await notificationApi.list(params);
+      const res = await notificationApi.list(params);
       if (res.code === 200) {
         setData(res.data.list);
         setPagination({ ...pagination, total: res.data.pagination.total });
@@ -41,11 +41,11 @@ const NotificationPage: React.FC = () => {
     } finally { setLoading(false); }
   };
 
-  const fetchUnreadCount = async () => {
+  async function fetchUnreadCount() {
     try {
-      const res: any = await notificationApi.unreadCount();
+      const res = await notificationApi.unreadCount();
       if (res.code === 200) setUnreadCount(res.data.count);
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleRead = async (id: string) => {
@@ -54,7 +54,7 @@ const NotificationPage: React.FC = () => {
       message.success('标记为已读');
       fetchData();
       fetchUnreadCount();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleReadAll = async () => {
@@ -63,7 +63,7 @@ const NotificationPage: React.FC = () => {
       message.success('全部标记为已读');
       fetchData();
       fetchUnreadCount();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const columns = [
@@ -100,7 +100,7 @@ const NotificationPage: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 120,
-      render: (_: any, record: Notification) => (
+      render: (_: unknown, record: Notification) => (
         <Space size="small">
           {!record.isRead && (
             <Button type="link" size="small" icon={<CheckOutlined />} onClick={() => handleRead(record.id)}>标为已读</Button>

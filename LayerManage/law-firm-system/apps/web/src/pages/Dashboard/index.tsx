@@ -16,14 +16,10 @@ const Dashboard: React.FC = () => {
   const [alerts, setAlerts] = useState<DashboardAlerts | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const [metricsRes, alertsRes]: any = await Promise.all([
+      const [metricsRes, alertsRes] = await Promise.all([
         dashboardApi.metrics(),
         dashboardApi.alerts(),
       ]);
@@ -35,6 +31,10 @@ const Dashboard: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    void Promise.resolve().then(fetchData);
+  }, []);
 
   const statCards = [
     {
@@ -174,7 +174,7 @@ const Dashboard: React.FC = () => {
                 <List
                   size="small"
                   dataSource={alerts.urgentCases || []}
-                  renderItem={(item: any) => (
+                  renderItem={(item) => (
                     <List.Item>
                       <Tag color="red">紧急</Tag>
                       {item.title} - {item.customer?.name}

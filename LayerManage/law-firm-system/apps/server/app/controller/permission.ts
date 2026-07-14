@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class PermissionController extends Controller {
@@ -8,7 +9,7 @@ export default class PermissionController extends Controller {
     const { ctx } = this;
     const { type, status } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.PermissionWhereInput = {};
     if (type) where.type = type;
     if (status) where.status = status;
 
@@ -36,7 +37,7 @@ export default class PermissionController extends Controller {
     });
 
     // 构建树形结构
-    const buildTree = (items: any[], parentId: string | null = null): any[] => {
+    const buildTree = (items: Prisma.PermissionGetPayload<Record<never, never>>[], parentId: string | null = null): Prisma.PermissionGetPayload<Record<never, never>>[] => {
       return items
         .filter(item => item.parentId === parentId)
         .map(item => ({

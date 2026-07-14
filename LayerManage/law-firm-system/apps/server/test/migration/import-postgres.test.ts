@@ -183,7 +183,7 @@ function lifecyclePool(
 
 test('database URL wrapper releases the client before ending the pool on success', async () => {
   const events: string[] = [];
-  const factory: ImportPoolFactory = (_databaseUrl: string) => lifecyclePool(events, async text => {
+  const factory: ImportPoolFactory = () => lifecyclePool(events, async text => {
     events.push(text);
     return { rowCount: null, rows: [] };
   });
@@ -201,7 +201,7 @@ test('database URL wrapper releases the client before ending the pool on success
 test('database URL wrapper releases and ends on failure without leaking the connection string', async () => {
   const databaseUrl = 'postgresql://fixture-user:fixture-secret@localhost:55432/chengye_oa_test';
   const events: string[] = [];
-  const factory: ImportPoolFactory = (_databaseUrl: string) => lifecyclePool(events, async text => {
+  const factory: ImportPoolFactory = () => lifecyclePool(events, async text => {
     events.push(text);
     if (text.startsWith('SELECT')) return { rowCount: 0, rows: [] };
     if (text.startsWith('INSERT')) {

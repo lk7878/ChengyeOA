@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class PaymentController extends Controller {
@@ -8,7 +9,7 @@ export default class PaymentController extends Controller {
     const { ctx } = this;
     const { page = 1, pageSize = 10, status, customerId, contractId } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.PaymentWhereInput = {};
     if (status) where.status = status;
     if (customerId) where.customerId = customerId;
     if (contractId) where.contractId = contractId;
@@ -118,7 +119,7 @@ export default class PaymentController extends Controller {
       ctx.throw(400, '只有待收款状态的记录可以编辑');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.PaymentUncheckedUpdateInput = {};
     if (amount !== undefined) updateData.amount = Number(amount);
     if (dueDate !== undefined) updateData.dueDate = dueDate ? new Date(dueDate) : null;
     if (remark !== undefined) updateData.remark = remark;

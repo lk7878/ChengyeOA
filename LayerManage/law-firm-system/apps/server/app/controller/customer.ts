@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class CustomerController extends Controller {
@@ -8,7 +9,7 @@ export default class CustomerController extends Controller {
     const { ctx } = this;
     const { page = 1, pageSize = 10, keyword, status } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.CustomerWhereInput = {};
     if (keyword) {
       where.OR = [
         { name: { contains: keyword } },
@@ -140,7 +141,7 @@ export default class CustomerController extends Controller {
       ctx.throw(404, '客户不存在');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.CustomerUncheckedUpdateInput = {};
     if (name) updateData.name = name;
     if (phone) updateData.phone = phone;
     if (wechat !== undefined) updateData.wechat = wechat;

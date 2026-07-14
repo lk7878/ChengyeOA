@@ -13,7 +13,7 @@ const Login: React.FC = () => {
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
-      const res: any = await authApi.login(values);
+      const res = await authApi.login(values);
       if (res.code === 200) {
         const { token, refreshToken, user } = res.data;
         setToken(token, refreshToken);
@@ -21,7 +21,7 @@ const Login: React.FC = () => {
         message.success('登录成功');
         navigate('/');
       }
-    } catch (error) {
+    } catch {
       // 错误已在拦截器处理
     } finally {
       setLoading(false);

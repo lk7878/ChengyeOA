@@ -47,12 +47,12 @@ const CasePage: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [pagination.current, pagination.pageSize]);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const params: any = { page: pagination.current, pageSize: pagination.pageSize };
+      const params: Record<string, string | number | boolean | undefined> = { page: pagination.current, pageSize: pagination.pageSize };
       if (searchKeyword) params.keyword = searchKeyword;
-      const res: any = await caseApi.list(params);
+      const res = await caseApi.list(params);
       if (res.code === 200) {
         setData(res.data.list);
         setPagination({ ...pagination, total: res.data.pagination.total });
@@ -61,14 +61,14 @@ const CasePage: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    try { await caseApi.delete(id); message.success('删除成功'); fetchData(); } catch (e) {}
+    try { await caseApi.delete(id); message.success('删除成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const columns = [
     { title: '案件编号', dataIndex: 'caseNo', key: 'caseNo' },
     { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
-    { title: '客户', dataIndex: 'customer', key: 'customer', render: (c: any) => c?.name || '-' },
-    { title: '主办律师', dataIndex: 'lawyer', key: 'lawyer', render: (l: any) => l?.name || '-' },
+    { title: '客户', dataIndex: 'customer', key: 'customer', render: (c: Case['customer']) => c?.name || '-' },
+    { title: '主办律师', dataIndex: 'lawyer', key: 'lawyer', render: (l: Case['lawyer']) => l?.name || '-' },
     { title: '案由', dataIndex: 'caseType', key: 'caseType' },
     {
       title: '优先级',
@@ -86,7 +86,7 @@ const CasePage: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 280,
-      render: (_: any, record: Case) => (
+      render: (_: unknown, record: Case) => (
         <Space size="small">
           <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => { setCurrentCase(record); setDetailVisible(true); }}>详情</Button>
           <Button type="link" size="small" icon={<CheckSquareOutlined />} onClick={() => { setCurrentCase(record); taskForm.resetFields(); setTaskModal(true); }}>任务</Button>

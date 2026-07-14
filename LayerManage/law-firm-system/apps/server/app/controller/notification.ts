@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class NotificationController extends Controller {
@@ -6,7 +7,7 @@ export default class NotificationController extends Controller {
     const { page = 1, pageSize = 10, isRead } = ctx.query;
     const userId = ctx.state.user.userId;
 
-    const where: any = { userId };
+    const where: Prisma.NotificationWhereInput = { userId };
     if (isRead !== undefined) {
       where.isRead = isRead === 'true';
     }

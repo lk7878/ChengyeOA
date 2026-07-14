@@ -1,4 +1,3 @@
-import { Context } from 'egg';
 import { PrismaClient } from '@prisma/client';
 
 // 扩展 Context 类型

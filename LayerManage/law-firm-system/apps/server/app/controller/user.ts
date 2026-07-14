@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 import * as bcrypt from 'bcryptjs';
 
@@ -9,7 +10,7 @@ export default class UserController extends Controller {
     const { ctx } = this;
     const { page = 1, pageSize = 10, keyword, status } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.UserWhereInput = {};
     if (keyword) {
       where.OR = [
         { username: { contains: keyword } },
@@ -153,7 +154,7 @@ export default class UserController extends Controller {
       ctx.throw(404, '用户不存在');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.UserUncheckedUpdateInput = {};
     if (status) updateData.status = status;
     if (employeeId !== undefined) updateData.employeeId = employeeId;
 

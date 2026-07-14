@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class ContractController extends Controller {
@@ -8,7 +9,7 @@ export default class ContractController extends Controller {
     const { ctx } = this;
     const { page = 1, pageSize = 10, keyword, status, type, customerId } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.ContractWhereInput = {};
     if (keyword) {
       where.OR = [
         { title: { contains: keyword } },
@@ -145,7 +146,7 @@ export default class ContractController extends Controller {
       ctx.throw(400, '只有草稿状态的合同可以编辑');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.ContractUncheckedUpdateInput = {};
     if (title) updateData.title = title;
     if (amount !== undefined) updateData.amount = Number(amount);
     if (paymentTerms !== undefined) updateData.paymentTerms = paymentTerms;
@@ -341,7 +342,7 @@ export default class ContractController extends Controller {
     const { ctx } = this;
     const { status, year } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.ContractWhereInput = {};
     if (status) where.status = status;
     if (year) {
       where.createdAt = {

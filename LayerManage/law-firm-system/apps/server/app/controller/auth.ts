@@ -2,6 +2,8 @@ import { Controller } from 'egg';
 import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 
+type TokenPayload = jwt.JwtPayload & { userId: string; type?: string };
+
 export default class AuthController extends Controller {
   /**
    * 用户登录
@@ -65,9 +67,9 @@ export default class AuthController extends Controller {
     // 提取权限列表
     const permissions: string[] = [];
     const roles: string[] = [];
-    user.userRoles.forEach((ur: any) => {
+    user.userRoles.forEach(ur => {
       roles.push(ur.role.name);
-      ur.role.permissions.forEach((rp: any) => {
+      ur.role.permissions.forEach(rp => {
         if (!permissions.includes(rp.permission.code)) {
           permissions.push(rp.permission.code);
         }
@@ -119,7 +121,7 @@ export default class AuthController extends Controller {
     }
 
     try {
-      const decoded = jwt.verify(refreshToken, app.config.jwt.secret) as any;
+      const decoded = jwt.verify(refreshToken, app.config.jwt.secret) as TokenPayload;
       
       if (decoded.type !== 'refresh') {
         ctx.throw(401, '无效的刷新令牌');
@@ -129,7 +131,7 @@ export default class AuthController extends Controller {
       const token = jwt.sign(
         { userId: decoded.userId },
         app.config.jwt.secret,
-        { expiresIn: (app.config.jwt as any).expiresIn }
+        { expiresIn: (app.config.jwt as { expiresIn?: jwt.SignOptions['expiresIn'] }).expiresIn || '7d' }
       );
 
       ctx.body = {
@@ -137,7 +139,7 @@ export default class AuthController extends Controller {
         message: '刷新成功',
         data: { token, expiresIn: 604800 },
       };
-    } catch (err) {
+    } catch {
       ctx.throw(401, '刷新令牌已过期');
     }
   }
@@ -178,9 +180,9 @@ export default class AuthController extends Controller {
 
     const permissions: string[] = [];
     const roles: string[] = [];
-    user.userRoles.forEach((ur: any) => {
+    user.userRoles.forEach(ur => {
       roles.push(ur.role.name);
-      ur.role.permissions.forEach((rp: any) => {
+      ur.role.permissions.forEach(rp => {
         if (!permissions.includes(rp.permission.code)) {
           permissions.push(rp.permission.code);
         }

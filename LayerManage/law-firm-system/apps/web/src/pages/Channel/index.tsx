@@ -30,10 +30,10 @@ const ChannelPage: React.FC = () => {
 
   useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const res: any = await channelApi.list();
+      const res = await channelApi.list();
       if (res.code === 200) {
         // 后端返回的是分页数据
         const list = res.data.list || res.data;
@@ -43,7 +43,7 @@ const ChannelPage: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    try { await channelApi.delete(id); message.success('删除成功'); fetchData(); } catch (e) {}
+    try { await channelApi.delete(id); message.success('删除成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const columns = [
@@ -55,7 +55,7 @@ const ChannelPage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: Channel) => (
+      render: (_: unknown, record: Channel) => (
         <Space size="small">
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { form.setFieldsValue(record); setModalVisible(true); }}>编辑</Button>
           <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>

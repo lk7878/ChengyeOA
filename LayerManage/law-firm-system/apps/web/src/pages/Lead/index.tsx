@@ -11,9 +11,18 @@ import {
 import { leadApi } from '@/api/business';
 import { employeeApi } from '@/api/organization';
 import type { Lead, Employee } from '@/types';
-import dayjs from 'dayjs';
+import dayjs, { type Dayjs } from 'dayjs';
 
 const { Option } = Select;
+
+type LeadFormValues = Partial<Lead> & { tags?: string };
+type LeadAssignmentValues = { employeeId: string };
+type LeadFollowValues = {
+  type: string;
+  content: string;
+  nextPlan?: string;
+  nextTime?: Dayjs;
+};
 
 const statusMap: Record<string, { text: string; color: string }> = {
   NEW: { text: '新线索', color: 'blue' },
@@ -49,17 +58,17 @@ const LeadPage: React.FC = () => {
     fetchEmployees();
   }, [pagination.current, pagination.pageSize]);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const params: any = {
+      const params: Record<string, string | number | boolean | undefined> = {
         page: pagination.current,
         pageSize: pagination.pageSize,
       };
       if (searchKeyword) params.keyword = searchKeyword;
       if (searchStatus) params.status = searchStatus;
 
-      const res: any = await leadApi.list(params);
+      const res = await leadApi.list(params);
       if (res.code === 200) {
         setData(res.data.list);
         setPagination({ ...pagination, total: res.data.pagination.total });
@@ -69,11 +78,11 @@ const LeadPage: React.FC = () => {
     }
   };
 
-  const fetchEmployees = async () => {
+  async function fetchEmployees() {
     try {
-      const res: any = await employeeApi.list({ pageSize: 100 });
+      const res = await employeeApi.list({ pageSize: 100 });
       if (res.code === 200) setEmployees(res.data.list);
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleSearch = () => {
@@ -105,7 +114,7 @@ const LeadPage: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleSubmit = async (values: any) => {
+  const handleSubmit = async (values: LeadFormValues) => {
     try {
       const data = {
         ...values,
@@ -120,7 +129,7 @@ const LeadPage: React.FC = () => {
       }
       setModalVisible(false);
       fetchData();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleDelete = async (id: string) => {
@@ -128,7 +137,7 @@ const LeadPage: React.FC = () => {
       await leadApi.delete(id);
       message.success('删除成功');
       fetchData();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleAssign = (record: Lead) => {
@@ -137,13 +146,13 @@ const LeadPage: React.FC = () => {
     setAssignVisible(true);
   };
 
-  const handleAssignSubmit = async (values: any) => {
+  const handleAssignSubmit = async (values: LeadAssignmentValues) => {
     try {
       await leadApi.assign(currentLead!.id, values.employeeId);
       message.success('分配成功');
       setAssignVisible(false);
       fetchData();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleFollow = (record: Lead) => {
@@ -152,7 +161,7 @@ const LeadPage: React.FC = () => {
     setFollowVisible(true);
   };
 
-  const handleFollowSubmit = async (values: any) => {
+  const handleFollowSubmit = async (values: LeadFollowValues) => {
     try {
       await leadApi.follow(currentLead!.id, {
         ...values,
@@ -161,7 +170,7 @@ const LeadPage: React.FC = () => {
       message.success('跟进记录添加成功');
       setFollowVisible(false);
       fetchData();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleConvert = async (record: Lead) => {
@@ -173,7 +182,7 @@ const LeadPage: React.FC = () => {
           await leadApi.convert(record.id);
           message.success('转客户成功');
           fetchData();
-        } catch (e) {}
+        } catch { /* Request errors are handled by the shared interceptor. */ }
       },
     });
   };
@@ -183,7 +192,7 @@ const LeadPage: React.FC = () => {
       await leadApi.recycle(record.id);
       message.success('回收成功');
       fetchData();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const columns = [
@@ -218,7 +227,7 @@ const LeadPage: React.FC = () => {
       title: '渠道',
       dataIndex: 'channel',
       key: 'channel',
-      render: (channel: any) => channel?.name || '-',
+      render: (channel: Lead['channel']) => channel?.name || '-',
     },
     {
       title: '创建时间',
@@ -230,7 +239,7 @@ const LeadPage: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 280,
-      render: (_: any, record: Lead) => (
+      render: (_: unknown, record: Lead) => (
         <Space size="small">
           <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => { setCurrentLead(record); setDetailVisible(true); }}>
             查看

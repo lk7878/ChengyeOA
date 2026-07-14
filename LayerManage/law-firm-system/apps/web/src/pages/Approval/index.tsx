@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import type { BadgeProps } from 'antd';
 import {
   Table, Button, Input, Tag, Space, Modal, Form, message,
   Card, Row, Col, Select, Badge
@@ -11,10 +12,10 @@ import { approvalApi } from '@/api/organization';
 import type { Approval } from '@/types';
 import dayjs from 'dayjs';
 
-const statusMap: Record<string, { text: string; color: string }> = {
-  PENDING: { text: '待审批', color: 'orange' },
-  APPROVED: { text: '已通过', color: 'green' },
-  REJECTED: { text: '已拒绝', color: 'red' },
+const statusMap: Record<string, { text: string; color: BadgeProps['status'] }> = {
+  PENDING: { text: '待审批', color: 'warning' },
+  APPROVED: { text: '已通过', color: 'success' },
+  REJECTED: { text: '已拒绝', color: 'error' },
 };
 
 const typeMap: Record<string, string> = {
@@ -41,24 +42,19 @@ const ApprovalPage: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [pagination.current, pagination.pageSize, statusFilter]);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const params: any = { page: pagination.current, pageSize: pagination.pageSize };
+      const params: Record<string, string | number | boolean | undefined> = { page: pagination.current, pageSize: pagination.pageSize };
       if (statusFilter) params.status = statusFilter;
       if (searchKeyword) params.keyword = searchKeyword;
-      const res: any = await approvalApi.list(params);
+      const res = await approvalApi.list(params);
       if (res.code === 200) {
         setData(res.data.list);
         setPagination({ ...pagination, total: res.data.pagination.total });
       }
     } finally { setLoading(false); }
   };
-
-  const handleDelete = async (_id: string) => {
-    message.success('审批记录不支持删除');
-  };
-  void handleDelete;
 
   const handleProcess = async () => {
     if (!currentApproval) return;
@@ -69,7 +65,7 @@ const ApprovalPage: React.FC = () => {
       setCurrentApproval(null);
       setProcessRemark('');
       fetchData();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const openProcessModal = (record: Approval, action: 'APPROVED' | 'REJECTED') => {
@@ -93,7 +89,7 @@ const ApprovalPage: React.FC = () => {
       key: 'status',
       render: (s: string) => {
         const config = statusMap[s] || { text: s, color: 'default' };
-        return <Badge status={config.color as any} text={config.text} />;
+        return <Badge status={config.color} text={config.text} />;
       },
     },
     {
@@ -106,7 +102,7 @@ const ApprovalPage: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 280,
-      render: (_: any, record: Approval) => (
+      render: (_: unknown, record: Approval) => (
         <Space size="small">
           <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)}>详情</Button>
           {record.status === 'PENDING' && (

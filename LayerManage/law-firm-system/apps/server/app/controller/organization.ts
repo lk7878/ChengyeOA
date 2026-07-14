@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class OrganizationController extends Controller {
@@ -8,7 +9,7 @@ export default class OrganizationController extends Controller {
     const { ctx } = this;
     const { type, status } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.OrganizationWhereInput = {};
     if (type) where.type = type;
     if (status) where.status = status;
 
@@ -46,7 +47,7 @@ export default class OrganizationController extends Controller {
       orderBy: { sort: 'asc' },
     });
 
-    const buildTree = (items: any[], parentId: string | null = null): any[] => {
+    const buildTree = (items: Prisma.OrganizationGetPayload<Record<never, never>>[], parentId: string | null = null): Prisma.OrganizationGetPayload<Record<never, never>>[] => {
       return items
         .filter(item => item.parentId === parentId)
         .map(item => ({
@@ -133,7 +134,7 @@ export default class OrganizationController extends Controller {
       ctx.throw(404, '组织不存在');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.OrganizationUncheckedUpdateInput = {};
     if (name) updateData.name = name;
     if (type) updateData.type = type;
     if (parentId !== undefined) updateData.parentId = parentId;

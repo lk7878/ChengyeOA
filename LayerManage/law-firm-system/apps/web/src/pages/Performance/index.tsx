@@ -36,13 +36,13 @@ const PerformancePage: React.FC = () => {
 
   useEffect(() => { fetchData(); fetchEmployees(); }, [pagination.current, pagination.pageSize, typeFilter]);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const params: any = { page: pagination.current, pageSize: pagination.pageSize };
+      const params: Record<string, string | number | boolean | undefined> = { page: pagination.current, pageSize: pagination.pageSize };
       if (typeFilter) params.type = typeFilter;
       if (searchKeyword) params.keyword = searchKeyword;
-      const res: any = await performanceApi.list(params);
+      const res = await performanceApi.list(params);
       if (res.code === 200) {
         setData(res.data.list);
         setPagination({ ...pagination, total: res.data.pagination.total });
@@ -57,11 +57,11 @@ const PerformancePage: React.FC = () => {
     } finally { setLoading(false); }
   };
 
-  const fetchEmployees = async () => {
+  async function fetchEmployees() {
     try {
-      const res: any = await employeeApi.list({ pageSize: 100 });
+      const res = await employeeApi.list({ pageSize: 100 });
       if (res.code === 200) setEmployees(res.data.list);
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleConfirm = async (id: string) => {
@@ -69,7 +69,7 @@ const PerformancePage: React.FC = () => {
       await performanceApi.confirm(id);
       message.success('绩效确认成功');
       fetchData();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const columns = [
@@ -112,7 +112,7 @@ const PerformancePage: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 200,
-      render: (_: any, record: Performance) => (
+      render: (_: unknown, record: Performance) => (
         <Space size="small">
           {record.status !== 'CONFIRMED' && (
             <Button type="link" size="small" icon={<CheckCircleOutlined />} onClick={() => handleConfirm(record.id)}>确认</Button>

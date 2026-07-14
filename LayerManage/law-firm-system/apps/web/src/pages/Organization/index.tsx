@@ -23,16 +23,16 @@ const OrganizationPage: React.FC = () => {
 
   useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const res: any = await organizationApi.tree();
+      const res = await organizationApi.tree();
       if (res.code === 200) setData(res.data);
     } finally { setLoading(false); }
   };
 
   const handleDelete = async (id: string) => {
-    try { await organizationApi.delete(id); message.success('删除成功'); fetchData(); } catch (e) {}
+    try { await organizationApi.delete(id); message.success('删除成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const treeData = data.map((org) => ({

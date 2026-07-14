@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class EmployeeController extends Controller {
@@ -8,7 +9,7 @@ export default class EmployeeController extends Controller {
     const { ctx } = this;
     const { page = 1, pageSize = 10, keyword, type, status, orgId } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.EmployeeWhereInput = {};
     if (keyword) {
       where.OR = [
         { name: { contains: keyword } },
@@ -152,7 +153,7 @@ export default class EmployeeController extends Controller {
       ctx.throw(404, '员工不存在');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.EmployeeUncheckedUpdateInput = {};
     if (name) updateData.name = name;
     if (phone) updateData.phone = phone;
     if (email !== undefined) updateData.email = email;

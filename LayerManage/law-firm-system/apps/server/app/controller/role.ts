@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class RoleController extends Controller {
@@ -8,7 +9,7 @@ export default class RoleController extends Controller {
     const { ctx } = this;
     const { page = 1, pageSize = 10, keyword } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.RoleWhereInput = {};
     if (keyword) {
       where.name = { contains: keyword };
     }
@@ -115,7 +116,7 @@ export default class RoleController extends Controller {
       ctx.throw(404, '角色不存在');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.RoleUncheckedUpdateInput = {};
     if (name) updateData.name = name;
     if (description !== undefined) updateData.description = description;
     if (status) updateData.status = status;

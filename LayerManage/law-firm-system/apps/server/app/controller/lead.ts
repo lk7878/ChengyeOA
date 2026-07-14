@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class LeadController extends Controller {
@@ -8,7 +9,7 @@ export default class LeadController extends Controller {
     const { ctx } = this;
     const { page = 1, pageSize = 10, keyword, status, channelId, assignedTo, intentionLevel } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.LeadWhereInput = {};
     if (keyword) {
       where.OR = [
         { name: { contains: keyword } },
@@ -140,7 +141,7 @@ export default class LeadController extends Controller {
       ctx.throw(404, '线索不存在');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.LeadUncheckedUpdateInput = {};
     if (name) updateData.name = name;
     if (phone) updateData.phone = phone;
     if (wechat !== undefined) updateData.wechat = wechat;

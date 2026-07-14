@@ -1,8 +1,10 @@
 import request from './request';
 import type { ApiResponse, PaginatedData, Employee, Organization, Position, Channel, Approval, Notification, Performance } from '@/types';
 
+type QueryParams = Record<string, unknown>;
+
 export const employeeApi = {
-  list: (params?: any) => request.get<ApiResponse<PaginatedData<Employee>>>('/v1/employees', { params }),
+  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Employee>>>('/v1/employees', { params }),
   detail: (id: string) => request.get<ApiResponse<Employee>>(`/v1/employees/${id}`),
   create: (data: Partial<Employee>) => request.post<ApiResponse<Employee>>('/v1/employees', data),
   update: (id: string, data: Partial<Employee>) => request.put<ApiResponse<Employee>>(`/v1/employees/${id}`, data),
@@ -29,30 +31,30 @@ export const positionApi = {
 };
 
 export const channelApi = {
-  list: () => request.get<ApiResponse<Channel[]>>('/v1/channels'),
+  list: () => request.get<ApiResponse<PaginatedData<Channel>>>('/v1/channels'),
   detail: (id: string) => request.get<ApiResponse<Channel>>(`/v1/channels/${id}`),
   create: (data: Partial<Channel>) => request.post<ApiResponse<Channel>>('/v1/channels', data),
   update: (id: string, data: Partial<Channel>) => request.put<ApiResponse<Channel>>(`/v1/channels/${id}`, data),
   delete: (id: string) => request.delete<ApiResponse<null>>(`/v1/channels/${id}`),
-  statistics: (id: string) => request.get<ApiResponse<any>>(`/v1/channels/${id}/statistics`),
+  statistics: (id: string) => request.get<ApiResponse<unknown>>(`/v1/channels/${id}/statistics`),
 };
 
 export const approvalApi = {
-  list: (params?: any) => request.get<ApiResponse<PaginatedData<Approval>>>('/v1/approvals', { params }),
+  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Approval>>>('/v1/approvals', { params }),
   detail: (id: string) => request.get<ApiResponse<Approval>>(`/v1/approvals/${id}`),
   create: (data: Partial<Approval>) => request.post<ApiResponse<Approval>>('/v1/approvals', data),
   process: (id: string, data: { status: string; remark?: string }) => request.post<ApiResponse<Approval>>(`/v1/approvals/${id}/process`, data),
 };
 
 export const notificationApi = {
-  list: (params?: any) => request.get<ApiResponse<PaginatedData<Notification>>>('/v1/notifications', { params }),
+  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Notification>>>('/v1/notifications', { params }),
   read: (id: string) => request.patch<ApiResponse<Notification>>(`/v1/notifications/${id}/read`),
   readAll: () => request.post<ApiResponse<null>>('/v1/notifications/read-all'),
-  unreadCount: () => request.get<ApiResponse<number>>('/v1/notifications/unread-count'),
+  unreadCount: () => request.get<ApiResponse<{ count: number }>>('/v1/notifications/unread-count'),
 };
 
 export const performanceApi = {
-  list: (params?: any) => request.get<ApiResponse<PaginatedData<Performance>>>('/v1/performances', { params }),
+  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Performance>>>('/v1/performances', { params }),
   detail: (id: string) => request.get<ApiResponse<Performance>>(`/v1/performances/${id}`),
   create: (data: Partial<Performance>) => request.post<ApiResponse<Performance>>('/v1/performances', data),
   confirm: (id: string) => request.post<ApiResponse<Performance>>(`/v1/performances/${id}/confirm`),

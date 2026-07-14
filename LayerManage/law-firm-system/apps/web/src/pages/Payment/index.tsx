@@ -35,12 +35,12 @@ const PaymentPage: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [pagination.current, pagination.pageSize]);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const params: any = { page: pagination.current, pageSize: pagination.pageSize };
+      const params: Record<string, string | number | boolean | undefined> = { page: pagination.current, pageSize: pagination.pageSize };
       if (searchStatus) params.status = searchStatus;
-      const res: any = await paymentApi.list(params);
+      const res = await paymentApi.list(params);
       if (res.code === 200) {
         setData(res.data.list);
         setPagination({ ...pagination, total: res.data.pagination.total });
@@ -49,12 +49,12 @@ const PaymentPage: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    try { await paymentApi.delete(id); message.success('删除成功'); fetchData(); } catch (e) {}
+    try { await paymentApi.delete(id); message.success('删除成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const columns = [
-    { title: '客户', dataIndex: 'customer', key: 'customer', render: (c: any) => c?.name || '-' },
-    { title: '合同', dataIndex: 'contract', key: 'contract', render: (c: any) => c?.title || '-' },
+    { title: '客户', dataIndex: 'customer', key: 'customer', render: (c: Payment['customer']) => c?.name || '-' },
+    { title: '合同', dataIndex: 'contract', key: 'contract', render: (c: Payment['contract']) => c?.title || '-' },
     { title: '应收金额', dataIndex: 'amount', key: 'amount', render: (v: number) => `¥${v?.toLocaleString()}` },
     { title: '已收金额', dataIndex: 'receivedAmount', key: 'receivedAmount', render: (v: number) => `¥${v?.toLocaleString()}` },
     {
@@ -68,7 +68,7 @@ const PaymentPage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: Payment) => (
+      render: (_: unknown, record: Payment) => (
         <Space size="small">
           {record.status === 'PENDING' && (
             <Button type="link" size="small" icon={<CheckCircleOutlined />} onClick={() => { setCurrentPayment(record); confirmForm.resetFields(); setConfirmModal(true); }}>

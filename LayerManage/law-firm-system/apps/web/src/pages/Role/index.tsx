@@ -22,10 +22,10 @@ const RolePage: React.FC = () => {
 
   useEffect(() => { fetchData(); fetchPermissions(); }, []);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const res: any = await roleApi.list();
+      const res = await roleApi.list();
       if (res.code === 200) {
         // 后端返回的是分页数据
         const list = res.data.list || res.data;
@@ -34,15 +34,15 @@ const RolePage: React.FC = () => {
     } finally { setLoading(false); }
   };
 
-  const fetchPermissions = async () => {
+  async function fetchPermissions() {
     try {
-      const res: any = await permissionApi.tree();
+      const res = await permissionApi.tree();
       if (res.code === 200) setPermissions(res.data);
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleDelete = async (id: string) => {
-    try { await roleApi.delete(id); message.success('删除成功'); fetchData(); } catch (e) {}
+    try { await roleApi.delete(id); message.success('删除成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleAssignPerms = (role: Role) => {
@@ -59,7 +59,7 @@ const RolePage: React.FC = () => {
       message.success('权限分配成功');
       setPermModal(false);
       fetchData();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const renderPermTree = (perms: Permission[], level = 0) => {
@@ -87,12 +87,12 @@ const RolePage: React.FC = () => {
     { title: '角色名称', dataIndex: 'name', key: 'name' },
     { title: '类型', dataIndex: 'type', key: 'type', render: (t: string) => <Tag color={t === 'SYSTEM' ? 'red' : 'blue'}>{t === 'SYSTEM' ? '系统' : '自定义'}</Tag> },
     { title: '描述', dataIndex: 'description', key: 'description', render: (d: string) => d || '-' },
-    { title: '权限数', dataIndex: 'permissions', key: 'permCount', render: (p: any[]) => p?.length || 0 },
+    { title: '权限数', dataIndex: 'permissions', key: 'permCount', render: (permissions: unknown[]) => permissions?.length || 0 },
     {
       title: '操作',
       key: 'action',
       width: 250,
-      render: (_: any, record: Role) => (
+      render: (_: unknown, record: Role) => (
         <Space size="small">
           <Button type="link" size="small" icon={<SafetyOutlined />} onClick={() => handleAssignPerms(record)}>分配权限</Button>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { form.setFieldsValue(record); setModalVisible(true); }}>编辑</Button>

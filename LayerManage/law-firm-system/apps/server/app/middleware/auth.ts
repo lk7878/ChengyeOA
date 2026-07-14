@@ -31,7 +31,7 @@ export default () => {
     '/api/v1/dashboard',
   ];
 
-  return async (ctx: Context, next: () => Promise<any>) => {
+  return async (ctx: Context, next: () => Promise<unknown>) => {
     const { app } = ctx;
     const path = ctx.path;
 
@@ -64,10 +64,10 @@ export default () => {
 
     try {
       // 验证 Token
-      const decoded = jwt.verify(token, app.config.jwt.secret) as any;
+      const decoded = jwt.verify(token, app.config.jwt.secret) as jwt.JwtPayload;
       ctx.state.user = decoded;
       await next();
-    } catch (err) {
+    } catch {
       ctx.throw(401, '认证令牌无效或已过期');
     }
   };

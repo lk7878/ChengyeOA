@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class PositionController extends Controller {
@@ -5,7 +6,7 @@ export default class PositionController extends Controller {
     const { ctx } = this;
     const { orgId } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.PositionWhereInput = {};
     if (orgId) where.orgId = orgId;
 
     const list = await ctx.prisma.position.findMany({
@@ -81,7 +82,7 @@ export default class PositionController extends Controller {
       ctx.throw(404, '岗位不存在');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.PositionUncheckedUpdateInput = {};
     if (name) updateData.name = name;
     if (level !== undefined) updateData.level = level;
     if (responsibilities !== undefined) updateData.responsibilities = responsibilities;

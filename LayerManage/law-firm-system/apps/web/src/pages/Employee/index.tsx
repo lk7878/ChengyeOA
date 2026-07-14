@@ -40,12 +40,12 @@ const EmployeePage: React.FC = () => {
 
   useEffect(() => { fetchData(); fetchOrgs(); }, [pagination.current, pagination.pageSize]);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const params: any = { page: pagination.current, pageSize: pagination.pageSize };
+      const params: Record<string, string | number | boolean | undefined> = { page: pagination.current, pageSize: pagination.pageSize };
       if (searchKeyword) params.keyword = searchKeyword;
-      const res: any = await employeeApi.list(params);
+      const res = await employeeApi.list(params);
       if (res.code === 200) {
         setData(res.data.list);
         setPagination({ ...pagination, total: res.data.pagination.total });
@@ -53,23 +53,23 @@ const EmployeePage: React.FC = () => {
     } finally { setLoading(false); }
   };
 
-  const fetchOrgs = async () => {
+  async function fetchOrgs() {
     try {
-      const res: any = await organizationApi.list();
+      const res = await organizationApi.list();
       if (res.code === 200) setOrgs(res.data);
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleDelete = async (id: string) => {
-    try { await employeeApi.delete(id); message.success('删除成功'); fetchData(); } catch (e) {}
+    try { await employeeApi.delete(id); message.success('删除成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleFormalize = async (id: string) => {
-    try { await employeeApi.formalize(id); message.success('转正成功'); fetchData(); } catch (e) {}
+    try { await employeeApi.formalize(id); message.success('转正成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleLeave = async (id: string) => {
-    try { await employeeApi.leave(id, dayjs().format('YYYY-MM-DD')); message.success('离职处理成功'); fetchData(); } catch (e) {}
+    try { await employeeApi.leave(id, dayjs().format('YYYY-MM-DD')); message.success('离职处理成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const columns = [
@@ -83,14 +83,14 @@ const EmployeePage: React.FC = () => {
       key: 'status',
       render: (s: string) => <Tag color={statusMap[s]?.color}>{statusMap[s]?.text}</Tag>,
     },
-    { title: '部门', dataIndex: 'organization', key: 'organization', render: (o: any) => o?.name || '-' },
-    { title: '岗位', dataIndex: 'position', key: 'position', render: (p: any) => p?.name || '-' },
+    { title: '部门', dataIndex: 'organization', key: 'organization', render: (o: Employee['organization']) => o?.name || '-' },
+    { title: '岗位', dataIndex: 'position', key: 'position', render: (p: Employee['position']) => p?.name || '-' },
     { title: '入职日期', dataIndex: 'entryDate', key: 'entryDate', render: (d: string) => dayjs(d).format('YYYY-MM-DD') },
     {
       title: '操作',
       key: 'action',
       width: 280,
-      render: (_: any, record: Employee) => (
+      render: (_: unknown, record: Employee) => (
         <Space size="small">
           {record.status === 'PROBATION' && (
             <Button type="link" size="small" icon={<CheckCircleOutlined />} onClick={() => handleFormalize(record.id)}>转正</Button>

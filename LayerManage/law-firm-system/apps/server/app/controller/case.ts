@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class CaseController extends Controller {
@@ -8,7 +9,7 @@ export default class CaseController extends Controller {
     const { ctx } = this;
     const { page = 1, pageSize = 10, keyword, status, lawyerId, priority } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.CaseWhereInput = {};
     if (keyword) {
       where.OR = [
         { title: { contains: keyword } },
@@ -153,7 +154,7 @@ export default class CaseController extends Controller {
       ctx.throw(404, '案件不存在');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.CaseUncheckedUpdateInput = {};
     if (title) updateData.title = title;
     if (lawyerId) updateData.lawyerId = lawyerId;
     if (caseType) updateData.caseType = caseType;
@@ -268,7 +269,7 @@ export default class CaseController extends Controller {
       ctx.throw(404, '任务不存在');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.CaseTaskUncheckedUpdateInput = {};
     if (status) updateData.status = status;
     if (completedAt !== undefined) updateData.completedAt = completedAt ? new Date(completedAt) : null;
     if (remark !== undefined) updateData.remark = remark;

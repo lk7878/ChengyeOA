@@ -1,8 +1,10 @@
 import request from './request';
 import type { ApiResponse, PaginatedData, Lead, LeadFollow, Customer, Contract, Payment, Case, CaseTask, Communication, DashboardMetrics, DashboardAlerts } from '@/types';
 
+type QueryParams = Record<string, unknown>;
+
 export const leadApi = {
-  list: (params?: any) => request.get<ApiResponse<PaginatedData<Lead>>>('/v1/leads', { params }),
+  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Lead>>>('/v1/leads', { params }),
   detail: (id: string) => request.get<ApiResponse<Lead>>(`/v1/leads/${id}`),
   create: (data: Partial<Lead>) => request.post<ApiResponse<Lead>>('/v1/leads', data),
   update: (id: string, data: Partial<Lead>) => request.put<ApiResponse<Lead>>(`/v1/leads/${id}`, data),
@@ -15,7 +17,7 @@ export const leadApi = {
 };
 
 export const customerApi = {
-  list: (params?: any) => request.get<ApiResponse<PaginatedData<Customer>>>('/v1/customers', { params }),
+  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Customer>>>('/v1/customers', { params }),
   detail: (id: string) => request.get<ApiResponse<Customer>>(`/v1/customers/${id}`),
   create: (data: Partial<Customer>) => request.post<ApiResponse<Customer>>('/v1/customers', data),
   update: (id: string, data: Partial<Customer>) => request.put<ApiResponse<Customer>>(`/v1/customers/${id}`, data),
@@ -26,7 +28,7 @@ export const customerApi = {
 };
 
 export const contractApi = {
-  list: (params?: any) => request.get<ApiResponse<PaginatedData<Contract>>>('/v1/contracts', { params }),
+  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Contract>>>('/v1/contracts', { params }),
   detail: (id: string) => request.get<ApiResponse<Contract>>(`/v1/contracts/${id}`),
   create: (data: Partial<Contract>) => request.post<ApiResponse<Contract>>('/v1/contracts', data),
   update: (id: string, data: Partial<Contract>) => request.put<ApiResponse<Contract>>(`/v1/contracts/${id}`, data),
@@ -35,11 +37,11 @@ export const contractApi = {
   approve: (id: string) => request.post<ApiResponse<Contract>>(`/v1/contracts/${id}/approve`),
   sign: (id: string, signDate: string) => request.post<ApiResponse<Contract>>(`/v1/contracts/${id}/sign`, { signDate }),
   terminate: (id: string, reason: string) => request.post<ApiResponse<Contract>>(`/v1/contracts/${id}/terminate`, { reason }),
-  ledger: () => request.get<ApiResponse<any>>('/v1/contracts/ledger'),
+  ledger: () => request.get<ApiResponse<unknown>>('/v1/contracts/ledger'),
 };
 
 export const paymentApi = {
-  list: (params?: any) => request.get<ApiResponse<PaginatedData<Payment>>>('/v1/payments', { params }),
+  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Payment>>>('/v1/payments', { params }),
   detail: (id: string) => request.get<ApiResponse<Payment>>(`/v1/payments/${id}`),
   create: (data: Partial<Payment>) => request.post<ApiResponse<Payment>>('/v1/payments', data),
   update: (id: string, data: Partial<Payment>) => request.put<ApiResponse<Payment>>(`/v1/payments/${id}`, data),
@@ -51,7 +53,7 @@ export const paymentApi = {
 };
 
 export const caseApi = {
-  list: (params?: any) => request.get<ApiResponse<PaginatedData<Case>>>('/v1/cases', { params }),
+  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Case>>>('/v1/cases', { params }),
   detail: (id: string) => request.get<ApiResponse<Case>>(`/v1/cases/${id}`),
   create: (data: Partial<Case>) => request.post<ApiResponse<Case>>('/v1/cases', data),
   update: (id: string, data: Partial<Case>) => request.put<ApiResponse<Case>>(`/v1/cases/${id}`, data),
@@ -65,10 +67,10 @@ export const caseApi = {
 
 export const dashboardApi = {
   metrics: () => request.get<ApiResponse<DashboardMetrics>>('/v1/dashboard/metrics'),
-  funnel: () => request.get<ApiResponse<any>>('/v1/dashboard/funnel'),
-  teamMetrics: () => request.get<ApiResponse<any>>('/v1/dashboard/team-metrics'),
-  financeMetrics: () => request.get<ApiResponse<any>>('/v1/dashboard/finance-metrics'),
-  caseMetrics: () => request.get<ApiResponse<any>>('/v1/dashboard/case-metrics'),
+  funnel: () => request.get<ApiResponse<unknown>>('/v1/dashboard/funnel'),
+  teamMetrics: () => request.get<ApiResponse<unknown>>('/v1/dashboard/team-metrics'),
+  financeMetrics: () => request.get<ApiResponse<unknown>>('/v1/dashboard/finance-metrics'),
+  caseMetrics: () => request.get<ApiResponse<unknown>>('/v1/dashboard/case-metrics'),
   alerts: () => request.get<ApiResponse<DashboardAlerts>>('/v1/dashboard/alerts'),
 };
 

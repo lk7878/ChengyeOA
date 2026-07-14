@@ -215,6 +215,6 @@ export async function importSnapshotFromDatabaseUrl(
     }
   } catch (error) {
     if (error instanceof ImportFailure || error instanceof ImportCommitUncertain) throw error;
-    throw new Error('PostgreSQL import failed');
+    throw new Error('PostgreSQL import failed', { cause: error });
   }
 }

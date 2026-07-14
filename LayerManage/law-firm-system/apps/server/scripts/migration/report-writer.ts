@@ -386,8 +386,8 @@ function openAnchoredExclusive(anchor: DirectoryAnchor, fileName: string): Opene
   } catch (error) {
     if (descriptor !== undefined) fs.closeSync(descriptor);
     if (openedIdentity) removeIfSamePath({ descriptor: -1, identity: openedIdentity, path: destination });
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Migration artifact already exists');
-    throw new Error('Invalid migration publication path');
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Migration artifact already exists', { cause: error });
+    throw new Error('Invalid migration publication path', { cause: error });
   }
 }
 

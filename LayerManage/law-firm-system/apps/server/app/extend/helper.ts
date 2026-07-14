@@ -1,10 +1,12 @@
 import { IHelper } from 'egg';
+import * as bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
 
 export default {
   /**
    * 统一成功响应
    */
-  success(this: IHelper, data: any = null, message: string = 'success') {
+  success(this: IHelper, data: unknown = null, message: string = 'success') {
     return {
       code: 200,
       message,
@@ -16,7 +18,7 @@ export default {
   /**
    * 统一错误响应
    */
-  error(this: IHelper, message: string = 'error', code: number = 500, errors: any = null) {
+  error(this: IHelper, message: string = 'error', code: number = 500, errors: unknown = null) {
     return {
       code,
       message,
@@ -28,7 +30,7 @@ export default {
   /**
    * 分页响应
    */
-  pagination(this: IHelper, list: any[], page: number, pageSize: number, total: number) {
+  pagination<T>(this: IHelper, list: T[], page: number, pageSize: number, total: number) {
     return {
       code: 200,
       message: 'success',
@@ -49,7 +51,6 @@ export default {
    * 密码加密
    */
   hashPassword(this: IHelper, password: string): string {
-    const bcrypt = require('bcryptjs');
     const salt = bcrypt.genSaltSync(10);
     return bcrypt.hashSync(password, salt);
   },
@@ -58,7 +59,6 @@ export default {
    * 验证密码
    */
   comparePassword(this: IHelper, password: string, hash: string): boolean {
-    const bcrypt = require('bcryptjs');
     return bcrypt.compareSync(password, hash);
   },
 
@@ -66,7 +66,7 @@ export default {
    * 生成 UUID
    */
   generateUUID(this: IHelper): string {
-    return require('crypto').randomUUID();
+    return randomUUID();
   },
 
   /**

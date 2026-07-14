@@ -46,13 +46,13 @@ const ContractPage: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [pagination.current, pagination.pageSize]);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const params: any = { page: pagination.current, pageSize: pagination.pageSize };
+      const params: Record<string, string | number | boolean | undefined> = { page: pagination.current, pageSize: pagination.pageSize };
       if (searchKeyword) params.keyword = searchKeyword;
       if (searchStatus) params.status = searchStatus;
-      const res: any = await contractApi.list(params);
+      const res = await contractApi.list(params);
       if (res.code === 200) {
         setData(res.data.list);
         setPagination({ ...pagination, total: res.data.pagination.total });
@@ -60,25 +60,25 @@ const ContractPage: React.FC = () => {
     } finally { setLoading(false); }
   };
 
-  const handleAction = async (id: string, action: string, extra?: any) => {
+  const handleAction = async (id: string, action: string, extra?: { reason: string }) => {
     try {
       switch (action) {
         case 'submit': await contractApi.submit(id); break;
         case 'approve': await contractApi.approve(id); break;
         case 'sign': await contractApi.sign(id, dayjs().format('YYYY-MM-DD')); break;
-        case 'terminate': await contractApi.terminate(id, extra.reason); break;
+        case 'terminate': await contractApi.terminate(id, extra!.reason); break;
         case 'delete': await contractApi.delete(id); break;
       }
       message.success('操作成功');
       fetchData();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const columns = [
     { title: '合同编号', dataIndex: 'contractNo', key: 'contractNo' },
     { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
     { title: '类型', dataIndex: 'type', key: 'type', render: (t: string) => typeMap[t] || t },
-    { title: '客户', dataIndex: 'customer', key: 'customer', render: (c: any) => c?.name || '-' },
+    { title: '客户', dataIndex: 'customer', key: 'customer', render: (c: Contract['customer']) => c?.name || '-' },
     { title: '金额', dataIndex: 'amount', key: 'amount', render: (v: number) => `¥${v?.toLocaleString()}` },
     {
       title: '状态',
@@ -90,7 +90,7 @@ const ContractPage: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 300,
-      render: (_: any, record: Contract) => (
+      render: (_: unknown, record: Contract) => (
         <Space size="small">
           {record.status === 'DRAFT' && (
             <Button type="link" size="small" icon={<SendOutlined />} onClick={() => handleAction(record.id, 'submit')}>

@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class PerformanceController extends Controller {
@@ -5,7 +6,7 @@ export default class PerformanceController extends Controller {
     const { ctx } = this;
     const { page = 1, pageSize = 10, employeeId, period, type } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.PerformanceWhereInput = {};
     if (employeeId) where.employeeId = employeeId;
     if (period) where.period = period;
     if (type) where.type = type;

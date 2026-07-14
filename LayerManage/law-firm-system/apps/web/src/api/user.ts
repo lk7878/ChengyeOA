@@ -30,7 +30,7 @@ export const userApi = {
 export const roleApi = {
   // 角色列表
   list: () =>
-    request.get<ApiResponse<Role[]>>('/v1/roles'),
+    request.get<ApiResponse<PaginatedData<Role>>>('/v1/roles'),
 
   // 角色详情
   detail: (id: string) =>

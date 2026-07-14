@@ -11,8 +11,9 @@ function hashFile(filePath: string): string {
 }
 
 function withoutVolatileFields<T extends { generatedAt: string; runId: string }>(value: T): Omit<T, 'generatedAt' | 'runId'> {
-  const { generatedAt: _generatedAt, runId: _runId, ...stable } = value;
-  return stable;
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== 'generatedAt' && key !== 'runId'),
+  ) as Omit<T, 'generatedAt' | 'runId'>;
 }
 
 test('reports deterministic metadata only and leaves both fixture sources unchanged', () => {

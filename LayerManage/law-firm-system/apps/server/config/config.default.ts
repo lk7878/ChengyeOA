@@ -8,9 +8,11 @@ dotenv.config();
 const env = loadEnvironment(process.env);
 
 export type DefaultConfig = PowerPartial<EggAppConfig>;
+type JwtConfig = { secret: string; expiresIn: string };
+type ConfigWithJwt = DefaultConfig & { jwt: JwtConfig };
 
 export default (appInfo: EggAppInfo) => {
-  const config = {} as DefaultConfig;
+  const config = {} as ConfigWithJwt;
 
   // 应用密钥
   config.keys = env.appKeys.join(',');
@@ -32,8 +34,8 @@ export default (appInfo: EggAppInfo) => {
     credentials: true,
   };
 
-  // JWT 配置 (egg-jwt 插件类型不包含 expiresIn，使用 as any 绕过类型检查)
-  (config as any).jwt = {
+  // JWT 配置
+  config.jwt = {
     secret: env.jwtSecret,
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   };

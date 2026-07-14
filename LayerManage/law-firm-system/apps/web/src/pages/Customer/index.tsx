@@ -14,6 +14,8 @@ import dayjs from 'dayjs';
 const { Option } = Select;
 const { TabPane } = Tabs;
 
+type CustomerFormValues = Partial<Customer> & { tags?: string };
+
 const statusMap: Record<string, { text: string; color: string }> = {
   POTENTIAL: { text: '潜在客户', color: 'blue' },
   INTENT: { text: '意向客户', color: 'orange' },
@@ -40,17 +42,17 @@ const CustomerPage: React.FC = () => {
     fetchData();
   }, [pagination.current, pagination.pageSize]);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const params: any = {
+      const params: Record<string, string | number | boolean | undefined> = {
         page: pagination.current,
         pageSize: pagination.pageSize,
       };
       if (searchKeyword) params.keyword = searchKeyword;
       if (searchStatus) params.status = searchStatus;
 
-      const res: any = await customerApi.list(params);
+      const res = await customerApi.list(params);
       if (res.code === 200) {
         setData(res.data.list);
         setPagination({ ...pagination, total: res.data.pagination.total });
@@ -60,10 +62,10 @@ const CustomerPage: React.FC = () => {
     }
   };
 
-  const fetchDetail = async (customer: Customer) => {
+  async function fetchDetail(customer: Customer) {
     setCurrentCustomer(customer);
     try {
-      const [contractsRes, casesRes, paymentsRes]: any = await Promise.all([
+      const [contractsRes, casesRes, paymentsRes] = await Promise.all([
         customerApi.contracts(customer.id),
         customerApi.cases(customer.id),
         customerApi.payments(customer.id),
@@ -71,7 +73,7 @@ const CustomerPage: React.FC = () => {
       if (contractsRes.code === 200) setContracts(contractsRes.data);
       if (casesRes.code === 200) setCases(casesRes.data);
       if (paymentsRes.code === 200) setPayments(paymentsRes.data);
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleSearch = () => {
@@ -103,7 +105,7 @@ const CustomerPage: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleSubmit = async (values: any) => {
+  const handleSubmit = async (values: CustomerFormValues) => {
     try {
       const data = {
         ...values,
@@ -118,7 +120,7 @@ const CustomerPage: React.FC = () => {
       }
       setModalVisible(false);
       fetchData();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleDelete = async (id: string) => {
@@ -126,7 +128,7 @@ const CustomerPage: React.FC = () => {
       await customerApi.delete(id);
       message.success('删除成功');
       fetchData();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const columns = [
@@ -165,7 +167,7 @@ const CustomerPage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: Customer) => (
+      render: (_: unknown, record: Customer) => (
         <Space size="small">
           <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => { fetchDetail(record); setDetailVisible(true); }}>
             详情

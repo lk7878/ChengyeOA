@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class ChannelController extends Controller {
@@ -5,7 +6,7 @@ export default class ChannelController extends Controller {
     const { ctx } = this;
     const { page = 1, pageSize = 10, type, status } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.ChannelWhereInput = {};
     if (type) where.type = type;
     if (status) where.status = status;
 
@@ -91,7 +92,7 @@ export default class ChannelController extends Controller {
       ctx.throw(404, '渠道不存在');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.ChannelUncheckedUpdateInput = {};
     if (name) updateData.name = name;
     if (accountInfo !== undefined) updateData.accountInfo = accountInfo;
     if (cost !== undefined) updateData.cost = Number(cost);

@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
 export default class ApprovalController extends Controller {
@@ -5,7 +6,7 @@ export default class ApprovalController extends Controller {
     const { ctx } = this;
     const { page = 1, pageSize = 10, status, type, applicantId } = ctx.query;
 
-    const where: any = {};
+    const where: Prisma.ApprovalWhereInput = {};
     if (status) where.status = status;
     if (type) where.type = type;
     if (applicantId) where.applicantId = applicantId;

@@ -25,12 +25,12 @@ const UserPage: React.FC = () => {
 
   useEffect(() => { fetchData(); fetchRoles(); }, [pagination.current, pagination.pageSize]);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     try {
-      const params: any = { page: pagination.current, pageSize: pagination.pageSize };
+      const params: Record<string, string | number | boolean | undefined> = { page: pagination.current, pageSize: pagination.pageSize };
       if (searchKeyword) params.keyword = searchKeyword;
-      const res: any = await userApi.list(params);
+      const res = await userApi.list(params);
       if (res.code === 200) {
         setData(res.data.list);
         setPagination({ ...pagination, total: res.data.pagination.total });
@@ -38,18 +38,18 @@ const UserPage: React.FC = () => {
     } finally { setLoading(false); }
   };
 
-  const fetchRoles = async () => {
+  async function fetchRoles() {
     try {
-      const res: any = await roleApi.list();
+      const res = await roleApi.list();
       if (res.code === 200) {
         const list = res.data.list || res.data;
         setRoles(list);
       }
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleDelete = async (id: string) => {
-    try { await userApi.delete(id); message.success('删除成功'); fetchData(); } catch (e) {}
+    try { await userApi.delete(id); message.success('删除成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const handleAssignRoles = (user: User) => {
@@ -66,18 +66,18 @@ const UserPage: React.FC = () => {
       message.success('角色分配成功');
       setRoleModal(false);
       fetchData();
-    } catch (e) {}
+    } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
   const columns = [
     { title: '用户名', dataIndex: 'username', key: 'username' },
-    { title: '姓名', dataIndex: 'employee', key: 'employee', render: (e: any) => e?.name || '-' },
-    { title: '部门', dataIndex: 'employee', key: 'org', render: (e: any) => e?.organization?.name || '-' },
+    { title: '姓名', dataIndex: 'employee', key: 'employee', render: (e: User['employee']) => e?.name || '-' },
+    { title: '部门', dataIndex: 'employee', key: 'org', render: (e: User['employee']) => e?.organization?.name || '-' },
     {
       title: '角色',
       dataIndex: 'userRoles',
       key: 'roles',
-      render: (urs: any[]) => urs?.map(ur => <Tag key={ur.roleId} color="blue">{ur.role?.name}</Tag>) || '-',
+      render: (userRoles: User['userRoles']) => userRoles?.map(userRole => <Tag key={userRole.roleId} color="blue">{userRole.role?.name}</Tag>) || '-',
     },
     {
       title: '状态',
@@ -95,7 +95,7 @@ const UserPage: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 250,
-      render: (_: any, record: User) => (
+      render: (_: unknown, record: User) => (
         <Space size="small">
           <Button type="link" size="small" icon={<SafetyOutlined />} onClick={() => handleAssignRoles(record)}>分配角色</Button>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { form.setFieldsValue(record); setModalVisible(true); }}>编辑</Button>

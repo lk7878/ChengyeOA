@@ -1,14 +1,22 @@
 // Axios 封装
-import axios, { AxiosError, type AxiosInstance, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
+import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 import { message } from 'antd';
 
-const request: AxiosInstance = axios.create({
+type RequestInstance = Omit<AxiosInstance, 'delete' | 'get' | 'patch' | 'post' | 'put'> & {
+  delete<T>(url: string, config?: AxiosRequestConfig): Promise<T>;
+  get<T>(url: string, config?: AxiosRequestConfig): Promise<T>;
+  patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>;
+  post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>;
+  put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>;
+};
+
+const request = axios.create({
   baseURL: '/api',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   },
-});
+}) as RequestInstance;
 
 // 请求拦截器：添加 Token
 request.interceptors.request.use(
@@ -36,7 +44,7 @@ request.interceptors.response.use(
   },
   (error: AxiosError) => {
     if (error.response) {
-      const { status, data } = error.response as { status: number; data: any };
+      const { status, data } = error.response as { status: number; data: { message?: string } };
       if (status === 401) {
         message.error('登录已过期，请重新登录');
         localStorage.removeItem('law_firm_token');
