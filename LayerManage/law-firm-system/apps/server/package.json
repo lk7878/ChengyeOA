@@ -75,6 +75,8 @@
       "node_modules/.prisma/**/*",
       "node_modules/@prisma/engines/**/*",
       "node_modules/@prisma/client/**/*",
+      "node_modules/generator-function/require.mjs",
+      "node_modules/generator-function/index.js",
       "public/**/*"
     ],
     "scripts": [
