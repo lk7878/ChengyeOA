@@ -43,6 +43,8 @@ jobs:
             LayerManage/law-firm-system/package-lock.json
             LayerManage/law-firm-system/apps/server/package-lock.json
             LayerManage/law-firm-system/apps/web/package-lock.json
+      - name: Prove Gitleaks placeholder semantics
+        run: npm --prefix LayerManage/law-firm-system/apps/server run check:gitleaks-semantics
       - name: Install dependencies
         working-directory: LayerManage/law-firm-system
         run: npm run setup

@@ -1,0 +1,78 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+type BuildPkg = (options: {
+  serverRoot: string;
+  outputDirectory: string;
+  runCommand: (command: string, options: { cwd: string; stdio: 'inherit' }) => void;
+}) => { engineFile: string; outputFile: string };
+
+function loadBuildPkg(): BuildPkg {
+  return (require('../../scripts/lib/pkg-build') as { buildPkg: BuildPkg }).buildPkg;
+}
+
+function createFixture(): { outputDirectory: string; serverRoot: string } {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pkg-build-'));
+  const serverRoot = path.join(root, 'apps', 'server');
+  const outputDirectory = path.join(root, 'apps', 'dist');
+  const generatedClient = path.join(serverRoot, 'node_modules', '.prisma', 'client');
+  fs.mkdirSync(generatedClient, { recursive: true });
+  fs.writeFileSync(path.join(generatedClient, 'query_engine-windows.dll.node'), 'generated engine');
+  return { outputDirectory, serverRoot };
+}
+
+test('pkg build emits the executable and physical Prisma engine in the installer portable directory', (t) => {
+  const fixture = createFixture();
+  t.after(() => fs.rmSync(path.dirname(path.dirname(fixture.serverRoot)), { recursive: true, force: true }));
+  const commands: string[] = [];
+
+  const result = loadBuildPkg()({
+    ...fixture,
+    runCommand(command) {
+      commands.push(command);
+      if (command.startsWith('pkg .')) {
+        const outputFile = path.join(fixture.outputDirectory, 'law-firm-system', 'law-firm-system.exe');
+        fs.mkdirSync(path.dirname(outputFile), { recursive: true });
+        fs.writeFileSync(outputFile, 'packaged executable');
+      }
+    },
+  });
+
+  assert.deepEqual(commands.map(command => command.split(' ')[0]), ['npm', 'pkg']);
+  assert.equal(result.outputFile, path.join(fixture.outputDirectory, 'law-firm-system', 'law-firm-system.exe'));
+  assert.equal(
+    result.engineFile,
+    path.join(fixture.outputDirectory, 'law-firm-system', 'prisma-engine', 'query_engine-windows.dll.node'),
+  );
+  assert.ok(fs.statSync(result.outputFile).size > 0);
+  assert.ok(fs.statSync(result.engineFile).size > 0);
+});
+
+test('pkg build removes stale output before assembly and cleans partial output after failure', (t) => {
+  const fixture = createFixture();
+  t.after(() => fs.rmSync(path.dirname(path.dirname(fixture.serverRoot)), { recursive: true, force: true }));
+  const staleFile = path.join(fixture.outputDirectory, 'law-firm-system', 'stale.txt');
+  fs.mkdirSync(path.dirname(staleFile), { recursive: true });
+  fs.writeFileSync(staleFile, 'stale package output');
+
+  assert.throws(
+    () => loadBuildPkg()({
+      ...fixture,
+      runCommand(command) {
+        if (command === 'npm run build') {
+          assert.equal(fs.existsSync(staleFile), false);
+          return;
+        }
+        fs.mkdirSync(path.join(fixture.outputDirectory, 'law-firm-system'), { recursive: true });
+        fs.writeFileSync(path.join(fixture.outputDirectory, 'law-firm-system', 'partial.exe'), 'partial');
+        throw new Error('pkg assembly failed');
+      },
+    }),
+    /pkg assembly failed/,
+  );
+
+  assert.equal(fs.existsSync(fixture.outputDirectory), false);
+});

@@ -29,6 +29,7 @@
     "db:reset:test": "tsx scripts/db/reset-test-db.ts",
     "db:assert-empty": "tsx scripts/db/assert-empty-application-tables.ts",
     "check:baseline": "tsx scripts/ci/check-baseline-contract.ts",
+    "check:gitleaks-semantics": "node scripts/ci/check-gitleaks-semantics.js",
     "migration:inventory": "tsx scripts/migration/cli.ts inventory",
     "migration:diff": "tsx scripts/migration/cli.ts diff",
     "package": "node scripts/build-package.js"

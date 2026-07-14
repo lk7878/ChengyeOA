@@ -58,17 +58,13 @@ test('pkg entrypoint cleans stale inputs and output before rebuilding', () => {
   const pkgBuilder = fs.readFileSync(path.resolve('scripts', 'build-pkg.js'), 'utf8');
 
   assert.equal(manifest.scripts.pkg, 'node scripts/build-pkg.js');
-  assert.match(pkgBuilder, /cleanBuildOutputs/);
-  assert.match(pkgBuilder, /execSync\('npm run build'/);
-  assert.match(pkgBuilder, /execSync\('pkg \./);
-  assert.ok(pkgBuilder.indexOf('cleanBuildOutputs') < pkgBuilder.indexOf("execSync('npm run build'"));
-  assert.ok(pkgBuilder.indexOf("execSync('npm run build'") < pkgBuilder.indexOf("execSync('pkg ."));
+  assert.match(pkgBuilder, /buildPkg/);
+  assert.match(pkgBuilder, /runCommand:\s*execSync/);
 });
 
 test('pkg entrypoint removes the complete package output directory', () => {
   const pkgBuilder = fs.readFileSync(path.resolve('scripts', 'build-pkg.js'), 'utf8');
 
-  assert.match(pkgBuilder, /const outputDir = path\.join\(serverRoot, '\.\.', 'dist'\)/);
-  assert.match(pkgBuilder, /const outputFile = path\.join\(outputDir, 'law-firm-system\.exe'\)/);
-  assert.match(pkgBuilder, /cleanBuildOutputs\(serverRoot, outputDir\)/);
+  assert.match(pkgBuilder, /path\.join\(serverRoot, '\.\.', 'dist'\)/);
+  assert.match(pkgBuilder, /buildPkg/);
 });

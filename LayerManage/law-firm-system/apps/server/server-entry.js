@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
 const { loadEnvironment, loadProductionEnvironment } = require('./dist/config/env');
-const { resolvePrismaQueryEngineLibrary } = require('./scripts/lib/prisma-engine-path');
+const { resolvePackagedPrismaQueryEngineLibrary } = require('./scripts/lib/prisma-engine-path');
 
 // 判断是否在 pkg 打包环境中运行
 const isPkg = typeof process.pkg !== 'undefined';
@@ -21,8 +21,13 @@ function getUserDataDir() {
 // 设置环境变量
 function setupEnv() {
   const userDataDir = getUserDataDir();
-  if (isPkg) loadProductionEnvironment(process.env);
-  else loadEnvironment(process.env);
+  if (isPkg) {
+    const queryEngineLibrary = resolvePackagedPrismaQueryEngineLibrary(process.execPath);
+    process.env.PRISMA_QUERY_ENGINE_LIBRARY = queryEngineLibrary;
+    loadProductionEnvironment(process.env);
+  } else {
+    loadEnvironment(process.env);
+  }
 
   // 设置日志目录
   const logDir = path.join(userDataDir, 'logs');
@@ -31,15 +36,6 @@ function setupEnv() {
   }
   process.env.LOG_DIR = logDir;
 
-  // Prisma 引擎路径处理（pkg 环境下需要特殊处理）
-  if (isPkg) {
-    const snapshotDir = path.dirname(process.execPath);
-    const queryEngineLibrary = resolvePrismaQueryEngineLibrary([
-      path.join(snapshotDir, 'node_modules', '.prisma', 'client'),
-      path.join(__dirname, 'node_modules', '.prisma', 'client'),
-    ]);
-    if (queryEngineLibrary) process.env.PRISMA_QUERY_ENGINE_LIBRARY = queryEngineLibrary;
-  }
 }
 
 // 打开浏览器

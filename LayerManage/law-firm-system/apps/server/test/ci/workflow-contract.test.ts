@@ -32,3 +32,18 @@ test('CI runs Gitleaks from an immutable scanner image with repository config', 
   }
   assert.doesNotMatch(config, /stopwords|paths\s*=/i);
 });
+
+test('CI runs the pinned-image Gitleaks semantic fixtures without weakening the repository scan', () => {
+  const workflow = fs.readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
+  const manifest = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  const semanticScript = fs.readFileSync(path.resolve('scripts/ci/check-gitleaks-semantics.js'), 'utf8');
+
+  assert.equal(manifest.scripts['check:gitleaks-semantics'], 'node scripts/ci/check-gitleaks-semantics.js');
+  assert.match(workflow, /name: Prove Gitleaks placeholder semantics[\s\S]*npm --prefix LayerManage\/law-firm-system\/apps\/server run check:gitleaks-semantics/);
+  assert.match(semanticScript, /ghcr\.io\/gitleaks\/gitleaks:v8\.30\.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f/);
+  assert.match(semanticScript, /allowed[^\n]+status[^\n]+===?\s*0|status[^\n]+!==?\s*0/);
+  assert.match(semanticScript, /detected[^\n]+status[^\n]+===?\s*1|status[^\n]+!==?\s*1/);
+  assert.equal((workflow.match(/detect --source=\/repo --config=\/repo\/\.gitleaks\.toml --no-banner --redact --no-git/g) ?? []).length, 1);
+});
