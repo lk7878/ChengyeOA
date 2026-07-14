@@ -28,3 +28,8 @@ export function loadEnvironment(env: NodeJS.ProcessEnv = process.env): AppEnviro
 
   return { nodeEnv, databaseUrl, jwtSecret, appKeys };
 }
+
+export function loadProductionEnvironment(env: NodeJS.ProcessEnv = process.env): AppEnvironment {
+  env.NODE_ENV = 'production';
+  return loadEnvironment(env);
+}

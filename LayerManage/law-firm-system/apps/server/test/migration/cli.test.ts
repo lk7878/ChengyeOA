@@ -122,7 +122,7 @@ test('CLI executable catches duplicate arguments and emits one safe line with ex
   assert.equal(result.stderr.includes(path.resolve('.')), false);
 });
 
-test('root migration wrapper uses npm prefix and forwards fixture flags on Windows', () => {
+test('root migration wrapper uses npm prefix and forwards fixture flags', () => {
   const projectRoot = path.resolve('../..');
   const rootPackage = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
   assert.equal(rootPackage.scripts['migration:inventory'], 'npm --prefix apps/server run migration:inventory --');
@@ -131,7 +131,8 @@ test('root migration wrapper uses npm prefix and forwards fixture flags on Windo
   const runId = `root_flags_${process.pid}_${Date.now()}`;
   const runDirectory = path.join(projectRoot, 'var', 'migration', runId);
   try {
-    const npmCli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    const npmCli = process.env.npm_execpath;
+    assert.ok(npmCli, 'npm_execpath must be available when the suite runs through npm');
     const result = spawnSync(process.execPath, [npmCli, 'run', 'migration:inventory', '--', '--source', fixtures.primaryPath, '--run-id', runId], {
       cwd: projectRoot,
       encoding: 'utf8',

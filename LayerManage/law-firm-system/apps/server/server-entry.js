@@ -3,7 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
-const { loadEnvironment } = require('./dist/config/env');
+const { loadEnvironment, loadProductionEnvironment } = require('./dist/config/env');
 
 // 判断是否在 pkg 打包环境中运行
 const isPkg = typeof process.pkg !== 'undefined';
@@ -20,7 +20,8 @@ function getUserDataDir() {
 // 设置环境变量
 function setupEnv() {
   const userDataDir = getUserDataDir();
-  loadEnvironment(process.env);
+  if (isPkg) loadProductionEnvironment(process.env);
+  else loadEnvironment(process.env);
 
   // 设置日志目录
   const logDir = path.join(userDataDir, 'logs');

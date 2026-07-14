@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Button, Form, Input, Card, message, Spin } from 'antd';
+import { Alert, Button, Form, Input, Card, message, Spin } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '@/api/auth';
@@ -7,11 +7,13 @@ import { useAuthStore } from '@/stores/authStore';
 
 const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const navigate = useNavigate();
   const { setToken, setUserInfo } = useAuthStore();
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
+    setErrorMessage(null);
     try {
       const res = await authApi.login(values);
       if (res.code === 200) {
@@ -22,7 +24,7 @@ const Login: React.FC = () => {
         navigate('/');
       }
     } catch {
-      // 错误已在拦截器处理
+      setErrorMessage('登录失败，请重试');
     } finally {
       setLoading(false);
     }
@@ -49,6 +51,14 @@ const Login: React.FC = () => {
             onFinish={onFinish}
             autoComplete="off"
           >
+            {errorMessage && (
+              <Alert
+                type="error"
+                showIcon
+                title={errorMessage}
+                style={{ marginBottom: 16 }}
+              />
+            )}
             <Form.Item
               name="username"
               rules={[{ required: true, message: '请输入用户名' }]}

@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { cleanBuildOutputs, findForbiddenArtifacts } = require('./lib/build-artifacts');
 
 const serverDir = path.join(__dirname, '..');
 const projectDir = path.join(serverDir, '..');
@@ -202,7 +203,7 @@ function createAppEntryJs() {
     "const path = require('path');",
     "const fs = require('fs');",
     "const { exec } = require('child_process');",
-    "const { loadEnvironment } = require('./config/env');",
+    "const { loadProductionEnvironment } = require('./config/env');",
     "",
     "const baseDir = __dirname;",
     "",
@@ -242,7 +243,7 @@ function createAppEntryJs() {
     "  console.log('╚══════════════════════════════════════════╝');",
     "  console.log('');",
     "",
-    "  loadEnvironment(process.env);",
+    "  loadProductionEnvironment(process.env);",
     "",
     "  // Data directory (portable: same as exe location)",
     "  var userDataDir = baseDir;",
@@ -257,9 +258,6 @@ function createAppEntryJs() {
     "",
     "  // Prisma auto-discovers query engine in .prisma/client/",
     "  // No need to set PRISMA_QUERY_ENGINE_LIBRARY (setting it wrong breaks things)",
-    "",
-    "  // Environment",
-    "  process.env.NODE_ENV = process.env.NODE_ENV || 'production';",
     "",
     "  // Port",
     "  var port = parseInt(process.env.PORT || '7001');",
@@ -336,11 +334,17 @@ async function main() {
   console.log('║  Building self-contained portable dist  ║');
   console.log('╚══════════════════════════════════════════╝');
 
+  cleanBuildOutputs(serverDir, outputDir);
   buildFrontend();        // 1: npm run build in web
   copyFrontend();         // 2: copy to server/public/
   buildBackend();         // 3: tsc + prisma generate + copy assets
   buildPortable();        // 4: copy to output, then prune inside output dir
   createLauncherFiles();  // 5: app-entry.js + launch.bat
+
+  const forbiddenArtifacts = findForbiddenArtifacts(outputDir);
+  if (forbiddenArtifacts.length > 0) {
+    throw new Error('Forbidden package artifacts: ' + forbiddenArtifacts.map(file => path.relative(outputDir, file)).join(', '));
+  }
 
   // Summary
   const totalSize = sizeOf(outputDir);

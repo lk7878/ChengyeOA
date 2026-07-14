@@ -129,8 +129,8 @@ Authorization: Bearer {token}
   "code": 200,
   "message": "登录成功",
   "data": {
-    "token": "eyJhbGciOiJIUzI1NiIs...",
-    "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
+    "token": "<access-token>",
+    "refreshToken": "<refresh-token>",
     "expiresIn": 604800,
     "user": {
       "id": "uuid",
@@ -150,7 +150,7 @@ Authorization: Bearer {token}
 **请求体：**
 ```json
 {
-  "refreshToken": "eyJhbGciOiJIUzI1NiIs..."
+  "refreshToken": "<refresh-token>"
 }
 ```
 

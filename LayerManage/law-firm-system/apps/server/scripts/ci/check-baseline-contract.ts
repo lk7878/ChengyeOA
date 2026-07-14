@@ -4,6 +4,7 @@ import path from 'node:path';
 interface PackageManifest {
   scripts?: Record<string, string>;
   prisma?: { seed?: unknown };
+  pkg?: { assets?: unknown };
 }
 
 function packageManifest(filePath: string): PackageManifest {
@@ -24,6 +25,27 @@ function sourceFiles(directory: string): string[] {
   });
 }
 
+function allFiles(directory: string): string[] {
+  if (!fs.existsSync(directory)) return [];
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const candidate = path.join(directory, entry.name);
+    if (entry.isDirectory()) return allFiles(candidate);
+    return entry.isFile() ? [candidate] : [];
+  });
+}
+
+function isForbiddenArtifact(filePath: string): boolean {
+  const name = path.basename(filePath).toLowerCase();
+  return name === '.env'
+    || name.startsWith('.env.')
+    || /(?:^|[-_.])(?:credentials?|secrets?)(?:[-_.]|$)/i.test(name)
+    || /\.(?:key|pem|p12|pfx)$/i.test(name);
+}
+
+function normalizedRelative(root: string, filePath: string): string {
+  return path.relative(root, filePath).split(path.sep).join('/');
+}
+
 function hasGenericSeedScript(serverRoot: string): boolean {
   const prismaSeeds = ['seed.ts', 'seed.js', 'seed.cjs', 'seed.mjs']
     .map(name => path.join(serverRoot, 'prisma', name));
@@ -37,6 +59,7 @@ function runtimeSourceFiles(serverRoot: string): string[] {
     path.join(serverRoot, 'app.ts'),
     path.join(serverRoot, 'app.js'),
     path.join(serverRoot, 'scripts', 'build-package.js'),
+    path.join(serverRoot, 'scripts', 'build-pkg.js'),
     path.join(serverRoot, 'scripts', 'build.js'),
   ].filter(filePath => fs.existsSync(filePath));
   return [...startupFiles, ...sourceFiles(path.join(serverRoot, 'config'))];
@@ -58,6 +81,53 @@ export function checkBaselineContract(projectRoot: string): string[] {
   if (hasPrismaSeedConfiguration(serverManifest)) issues.push('server Prisma seed configuration exists');
   for (const name of ['seed', 'migration:import', 'migration:validate', 'db:seed']) {
     if (rootScripts[name] || serverScripts[name]) issues.push(`${name} command exists`);
+  }
+
+  const packageAssets = Array.isArray(serverManifest.pkg?.assets) ? serverManifest.pkg.assets : [];
+  for (const asset of packageAssets) {
+    if (typeof asset === 'string') {
+      if (/^dist\/\*\*\/?\*?$/.test(asset)) issues.push(`broad package asset input exists: ${asset}`);
+      if (isForbiddenArtifact(asset)) issues.push(`forbidden package asset input: ${asset}`);
+    }
+  }
+
+  const buildSources = [
+    path.join(serverRoot, 'scripts', 'build.js'),
+    path.join(serverRoot, 'scripts', 'build-package.js'),
+    path.join(serverRoot, 'scripts', 'build-pkg.js'),
+  ].filter(filePath => fs.existsSync(filePath)).map(filePath => fs.readFileSync(filePath, 'utf8')).join('\n');
+  if (/\[['"]\.env(?:\.[^'"]*)?['"]\s*,/i.test(buildSources)) {
+    issues.push('environment file build input exists');
+  }
+
+  const packagingSources = [
+    path.join(projectRoot, 'scripts', 'build-zip.ps1'),
+    path.join(projectRoot, 'scripts', 'installer.iss'),
+  ].filter(filePath => fs.existsSync(filePath)).map(filePath => fs.readFileSync(filePath, 'utf8')).join('\n');
+  for (const pattern of [/admin\s*\/\s*123456/i, /sqlite/i]) {
+    if (pattern.test(packagingSources)) issues.push(`forbidden packaging pattern: ${pattern.source}`);
+  }
+
+  for (const outputRoot of [path.join(serverRoot, 'dist'), path.join(projectRoot, 'apps', 'dist')]) {
+    for (const filePath of allFiles(outputRoot).filter(isForbiddenArtifact)) {
+      issues.push(`forbidden build artifact: ${normalizedRelative(projectRoot, filePath)}`);
+    }
+  }
+
+  const composePath = path.join(projectRoot, 'infra', 'postgres', 'compose.yml');
+  const compose = fs.existsSync(composePath) ? fs.readFileSync(composePath, 'utf8') : '';
+  if (!/POSTGRES_DB:\s*\$\{POSTGRES_DB:-chengye_oa\}/.test(compose)) issues.push('Compose POSTGRES_DB is not parameterized');
+  if (!/POSTGRES_USER:\s*\$\{POSTGRES_USER:-chengye_app\}/.test(compose)) issues.push('Compose POSTGRES_USER is not parameterized');
+  if (!/POSTGRES_PASSWORD:\s*\$\{POSTGRES_PASSWORD:-chengye_local_only\}/.test(compose)) issues.push('Compose POSTGRES_PASSWORD is not parameterized');
+  if (!/pg_isready -U \$\$\{POSTGRES_USER:-chengye_app\} -d \$\$\{POSTGRES_DB:-chengye_oa\}/.test(compose)) {
+    issues.push('Compose healthcheck is not parameterized');
+  }
+  const initializerPath = path.join(projectRoot, 'infra', 'postgres', 'init', '01-create-test-database.sh');
+  const initializer = fs.existsSync(initializerPath) ? fs.readFileSync(initializerPath, 'utf8') : '';
+  if (!/POSTGRES_TEST_DB.*chengye_oa_test/.test(initializer)
+    || !/POSTGRES_TEST_USER.*chengye_test/.test(initializer)
+    || !/POSTGRES_TEST_PASSWORD.*chengye_test_local_only/.test(initializer)) {
+    issues.push('test database initializer is not parameterized');
   }
 
   const runtimeSources = runtimeSourceFiles(serverRoot).map(filePath => fs.readFileSync(filePath, 'utf8')).join('\n');

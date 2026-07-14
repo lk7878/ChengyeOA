@@ -15,11 +15,27 @@ function createProjectFixture() {
   const serverRoot = path.join(projectRoot, 'apps', 'server');
   fs.mkdirSync(path.join(serverRoot, 'prisma'), { recursive: true });
   fs.mkdirSync(path.join(serverRoot, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(projectRoot, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(projectRoot, 'infra', 'postgres', 'init'), { recursive: true });
   fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ scripts: {} }));
   fs.writeFileSync(path.join(serverRoot, 'package.json'), JSON.stringify({ scripts: {} }));
   fs.writeFileSync(path.join(serverRoot, 'prisma', 'schema.prisma'), '');
   fs.writeFileSync(path.join(serverRoot, 'server-entry.js'), '');
   fs.writeFileSync(path.join(serverRoot, 'scripts', 'build-package.js'), '');
+  fs.writeFileSync(path.join(serverRoot, 'scripts', 'build.js'), '');
+  fs.writeFileSync(path.join(projectRoot, 'scripts', 'build-zip.ps1'), '');
+  fs.writeFileSync(path.join(projectRoot, 'scripts', 'installer.iss'), '');
+  fs.writeFileSync(path.join(projectRoot, 'infra', 'postgres', 'compose.yml'), [
+    'POSTGRES_DB: ${POSTGRES_DB:-chengye_oa}',
+    'POSTGRES_USER: ${POSTGRES_USER:-chengye_app}',
+    'POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chengye_local_only}',
+    'pg_isready -U $${POSTGRES_USER:-chengye_app} -d $${POSTGRES_DB:-chengye_oa}',
+  ].join('\n'));
+  fs.writeFileSync(path.join(projectRoot, 'infra', 'postgres', 'init', '01-create-test-database.sh'), [
+    ': "${POSTGRES_TEST_DB:=chengye_oa_test}"',
+    ': "${POSTGRES_TEST_USER:=chengye_test}"',
+    ': "${POSTGRES_TEST_PASSWORD:=chengye_test_local_only}"',
+  ].join('\n'));
   return { projectRoot, serverRoot };
 }
 
@@ -76,4 +92,55 @@ test('reports forbidden database fallback in server configuration', (t) => {
     'forbidden runtime pattern: file:',
     'forbidden runtime pattern: law_firm\\.db',
   ]);
+});
+
+test('reports unsafe project packaging scripts and broad build asset inputs', (t) => {
+  const fixture = createProjectFixture();
+  t.after(() => fs.rmSync(fixture.projectRoot, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(fixture.projectRoot, 'scripts', 'build-zip.ps1'), 'Login: admin / 123456');
+  fs.writeFileSync(path.join(fixture.projectRoot, 'scripts', 'installer.iss'), '; SQLite needs write access');
+  fs.writeFileSync(path.join(fixture.serverRoot, 'scripts', 'build.js'), "const copies = [['.env', '.env']];");
+  fs.writeFileSync(path.join(fixture.serverRoot, 'package.json'), JSON.stringify({
+    scripts: {},
+    pkg: { assets: ['dist/**/*', 'config/credentials.json'] },
+  }));
+
+  const issues = checkBaselineContract(fixture.projectRoot);
+  assert.ok(issues.includes('forbidden packaging pattern: admin\\s*\\/\\s*123456'));
+  assert.ok(issues.includes('forbidden packaging pattern: sqlite'));
+  assert.ok(issues.includes('broad package asset input exists: dist/**/*'));
+  assert.ok(issues.includes('forbidden package asset input: config/credentials.json'));
+  assert.ok(issues.includes('environment file build input exists'));
+});
+
+test('reports environment or credential files in build outputs', (t) => {
+  const fixture = createProjectFixture();
+  t.after(() => fs.rmSync(fixture.projectRoot, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(fixture.serverRoot, 'dist'), { recursive: true });
+  fs.mkdirSync(path.join(fixture.projectRoot, 'apps', 'dist', 'law-firm-system'), { recursive: true });
+  fs.writeFileSync(path.join(fixture.serverRoot, 'dist', '.env.production'), 'secret');
+  fs.writeFileSync(path.join(fixture.projectRoot, 'apps', 'dist', 'law-firm-system', 'credentials.json'), '{}');
+
+  const issues = checkBaselineContract(fixture.projectRoot);
+  assert.ok(issues.some(issue => issue.includes('forbidden build artifact: apps/server/dist/.env.production')));
+  assert.ok(issues.some(issue => issue.includes('forbidden build artifact: apps/dist/law-firm-system/credentials.json')));
+});
+
+test('reports unparameterized PostgreSQL compose and test database initialization', (t) => {
+  const fixture = createProjectFixture();
+  t.after(() => fs.rmSync(fixture.projectRoot, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(fixture.projectRoot, 'infra', 'postgres', 'compose.yml'), [
+    'POSTGRES_DB: chengye_oa',
+    'POSTGRES_USER: chengye_app',
+    'POSTGRES_PASSWORD: chengye_local_only',
+    'pg_isready -U chengye_app -d chengye_oa',
+  ].join('\n'));
+  fs.rmSync(path.join(fixture.projectRoot, 'infra', 'postgres', 'init'), { recursive: true, force: true });
+
+  const issues = checkBaselineContract(fixture.projectRoot);
+  assert.ok(issues.includes('Compose POSTGRES_DB is not parameterized'));
+  assert.ok(issues.includes('Compose POSTGRES_USER is not parameterized'));
+  assert.ok(issues.includes('Compose POSTGRES_PASSWORD is not parameterized'));
+  assert.ok(issues.includes('Compose healthcheck is not parameterized'));
+  assert.ok(issues.includes('test database initializer is not parameterized'));
 });

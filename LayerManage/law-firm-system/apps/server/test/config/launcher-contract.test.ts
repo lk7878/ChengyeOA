@@ -13,7 +13,8 @@ test('portable launchers require validated external database and secret configur
   assert.match(launchers[1], /require\(['"]\.\/config\/env['"]\)/);
 
   for (const source of launchers) {
-    assert.match(source, /loadEnvironment\(process\.env\)/);
+    assert.match(source, /loadProductionEnvironment\(process\.env\)/);
+    assert.ok(source.indexOf('loadProductionEnvironment(process.env)') < source.indexOf("require('egg')"));
     assert.doesNotMatch(source, /file:/);
     assert.doesNotMatch(source, /law_firm\.db/);
     assert.doesNotMatch(source, /Date\.now\(\)/);

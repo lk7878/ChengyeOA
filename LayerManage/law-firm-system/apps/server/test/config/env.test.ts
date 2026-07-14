@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { loadEnvironment } from '../../config/env';
+import { loadEnvironment, loadProductionEnvironment } from '../../config/env';
 
 const valid = {
   NODE_ENV: 'development',
@@ -22,4 +22,10 @@ test('rejects sample secrets in production', () => {
     () => loadEnvironment({ ...valid, NODE_ENV: 'production', JWT_SECRET: 'replace_with_at_least_32_random_characters' }),
     /JWT_SECRET/,
   );
+});
+
+test('packaged startup treats omitted NODE_ENV as production before validating secrets', () => {
+  const packaged = { ...valid, NODE_ENV: undefined, JWT_SECRET: 'replace_with_at_least_32_random_characters' };
+  assert.throws(() => loadProductionEnvironment(packaged), /JWT_SECRET/);
+  assert.equal(packaged.NODE_ENV, 'production');
 });

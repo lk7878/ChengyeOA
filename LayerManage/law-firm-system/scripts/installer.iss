@@ -18,7 +18,7 @@ AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppSupportURL={#MyAppURL}
 
-; Use LocalAppData to avoid requiring admin (SQLite needs write access)
+; Use LocalAppData to avoid requiring administrator privileges
 DefaultDirName={localappdata}\{#MyAppNameEn}
 DefaultGroupName={#MyAppName}
 
