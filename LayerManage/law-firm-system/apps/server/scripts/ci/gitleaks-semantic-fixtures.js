@@ -20,6 +20,10 @@ const suffix = ['semantic', 'fixture', 'suffix'].join('-');
 const prefixedAndSuffixedVariants = documentedPlaceholders.flatMap(placeholder => [
   `${prefix}-${placeholder}`,
   `${placeholder}-${suffix}`,
+  `semantic.fixture.prefix.${placeholder}`,
+  `semantic@fixture@prefix@${placeholder}`,
+  `${placeholder}/semantic/fixture/suffix`,
+  `${placeholder}+semantic+fixture+suffix`,
 ]);
 
 function parseGitleaksAllowlistRegexes(config) {

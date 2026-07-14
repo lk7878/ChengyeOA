@@ -4,7 +4,7 @@ useDefault = true
 [[rules]]
 id = "chengye-placeholder-variant"
 description = "Reject modified SPEC-001 placeholder secrets"
-regex = '''(([A-Za-z0-9_][A-Za-z0-9_-]*)?(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)([A-Za-z0-9_-]*[A-Za-z0-9_])?)'''
+regex = '''(([A-Za-z0-9_][A-Za-z0-9_./@+-]*)?(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)([A-Za-z0-9_.+-]*[A-Za-z0-9_]|/[A-Za-z0-9_+/-]*[A-Za-z0-9_])?)'''
 secretGroup = 1
 
 [allowlist]
