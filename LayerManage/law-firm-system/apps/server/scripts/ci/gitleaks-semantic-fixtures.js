@@ -54,15 +54,19 @@ function allowedFixtureText(values) {
     `DATABASE_URL_${index} = "${databaseUrl(value)}"`,
     `DATABASE_URL_${index}: "${databaseUrl(value)}"`,
     `\${DATABASE_URL_${index}:-${databaseUrl(value)}}`,
+    `"DATABASE_URL_${index}": "${databaseUrl(value)}"`,
+    `\${DATABASE_URL_${index}-${databaseUrl(value)}}`,
   ]).join('\n')}\n`;
 }
 
 function detectedFixtureText(values) {
   return `${values.map((value, index) => {
-    switch (index % 4) {
+    switch (index % 6) {
       case 1: return `DATABASE_URL_${index} = "${databaseUrl(value)}"`;
       case 2: return `DATABASE_URL_${index}: "${databaseUrl(value)}"`;
       case 3: return `\${DATABASE_URL_${index}:-${databaseUrl(value)}}`;
+      case 4: return `"DATABASE_URL_${index}": "${databaseUrl(value)}"`;
+      case 5: return `\${DATABASE_URL_${index}-${databaseUrl(value)}}`;
       default: return apiKeyAssignment(value, index);
     }
   }).join('\n')}\n`;

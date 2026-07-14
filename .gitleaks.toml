@@ -4,37 +4,37 @@ useDefault = true
 [[rules]]
 id = "chengye-placeholder-equals-assignment"
 description = "Reject modified SPEC-001 placeholders in equals assignments"
-regex = '''(?i)([A-Za-z0-9_-]*(password|secret|api[_-]?key|app[_-]?key|jwt)[A-Za-z0-9_-]*)[ \t]*=[ \t]*["']?([^"'\s}$\\]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s}$\\]*)'''
+regex = '''(?i)["']?([A-Za-z0-9_-]*(password|secret|api[_-]?key|app[_-]?key|jwt)[A-Za-z0-9_-]*)["']?[ \t]*=[ \t]*["']?([^"'\s}$\\]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s}$\\]*)'''
 secretGroup = 3
 
 [[rules]]
 id = "chengye-placeholder-colon-assignment"
 description = "Reject modified SPEC-001 placeholders in colon assignments"
-regex = '''(?i)([A-Za-z0-9_-]*(password|secret|api[_-]?key|app[_-]?key|jwt)[A-Za-z0-9_-]*)[ \t]*:[ \t]+["']?([^"'\s}$\\]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s}$\\]*)'''
+regex = '''(?i)["']?([A-Za-z0-9_-]*(password|secret|api[_-]?key|app[_-]?key|jwt)[A-Za-z0-9_-]*)["']?[ \t]*:[ \t]+["']?([^"'\s}$\\]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s}$\\]*)'''
 secretGroup = 3
 
 [[rules]]
 id = "chengye-placeholder-default-assignment"
 description = "Reject modified SPEC-001 placeholders in shell-style defaults"
-regex = '''(?i)([A-Za-z0-9_-]*(password|secret|api[_-]?key|app[_-]?key|jwt)[A-Za-z0-9_-]*)[ \t]*:[-=]["']?([^"'\s}$\\]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s}$\\]*)'''
+regex = '''(?i)["']?([A-Za-z0-9_-]*(password|secret|api[_-]?key|app[_-]?key|jwt)[A-Za-z0-9_-]*)["']?[ \t]*:?[-=]["']?([^"'\s}$\\]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s}$\\]*)'''
 secretGroup = 3
 
 [[rules]]
 id = "chengye-database-url-equals-assignment"
 description = "Reject modified SPEC-001 passwords in database URL equals assignments"
-regex = '''(?i)([A-Za-z0-9_]*database_url[A-Za-z0-9_]*)[ \t]*=[ \t]*["']?postgresql://[^:"'\s]+:([^"'\s]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s]*)@[^/"'\s]+'''
+regex = '''(?i)["']?([A-Za-z0-9_]*database_url[A-Za-z0-9_]*)["']?[ \t]*=[ \t]*["']?postgresql://[^:"'\s]+:([^"'\s]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s]*)@[^/"'\s]+'''
 secretGroup = 2
 
 [[rules]]
 id = "chengye-database-url-colon-assignment"
 description = "Reject modified SPEC-001 passwords in database URL colon assignments"
-regex = '''(?i)([A-Za-z0-9_]*database_url[A-Za-z0-9_]*)[ \t]*:[ \t]+["']?postgresql://[^:"'\s]+:([^"'\s]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s]*)@[^/"'\s]+'''
+regex = '''(?i)["']?([A-Za-z0-9_]*database_url[A-Za-z0-9_]*)["']?[ \t]*:[ \t]+["']?postgresql://[^:"'\s]+:([^"'\s]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s]*)@[^/"'\s]+'''
 secretGroup = 2
 
 [[rules]]
 id = "chengye-database-url-default-assignment"
 description = "Reject modified SPEC-001 passwords in database URL shell-style defaults"
-regex = '''(?i)([A-Za-z0-9_]*database_url[A-Za-z0-9_]*)[ \t]*:[-=]["']?postgresql://[^:"'\s]+:([^"'\s]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s]*)@[^/"'\s]+'''
+regex = '''(?i)["']?([A-Za-z0-9_]*database_url[A-Za-z0-9_]*)["']?[ \t]*:?[-=]["']?postgresql://[^:"'\s]+:([^"'\s]*(chengye_local_only|chengye_test_local_only|01234567890123456789012345678901|first-32-character-application-key|second-32-character-app-key|replace_with_at_least_32_random_characters|replace_with_first_application_key|replace_with_second_application_key)[^"'\s]*)@[^/"'\s]+'''
 secretGroup = 2
 
 [allowlist]
