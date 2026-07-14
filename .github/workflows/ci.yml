@@ -37,7 +37,7 @@ jobs:
           detect --source=/repo --config=/repo/.gitleaks.toml --no-banner --redact --no-git
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.12.0'
+          node-version: '22.14.0'
           cache: npm
           cache-dependency-path: |
             LayerManage/law-firm-system/package-lock.json

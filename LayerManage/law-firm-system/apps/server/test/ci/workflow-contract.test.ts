@@ -4,6 +4,23 @@ import path from 'node:path';
 import test from 'node:test';
 
 const repositoryRoot = path.resolve(__dirname, '../../../../../..');
+const projectRoot = path.join(repositoryRoot, 'LayerManage', 'law-firm-system');
+
+test('Node baseline supports the locked toolchain and stays aligned across CI metadata', () => {
+  const workflow = fs.readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
+  const nvmVersion = fs.readFileSync(path.join(repositoryRoot, '.nvmrc'), 'utf8').trim();
+  const rootManifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
+  const rootLock = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package-lock.json'), 'utf8'));
+  const serverManifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'apps', 'server', 'package.json'), 'utf8'));
+  const serverLock = JSON.parse(fs.readFileSync(path.join(projectRoot, 'apps', 'server', 'package-lock.json'), 'utf8'));
+
+  assert.equal(nvmVersion, '22.14.0');
+  assert.equal(rootManifest.engines.node, '>=22.14.0 <23');
+  assert.equal(rootLock.packages[''].engines.node, rootManifest.engines.node);
+  assert.equal(serverManifest.engines.node, rootManifest.engines.node);
+  assert.equal(serverLock.packages[''].engines.node, serverManifest.engines.node);
+  assert.match(workflow, /node-version: '22\.14\.0'/);
+});
 
 test('CI compares the migrated PostgreSQL database with the canonical Prisma schema', () => {
   const workflow = fs.readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
