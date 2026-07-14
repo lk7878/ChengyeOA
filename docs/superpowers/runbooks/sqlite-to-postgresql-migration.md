@@ -7,7 +7,7 @@
 - Replacement decision: `CLEAN_POSTGRESQL_BASELINE_APPROVED`
 - Decision date: `2026-07-14`
 - Reviewer: project owner
-- Plan state: stopped at Task 9; Tasks 10-14 require a revised implementation Plan before execution
+- Plan state: original Plan stopped at Task 9; revised Plan is `docs/superpowers/plans/2026-07-14-empty-postgresql-baseline-implementation.md`
 
 ## Source Audit
 
@@ -73,4 +73,4 @@ If a different source containing real operating data is discovered later, do not
 
 ## Prohibited Commands
 
-Do not run `migration:import`, `migration:validate`, or `db:seed`. Do not remove or modify either SQLite source. Do not execute the original Tasks 10-14; follow only a revised Plan approved against the amended SPEC-001.
+Do not run `migration:import`, `migration:validate`, or `db:seed`. Do not remove or modify either SQLite source. Do not execute the original Tasks 10-14; follow only `docs/superpowers/plans/2026-07-14-empty-postgresql-baseline-implementation.md` after selecting an execution mode.

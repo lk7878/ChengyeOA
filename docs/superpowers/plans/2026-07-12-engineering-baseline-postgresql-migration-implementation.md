@@ -10,6 +10,8 @@
 
 **Approved Spec:** `docs/superpowers/specs/2026-07-12-engineering-baseline-postgresql-migration-design.md`
 
+> **Execution status:** Tasks 1-9 are retained as historical execution records. Tasks 10-14 are superseded by `docs/superpowers/plans/2026-07-14-empty-postgresql-baseline-implementation.md` and must not be executed from this file.
+
 ## Global Constraints
 
 - Use Node 22 LTS and npm; do not convert the repository to npm workspaces.

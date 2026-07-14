@@ -29,7 +29,7 @@
 
 | 编号 | 文档 | 状态 | 后续动作 |
 |---:|---|---|---|
-| SPEC-001 | [工程基线与 PostgreSQL 迁移](specs/2026-07-12-engineering-baseline-postgresql-migration-design.md) | 已批准 | 按实施 Plan 执行并逐任务验收 |
+| SPEC-001 | [工程基线与 PostgreSQL 空库基线](specs/2026-07-12-engineering-baseline-postgresql-migration-design.md) | 已批准 | 按空库基线实施 Plan 执行并逐任务验收 |
 
 ## 4. 维护规则
 
@@ -43,4 +43,5 @@
 
 | 对应 Spec | 文档 | 状态 | 执行门禁 |
 |---|---|---|---|
-| SPEC-001 | [工程基线与 PostgreSQL 迁移实施 Plan](plans/2026-07-12-engineering-baseline-postgresql-migration-implementation.md) | 待执行 | Task 9 必须由用户审核真实 SQLite 差异后才能继续 |
+| SPEC-001 | [原工程基线与 PostgreSQL 迁移实施 Plan](plans/2026-07-12-engineering-baseline-postgresql-migration-implementation.md) | 已终止于 Task 9 | Tasks 10-14 已废弃，不得继续执行 |
+| SPEC-001 | [PostgreSQL 空库基线实施 Plan](plans/2026-07-14-empty-postgresql-baseline-implementation.md) | 待执行 | 从新版 Task 10 开始；数据库命令仍需用户确认 Docker 可用 |
