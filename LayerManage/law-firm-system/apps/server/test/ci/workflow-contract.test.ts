@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import {
+  checkWorkflowContract,
+  extractWorkflowSteps,
+} from '../../scripts/ci/workflow-contract';
 
 const repositoryRoot = path.resolve(__dirname, '../../../../../..');
 const projectRoot = path.join(repositoryRoot, 'LayerManage', 'law-firm-system');
@@ -31,27 +35,158 @@ test('CI compares the migrated PostgreSQL database with the canonical Prisma sch
   assert.match(workflow, /working-directory: LayerManage\/law-firm-system\/apps\/server\s+run: npx prisma migrate diff --from-url "\$DATABASE_URL" --to-schema-datamodel prisma\/schema\.prisma --exit-code/);
 });
 
+function workflowFixture(acceptanceSteps: string, extra = ''): string {
+  return `name: fixture
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      ALLOW_SUPER_ADMIN_RECOVERY: 'false'
+    steps:
+${acceptanceSteps}${extra}
+`;
+}
+
+const validAcceptanceSteps = `      - name: migrate
+        working-directory: LayerManage/law-firm-system/apps/server
+        run: npx prisma migrate deploy
+      - name: assert initial
+        working-directory: LayerManage/law-firm-system
+        run: npm run db:assert-empty
+      - name: verify
+        working-directory: LayerManage/law-firm-system
+        run: npm run verify
+      - name: reset
+        working-directory: LayerManage/law-firm-system
+        run: npm run db:reset:test
+      - name: assert final
+        working-directory: LayerManage/law-firm-system
+        run: npm run db:assert-empty
+      - name: drift
+        run: git diff --exit-code
+`;
+
+test('workflow extractor reads literal and folded run blocks without treating comments as steps', () => {
+  const steps = extractWorkflowSteps(workflowFixture(`${validAcceptanceSteps}      - name: literal
+        run: |
+          npm run lint
+          npm run typecheck
+      - name: folded
+        run: >-
+          npm run
+          build
+      # - run: npm run system:bootstrap
+`));
+
+  assert.equal(steps.at(-2)?.run, 'npm run lint\nnpm run typecheck');
+  assert.equal(steps.at(-1)?.run, 'npm run build');
+});
+
+test('workflow contract accepts the exact verify-job acceptance sequence', () => {
+  assert.deepEqual(checkWorkflowContract(workflowFixture(validAcceptanceSteps)), []);
+});
+
+test('workflow comments, unrelated strings, and wrong-job commands cannot satisfy positives', () => {
+  const missingVerify = validAcceptanceSteps.replace('        run: npm run verify\n', '        run: echo "npm run verify"\n');
+  const spoof = `
+  other:
+    steps:
+      - run: npm run verify
+      # run: npm run verify
+      - run: echo "npx prisma migrate deploy"
+`;
+
+  assert.deepEqual(checkWorkflowContract(workflowFixture(missingVerify, spoof)), [
+    'CI verify job bootstrap acceptance steps must match exact commands, directories, order, and uniqueness',
+  ]);
+});
+
+test('workflow contract rejects wrong directories, wrong order, and duplicate acceptance steps', () => {
+  const wrongDirectory = validAcceptanceSteps.replace(
+    '        working-directory: LayerManage/law-firm-system/apps/server',
+    '        working-directory: LayerManage/law-firm-system',
+  );
+  const wrongOrder = validAcceptanceSteps.replace(
+    / {6}- name: verify[\s\S]*?run: npm run verify\n {6}- name: reset[\s\S]*?run: npm run db:reset:test\n/,
+    `      - name: reset
+        working-directory: LayerManage/law-firm-system
+        run: npm run db:reset:test
+      - name: verify
+        working-directory: LayerManage/law-firm-system
+        run: npm run verify
+`,
+  );
+  const duplicate = `${validAcceptanceSteps}      - name: duplicate drift
+        run: git diff --exit-code
+`;
+
+  for (const fixture of [wrongDirectory, wrongOrder, duplicate]) {
+    assert.deepEqual(checkWorkflowContract(workflowFixture(fixture)), [
+      'CI verify job bootstrap acceptance steps must match exact commands, directories, order, and uniqueness',
+    ]);
+  }
+});
+
+test('workflow contract inspects multiline literal commands for interactive bootstrap and recovery', () => {
+  const fixture = workflowFixture(`${validAcceptanceSteps}      - name: forbidden bootstrap
+        run: |
+          npm run lint
+          npm run system:bootstrap
+      - name: forbidden recovery
+        run: |
+          npm run \
+          super-admin:recover
+`);
+
+  assert.deepEqual(checkWorkflowContract(fixture), [
+    'CI must not invoke interactive bootstrap or recovery commands',
+  ]);
+});
+
+test('workflow contract inspects inline literal run blocks and assignment-prefixed commands', () => {
+  const fixture = workflowFixture(`${validAcceptanceSteps}      - run: |
+          NODE_ENV=test npm --prefix LayerManage/law-firm-system run system:bootstrap
+`);
+
+  assert.deepEqual(checkWorkflowContract(fixture), [
+    'CI must not invoke interactive bootstrap or recovery commands',
+  ]);
+});
+
+test('workflow contract inspects folded blocks and active YAML for recovery enablement', () => {
+  const folded = workflowFixture(`${validAcceptanceSteps}      - name: forbidden gate
+        run: >-
+          export ALLOW_SUPER_ADMIN_RECOVERY=true
+          && npm run verify
+`);
+  const activeYaml = workflowFixture(validAcceptanceSteps).replace(
+    "ALLOW_SUPER_ADMIN_RECOVERY: 'false'",
+    'ALLOW_SUPER_ADMIN_RECOVERY: true',
+  );
+
+  assert.deepEqual(checkWorkflowContract(folded), [
+    'CI must not enable ALLOW_SUPER_ADMIN_RECOVERY',
+  ]);
+  assert.deepEqual(checkWorkflowContract(activeYaml), [
+    'CI must not enable ALLOW_SUPER_ADMIN_RECOVERY',
+  ]);
+});
+
+test('workflow contract ignores forbidden command and recovery spoof text', () => {
+  const fixture = workflowFixture(`${validAcceptanceSteps}      # run: npm run system:bootstrap
+      - name: harmless output
+        run: |
+          # npm run super-admin:recover
+          echo "npm run system:bootstrap"
+          echo "ALLOW_SUPER_ADMIN_RECOVERY=true"
+`);
+
+  assert.deepEqual(checkWorkflowContract(fixture), []);
+});
+
 test('CI preserves bootstrap verification and clean-database acceptance order', () => {
   const workflow = fs.readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
-  const requiredSteps = [
-    'run: npx prisma migrate deploy',
-    'run: npm run db:assert-empty',
-    'run: npm run verify',
-    'run: npm run db:reset:test',
-    'run: npm run db:assert-empty',
-    'run: git diff --exit-code',
-  ];
-
-  let previousIndex = -1;
-  for (const step of requiredSteps) {
-    const currentIndex = workflow.indexOf(step, previousIndex + 1);
-    assert.notEqual(currentIndex, -1, `missing CI step: ${step}`);
-    assert.ok(currentIndex > previousIndex, `CI step is out of order: ${step}`);
-    previousIndex = currentIndex;
-  }
-
-  assert.doesNotMatch(workflow, /ALLOW_SUPER_ADMIN_RECOVERY:\s*['"]?true/i);
-  assert.doesNotMatch(workflow, /run:\s*(?:npm|npm\.cmd)\b[^\n]*(?:system:bootstrap|super-admin:recover)/i);
+  assert.deepEqual(checkWorkflowContract(workflow), []);
 });
 
 test('the verification runner serializes backend files that share the test database', () => {
@@ -68,13 +203,13 @@ test('the verification runner serializes backend files that share the test datab
   assert.match(runner, /['"]--test-force-exit['"]/);
 });
 
-test('root verification gives web interaction tests a stable cross-runtime timeout', () => {
+test('root verification uses the standard web test timeout', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')) as {
     scripts: Record<string, string>;
   };
 
-  assert.match(manifest.scripts.test, /apps\/web run test -- --testTimeout=15000/);
-  assert.match(manifest.scripts['test:all'], /apps\/web run test -- --testTimeout=15000/);
+  assert.equal(manifest.scripts.test, 'npm --prefix apps/server run test:unit && npm --prefix apps/web run test');
+  assert.equal(manifest.scripts['test:all'], 'npm --prefix apps/server run test:unit && npm --prefix apps/web run test');
 });
 
 test('CI runs Gitleaks from an immutable scanner image with repository config', () => {

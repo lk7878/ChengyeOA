@@ -13,7 +13,7 @@ const validRootScripts = {
   'system:bootstrap': 'npm --prefix apps/server run system:bootstrap',
   'super-admin:recover': 'npm --prefix apps/server run super-admin:recover',
   'check:bootstrap': 'npm --prefix apps/server run check:bootstrap',
-  verify: 'npm run lint && npm --prefix apps/server run check:baseline && npm run check:bootstrap && npm run build',
+  verify: 'npm run lint && npm run typecheck && npm run test && npm --prefix apps/server run check:baseline && npm run check:bootstrap && npm run build',
 };
 
 const validServerScripts = {
@@ -106,6 +106,24 @@ test('requires root verify to run the baseline checker before the bootstrap chec
   })), 'root verify must run check:baseline before check:bootstrap');
 });
 
+test('rejects echo-only baseline and bootstrap mentions in root verify', () => {
+  assertOnlyIssue(fixture => fixture.write('package.json', JSON.stringify({
+    scripts: {
+      ...validRootScripts,
+      verify: 'npm run lint && echo check:baseline && echo check:bootstrap && npm run build',
+    },
+  })), 'root verify must run check:baseline before check:bootstrap');
+});
+
+test('rejects extra verify commands even when required commands remain ordered', () => {
+  assertOnlyIssue(fixture => fixture.write('package.json', JSON.stringify({
+    scripts: {
+      ...validRootScripts,
+      verify: `${validRootScripts.verify} && echo done`,
+    },
+  })), 'root verify must run check:baseline before check:bootstrap');
+});
+
 test('requires the exact server bootstrap command', () => {
   assertOnlyIssue(fixture => fixture.write('apps/server/package.json', JSON.stringify({
     scripts: { ...validServerScripts, 'system:bootstrap': 'tsx scripts/system/another-bootstrap.ts' },
@@ -128,12 +146,40 @@ test('requires the SystemInitialization model', () => {
   assertOnlyIssue(fixture => fixture.write('apps/server/prisma/schema.prisma', ''), 'SystemInitialization model is missing');
 });
 
+test('a schema comment cannot satisfy the SystemInitialization model requirement', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/prisma/schema.prisma',
+    '// model SystemInitialization { id String @id }\n',
+  ), 'SystemInitialization model is missing');
+});
+
 test('requires the recovery example gate to default to false', () => {
   assertOnlyIssue(fixture => fixture.write('apps/server/.env.example', 'ALLOW_SUPER_ADMIN_RECOVERY=true\n'), 'recovery gate example must default to false');
 });
 
+test('an env comment cannot satisfy the disabled recovery default', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/.env.example',
+    '# ALLOW_SUPER_ADMIN_RECOVERY=false\nALLOW_SUPER_ADMIN_RECOVERY=true\n',
+  ), 'recovery gate example must default to false');
+});
+
 test('requires the forced password change route', () => {
   assertOnlyIssue(fixture => fixture.write('apps/server/app/router.ts', ''), 'forced password change route is missing');
+});
+
+test('a router comment cannot satisfy the forced password change route', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/app/router.ts',
+    "// router.post('/auth/password/forced-change', controller.auth.forcedChange);\n",
+  ), 'forced password change route is missing');
+});
+
+test('accepts bracket access for the required forced password change route', () => {
+  withFixture(fixture => {
+    fixture.write('apps/server/app/router.ts', "router['post']('/auth/password/forced-change', controller.auth.forcedChange);\n");
+    assert.deepEqual(checkBootstrapContract(fixture.projectRoot), []);
+  });
 });
 
 test('rejects an HTTP bootstrap route', () => {
@@ -160,6 +206,36 @@ test('rejects a multiline HTTP bootstrap route', () => {
   ].join('\n')), 'HTTP bootstrap or recovery route exists');
 });
 
+for (const method of ['get', 'post', 'put', 'patch', 'delete', 'all']) {
+  test(`rejects a router.${method} recovery route`, () => {
+    assertOnlyIssue(fixture => fixture.write('apps/server/app/router.ts', [
+      "router.post('/auth/password/forced-change', controller.auth.forcedChange);",
+      `router.${method}('/system/recover', controller.system.recover);`,
+    ].join('\n')), 'HTTP bootstrap or recovery route exists');
+  });
+}
+
+test('rejects a folded bracket-access router route', () => {
+  assertOnlyIssue(fixture => fixture.write('apps/server/app/router.ts', [
+    "router.post('/auth/password/forced-change', controller.auth.forcedChange);",
+    "router['all'](",
+    "  '/system/bootstrap',",
+    '  controller.system.bootstrap,',
+    ');',
+  ].join('\n')), 'HTTP bootstrap or recovery route exists');
+});
+
+test('ignores forbidden route text that exists only in comments and strings', () => {
+  withFixture(fixture => {
+    fixture.write('apps/server/app/router.ts', [
+      "router.post('/auth/password/forced-change', controller.auth.forcedChange);",
+      "// router.all('/system/recover', controller.system.recover);",
+      "const example = \"router.post('/system/bootstrap')\";",
+    ].join('\n'));
+    assert.deepEqual(checkBootstrapContract(fixture.projectRoot), []);
+  });
+});
+
 test('rejects bootstrap service invocation from startup', () => {
   assertOnlyIssue(fixture => fixture.write('apps/server/app.ts', 'new SystemBootstrapService().execute();\n'), 'startup invokes system commands');
 });
@@ -169,7 +245,7 @@ test('rejects recovery command invocation from startup configuration', () => {
 });
 
 test('rejects password command-line arguments in system CLIs', () => {
-  assertOnlyIssue(fixture => fixture.write('apps/server/scripts/system/bootstrap-system.ts', 'const password = argv[\'--password\'];\n'), 'CLI accepts a password argument or environment variable');
+  assertOnlyIssue(fixture => fixture.write('apps/server/scripts/system/bootstrap-system.ts', "process.argv.includes('--admin-password');\n"), 'CLI accepts a password argument or environment variable');
 });
 
 test('rejects temporary password command-line arguments in system CLIs', () => {
@@ -177,11 +253,57 @@ test('rejects temporary password command-line arguments in system CLIs', () => {
 });
 
 test('rejects password environment-variable assignments in system CLIs', () => {
-  assertOnlyIssue(fixture => fixture.write('apps/server/scripts/system/system-cli.ts', "const source = 'PASSWORD=';\n"), 'CLI accepts a password argument or environment variable');
+  assertOnlyIssue(fixture => fixture.write('apps/server/scripts/system/system-cli.ts', "const password = process.env['RECOVERY_PASSWD'];\n"), 'CLI accepts a password argument or environment variable');
 });
 
 test('rejects password environment-variable reads in system CLIs', () => {
-  assertOnlyIssue(fixture => fixture.write('apps/server/scripts/system/system-cli.ts', 'const password = process.env.PASSWORD;\n'), 'CLI accepts a password argument or environment variable');
+  assertOnlyIssue(fixture => fixture.write('apps/server/scripts/system/system-cli.ts', 'const password = process.env.ADMIN_PASSWORD;\n'), 'CLI accepts a password argument or environment variable');
+});
+
+test('rejects prefixed PWD environment-variable reads in nested system CLI sources', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/helpers/credentials.ts',
+    'export const password = process.env.SERVICE_PWD;\n',
+  ), 'CLI accepts a password argument or environment variable');
+});
+
+test('rejects destructured password environment-variable reads', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    'const { BOOTSTRAP_PASSWORD } = process.env;\n',
+  ), 'CLI accepts a password argument or environment variable');
+});
+
+test('rejects aliased destructured password environment-variable reads', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    'const { ADMIN_PASSWORD: suppliedSecret } = process.env;\n',
+  ), 'CLI accepts a password argument or environment variable');
+});
+
+test('rejects positional argv assigned to a password variable', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    'const temporaryPassword = process.argv[2];\n',
+  ), 'CLI accepts a password argument or environment variable');
+});
+
+test('rejects a literal default password without flagging policy identifiers', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    "const recoveryPassword = 'placeholder';\n",
+  ), 'CLI contains default credentials');
+});
+
+test('ignores password policy and error identifiers without a password source', () => {
+  withFixture(fixture => {
+    fixture.write('apps/server/scripts/system/system-cli.ts', [
+      "const PASSWORD_INVALID = 'PASSWORD_INVALID';",
+      'function validatePasswordPolicy() { return PASSWORD_INVALID; }',
+      '// process.env.ADMIN_PASSWORD and --password are forbidden examples only.',
+    ].join('\n'));
+    assert.deepEqual(checkBootstrapContract(fixture.projectRoot), []);
+  });
 });
 
 test('rejects default administrator credentials in system CLIs', () => {
@@ -225,3 +347,33 @@ test('malformed manifests fail safely with deterministic useful issues', () => {
     ]);
   });
 });
+
+const consumedScripts = [
+  { manifest: 'package.json', scope: 'root', name: 'system:bootstrap', issue: 'root bootstrap command is missing or changed' },
+  { manifest: 'package.json', scope: 'root', name: 'super-admin:recover', issue: 'root recovery command is missing or changed' },
+  { manifest: 'package.json', scope: 'root', name: 'check:bootstrap', issue: 'root bootstrap checker command is missing or changed' },
+  { manifest: 'package.json', scope: 'root', name: 'verify', issue: 'root verify must run check:baseline before check:bootstrap' },
+  { manifest: 'apps/server/package.json', scope: 'server', name: 'system:bootstrap', issue: 'server bootstrap command is missing or changed' },
+  { manifest: 'apps/server/package.json', scope: 'server', name: 'super-admin:recover', issue: 'server recovery command is missing or changed' },
+  { manifest: 'apps/server/package.json', scope: 'server', name: 'check:bootstrap', issue: 'server bootstrap checker command is missing or changed' },
+] as const;
+
+for (const script of consumedScripts) {
+  for (const [kind, value] of [
+    ['null', null],
+    ['array', []],
+    ['number', 7],
+    ['object', { command: 'spoof' }],
+  ] as const) {
+    test(`${script.scope} ${script.name} rejects a ${kind} script value without throwing`, () => {
+      withFixture(fixture => {
+        const scripts = script.scope === 'root' ? validRootScripts : validServerScripts;
+        fixture.write(script.manifest, JSON.stringify({ scripts: { ...scripts, [script.name]: value } }));
+        assert.deepEqual(checkBootstrapContract(fixture.projectRoot), [
+          `${script.scope} ${script.name} script must be a string`,
+          script.issue,
+        ]);
+      });
+    });
+  }
+}

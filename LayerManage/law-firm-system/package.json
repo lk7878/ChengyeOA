@@ -28,8 +28,8 @@
     "setup": "npm ci && npm --prefix apps/server ci && npm --prefix apps/web ci && npm --prefix apps/server run db:generate",
     "lint": "npm --prefix apps/server run lint && npm --prefix apps/web run lint",
     "typecheck": "npm --prefix apps/server run typecheck && npm --prefix apps/web run typecheck",
-    "test": "npm --prefix apps/server run test:unit && npm --prefix apps/web run test -- --testTimeout=15000",
-    "test:all": "npm --prefix apps/server run test:unit && npm --prefix apps/web run test -- --testTimeout=15000",
+    "test": "npm --prefix apps/server run test:unit && npm --prefix apps/web run test",
+    "test:all": "npm --prefix apps/server run test:unit && npm --prefix apps/web run test",
     "build": "npm run build:server && npm run build:web",
     "verify": "npm run lint && npm run typecheck && npm run test && npm --prefix apps/server run check:baseline && npm run check:bootstrap && npm run build"
   },

@@ -122,7 +122,13 @@ WHERE "action" = 'SUPER_ADMIN_RECOVERY'
 ORDER BY "createdAt" DESC;
 ```
 
-Bootstrap and recovery rows have a null `userId`; forced change uses the target user ID. Audit data must not contain passwords, hashes, tokens, environment values, full database URLs, or raw exception stacks.
+Verify all four identity fields against the expected operation:
+
+- `SYSTEM_BOOTSTRAP`: `targetType` is `SYSTEM_INITIALIZATION`, `targetId` is `PRIMARY`, and `userId` is null.
+- `FORCED_PASSWORD_CHANGE`: `targetType` is `USER`, and both `targetId` and `userId` equal the expected first-super-admin user ID.
+- `SUPER_ADMIN_RECOVERY`: `targetType` is `USER`, `targetId` equals the expected first-super-admin user ID, and `userId` is null.
+
+Audit data must not contain passwords, hashes, tokens, environment values, full database URLs, or raw exception stacks.
 
 ## Inconsistent-State Investigation
 
@@ -151,6 +157,12 @@ ORDER BY "createdAt" DESC;
 ```
 
 6. Compare the database with the approved backup, migration history, deployment record, and application logs. Escalate for a reviewed data-repair plan; there is no `--force`, HTTP repair, or automatic cleanup path.
+
+## Release Triage
+
+The current frontend lint has 10 pre-existing `react-hooks/exhaustive-deps` warnings, one each in Approval, Case, Contract, Customer, Employee, Lead, Notification, Payment, Performance, and User. The Web UI owner tracks their dependency and pagination behavior; they are not SPEC-002 release blockers, but must be resolved before lint warnings become errors.
+
+The production web build also reports Vite's existing chunk-size advisory for chunks over 500 kB after minification. The frontend build owner tracks bundle analysis and code splitting; the release owner must record acceptance or escalation, and the advisory does not by itself block SPEC-002's bootstrap security contract.
 
 ## Production Boundary
 
