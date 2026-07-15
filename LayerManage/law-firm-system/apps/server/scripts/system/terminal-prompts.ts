@@ -8,17 +8,37 @@ export interface Prompts {
 }
 
 class MutedWritable extends Writable {
+  constructor(private readonly target: NodeJS.WritableStream) {
+    super();
+  }
+
   muted = false;
 
-  _write(chunk: Buffer, encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
-    if (!this.muted) process.stdout.write(chunk, encoding);
+  _write(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+    if (!this.muted) this.target.write(chunk);
     callback();
   }
 }
 
+export interface TerminalPromptDependencies {
+  input: NodeJS.ReadableStream & { isTTY?: boolean };
+  output: NodeJS.WritableStream & { isTTY?: boolean };
+  createInterface(options: Parameters<typeof readline.createInterface>[0]): Pick<readline.Interface, 'question' | 'close'>;
+}
+
+const productionDependencies: TerminalPromptDependencies = {
+  input: process.stdin,
+  output: process.stdout,
+  createInterface: readline.createInterface,
+};
+
 export class TerminalPrompts implements Prompts {
-  private readonly output = new MutedWritable();
-  private terminal: readline.Interface | undefined;
+  private readonly output: MutedWritable;
+  private terminal: Pick<readline.Interface, 'question' | 'close'> | undefined;
+
+  constructor(private readonly dependencies: TerminalPromptDependencies = productionDependencies) {
+    this.output = new MutedWritable(dependencies.output);
+  }
 
   async text(label: string): Promise<string> {
     return this.ask(label, false);
@@ -33,7 +53,7 @@ export class TerminalPrompts implements Prompts {
   }
 
   private ask(label: string, muted: boolean): Promise<string> {
-    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    if (!this.dependencies.input.isTTY || !this.dependencies.output.isTTY) {
       return Promise.reject(new Error('Interactive terminal is required'));
     }
 
@@ -47,9 +67,9 @@ export class TerminalPrompts implements Prompts {
     });
   }
 
-  private getTerminal(): readline.Interface {
-    this.terminal ??= readline.createInterface({
-      input: process.stdin,
+  private getTerminal(): Pick<readline.Interface, 'question' | 'close'> {
+    this.terminal ??= this.dependencies.createInterface({
+      input: this.dependencies.input,
       output: this.output,
       terminal: true,
     });

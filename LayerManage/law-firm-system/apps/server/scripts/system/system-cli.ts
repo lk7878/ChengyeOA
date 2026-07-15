@@ -144,8 +144,9 @@ function databaseTarget(rawDatabaseUrl: string | undefined): DatabaseTarget {
     if (!rawDatabaseUrl) throw new Error('missing database URL');
     const url = new URL(rawDatabaseUrl);
     if (url.protocol !== 'postgresql:' && url.protocol !== 'postgres:') throw new Error('invalid database protocol');
+    if (!url.hostname) throw new Error('missing database host');
     const databaseName = decodeURIComponent(url.pathname.replace(/^\//, ''));
-    if (!databaseName) throw new Error('missing database name');
+    if (!databaseName || containsAsciiControlCharacter(databaseName)) throw new Error('invalid database name');
     return {
       databaseName,
       display: `${url.hostname}:${url.port || '5432'}/${databaseName}`,
@@ -153,6 +154,13 @@ function databaseTarget(rawDatabaseUrl: string | undefined): DatabaseTarget {
   } catch {
     throw new ValidationCommandError('Database configuration is invalid');
   }
+}
+
+function containsAsciiControlCharacter(value: string): boolean {
+  return Array.from(value).some(character => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1F || code === 0x7F;
+  });
 }
 
 async function runBootstrap(

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { Writable } from 'node:stream';
 import type { PrismaClient } from '@prisma/client';
 import {
   assertMigrationsReady,
@@ -14,6 +15,7 @@ import {
   AlreadyInitializedError,
   DatabaseStateError,
 } from '../../app/application/system/system-command-errors';
+import { TerminalPrompts, type TerminalPromptDependencies } from '../../scripts/system/terminal-prompts';
 
 const databaseUrl = 'postgresql://operator:never-display@db.example.test:55432/chengye_oa_test?schema=private';
 
@@ -95,6 +97,43 @@ test('rejects every argument before recovery prompts, migrations, or database co
   assert.equal(deps.recorder.closed, true);
 });
 
+test('rejects non-TTY recovery before prompts, migrations, or database connection', async () => {
+  let migrationChecked = false;
+  let connected = false;
+  const deps = fakeDependencies([], {
+    isTty: false,
+    assertMigrationsReady: async () => { migrationChecked = true; },
+    createPrisma: () => { connected = true; throw new Error('must not connect'); },
+  });
+
+  const code = await recoveryMain([], { DATABASE_URL: databaseUrl, ALLOW_SUPER_ADMIN_RECOVERY: 'true' }, deps);
+
+  assert.equal(code, 2);
+  assert.equal(migrationChecked, false);
+  assert.equal(connected, false);
+  assert.deepEqual(deps.recorder.texts, []);
+  assert.deepEqual(deps.recorder.secrets, []);
+  assert.equal(deps.recorder.closed, true);
+});
+
+test('rejects every argument before bootstrap prompts, migrations, or database connection', async () => {
+  let migrationChecked = false;
+  let connected = false;
+  const deps = fakeDependencies([], {
+    assertMigrationsReady: async () => { migrationChecked = true; },
+    createPrisma: () => { connected = true; throw new Error('must not connect'); },
+  });
+
+  const code = await bootstrapMain(['--anything'], { DATABASE_URL: databaseUrl }, deps);
+
+  assert.equal(code, 2);
+  assert.equal(migrationChecked, false);
+  assert.equal(connected, false);
+  assert.deepEqual(deps.recorder.texts, []);
+  assert.deepEqual(deps.recorder.secrets, []);
+  assert.equal(deps.recorder.closed, true);
+});
+
 test('does not connect when recovery is disabled', async () => {
   let migrationChecked = false;
   let connected = false;
@@ -109,6 +148,80 @@ test('does not connect when recovery is disabled', async () => {
   assert.equal(migrationChecked, false);
   assert.equal(connected, false);
   assert.equal(deps.recorder.closed, true);
+});
+
+for (const { name, target, injected } of [
+  { name: 'newline database name', target: 'postgresql://db.example.test/chengye%0Ainjected', injected: 'chengye\ninjected' },
+  { name: 'tab database name', target: 'postgresql://db.example.test/chengye%09injected', injected: 'chengye\tinjected' },
+  { name: 'NUL database name', target: 'postgresql://db.example.test/chengye%00injected', injected: 'chengye\0injected' },
+  { name: 'hostless database URL', target: 'postgresql:///chengye_oa', injected: 'chengye_oa' },
+  { name: 'malformed percent encoding', target: 'postgresql://db.example.test/chengye%ZZoa', injected: 'chengye%ZZoa' },
+]) {
+  test(`rejects ${name} before output, migrations, prompts, or database connection`, async () => {
+    let migrations = 0;
+    let connections = 0;
+    const deps = fakeDependencies([], {
+      assertMigrationsReady: async () => { migrations += 1; },
+      createPrisma: () => { connections += 1; throw new Error('must not connect'); },
+    });
+
+    const code = await bootstrapMain([], { DATABASE_URL: target }, deps);
+    const transcript = (deps as unknown as { output: string[] }).output.join('');
+
+    assert.equal(code, 2);
+    assert.equal(migrations, 0);
+    assert.equal(connections, 0);
+    assert.deepEqual(deps.recorder.texts, []);
+    assert.deepEqual(deps.recorder.secrets, []);
+    assert.doesNotMatch(transcript, new RegExp(injected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  });
+}
+
+test('mutes secret input while preserving prompt ordering, text input, and close behavior', async () => {
+  let transcript = '';
+  let closeCalls = 0;
+  let currentAnswer: ((answer: string) => void) | undefined;
+  let readlineOutput: Writable | undefined;
+  const stdout = new Writable({
+    write(chunk, _encoding, callback) {
+      transcript += chunk.toString();
+      callback();
+    },
+  }) as Writable & { isTTY: boolean };
+  stdout.isTTY = true;
+  const dependencies: TerminalPromptDependencies = {
+    input: { isTTY: true } as NodeJS.ReadableStream & { isTTY?: boolean },
+    output: stdout,
+    createInterface: options => {
+      readlineOutput = options.output as Writable;
+      return {
+        question: (label, callback) => {
+          readlineOutput?.write(label);
+          currentAnswer = callback;
+        },
+        close: () => { closeCalls += 1; },
+      };
+    },
+  };
+  const prompts = new TerminalPrompts(dependencies);
+
+  const secret = prompts.secret('Password: ');
+  assert.equal(transcript, 'Password: ');
+  readlineOutput?.write('typed-secret');
+  assert.equal(transcript, 'Password: ');
+  assert.doesNotMatch(transcript, /typed-secret/);
+  currentAnswer?.('typed-secret');
+  assert.equal(await secret, 'typed-secret');
+  assert.equal(transcript, 'Password: \n');
+
+  const text = prompts.text('Username: ');
+  readlineOutput?.write('root.admin');
+  currentAnswer?.('root.admin');
+  assert.equal(await text, 'root.admin');
+  assert.equal(transcript, 'Password: \nUsername: root.admin');
+
+  prompts.close();
+  assert.equal(closeCalls, 1);
 });
 
 test('bootstraps with a redacted database target and exact confirmation phrase', async () => {
