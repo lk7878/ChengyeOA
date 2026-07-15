@@ -8,7 +8,7 @@ dotenv.config();
 const env = loadEnvironment(process.env);
 
 export type DefaultConfig = PowerPartial<EggAppConfig>;
-type JwtConfig = { secret: string; expiresIn: string };
+type JwtConfig = { secret: string; expiresIn: string; refreshExpiresIn: string };
 type ConfigWithJwt = DefaultConfig & { jwt: JwtConfig };
 
 export default (appInfo: EggAppInfo) => {
@@ -38,6 +38,7 @@ export default (appInfo: EggAppInfo) => {
   config.jwt = {
     secret: env.jwtSecret,
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    refreshExpiresIn: '30d',
   };
 
   // 日志配置

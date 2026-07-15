@@ -1,5 +1,4 @@
 import { IHelper } from 'egg';
-import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
 
 export default {
@@ -45,21 +44,6 @@ export default {
       },
       timestamp: Date.now(),
     };
-  },
-
-  /**
-   * 密码加密
-   */
-  hashPassword(this: IHelper, password: string): string {
-    const salt = bcrypt.genSaltSync(10);
-    return bcrypt.hashSync(password, salt);
-  },
-
-  /**
-   * 验证密码
-   */
-  comparePassword(this: IHelper, password: string, hash: string): boolean {
-    return bcrypt.compareSync(password, hash);
   },
 
   /**
