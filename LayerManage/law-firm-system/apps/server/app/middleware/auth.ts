@@ -1,74 +1,31 @@
 import { Context } from 'egg';
-import * as jwt from 'jsonwebtoken';
+import { createAuthenticationService } from '../application/auth/authentication-factory';
+import { SecurityError } from '../domain/security/security-errors';
 
-export default () => {
-  // 不需要认证的路径（白名单）
-  const publicPaths = [
-    '/api/health',
-    '/api/v1/auth/login',
-    '/api/v1/auth/refresh',
-  ];
+const PUBLIC_PATHS = new Set([
+  '/api/health',
+  '/api/v1/auth/login',
+  '/api/v1/auth/refresh',
+]);
 
-  // 需要认证的路径前缀
-  const authPrefixes = [
-    '/api/v1/auth/me',
-    '/api/v1/auth/logout',
-    '/api/v1/users',
-    '/api/v1/roles',
-    '/api/v1/permissions',
-    '/api/v1/organizations',
-    '/api/v1/positions',
-    '/api/v1/employees',
-    '/api/v1/channels',
-    '/api/v1/leads',
-    '/api/v1/customers',
-    '/api/v1/contracts',
-    '/api/v1/payments',
-    '/api/v1/cases',
-    '/api/v1/approvals',
-    '/api/v1/notifications',
-    '/api/v1/performances',
-    '/api/v1/dashboard',
-  ];
+export default () => async (ctx: Context, next: () => Promise<unknown>) => {
+  const path = ctx.path;
+  if (PUBLIC_PATHS.has(path)) {
+    await next();
+    return;
+  }
 
-  return async (ctx: Context, next: () => Promise<unknown>) => {
-    const { app } = ctx;
-    const path = ctx.path;
+  const authorization = ctx.get('authorization');
+  const [scheme, token, extra] = authorization.split(' ');
+  if (scheme !== 'Bearer' || !token || extra) {
+    throw new SecurityError('TOKEN_INVALID', 401);
+  }
 
-    // 检查是否是公开路径（白名单）
-    const isPublic = publicPaths.some(p => path === p || path.startsWith(p + '/'));
-    if (isPublic) {
-      await next();
-      return;
-    }
-
-    // 检查是否需要认证
-    const needAuth = authPrefixes.some(p => path.startsWith(p));
-    if (!needAuth) {
-      await next();
-      return;
-    }
-
-    // 获取 Token
-    const authorization = ctx.get('authorization');
-    if (!authorization) {
-      ctx.throw(401, '未提供认证令牌');
-    }
-
-    const parts = authorization.split(' ');
-    if (parts.length !== 2 || parts[0] !== 'Bearer') {
-      ctx.throw(401, '认证格式错误');
-    }
-
-    const token = parts[1];
-
-    try {
-      // 验证 Token
-      const decoded = jwt.verify(token, app.config.jwt.secret) as jwt.JwtPayload;
-      ctx.state.user = decoded;
-      await next();
-    } catch {
-      ctx.throw(401, '认证令牌无效或已过期');
-    }
-  };
+  const allowedTokenTypes = path === '/api/v1/auth/password/forced-change'
+    ? ['password_change'] as const
+    : path === '/api/v1/auth/logout'
+      ? ['access', 'password_change'] as const
+      : ['access'] as const;
+  ctx.state.user = await createAuthenticationService(ctx).authenticate(token, allowedTokenTypes);
+  await next();
 };

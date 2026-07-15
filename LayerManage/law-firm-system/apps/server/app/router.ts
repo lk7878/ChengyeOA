@@ -9,6 +9,7 @@ export default (app: Application) => {
   // 认证模块（不需要 JWT）
   router.post('/api/v1/auth/login', controller.auth.login);
   router.post('/api/v1/auth/refresh', controller.auth.refresh);
+  router.post('/api/v1/auth/password/forced-change', controller.auth.forcePasswordChange);
   
   // 需要 JWT 认证的路由
   router.get('/api/v1/auth/me', controller.auth.me);
