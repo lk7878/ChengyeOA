@@ -1,5 +1,24 @@
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
+import {
+  assertMutableRole,
+  SYSTEM_SUPER_ADMIN_ROLE_CODE,
+  TrustRootProtectedError,
+} from '../application/system/trust-root-guard';
+
+const ROLE_CODE_PATTERN = /^[A-Z][A-Z0-9_]{2,63}$/;
+
+const SAFE_NESTED_USER_SELECT = {
+  id: true,
+  username: true,
+  status: true,
+  employeeId: true,
+  lastLoginAt: true,
+  mustChangePassword: true,
+  passwordChangedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 export default class RoleController extends Controller {
   /**
@@ -56,7 +75,7 @@ export default class RoleController extends Controller {
           include: { permission: true },
         },
         userRoles: {
-          include: { user: true },
+          include: { user: { select: SAFE_NESTED_USER_SELECT } },
         },
       },
     });
@@ -77,21 +96,34 @@ export default class RoleController extends Controller {
    */
   async create() {
     const { ctx } = this;
-    const { name, type = 'BUSINESS', description } = ctx.request.body;
+    const { name, code, description } = ctx.request.body as {
+      name?: unknown;
+      code?: unknown;
+      description?: string;
+    };
 
-    if (!name) {
-      ctx.throw(400, '角色名称不能为空');
+    if (typeof name !== 'string' || !name.trim() || typeof code !== 'string') {
+      ctx.throw(400, '角色名称和代码不能为空');
+      return;
+    }
+    const normalizedName = name.trim();
+    const normalizedCode = code.trim().toUpperCase();
+    if (!ROLE_CODE_PATTERN.test(normalizedCode)) {
+      ctx.throw(400, 'ROLE_CODE_INVALID');
+    }
+    if (normalizedCode === SYSTEM_SUPER_ADMIN_ROLE_CODE) {
+      throw new TrustRootProtectedError();
     }
 
-    const existing = await ctx.prisma.role.findUnique({
-      where: { name },
+    const existing = await ctx.prisma.role.findFirst({
+      where: { OR: [{ name: normalizedName }, { code: normalizedCode }] },
     });
     if (existing) {
-      ctx.throw(409, '角色名称已存在');
+      ctx.throw(409, '角色名称或代码已存在');
     }
 
     const role = await ctx.prisma.role.create({
-      data: { name, type, description },
+      data: { name: normalizedName, code: normalizedCode, type: 'BUSINESS', description },
     });
 
     ctx.body = {
@@ -109,6 +141,7 @@ export default class RoleController extends Controller {
     const { id } = ctx.params;
     const { name, description, status } = ctx.request.body;
 
+    await assertMutableRole(ctx.prisma, id);
     const role = await ctx.prisma.role.findUnique({
       where: { id },
     });
@@ -140,6 +173,7 @@ export default class RoleController extends Controller {
     const { ctx } = this;
     const { id } = ctx.params;
 
+    await assertMutableRole(ctx.prisma, id);
     const role = await ctx.prisma.role.findUnique({
       where: { id },
     });
@@ -170,35 +204,24 @@ export default class RoleController extends Controller {
       ctx.throw(400, 'permissionIds 必须是数组');
     }
 
-    const role = await ctx.prisma.role.findUnique({
-      where: { id },
-    });
-    if (!role) {
-      ctx.throw(404, '角色不存在');
-    }
+    const updated = await ctx.prisma.$transaction(async tx => {
+      await assertMutableRole(tx, id);
+      const role = await tx.role.findUnique({ where: { id }, select: { id: true } });
+      if (!role) {
+        ctx.throw(404, '角色不存在');
+      }
 
-    // 删除现有权限关联
-    await ctx.prisma.rolePermission.deleteMany({
-      where: { roleId: id },
-    });
+      await tx.rolePermission.deleteMany({ where: { roleId: id } });
+      if (permissionIds.length > 0) {
+        await tx.rolePermission.createMany({
+          data: (permissionIds as string[]).map(permissionId => ({ roleId: id, permissionId })),
+        });
+      }
 
-    // 创建新权限关联
-    if (permissionIds.length > 0) {
-      await ctx.prisma.rolePermission.createMany({
-        data: permissionIds.map((permissionId: string) => ({
-          roleId: id,
-          permissionId,
-        })),
+      return tx.role.findUnique({
+        where: { id },
+        include: { permissions: { include: { permission: true } } },
       });
-    }
-
-    const updated = await ctx.prisma.role.findUnique({
-      where: { id },
-      include: {
-        permissions: {
-          include: { permission: true },
-        },
-      },
     });
 
     ctx.body = {

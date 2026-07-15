@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
+import { assertDeletableOrganization } from '../application/system/trust-root-guard';
 
 export default class OrganizationController extends Controller {
   /**
@@ -160,6 +161,7 @@ export default class OrganizationController extends Controller {
     const { ctx } = this;
     const { id } = ctx.params;
 
+    await assertDeletableOrganization(ctx.prisma, id);
     const org = await ctx.prisma.organization.findUnique({
       where: { id },
       include: {

@@ -41,6 +41,7 @@ export interface UserRole {
 export interface Role {
   id: string;
   name: string;
+  code: string;
   type: 'SYSTEM' | 'BUSINESS';
   description?: string;
   status: string;

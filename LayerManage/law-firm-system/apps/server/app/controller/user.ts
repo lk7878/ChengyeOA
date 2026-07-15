@@ -1,6 +1,22 @@
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
-import * as bcrypt from 'bcryptjs';
+import { assertMutableRole, assertMutableUser } from '../application/system/trust-root-guard';
+import { BcryptPasswordHasher } from '../domain/security/password-hasher';
+import { normalizeUsername, validatePassword, validateUsername } from '../domain/security/password-policy';
+
+const SAFE_USER_SCALARS = {
+  id: true,
+  username: true,
+  status: true,
+  employeeId: true,
+  lastLoginAt: true,
+  mustChangePassword: true,
+  passwordChangedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+const passwordHasher = new BcryptPasswordHasher();
 
 export default class UserController extends Controller {
   /**
@@ -26,9 +42,23 @@ export default class UserController extends Controller {
       where,
       skip: (Number(page) - 1) * Number(pageSize),
       take: Number(pageSize),
-      include: {
+      select: {
+        ...SAFE_USER_SCALARS,
         employee: {
-          include: {
+          select: {
+            id: true,
+            employeeNo: true,
+            name: true,
+            phone: true,
+            email: true,
+            type: true,
+            status: true,
+            entryDate: true,
+            leaveDate: true,
+            orgId: true,
+            positionId: true,
+            createdAt: true,
+            updatedAt: true,
             organization: true,
             position: true,
           },
@@ -66,9 +96,23 @@ export default class UserController extends Controller {
 
     const user = await ctx.prisma.user.findUnique({
       where: { id },
-      include: {
+      select: {
+        ...SAFE_USER_SCALARS,
         employee: {
-          include: {
+          select: {
+            id: true,
+            employeeNo: true,
+            name: true,
+            phone: true,
+            email: true,
+            type: true,
+            status: true,
+            entryDate: true,
+            leaveDate: true,
+            orgId: true,
+            positionId: true,
+            createdAt: true,
+            updatedAt: true,
             organization: true,
             position: true,
           },
@@ -103,31 +147,41 @@ export default class UserController extends Controller {
    */
   async create() {
     const { ctx } = this;
-    const { username, password, status = 'ENABLED', employeeId } = ctx.request.body;
+    const { username, password, status = 'ENABLED', employeeId } = ctx.request.body as {
+      username?: unknown;
+      password?: unknown;
+      status?: string;
+      employeeId?: string | null;
+    };
 
-    if (!username || !password) {
+    if (typeof username !== 'string' || typeof password !== 'string') {
       ctx.throw(400, '用户名和密码不能为空');
+      return;
     }
+    const normalizedUsername = normalizeUsername(username);
+    validateUsername(normalizedUsername);
+    validatePassword(password, normalizedUsername);
 
     // 检查用户名是否已存在
     const existing = await ctx.prisma.user.findUnique({
-      where: { username },
+      where: { username: normalizedUsername },
     });
     if (existing) {
       ctx.throw(409, '用户名已存在');
     }
 
-    // 加密密码
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await passwordHasher.hash(password);
 
     const user = await ctx.prisma.user.create({
       data: {
-        username,
+        username: normalizedUsername,
         password: hashedPassword,
         status,
         employeeId,
+        mustChangePassword: true,
       },
-      include: {
+      select: {
+        ...SAFE_USER_SCALARS,
         employee: true,
       },
     });
@@ -147,6 +201,7 @@ export default class UserController extends Controller {
     const { id } = ctx.params;
     const { status, employeeId } = ctx.request.body;
 
+    await assertMutableUser(ctx.prisma, id);
     const user = await ctx.prisma.user.findUnique({
       where: { id },
     });
@@ -161,7 +216,8 @@ export default class UserController extends Controller {
     const updated = await ctx.prisma.user.update({
       where: { id },
       data: updateData,
-      include: {
+      select: {
+        ...SAFE_USER_SCALARS,
         employee: true,
       },
     });
@@ -180,6 +236,7 @@ export default class UserController extends Controller {
     const { ctx } = this;
     const { id } = ctx.params;
 
+    await assertMutableUser(ctx.prisma, id);
     const user = await ctx.prisma.user.findUnique({
       where: { id },
     });
@@ -210,35 +267,31 @@ export default class UserController extends Controller {
       ctx.throw(400, 'roleIds 必须是数组');
     }
 
-    const user = await ctx.prisma.user.findUnique({
-      where: { id },
-    });
-    if (!user) {
-      ctx.throw(404, '用户不存在');
-    }
+    const updated = await ctx.prisma.$transaction(async tx => {
+      await assertMutableUser(tx, id);
+      for (const roleId of roleIds as string[]) {
+        await assertMutableRole(tx, roleId);
+      }
 
-    // 删除现有角色关联
-    await ctx.prisma.userRole.deleteMany({
-      where: { userId: id },
-    });
+      const user = await tx.user.findUnique({ where: { id }, select: { id: true } });
+      if (!user) {
+        ctx.throw(404, '用户不存在');
+      }
 
-    // 创建新角色关联
-    if (roleIds.length > 0) {
-      await ctx.prisma.userRole.createMany({
-        data: roleIds.map((roleId: string) => ({
-          userId: id,
-          roleId,
-        })),
-      });
-    }
+      await tx.userRole.deleteMany({ where: { userId: id } });
+      if (roleIds.length > 0) {
+        await tx.userRole.createMany({
+          data: (roleIds as string[]).map(roleId => ({ userId: id, roleId })),
+        });
+      }
 
-    const updated = await ctx.prisma.user.findUnique({
-      where: { id },
-      include: {
-        userRoles: {
-          include: { role: true },
+      return tx.user.findUnique({
+        where: { id },
+        select: {
+          ...SAFE_USER_SCALARS,
+          userRoles: { include: { role: true } },
         },
-      },
+      });
     });
 
     ctx.body = {
