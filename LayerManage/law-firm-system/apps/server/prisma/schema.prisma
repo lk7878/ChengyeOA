@@ -23,6 +23,7 @@ model Organization {
   children  Organization[] @relation("OrgHierarchy")
   positions Position[]
   employees Employee[]
+  systemInitialization SystemInitialization? @relation("RootOrganization")
 
   @@map("organization")
 }
@@ -74,18 +75,24 @@ model Employee {
 // ==================== 用户/权限模块 ====================
 
 model User {
-  id          String    @id @default(uuid())
-  username    String    @unique
-  password    String // bcrypt hash
-  status      String    @default("ENABLED") // ENABLED | DISABLED
-  employeeId  String?   @unique
-  lastLoginAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                 String    @id @default(uuid())
+  username           String    @unique
+  password           String // bcrypt hash
+  status             String    @default("ENABLED") // ENABLED | DISABLED
+  employeeId         String?   @unique
+  lastLoginAt        DateTime?
+  mustChangePassword Boolean   @default(false)
+  credentialVersion  Int       @default(1)
+  passwordChangedAt  DateTime?
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   employee  Employee?  @relation(fields: [employeeId], references: [id])
   userRoles UserRole[]
   loginLogs LoginLog[]
+  systemInitialization SystemInitialization? @relation("FirstSuperAdmin")
 
   @@map("user")
 }
@@ -93,6 +100,7 @@ model User {
 model Role {
   id          String   @id @default(uuid())
   name        String   @unique
+  code        String   @unique
   type        String // SYSTEM | BUSINESS
   description String?
   status      String   @default("ENABLED")
@@ -148,15 +156,30 @@ model RolePermission {
 }
 
 model LoginLog {
-  id        String   @id @default(uuid())
-  userId    String
-  ip        String?
-  userAgent String?
-  createdAt DateTime @default(now())
+  id               String   @id @default(uuid())
+  userId           String?
+  usernameSnapshot String
+  outcome          String
+  reasonCode       String?
+  ip               String?
+  userAgent        String?
+  createdAt        DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("login_log")
+}
+
+model SystemInitialization {
+  id                 String       @id
+  version            Int          @default(1)
+  rootOrganizationId String       @unique
+  superAdminUserId   String       @unique
+  completedAt        DateTime
+  rootOrganization   Organization @relation("RootOrganization", fields: [rootOrganizationId], references: [id], onDelete: Restrict)
+  superAdminUser     User         @relation("FirstSuperAdmin", fields: [superAdminUserId], references: [id], onDelete: Restrict)
+
+  @@map("system_initialization")
 }
 
 // ==================== 运营/渠道模块 ====================

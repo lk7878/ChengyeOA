@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { execFileSync } from 'node:child_process';
 
 type ResetExecutor = (file: string, args: readonly string[], options: {
