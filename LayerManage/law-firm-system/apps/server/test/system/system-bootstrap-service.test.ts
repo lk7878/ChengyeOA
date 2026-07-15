@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PrismaClient } from '@prisma/client';
+import { PasswordHasher } from '../../app/domain/security/password-hasher';
 import { BcryptPasswordHasher } from '../../app/domain/security/password-hasher';
 import { assertEmptyApplicationTables } from '../../scripts/db/assert-empty-application-tables';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
-import { AlreadyInitializedError, InconsistentSystemStateError } from '../../app/application/system/system-command-errors';
+import {
+  AlreadyInitializedError,
+  InconsistentSystemStateError,
+  ValidationCommandError,
+} from '../../app/application/system/system-command-errors';
 import { SystemBootstrapService } from '../../app/application/system/system-bootstrap-service';
 
 const input = {
@@ -17,6 +22,19 @@ const metadata = {
   databaseName: 'chengye_oa_test',
   hostname: 'localhost',
 };
+
+class CountingPasswordHasher implements PasswordHasher {
+  readonly values: string[] = [];
+
+  async hash(value: string): Promise<string> {
+    this.values.push(value);
+    return 'counting-hash';
+  }
+
+  async compare(): Promise<boolean> {
+    return false;
+  }
+}
 
 function createService(prisma: PrismaClient, auditWriter?: ConstructorParameters<typeof SystemBootstrapService>[3]) {
   return new SystemBootstrapService(prisma, new BcryptPasswordHasher(4), metadata, auditWriter);
@@ -31,26 +49,40 @@ test.beforeEach(async () => {
   }
 });
 
+test.after(async () => {
+  let prisma: PrismaClient | undefined;
+  try {
+    prisma = createTestPrisma();
+    await clearTestApplicationData(prisma);
+  } finally {
+    await prisma?.$disconnect();
+  }
+});
+
 test('creates exactly one atomic trust root without employee or permissions', async () => {
   const prisma = createTestPrisma();
   try {
     await createService(prisma).execute(input);
 
     assert.equal(await prisma.organization.count(), 1);
+    assert.equal(await prisma.role.count(), 1);
     assert.equal(await prisma.role.count({ where: { code: 'SYSTEM_SUPER_ADMIN' } }), 1);
+    assert.equal(await prisma.user.count(), 1);
     assert.equal(await prisma.user.count({ where: { employeeId: null, mustChangePassword: true } }), 1);
     assert.equal(await prisma.userRole.count(), 1);
     assert.equal(await prisma.systemInitialization.count({ where: { id: 'PRIMARY' } }), 1);
+    assert.equal(await prisma.operationLog.count(), 1);
     assert.equal(await prisma.operationLog.count({ where: { action: 'SYSTEM_BOOTSTRAP' } }), 1);
     assert.equal(await prisma.employee.count(), 0);
     assert.equal(await prisma.permission.count(), 0);
     assert.equal(await prisma.position.count(), 0);
     assert.equal(await prisma.rolePermission.count(), 0);
 
-    const [organization, role, user, initialization, audit] = await Promise.all([
+    const [organization, role, user, userRole, initialization, audit] = await Promise.all([
       prisma.organization.findFirstOrThrow(),
       prisma.role.findUniqueOrThrow({ where: { code: 'SYSTEM_SUPER_ADMIN' } }),
       prisma.user.findUniqueOrThrow({ where: { username: 'root.admin' } }),
+      prisma.userRole.findFirstOrThrow(),
       prisma.systemInitialization.findUniqueOrThrow({ where: { id: 'PRIMARY' } }),
       prisma.operationLog.findFirstOrThrow({ where: { action: 'SYSTEM_BOOTSTRAP' } }),
     ]);
@@ -64,9 +96,26 @@ test('creates exactly one atomic trust root without employee or permissions', as
       { name: '系统超级管理员', type: 'SYSTEM', status: 'ENABLED' },
     );
     assert.deepEqual(
-      { employeeId: user.employeeId, mustChangePassword: user.mustChangePassword, credentialVersion: user.credentialVersion },
-      { employeeId: null, mustChangePassword: true, credentialVersion: 1 },
+      {
+        status: user.status,
+        employeeId: user.employeeId,
+        mustChangePassword: user.mustChangePassword,
+        credentialVersion: user.credentialVersion,
+        passwordChangedAt: user.passwordChangedAt,
+        failedLoginCount: user.failedLoginCount,
+        lockedUntil: user.lockedUntil,
+      },
+      {
+        status: 'ENABLED',
+        employeeId: null,
+        mustChangePassword: true,
+        credentialVersion: 1,
+        passwordChangedAt: null,
+        failedLoginCount: 0,
+        lockedUntil: null,
+      },
     );
+    assert.deepEqual({ userId: userRole.userId, roleId: userRole.roleId }, { userId: user.id, roleId: role.id });
     assert.deepEqual(
       { rootOrganizationId: initialization.rootOrganizationId, superAdminUserId: initialization.superAdminUserId, version: initialization.version },
       { rootOrganizationId: organization.id, superAdminUserId: user.id, version: 1 },
@@ -86,6 +135,43 @@ test('creates exactly one atomic trust root without employee or permissions', as
     assert.equal(JSON.stringify(auditMetadata).includes(input.username), false);
     assert.equal(JSON.stringify(auditMetadata).includes(input.password), false);
     assert.equal(JSON.stringify(auditMetadata).includes(user.password), false);
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('validates bootstrap input before hashing or writing application data', async () => {
+  const prisma = createTestPrisma();
+  try {
+    const hasher = new CountingPasswordHasher();
+    const service = new SystemBootstrapService(prisma, hasher, metadata);
+
+    await assert.rejects(
+      () => service.execute({ ...input, organizationName: 'x' }),
+      ValidationCommandError,
+    );
+    assert.deepEqual(hasher.values, []);
+    await assertEmptyApplicationTables(prisma);
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('hashes the original password exactly once and returns the normalized username', async () => {
+  const prisma = createTestPrisma();
+  try {
+    const hasher = new CountingPasswordHasher();
+    const service = new SystemBootstrapService(prisma, hasher, metadata);
+    const password = 'Correct-Horse-92';
+
+    const result = await service.execute({
+      organizationName: input.organizationName,
+      username: '  Root.Admin  ',
+      password,
+    });
+
+    assert.deepEqual(hasher.values, [password]);
+    assert.equal(result.username, 'root.admin');
   } finally {
     await prisma.$disconnect();
   }
