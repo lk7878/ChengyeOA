@@ -78,7 +78,7 @@ test('workflow extractor reads literal and folded run blocks without treating co
       # - run: npm run system:bootstrap
 `));
 
-  assert.equal(steps.at(-2)?.run, 'npm run lint\nnpm run typecheck');
+  assert.equal(steps.at(-2)?.run, 'npm run lint\nnpm run typecheck\n');
   assert.equal(steps.at(-1)?.run, 'npm run build');
 });
 
@@ -169,6 +169,90 @@ test('workflow contract inspects folded blocks and active YAML for recovery enab
   ]);
   assert.deepEqual(checkWorkflowContract(activeYaml), [
     'CI must not enable ALLOW_SUPER_ADMIN_RECOVERY',
+  ]);
+});
+
+test('workflow contract accepts quoted recovery keys only when their value is literal false', () => {
+  const quotedFalse = workflowFixture(validAcceptanceSteps).replace(
+    "ALLOW_SUPER_ADMIN_RECOVERY: 'false'",
+    "'ALLOW_SUPER_ADMIN_RECOVERY': 'false'",
+  );
+
+  assert.deepEqual(checkWorkflowContract(quotedFalse), []);
+});
+
+test('workflow contract rejects recovery enablement in an inline flow env map', () => {
+  const flowMap = workflowFixture(validAcceptanceSteps).replace(
+    "env:\n      ALLOW_SUPER_ADMIN_RECOVERY: 'false'",
+    'env: { ALLOW_SUPER_ADMIN_RECOVERY: true }',
+  );
+
+  assert.deepEqual(checkWorkflowContract(flowMap), [
+    'CI must not enable ALLOW_SUPER_ADMIN_RECOVERY',
+  ]);
+});
+
+test('workflow contract rejects quoted true and expression recovery env values', () => {
+  const quotedTrue = workflowFixture(validAcceptanceSteps).replace("'false'", "'true'");
+  const expression = workflowFixture(validAcceptanceSteps).replace(
+    "'false'",
+    '${{ vars.ALLOW_SUPER_ADMIN_RECOVERY }}',
+  );
+
+  for (const fixture of [quotedTrue, expression]) {
+    assert.deepEqual(checkWorkflowContract(fixture), [
+      'CI must not enable ALLOW_SUPER_ADMIN_RECOVERY',
+    ]);
+  }
+});
+
+test('workflow contract checks recovery env at workflow, job, and step scopes', () => {
+  const fixture = `name: fixture
+env: { ALLOW_SUPER_ADMIN_RECOVERY: false }
+jobs:
+  verify:
+    env: { ALLOW_SUPER_ADMIN_RECOVERY: 'false' }
+    steps:
+${validAcceptanceSteps}      - name: forbidden step env
+        env: { 'ALLOW_SUPER_ADMIN_RECOVERY': '\${{ vars.RECOVERY }}' }
+        run: echo ready
+`;
+
+  assert.deepEqual(checkWorkflowContract(fixture), [
+    'CI must not enable ALLOW_SUPER_ADMIN_RECOVERY',
+  ]);
+});
+
+for (const [name, run] of [
+  ['Bash pipe', 'echo ready | npm run system:bootstrap'],
+  ['option after run', 'npm run --silent system:bootstrap'],
+  ['option before run', 'npm --silent run super-admin:recover'],
+  ['PowerShell invocation operator', '& npm.cmd --prefix LayerManage/law-firm-system run system:bootstrap'],
+] as const) {
+  test(`workflow contract rejects interactive invocation through ${name}`, () => {
+    const fixture = workflowFixture(`${validAcceptanceSteps}      - name: forbidden
+        run: ${JSON.stringify(run)}
+`);
+
+    assert.deepEqual(checkWorkflowContract(fixture), [
+      'CI must not invoke interactive bootstrap or recovery commands',
+    ]);
+  });
+}
+
+test('workflow contract rejects interactive commands in parsed literal and folded YAML scalars', () => {
+  const fixture = workflowFixture(`${validAcceptanceSteps}      - name: literal
+        run: |
+          echo ready;
+          npm --silent run super-admin:recover
+      - name: folded
+        run: >-
+          Write-Output ready |
+          npm.cmd run --silent system:bootstrap
+`);
+
+  assert.deepEqual(checkWorkflowContract(fixture), [
+    'CI must not invoke interactive bootstrap or recovery commands',
   ]);
 });
 

@@ -20,12 +20,18 @@ vi.mock('@/api/user', () => ({
 }));
 
 afterEach(() => {
+  vi.restoreAllMocks();
   createMock.mockReset();
   listMock.mockReset();
   permissionTreeMock.mockReset();
 });
 
 test('creates a business role with the exact immutable uppercase code', async () => {
+  const originalGetComputedStyle = window.getComputedStyle.bind(window);
+  const delegatedGetComputedStyle = vi.fn((element: Element) => originalGetComputedStyle(element));
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(
+    element => delegatedGetComputedStyle(element),
+  );
   listMock.mockResolvedValue({
     code: 200,
     data: { list: [], pagination: { page: 1, pageSize: 10, total: 0, totalPages: 0 } },
@@ -49,4 +55,7 @@ test('creates a business role with the exact immutable uppercase code', async ()
     code: 'BUSINESS_LAWYER',
     type: 'BUSINESS',
   }));
+  await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
+  expect(delegatedGetComputedStyle).toHaveBeenCalled();
+  expect(delegatedGetComputedStyle.mock.calls.every(args => args.length === 1)).toBe(true);
 });

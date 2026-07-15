@@ -1,3 +1,5 @@
+import { parseDocument } from 'yaml';
+
 export interface WorkflowStep {
   job: string;
   index: number;
@@ -6,157 +8,55 @@ export interface WorkflowStep {
   run?: string;
 }
 
-function indentation(line: string): number {
-  return line.match(/^ */)?.[0].length ?? 0;
+interface ParsedWorkflow {
+  root?: Record<string, unknown>;
+  valid: boolean;
 }
 
-function stripYamlComment(value: string): string {
-  let quote: "'" | '"' | undefined;
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index];
-    if (quote) {
-      if (character === quote && value[index - 1] !== '\\') quote = undefined;
-      continue;
-    }
-    if (character === "'" || character === '"') {
-      quote = character;
-    } else if (character === '#' && (index === 0 || /\s/.test(value[index - 1]))) {
-      return value.slice(0, index).trimEnd();
-    }
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function parseWorkflow(source: string): ParsedWorkflow {
+  const document = parseDocument(source, {
+    prettyErrors: false,
+    strict: true,
+    uniqueKeys: true,
+  });
+  if (document.errors.length > 0) return { valid: false };
+  const root = record(document.toJS({ mapAsMap: false }));
+  return { root, valid: root !== undefined };
+}
+
+function stepsFromRoot(root: Record<string, unknown>): WorkflowStep[] {
+  const jobs = record(root.jobs);
+  if (!jobs) return [];
+  const result: WorkflowStep[] = [];
+  for (const [jobName, jobValue] of Object.entries(jobs)) {
+    const job = record(jobValue);
+    if (!job || !Array.isArray(job.steps)) continue;
+    job.steps.forEach((stepValue, index) => {
+      const step = record(stepValue);
+      if (!step || typeof step.run !== 'string') return;
+      result.push({
+        job: jobName,
+        index,
+        ...(typeof step.name === 'string' ? { name: step.name } : {}),
+        ...(typeof step['working-directory'] === 'string'
+          ? { workingDirectory: step['working-directory'] }
+          : {}),
+        run: step.run,
+      });
+    });
   }
-  return value.trimEnd();
-}
-
-function scalar(value: string): string {
-  const active = stripYamlComment(value).trim();
-  if (active.length >= 2) {
-    const first = active[0];
-    const last = active.at(-1);
-    if ((first === "'" && last === "'") || (first === '"' && last === '"')) {
-      return active.slice(1, -1);
-    }
-  }
-  return active;
-}
-
-function foldedBlock(lines: string[], literal: boolean): string {
-  while (lines.at(-1)?.trim() === '') lines.pop();
-  const nonEmptyIndents = lines
-    .filter(line => line.trim() !== '')
-    .map(indentation);
-  const blockIndent = nonEmptyIndents.length === 0 ? 0 : Math.min(...nonEmptyIndents);
-  const content = lines.map(line => line.trim() === '' ? '' : line.slice(blockIndent));
-  if (literal) return content.join('\n').trimEnd();
-
-  const paragraphs: string[] = [];
-  let paragraph: string[] = [];
-  for (const line of content) {
-    if (line === '') {
-      if (paragraph.length > 0) {
-        paragraphs.push(paragraph.join(' '));
-        paragraph = [];
-      }
-    } else {
-      paragraph.push(line);
-    }
-  }
-  if (paragraph.length > 0) paragraphs.push(paragraph.join(' '));
-  return paragraphs.join('\n\n').trimEnd();
-}
-
-function assignStepField(step: WorkflowStep, key: string, value: string): void {
-  if (key === 'name') step.name = scalar(value);
-  if (key === 'working-directory') step.workingDirectory = scalar(value);
-  if (key === 'run') step.run = scalar(value);
-}
-
-function consumeBlock(
-  lines: string[],
-  startIndex: number,
-  keyIndent: number,
-  indicator: string,
-): { value: string; lastIndex: number } {
-  const blockLines: string[] = [];
-  let blockIndex = startIndex + 1;
-  while (blockIndex < lines.length) {
-    const blockLine = lines[blockIndex];
-    if (blockLine.trim() !== '' && indentation(blockLine) <= keyIndent) break;
-    blockLines.push(blockLine);
-    blockIndex += 1;
-  }
-  return {
-    value: foldedBlock(blockLines, indicator.trim().startsWith('|')),
-    lastIndex: blockIndex - 1,
-  };
+  return result;
 }
 
 export function extractWorkflowSteps(source: string): WorkflowStep[] {
-  const lines = source.replace(/\r\n/g, '\n').split('\n');
-  const steps: WorkflowStep[] = [];
-  let inJobs = false;
-  let inSteps = false;
-  let job: string | undefined;
-  let currentStep: WorkflowStep | undefined;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const active = stripYamlComment(line);
-    if (active.trim() === '') continue;
-    const indent = indentation(line);
-
-    if (indent === 0) {
-      inJobs = active.trim() === 'jobs:';
-      inSteps = false;
-      job = undefined;
-      currentStep = undefined;
-      continue;
-    }
-    if (!inJobs) continue;
-
-    const jobMatch = indent === 2 ? active.match(/^\s{2}([A-Za-z0-9_-]+):\s*$/) : null;
-    if (jobMatch) {
-      job = jobMatch[1];
-      inSteps = false;
-      currentStep = undefined;
-      continue;
-    }
-    if (!job) continue;
-    if (indent === 4 && active.trim() === 'steps:') {
-      inSteps = true;
-      currentStep = undefined;
-      continue;
-    }
-    if (!inSteps) continue;
-
-    const stepMatch = indent === 6 ? active.match(/^\s{6}-(?:\s+(.*))?$/) : null;
-    if (stepMatch) {
-      currentStep = { job, index: steps.length };
-      steps.push(currentStep);
-      const inlineField = stepMatch[1]?.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-      if (inlineField?.[1] === 'run' && /^[>|][+-]?(?:\d+)?$/.test(inlineField[2].trim())) {
-        const block = consumeBlock(lines, index, indent, inlineField[2]);
-        currentStep.run = block.value;
-        index = block.lastIndex;
-      } else if (inlineField) {
-        assignStepField(currentStep, inlineField[1], inlineField[2]);
-      }
-      continue;
-    }
-    if (!currentStep || indent !== 8) continue;
-
-    const field = active.match(/^\s{8}([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (!field) continue;
-    const [, key, value] = field;
-    if (key === 'run' && /^[>|][+-]?(?:\d+)?$/.test(value.trim())) {
-      const block = consumeBlock(lines, index, indent, value);
-      currentStep.run = block.value;
-      index = block.lastIndex;
-    } else {
-      assignStepField(currentStep, key, value);
-    }
-  }
-
-  return steps;
+  const parsed = parseWorkflow(source);
+  return parsed.root ? stepsFromRoot(parsed.root) : [];
 }
 
 function shellCommands(run: string): string[] {
@@ -190,10 +90,8 @@ function shellCommands(run: string): string[] {
       push();
       continue;
     }
-    if (character === '\n' || character === ';'
-      || (character === '&' && source[index + 1] === '&')
-      || (character === '|' && source[index + 1] === '|')) {
-      if ((character === '&' || character === '|') && source[index + 1] === character) index += 1;
+    if (character === '\n' || character === ';' || character === '|' || character === '&') {
+      if (source[index + 1] === character) index += 1;
       push();
       continue;
     }
@@ -232,14 +130,34 @@ function isOutputOnly(tokens: string[]): boolean {
   return ['echo', 'printf', 'write-output'].includes(tokens[0]?.toLowerCase());
 }
 
+const npmOptionsWithValues = new Set([
+  '--cache',
+  '--loglevel',
+  '--prefix',
+  '--userconfig',
+  '--workspace',
+  '-w',
+]);
+
+function skipNpmOptions(tokens: string[], start: number): number {
+  let index = start;
+  while (index < tokens.length && tokens[index].startsWith('-')) {
+    const option = tokens[index].split('=', 1)[0].toLowerCase();
+    index += npmOptionsWithValues.has(option) && !tokens[index].includes('=') ? 2 : 1;
+  }
+  return index;
+}
+
 function invokesInteractiveCommand(command: string): boolean {
   const tokens = commandTokens(command);
   let executableIndex = tokens[0]?.toLowerCase() === 'env' ? 1 : 0;
   while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[executableIndex] ?? '')) executableIndex += 1;
   if (!['npm', 'npm.cmd'].includes(tokens[executableIndex]?.toLowerCase())) return false;
-  const runIndex = tokens.findIndex((token, index) => index > executableIndex && token.toLowerCase() === 'run');
-  return runIndex !== -1
-    && ['system:bootstrap', 'super-admin:recover'].includes(tokens[runIndex + 1]?.toLowerCase());
+
+  let index = skipNpmOptions(tokens, executableIndex + 1);
+  if (!['run', 'run-script'].includes(tokens[index]?.toLowerCase())) return false;
+  index = skipNpmOptions(tokens, index + 1);
+  return ['system:bootstrap', 'super-admin:recover'].includes(tokens[index]?.toLowerCase());
 }
 
 function enablesRecoveryInCommand(command: string): boolean {
@@ -250,11 +168,26 @@ function enablesRecoveryInCommand(command: string): boolean {
   return assignment.test(command) || powershellAssignment.test(command);
 }
 
-function enablesRecoveryInYaml(source: string): boolean {
-  return source.replace(/\r\n/g, '\n').split('\n').some((line) => {
-    const active = stripYamlComment(line);
-    const match = active.match(/^\s*ALLOW_SUPER_ADMIN_RECOVERY\s*:\s*(.*?)\s*$/i);
-    return match ? scalar(match[1]).toLowerCase() === 'true' : false;
+function recoveryEnvIsSafe(value: unknown): boolean {
+  return value === false || value === 'false';
+}
+
+function envEnablesRecovery(value: unknown): boolean {
+  const env = record(value);
+  if (!env || !Object.prototype.hasOwnProperty.call(env, 'ALLOW_SUPER_ADMIN_RECOVERY')) return false;
+  return !recoveryEnvIsSafe(env.ALLOW_SUPER_ADMIN_RECOVERY);
+}
+
+function workflowEnablesRecovery(root: Record<string, unknown>): boolean {
+  if (envEnablesRecovery(root.env)) return true;
+  const jobs = record(root.jobs);
+  if (!jobs) return false;
+  return Object.values(jobs).some((jobValue) => {
+    const job = record(jobValue);
+    if (!job) return false;
+    if (envEnablesRecovery(job.env)) return true;
+    if (!Array.isArray(job.steps)) return false;
+    return job.steps.some(stepValue => envEnablesRecovery(record(stepValue)?.env));
   });
 }
 
@@ -268,8 +201,11 @@ const expectedAcceptance: ReadonlyArray<readonly [string, string | undefined]> =
 ];
 
 export function checkWorkflowContract(source: string): string[] {
+  const parsed = parseWorkflow(source);
+  if (!parsed.valid || !parsed.root) return ['CI workflow YAML is invalid'];
+
   const issues: string[] = [];
-  const steps = extractWorkflowSteps(source);
+  const steps = stepsFromRoot(parsed.root);
   const acceptanceCommands = new Set(expectedAcceptance.map(([run]) => run));
   const actualAcceptance = steps
     .filter(step => step.job === 'verify' && step.run && acceptanceCommands.has(step.run))
@@ -282,7 +218,7 @@ export function checkWorkflowContract(source: string): string[] {
   }
 
   const commands = steps.flatMap(step => step.run ? shellCommands(step.run) : []);
-  if (enablesRecoveryInYaml(source) || commands.some(enablesRecoveryInCommand)) {
+  if (workflowEnablesRecovery(parsed.root) || commands.some(enablesRecoveryInCommand)) {
     issues.push('CI must not enable ALLOW_SUPER_ADMIN_RECOVERY');
   }
   if (commands.some(invokesInteractiveCommand)) {

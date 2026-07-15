@@ -41,7 +41,7 @@ function createProjectFixture(): ProjectFixture {
   write('package.json', JSON.stringify({ scripts: validRootScripts }));
   write('apps/server/package.json', JSON.stringify({ scripts: validServerScripts }));
   write('apps/server/prisma/schema.prisma', 'model SystemInitialization {\n  id String @id\n}\n');
-  write('apps/server/app/router.ts', "router.post('/auth/password/forced-change', controller.auth.forcedChange);\n");
+  write('apps/server/app/router.ts', "router.post('/api/v1/auth/password/forced-change', controller.auth.forcedChange);\n");
   write('apps/server/.env.example', 'ALLOW_SUPER_ADMIN_RECOVERY=false\n');
   write('apps/server/app.ts', 'export default class AppBootHook {}\n');
   write('apps/server/server-entry.js', "require('./dist/app');\n");
@@ -171,34 +171,41 @@ test('requires the forced password change route', () => {
 test('a router comment cannot satisfy the forced password change route', () => {
   assertOnlyIssue(fixture => fixture.write(
     'apps/server/app/router.ts',
-    "// router.post('/auth/password/forced-change', controller.auth.forcedChange);\n",
+    "// router.post('/api/v1/auth/password/forced-change', controller.auth.forcedChange);\n",
   ), 'forced password change route is missing');
 });
 
 test('accepts bracket access for the required forced password change route', () => {
   withFixture(fixture => {
-    fixture.write('apps/server/app/router.ts', "router['post']('/auth/password/forced-change', controller.auth.forcedChange);\n");
+    fixture.write('apps/server/app/router.ts', "router['post']('/api/v1/auth/password/forced-change', controller.auth.forcedChange);\n");
     assert.deepEqual(checkBootstrapContract(fixture.projectRoot), []);
   });
 });
 
+test('rejects a forced-change route suffix spoof', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/app/router.ts',
+    "router.post('/api/v1/auth/password/forced-change-not-real', controller.auth.forcedChange);\n",
+  ), 'forced password change route is missing');
+});
+
 test('rejects an HTTP bootstrap route', () => {
   assertOnlyIssue(fixture => fixture.write('apps/server/app/router.ts', [
-    "router.post('/auth/password/forced-change', controller.auth.forcedChange);",
+    "router.post('/api/v1/auth/password/forced-change', controller.auth.forcedChange);",
     "router.post('/system/bootstrap', controller.system.bootstrap);",
   ].join('\n')), 'HTTP bootstrap or recovery route exists');
 });
 
 test('rejects an HTTP recovery route', () => {
   assertOnlyIssue(fixture => fixture.write('apps/server/app/router.ts', [
-    "router.post('/auth/password/forced-change', controller.auth.forcedChange);",
+    "router.post('/api/v1/auth/password/forced-change', controller.auth.forcedChange);",
     "router.patch('/admin/recover', controller.admin.recover);",
   ].join('\n')), 'HTTP bootstrap or recovery route exists');
 });
 
 test('rejects a multiline HTTP bootstrap route', () => {
   assertOnlyIssue(fixture => fixture.write('apps/server/app/router.ts', [
-    "router.post('/auth/password/forced-change', controller.auth.forcedChange);",
+    "router.post('/api/v1/auth/password/forced-change', controller.auth.forcedChange);",
     'router.post(',
     "  '/system/bootstrap',",
     '  controller.system.bootstrap,',
@@ -209,7 +216,7 @@ test('rejects a multiline HTTP bootstrap route', () => {
 for (const method of ['get', 'post', 'put', 'patch', 'delete', 'all']) {
   test(`rejects a router.${method} recovery route`, () => {
     assertOnlyIssue(fixture => fixture.write('apps/server/app/router.ts', [
-      "router.post('/auth/password/forced-change', controller.auth.forcedChange);",
+      "router.post('/api/v1/auth/password/forced-change', controller.auth.forcedChange);",
       `router.${method}('/system/recover', controller.system.recover);`,
     ].join('\n')), 'HTTP bootstrap or recovery route exists');
   });
@@ -217,7 +224,7 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete', 'all']) {
 
 test('rejects a folded bracket-access router route', () => {
   assertOnlyIssue(fixture => fixture.write('apps/server/app/router.ts', [
-    "router.post('/auth/password/forced-change', controller.auth.forcedChange);",
+    "router.post('/api/v1/auth/password/forced-change', controller.auth.forcedChange);",
     "router['all'](",
     "  '/system/bootstrap',",
     '  controller.system.bootstrap,',
@@ -225,10 +232,26 @@ test('rejects a folded bracket-access router route', () => {
   ].join('\n')), 'HTTP bootstrap or recovery route exists');
 });
 
+test('rejects a forbidden route path resolved from a local const', () => {
+  assertOnlyIssue(fixture => fixture.write('apps/server/app/router.ts', [
+    "router.post('/api/v1/auth/password/forced-change', controller.auth.forcedChange);",
+    "const recoveryPath = '/system/recover';",
+    'router.post(recoveryPath, controller.system.recover);',
+  ].join('\n')), 'HTTP bootstrap or recovery route exists');
+});
+
+test('rejects an unresolved dynamic router path conservatively', () => {
+  assertOnlyIssue(fixture => fixture.write('apps/server/app/router.ts', [
+    "router.post('/api/v1/auth/password/forced-change', controller.auth.forcedChange);",
+    'const systemPath = resolveSystemPath();',
+    'router.all(systemPath, controller.system.dispatch);',
+  ].join('\n')), 'HTTP bootstrap or recovery route exists');
+});
+
 test('ignores forbidden route text that exists only in comments and strings', () => {
   withFixture(fixture => {
     fixture.write('apps/server/app/router.ts', [
-      "router.post('/auth/password/forced-change', controller.auth.forcedChange);",
+      "router.post('/api/v1/auth/password/forced-change', controller.auth.forcedChange);",
       "// router.all('/system/recover', controller.system.recover);",
       "const example = \"router.post('/system/bootstrap')\";",
     ].join('\n'));
@@ -240,8 +263,37 @@ test('rejects bootstrap service invocation from startup', () => {
   assertOnlyIssue(fixture => fixture.write('apps/server/app.ts', 'new SystemBootstrapService().execute();\n'), 'startup invokes system commands');
 });
 
-test('rejects recovery command invocation from startup configuration', () => {
-  assertOnlyIssue(fixture => fixture.write('apps/server/config/config.default.ts', "run('super-admin:recover');\n"), 'startup invokes system commands');
+test('ignores startup comments, arbitrary strings, and import-only service mentions', () => {
+  withFixture(fixture => {
+    fixture.write('apps/server/app.ts', [
+      "import { SystemBootstrapService } from './application/system/system-bootstrap-service';",
+      '// new SuperAdminRecoveryService().execute();',
+      "const diagnostic = 'SystemBootstrapService system:bootstrap super-admin:recover';",
+      'export { SystemBootstrapService, diagnostic };',
+    ].join('\n'));
+    assert.deepEqual(checkBootstrapContract(fixture.projectRoot), []);
+  });
+});
+
+test('rejects an actual recovery service execution from startup configuration', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/config/config.default.ts',
+    'new SuperAdminRecoveryService().execute();\n',
+  ), 'startup invokes system commands');
+});
+
+test('rejects an actual bootstrap call from startup entry', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/server-entry.js',
+    'runSystemBootstrap();\n',
+  ), 'startup invokes system commands');
+});
+
+test('rejects invocation through an aliased bootstrap service import', () => {
+  assertOnlyIssue(fixture => fixture.write('apps/server/app.ts', [
+    "import { SystemBootstrapService as Bootstrap } from './application/system/system-bootstrap-service';",
+    'new Bootstrap().execute();',
+  ].join('\n')), 'startup invokes system commands');
 });
 
 test('rejects password command-line arguments in system CLIs', () => {
@@ -281,10 +333,65 @@ test('rejects aliased destructured password environment-variable reads', () => {
   ), 'CLI accepts a password argument or environment variable');
 });
 
+test('rejects a process environment alias password read', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    'const runtimeEnv = process.env;\nconst password = runtimeEnv.ADMIN_PASSWORD;\n',
+  ), 'CLI accepts a password argument or environment variable');
+});
+
+test('rejects a destructured password read through a process environment alias', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    'const runtimeEnv = process.env;\nconst { RECOVERY_PASSWD: supplied } = runtimeEnv;\n',
+  ), 'CLI accepts a password argument or environment variable');
+});
+
+test('rejects a function parameter defaulted to process environment and reading a password', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    'function loadSecret(env = process.env) { return env.ADMIN_PASSWORD; }\n',
+  ), 'CLI accepts a password argument or environment variable');
+});
+
+test('rejects a method parameter defaulted to process environment and reading a password', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    'class Loader { load(env = process.env) { return env.SERVICE_PWD; } }\n',
+  ), 'CLI accepts a password argument or environment variable');
+});
+
+for (const optionSpec of [
+  '--admin-password <value>',
+  '--recovery-passwd <value>',
+  '--temporary-pwd <value>',
+]) {
+  test(`rejects Commander password option spec ${optionSpec}`, () => {
+    assertOnlyIssue(fixture => fixture.write(
+      'apps/server/scripts/system/system-cli.ts',
+      `program.requiredOption('${optionSpec}');\n`,
+    ), 'CLI accepts a password argument or environment variable');
+  });
+}
+
 test('rejects positional argv assigned to a password variable', () => {
   assertOnlyIssue(fixture => fixture.write(
     'apps/server/scripts/system/system-cli.ts',
     'const temporaryPassword = process.argv[2];\n',
+  ), 'CLI accepts a password argument or environment variable');
+});
+
+test('rejects a password derived through a process argv alias', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    'const cliArgs = process.argv.slice(2);\nconst recoveryPassword = cliArgs[0];\n',
+  ), 'CLI accepts a password argument or environment variable');
+});
+
+test('rejects a password parameter defaulted from positional process argv', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    'function run(recoveryPassword = process.argv[2]) { return recoveryPassword; }\n',
   ), 'CLI accepts a password argument or environment variable');
 });
 

@@ -110,14 +110,59 @@ function routerMethod(expression: ts.LeftHandSideExpression): string | undefined
   return undefined;
 }
 
-function routerPaths(source: string): Array<{ method: string; routePath: string }> {
-  const paths: Array<{ method: string; routePath: string }> = [];
+interface RouterRegistration {
+  method: string;
+  routePath?: string;
+}
+
+function unwrapExpression(node: ts.Expression): ts.Expression {
+  if (ts.isParenthesizedExpression(node)) return unwrapExpression(node.expression);
+  if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) return unwrapExpression(node.expression);
+  return node;
+}
+
+function routerPaths(source: string): RouterRegistration[] {
+  const paths: RouterRegistration[] = [];
   const parsed = sourceFile('router.ts', source);
+  const constants = new Map<string, ts.Expression>();
+  const collectConstants = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.initializer
+      && ts.isVariableDeclarationList(node.parent)
+      && (node.parent.flags & ts.NodeFlags.Const) !== 0) {
+      constants.set(node.name.text, node.initializer);
+    }
+    ts.forEachChild(node, collectConstants);
+  };
+  collectConstants(parsed);
+
+  const resolveString = (node: ts.Expression | undefined, resolving = new Set<string>()): string | undefined => {
+    if (!node) return undefined;
+    const expression = unwrapExpression(node);
+    const literal = stringValue(expression);
+    if (literal !== undefined) return literal;
+    if (ts.isIdentifier(expression)) {
+      if (resolving.has(expression.text)) return undefined;
+      const initializer = constants.get(expression.text);
+      if (!initializer) return undefined;
+      const next = new Set(resolving).add(expression.text);
+      return resolveString(initializer, next);
+    }
+    if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const left = resolveString(expression.left, resolving);
+      const right = resolveString(expression.right, resolving);
+      return left !== undefined && right !== undefined ? left + right : undefined;
+    }
+    return undefined;
+  };
+
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
       const method = routerMethod(node.expression);
-      const routePath = stringValue(node.arguments[0]);
-      if (method && routePath && ROUTER_METHODS.has(method)) paths.push({ method, routePath });
+      if (method && ROUTER_METHODS.has(method)) {
+        paths.push({ method, routePath: resolveString(node.arguments[0]) });
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -143,9 +188,24 @@ function isProcessEnv(node: ts.Node): boolean {
     && node.name.text === 'env';
 }
 
-function environmentName(node: ts.Node): string | undefined {
-  if (ts.isPropertyAccessExpression(node) && isProcessEnv(node.expression)) return node.name.text;
-  if (ts.isElementAccessExpression(node) && isProcessEnv(node.expression)) return stringValue(node.argumentExpression);
+function isProcessArgv(node: ts.Node): boolean {
+  return ts.isPropertyAccessExpression(node)
+    && ts.isIdentifier(node.expression)
+    && node.expression.text === 'process'
+    && node.name.text === 'argv';
+}
+
+function propertyName(node: ts.PropertyAccessExpression | ts.ElementAccessExpression): string | undefined {
+  return ts.isPropertyAccessExpression(node) ? node.name.text : stringValue(node.argumentExpression);
+}
+
+function sourcePropertyName(node: ts.Node, aliases: ReadonlySet<string>): string | undefined {
+  if (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node)) return undefined;
+  const receiver = unwrapExpression(node.expression);
+  if ((ts.isExpression(receiver) && isProcessEnv(receiver))
+    || (ts.isIdentifier(receiver) && aliases.has(receiver.text))) {
+    return propertyName(node);
+  }
   return undefined;
 }
 
@@ -164,25 +224,17 @@ function bindingSourceNames(name: ts.BindingName): string[] {
   });
 }
 
-function isArgvReceiver(node: ts.Expression): boolean {
-  if (ts.isIdentifier(node)) return /^(?:argv|args?)$/i.test(node.text);
-  return ts.isPropertyAccessExpression(node)
-    && ts.isIdentifier(node.expression)
-    && node.expression.text === 'process'
-    && node.name.text === 'argv';
-}
-
-function containsArgvSource(node: ts.Node): boolean {
+function expressionUsesSource(
+  node: ts.Node,
+  aliases: ReadonlySet<string>,
+  directSource: (candidate: ts.Node) => boolean,
+): boolean {
   let found = false;
   const visit = (candidate: ts.Node) => {
     if (found) return;
-    if (ts.isExpression(candidate) && isArgvReceiver(candidate)) found = true;
-    if (ts.isCallExpression(candidate)) {
-      const expression = candidate.expression;
-      const name = ts.isIdentifier(expression)
-        ? expression.text
-        : ts.isPropertyAccessExpression(expression) ? expression.name.text : '';
-      if (/^(?:parseArgs?|argument|option)$/i.test(name)) found = true;
+    if (directSource(candidate) || (ts.isIdentifier(candidate) && aliases.has(candidate.text))) {
+      found = true;
+      return;
     }
     ts.forEachChild(candidate, visit);
   };
@@ -190,40 +242,145 @@ function containsArgvSource(node: ts.Node): boolean {
   return found;
 }
 
+function identifierBinding(name: ts.BindingName): string | undefined {
+  return ts.isIdentifier(name) ? name.text : undefined;
+}
+
 function callConsumesArgumentFlag(node: ts.CallExpression): boolean {
   const hasPasswordFlag = node.arguments.some(argument => {
     const value = stringValue(argument);
-    return value !== undefined && PASSWORD_FLAG.test(value);
+    if (value === undefined) return false;
+    const longOptions = value.match(/--[a-z0-9-]+/gi) ?? [];
+    return longOptions.some(option => PASSWORD_FLAG.test(option));
   });
   if (!hasPasswordFlag) return false;
   if (ts.isIdentifier(node.expression)) return /arg|option|parse/i.test(node.expression.text);
   if (ts.isPropertyAccessExpression(node.expression)) {
-    return isArgvReceiver(node.expression.expression)
-      || /arg|option|parse|includes/i.test(node.expression.name.text);
+    return /arg|option|parse|includes/i.test(node.expression.name.text);
   }
   return false;
 }
 
 function cliSourceHasPasswordSource(filePath: string): boolean {
   const parsed = sourceFile(filePath, read(filePath));
+  const envAliases = new Set<string>();
+  const argvAliases = new Set<string>();
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const collectAliases = (node: ts.Node) => {
+      let name: string | undefined;
+      let initializer: ts.Expression | undefined;
+      if (ts.isVariableDeclaration(node)) {
+        name = identifierBinding(node.name);
+        initializer = node.initializer;
+      } else if (ts.isParameter(node)) {
+        name = identifierBinding(node.name);
+        initializer = node.initializer;
+      }
+      if (name && initializer) {
+        if (!envAliases.has(name) && expressionUsesSource(initializer, envAliases, isProcessEnv)) {
+          envAliases.add(name);
+          changed = true;
+        }
+        if (!argvAliases.has(name) && expressionUsesSource(initializer, argvAliases, isProcessArgv)) {
+          argvAliases.add(name);
+          changed = true;
+        }
+      }
+      ts.forEachChild(node, collectAliases);
+    };
+    collectAliases(parsed);
+  }
+
   let forbidden = false;
   const visit = (node: ts.Node) => {
     if (forbidden) return;
-    const envName = environmentName(node);
+    const envName = sourcePropertyName(node, envAliases);
     if (envName && PASSWORD_ENV_NAME.test(envName)) forbidden = true;
-    if (ts.isVariableDeclaration(node) && node.initializer && isProcessEnv(node.initializer)) {
+    if ((ts.isVariableDeclaration(node) || ts.isParameter(node))
+      && node.initializer
+      && expressionUsesSource(node.initializer, envAliases, isProcessEnv)) {
       if (bindingSourceNames(node.name).some(name => PASSWORD_ENV_NAME.test(name))) forbidden = true;
     }
-    if (ts.isVariableDeclaration(node) && node.initializer
+    if ((ts.isVariableDeclaration(node) || ts.isParameter(node)) && node.initializer
       && bindingNames(node.name).some(name => PASSWORD_IDENTIFIER.test(name))
-      && containsArgvSource(node.initializer)) {
+      && expressionUsesSource(node.initializer, argvAliases, isProcessArgv)) {
       forbidden = true;
     }
-    if (ts.isElementAccessExpression(node) && isArgvReceiver(node.expression)) {
+    if (ts.isElementAccessExpression(node)
+      && ((ts.isIdentifier(node.expression) && argvAliases.has(node.expression.text))
+        || isProcessArgv(node.expression))) {
       const value = stringValue(node.argumentExpression);
       if (value && PASSWORD_FLAG.test(value)) forbidden = true;
     }
     if (ts.isCallExpression(node) && callConsumesArgumentFlag(node)) forbidden = true;
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return forbidden;
+}
+
+function invokedName(expression: ts.Expression): string {
+  const target = unwrapExpression(expression);
+  if (ts.isIdentifier(target)) return target.text;
+  if (ts.isPropertyAccessExpression(target)) {
+    return `${invokedName(target.expression)}.${target.name.text}`;
+  }
+  if (ts.isElementAccessExpression(target)) {
+    return `${invokedName(target.expression)}.${stringValue(target.argumentExpression) ?? ''}`;
+  }
+  return '';
+}
+
+function startupInvokesSystemCommand(filePath: string): boolean {
+  const parsed = sourceFile(filePath, read(filePath));
+  const dangerousName = (name: string) => {
+    const normalized = name.replace(/[^a-z0-9]/gi, '').toLowerCase();
+    return normalized.includes('systembootstrap')
+      || normalized.includes('bootstrapsystem')
+      || normalized.includes('superadminrecover')
+      || normalized.includes('recoversuperadmin');
+  };
+  const dangerousAliases = new Set<string>();
+  const collectImports = (node: ts.Node) => {
+    if (ts.isImportSpecifier(node)) {
+      const importedName = node.propertyName?.text ?? node.name.text;
+      if (dangerousName(importedName)) dangerousAliases.add(node.name.text);
+    }
+    if (ts.isImportClause(node) && node.name && ts.isStringLiteral(node.parent.moduleSpecifier)
+      && dangerousName(node.parent.moduleSpecifier.text)) {
+      dangerousAliases.add(node.name.text);
+    }
+    ts.forEachChild(node, collectImports);
+  };
+  collectImports(parsed);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const collectAliases = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+        const sourceName = invokedName(node.initializer);
+        if (!dangerousAliases.has(node.name.text)
+          && (dangerousName(sourceName) || sourceName.split('.').some(name => dangerousAliases.has(name)))) {
+          dangerousAliases.add(node.name.text);
+          changed = true;
+        }
+      }
+      ts.forEachChild(node, collectAliases);
+    };
+    collectAliases(parsed);
+  }
+
+  const isDangerousInvocation = (name: string) => dangerousName(name)
+    || name.split('.').some(part => dangerousAliases.has(part));
+  let forbidden = false;
+  const visit = (node: ts.Node) => {
+    if (forbidden) return;
+    if (ts.isNewExpression(node) && isDangerousInvocation(invokedName(node.expression))) forbidden = true;
+    if (ts.isCallExpression(node) && isDangerousInvocation(invokedName(node.expression))) forbidden = true;
     ts.forEachChild(node, visit);
   };
   visit(parsed);
@@ -288,10 +445,10 @@ export function checkBootstrapContract(projectRoot: string): string[] {
   }
 
   const routes = routerPaths(read(path.join(serverRoot, 'app', 'router.ts')));
-  if (!routes.some(route => route.routePath.includes('/auth/password/forced-change'))) {
+  if (!routes.some(route => route.routePath === '/api/v1/auth/password/forced-change')) {
     issues.push('forced password change route is missing');
   }
-  if (routes.some(route => /(?:bootstrap|recover)/i.test(route.routePath))) {
+  if (routes.some(route => route.routePath === undefined || /(?:bootstrap|recover)/i.test(route.routePath))) {
     issues.push('HTTP bootstrap or recovery route exists');
   }
 
@@ -300,8 +457,7 @@ export function checkBootstrapContract(projectRoot: string): string[] {
     path.join(serverRoot, 'server-entry.js'),
     path.join(serverRoot, 'config', 'config.default.ts'),
   ];
-  const startup = startupFiles.map(filePath => read(filePath)).join('\n');
-  if (/SystemBootstrapService|SuperAdminRecoveryService|system:bootstrap|super-admin:recover/.test(startup)) {
+  if (startupFiles.some(startupInvokesSystemCommand)) {
     issues.push('startup invokes system commands');
   }
 
