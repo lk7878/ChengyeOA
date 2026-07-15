@@ -1,5 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
+import { rethrowKnownUniqueConflict } from '../application/system/prisma-unique-conflict';
+import { SAFE_USER_SELECT } from '../application/system/safe-user-projection';
 import {
   assertMutableRole,
   SYSTEM_SUPER_ADMIN_ROLE_CODE,
@@ -7,18 +9,6 @@ import {
 } from '../application/system/trust-root-guard';
 
 const ROLE_CODE_PATTERN = /^[A-Z][A-Z0-9_]{2,63}$/;
-
-const SAFE_NESTED_USER_SELECT = {
-  id: true,
-  username: true,
-  status: true,
-  employeeId: true,
-  lastLoginAt: true,
-  mustChangePassword: true,
-  passwordChangedAt: true,
-  createdAt: true,
-  updatedAt: true,
-} as const;
 
 export default class RoleController extends Controller {
   /**
@@ -75,7 +65,7 @@ export default class RoleController extends Controller {
           include: { permission: true },
         },
         userRoles: {
-          include: { user: { select: SAFE_NESTED_USER_SELECT } },
+          include: { user: { select: SAFE_USER_SELECT } },
         },
       },
     });
@@ -124,7 +114,7 @@ export default class RoleController extends Controller {
 
     const role = await ctx.prisma.role.create({
       data: { name: normalizedName, code: normalizedCode, type: 'BUSINESS', description },
-    });
+    }).catch(error => rethrowKnownUniqueConflict(error, ['name', 'code'], '角色名称或代码已存在'));
 
     ctx.body = {
       code: 200,

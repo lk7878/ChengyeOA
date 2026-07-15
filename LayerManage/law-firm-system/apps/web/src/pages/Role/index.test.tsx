@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import RolePage from './index';
 
@@ -34,10 +34,23 @@ test('creates a business role with the exact immutable uppercase code', async ()
   createMock.mockResolvedValue({ code: 200, data: {} });
   render(<RolePage />);
 
-  fireEvent.click(screen.getByRole('button', { name: /新建角色/ }));
-  fireEvent.change(await screen.findByLabelText('角色名称'), { target: { value: '业务律师' } });
-  fireEvent.change(screen.getByLabelText('角色代码'), { target: { value: 'BUSINESS_LAWYER' } });
-  fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+  await waitFor(() => expect(listMock).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /新建角色/ }));
+  });
+  const nameInput = await screen.findByLabelText('角色名称');
+  const codeInput = screen.getByLabelText('角色代码');
+  await act(async () => {
+    fireEvent.change(nameInput, { target: { value: '业务律师' } });
+    fireEvent.change(codeInput, { target: { value: 'BUSINESS_LAWYER' } });
+  });
+  await waitFor(() => {
+    expect(nameInput).toHaveValue('业务律师');
+    expect(codeInput).toHaveValue('BUSINESS_LAWYER');
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+  });
 
   await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
   expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -45,4 +58,6 @@ test('creates a business role with the exact immutable uppercase code', async ()
     code: 'BUSINESS_LAWYER',
     type: 'BUSINESS',
   }));
+  expect(screen.getByRole('dialog', { name: '角色信息' })).toHaveClass('ant-zoom-leave');
+  await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
 });

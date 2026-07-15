@@ -1,5 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
+import { SAFE_USER_SELECT } from '../application/system/safe-user-projection';
+import { assertMutableUser } from '../application/system/trust-root-guard';
 
 export default class EmployeeController extends Controller {
   /**
@@ -29,7 +31,7 @@ export default class EmployeeController extends Controller {
       include: {
         organization: true,
         position: true,
-        user: true,
+        user: { select: SAFE_USER_SELECT },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -62,7 +64,8 @@ export default class EmployeeController extends Controller {
         organization: true,
         position: true,
         user: {
-          include: {
+          select: {
+            ...SAFE_USER_SELECT,
             userRoles: {
               include: { role: true },
             },
@@ -187,7 +190,7 @@ export default class EmployeeController extends Controller {
     const employee = await ctx.prisma.employee.findUnique({
       where: { id },
       include: {
-        user: true,
+        user: { select: { id: true } },
         leads: true,
         cases: true,
       },
@@ -255,43 +258,44 @@ export default class EmployeeController extends Controller {
     const { id } = ctx.params;
     const { leaveDate } = ctx.request.body;
 
-    const employee = await ctx.prisma.employee.findUnique({
-      where: { id },
-      include: {
-        leads: { where: { status: { not: 'SIGNED' } } },
-        cases: { where: { status: { not: 'CLOSED' } } },
-      },
-    });
-    if (!employee) {
-      ctx.throw(404, '员工不存在');
-    }
-
-    if (employee.leads.length > 0) {
-      ctx.throw(400, '该员工有未完成的线索，请先交接');
-    }
-    if (employee.cases.length > 0) {
-      ctx.throw(400, '该员工有未结案的案件，请先交接');
-    }
-
-    const updated = await ctx.prisma.employee.update({
-      where: { id },
-      data: {
-        status: 'LEAVED',
-        leaveDate: leaveDate ? new Date(leaveDate) : new Date(),
-      },
-    });
-
-    // 禁用关联用户
-    const employeeWithUser = await ctx.prisma.employee.findUnique({
-      where: { id },
-      include: { user: true },
-    });
-    if (employeeWithUser?.user) {
-      await ctx.prisma.user.update({
-        where: { id: employeeWithUser.user.id },
-        data: { status: 'DISABLED' },
+    const updated = await ctx.prisma.$transaction(async tx => {
+      const employee = await tx.employee.findUnique({
+        where: { id },
+        include: {
+          user: { select: { id: true } },
+          leads: { where: { status: { not: 'SIGNED' } } },
+          cases: { where: { status: { not: 'CLOSED' } } },
+        },
       });
-    }
+      if (!employee) {
+        ctx.throw(404, '员工不存在');
+      }
+
+      if (employee.user) {
+        await assertMutableUser(tx, employee.user.id);
+      }
+      if (employee.leads.length > 0) {
+        ctx.throw(400, '该员工有未完成的线索，请先交接');
+      }
+      if (employee.cases.length > 0) {
+        ctx.throw(400, '该员工有未结案的案件，请先交接');
+      }
+
+      const leftEmployee = await tx.employee.update({
+        where: { id },
+        data: {
+          status: 'LEAVED',
+          leaveDate: leaveDate ? new Date(leaveDate) : new Date(),
+        },
+      });
+      if (employee.user) {
+        await tx.user.update({
+          where: { id: employee.user.id },
+          data: { status: 'DISABLED' },
+        });
+      }
+      return leftEmployee;
+    });
 
     ctx.body = {
       code: 200,

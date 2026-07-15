@@ -1,9 +1,9 @@
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 const PRIMARY_INITIALIZATION_ID = 'PRIMARY';
 export const SYSTEM_SUPER_ADMIN_ROLE_CODE = 'SYSTEM_SUPER_ADMIN';
 
-type TrustRootPrisma = PrismaClient | Prisma.TransactionClient;
+type TrustRootPrisma = Pick<Prisma.TransactionClient, 'systemInitialization' | 'role'>;
 
 export class TrustRootProtectedError extends Error {
   readonly status = 409;

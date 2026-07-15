@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { PrismaClient } from '@prisma/client';
 import mm from 'egg-mock';
@@ -17,6 +18,62 @@ let bearer: string;
 let rootOrganizationId: string;
 let superAdminUserId: string;
 let superAdminRoleId: string;
+
+async function createLinkedEmployee(userId?: string): Promise<{ employeeId: string; userId: string }> {
+  const position = await prisma.position.create({
+    data: {
+      name: `Test position ${randomUUID()}`,
+      orgId: rootOrganizationId,
+    },
+  });
+  const employee = await prisma.employee.create({
+    data: {
+      employeeNo: `EMP-${randomUUID()}`,
+      name: 'Linked employee',
+      phone: '13800000000',
+      type: 'ADMIN',
+      entryDate: new Date('2026-01-01T00:00:00.000Z'),
+      orgId: rootOrganizationId,
+      positionId: position.id,
+    },
+  });
+  const linkedUser = userId
+    ? await prisma.user.update({ where: { id: userId }, data: { employeeId: employee.id } })
+    : await prisma.user.create({
+      data: {
+        username: `employee.${randomUUID()}`,
+        password: 'sensitive-test-hash',
+        status: 'ENABLED',
+        employeeId: employee.id,
+      },
+    });
+  return { employeeId: employee.id, userId: linkedUser.id };
+}
+
+async function installInsertDelayTrigger(table: 'user' | 'role'): Promise<void> {
+  const functionName = `delay_${table}_insert_for_test`;
+  const triggerName = `${functionName}_trigger`;
+  await prisma.$executeRawUnsafe(`
+    CREATE FUNCTION ${functionName}() RETURNS trigger AS $$
+    BEGIN
+      PERFORM pg_sleep(0.25);
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TRIGGER ${triggerName}
+    BEFORE INSERT ON "${table}"
+    FOR EACH ROW EXECUTE FUNCTION ${functionName}()
+  `);
+}
+
+async function dropInsertDelayTrigger(table: 'user' | 'role'): Promise<void> {
+  const functionName = `delay_${table}_insert_for_test`;
+  const triggerName = `${functionName}_trigger`;
+  await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${triggerName} ON "${table}"`);
+  await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${functionName}()`);
+}
 
 async function bootstrapAuthenticatedTrustRoot(): Promise<void> {
   await new SystemBootstrapService(
@@ -60,11 +117,15 @@ test.before(async () => {
 });
 
 test.beforeEach(async () => {
+  await dropInsertDelayTrigger('user');
+  await dropInsertDelayTrigger('role');
   await clearTestApplicationData(prisma);
   await bootstrapAuthenticatedTrustRoot();
 });
 
 test.after(async () => {
+  await dropInsertDelayTrigger('user');
+  await dropInsertDelayTrigger('role');
   await clearTestApplicationData(prisma);
   await prisma.$disconnect();
   await app.close();
@@ -269,3 +330,183 @@ test('business roles require normalized immutable codes and remain mutable other
     .expect(400);
   assert.equal(invalid.body.message, 'ROLE_CODE_INVALID');
 });
+
+test('employee list and detail safely project a linked user without losing useful fields', async () => {
+  const linked = await createLinkedEmployee();
+  const role = await prisma.role.create({
+    data: { name: 'Employee role', code: 'EMPLOYEE_ROLE', type: 'BUSINESS' },
+  });
+  await prisma.userRole.create({ data: { userId: linked.userId, roleId: role.id } });
+
+  const list = await app.httpRequest()
+    .get('/api/v1/employees')
+    .set('Authorization', bearer)
+    .expect(200);
+  const detail = await app.httpRequest()
+    .get(`/api/v1/employees/${linked.employeeId}`)
+    .set('Authorization', bearer)
+    .expect(200);
+
+  assertNoPasswordProperty(list.body);
+  assertNoPasswordProperty(detail.body);
+  const listedEmployee = list.body.data.list.find((item: { id: string }) => item.id === linked.employeeId);
+  assert.equal(listedEmployee.user.id, linked.userId);
+  assert.match(listedEmployee.user.username, /^employee\./);
+  assert.equal(listedEmployee.user.status, 'ENABLED');
+  assert.equal(detail.body.data.user.id, linked.userId);
+  assert.equal(detail.body.data.user.userRoles[0].role.code, 'EMPLOYEE_ROLE');
+});
+
+test('employee leave cannot disable the protected first super-admin or mutate its employee', async () => {
+  const linked = await createLinkedEmployee(superAdminUserId);
+  const beforeEmployee = await prisma.employee.findUniqueOrThrow({ where: { id: linked.employeeId } });
+
+  const response = await app.httpRequest()
+    .post(`/api/v1/employees/${linked.employeeId}/leave`)
+    .set('Authorization', bearer)
+    .send({ leaveDate: '2026-07-15' })
+    .expect(409);
+
+  assertTrustRootProtected(response);
+  assert.deepEqual(await prisma.employee.findUniqueOrThrow({ where: { id: linked.employeeId } }), beforeEmployee);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: superAdminUserId } })).status, 'ENABLED');
+});
+
+test('normal employee leave updates the employee and linked user together', async () => {
+  const linked = await createLinkedEmployee();
+  const response = await app.httpRequest()
+    .post(`/api/v1/employees/${linked.employeeId}/leave`)
+    .set('Authorization', bearer)
+    .send({ leaveDate: '2026-07-15' })
+    .expect(200);
+
+  assert.equal(response.body.data.status, 'LEAVED');
+  const employee = await prisma.employee.findUniqueOrThrow({ where: { id: linked.employeeId } });
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: linked.userId } });
+  assert.equal(employee.status, 'LEAVED');
+  assert.equal(employee.leaveDate?.toISOString(), '2026-07-15T00:00:00.000Z');
+  assert.equal(user.status, 'DISABLED');
+});
+
+test('employee leave rolls back the employee update when linked user disable fails', async () => {
+  const linked = await createLinkedEmployee();
+  await prisma.$executeRawUnsafe(`
+    CREATE FUNCTION reject_user_disable_for_test() RETURNS trigger AS $$
+    BEGIN
+      IF NEW.status = 'DISABLED' THEN
+        RAISE EXCEPTION 'injected user disable failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TRIGGER reject_user_disable_for_test_trigger
+    BEFORE UPDATE ON "user"
+    FOR EACH ROW EXECUTE FUNCTION reject_user_disable_for_test()
+  `);
+
+  try {
+    await app.httpRequest()
+      .post(`/api/v1/employees/${linked.employeeId}/leave`)
+      .set('Authorization', bearer)
+      .send({ leaveDate: '2026-07-15' })
+      .expect(500);
+    const employee = await prisma.employee.findUniqueOrThrow({ where: { id: linked.employeeId } });
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: linked.userId } });
+    assert.equal(employee.status, 'PROBATION');
+    assert.equal(employee.leaveDate, null);
+    assert.equal(user.status, 'ENABLED');
+  } finally {
+    await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS reject_user_disable_for_test_trigger ON "user"');
+    await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS reject_user_disable_for_test()');
+  }
+});
+
+test('sequential duplicate user creation returns the stable username conflict', async () => {
+  const body = { username: 'duplicate.user', password: 'Duplicate-Horse-94!' };
+  await app.httpRequest().post('/api/v1/users').set('Authorization', bearer).send(body).expect(200);
+  const conflict = await app.httpRequest()
+    .post('/api/v1/users')
+    .set('Authorization', bearer)
+    .send({ ...body, username: '  DUPLICATE.USER  ' })
+    .expect(409);
+
+  assert.equal(conflict.body.message, '用户名已存在');
+  assertNoPasswordProperty(conflict.body);
+  assert.equal(await prisma.user.count({ where: { username: 'duplicate.user' } }), 1);
+});
+
+test('concurrent duplicate user creation maps the write-time unique race to stable 409', async () => {
+  await installInsertDelayTrigger('user');
+  try {
+    const requests = [1, 2].map(() => app.httpRequest()
+      .post('/api/v1/users')
+      .set('Authorization', bearer)
+      .send({ username: 'concurrent.user', password: 'Concurrent-Horse-94!' }));
+    const responses = await Promise.all(requests);
+
+    assert.deepEqual(responses.map(response => response.status).sort(), [200, 409]);
+    const conflict = responses.find(response => response.status === 409);
+    assert.ok(conflict);
+    assert.equal(conflict.body.message, '用户名已存在');
+    assertNoPasswordProperty(conflict.body);
+    assert.equal(JSON.stringify(conflict.body).includes('Prisma'), false);
+    assert.equal(await prisma.user.count({ where: { username: 'concurrent.user' } }), 1);
+  } finally {
+    await dropInsertDelayTrigger('user');
+  }
+});
+
+test('sequential duplicate role creation identifies both name and code conflicts', async () => {
+  await app.httpRequest()
+    .post('/api/v1/roles')
+    .set('Authorization', bearer)
+    .send({ name: 'Duplicate role', code: 'DUPLICATE_ROLE' })
+    .expect(200);
+  for (const body of [
+    { name: 'Duplicate role', code: 'OTHER_ROLE_CODE' },
+    { name: 'Other role name', code: 'duplicate_role' },
+  ]) {
+    const conflict = await app.httpRequest()
+      .post('/api/v1/roles')
+      .set('Authorization', bearer)
+      .send(body)
+      .expect(409);
+    assert.equal(conflict.body.message, '角色名称或代码已存在');
+  }
+});
+
+for (const duplicateField of ['name', 'code'] as const) {
+  test(`concurrent duplicate role ${duplicateField} maps the write-time unique race to stable 409`, async () => {
+    await installInsertDelayTrigger('role');
+    const bodies = duplicateField === 'name'
+      ? [
+        { name: 'Concurrent role', code: 'CONCURRENT_ROLE_A' },
+        { name: 'Concurrent role', code: 'CONCURRENT_ROLE_B' },
+      ]
+      : [
+        { name: 'Concurrent role A', code: 'CONCURRENT_ROLE' },
+        { name: 'Concurrent role B', code: 'concurrent_role' },
+      ];
+    try {
+      const responses = await Promise.all(bodies.map(body => app.httpRequest()
+        .post('/api/v1/roles')
+        .set('Authorization', bearer)
+        .send(body)));
+
+      assert.deepEqual(responses.map(response => response.status).sort(), [200, 409]);
+      const conflict = responses.find(response => response.status === 409);
+      assert.ok(conflict);
+      assert.equal(conflict.body.message, '角色名称或代码已存在');
+      assert.equal(JSON.stringify(conflict.body).includes('Prisma'), false);
+      assert.equal(await prisma.role.count({
+        where: duplicateField === 'name'
+          ? { name: 'Concurrent role' }
+          : { code: 'CONCURRENT_ROLE' },
+      }), 1);
+    } finally {
+      await dropInsertDelayTrigger('role');
+    }
+  });
+}

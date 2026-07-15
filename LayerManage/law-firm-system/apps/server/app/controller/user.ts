@@ -1,20 +1,10 @@
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
+import { rethrowKnownUniqueConflict } from '../application/system/prisma-unique-conflict';
+import { SAFE_USER_SELECT } from '../application/system/safe-user-projection';
 import { assertMutableRole, assertMutableUser } from '../application/system/trust-root-guard';
 import { BcryptPasswordHasher } from '../domain/security/password-hasher';
 import { normalizeUsername, validatePassword, validateUsername } from '../domain/security/password-policy';
-
-const SAFE_USER_SCALARS = {
-  id: true,
-  username: true,
-  status: true,
-  employeeId: true,
-  lastLoginAt: true,
-  mustChangePassword: true,
-  passwordChangedAt: true,
-  createdAt: true,
-  updatedAt: true,
-} as const;
 
 const passwordHasher = new BcryptPasswordHasher();
 
@@ -43,7 +33,7 @@ export default class UserController extends Controller {
       skip: (Number(page) - 1) * Number(pageSize),
       take: Number(pageSize),
       select: {
-        ...SAFE_USER_SCALARS,
+        ...SAFE_USER_SELECT,
         employee: {
           select: {
             id: true,
@@ -97,7 +87,7 @@ export default class UserController extends Controller {
     const user = await ctx.prisma.user.findUnique({
       where: { id },
       select: {
-        ...SAFE_USER_SCALARS,
+        ...SAFE_USER_SELECT,
         employee: {
           select: {
             id: true,
@@ -181,10 +171,10 @@ export default class UserController extends Controller {
         mustChangePassword: true,
       },
       select: {
-        ...SAFE_USER_SCALARS,
+        ...SAFE_USER_SELECT,
         employee: true,
       },
-    });
+    }).catch(error => rethrowKnownUniqueConflict(error, ['username'], '用户名已存在'));
 
     ctx.body = {
       code: 200,
@@ -217,7 +207,7 @@ export default class UserController extends Controller {
       where: { id },
       data: updateData,
       select: {
-        ...SAFE_USER_SCALARS,
+        ...SAFE_USER_SELECT,
         employee: true,
       },
     });
@@ -288,7 +278,7 @@ export default class UserController extends Controller {
       return tx.user.findUnique({
         where: { id },
         select: {
-          ...SAFE_USER_SCALARS,
+          ...SAFE_USER_SELECT,
           userRoles: { include: { role: true } },
         },
       });
