@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { message } from 'antd';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useAuthStore } from '@/stores/authStore';
 import { usePasswordChangeStore } from '@/stores/passwordChangeStore';
 import PasswordChange from './index';
@@ -12,6 +12,29 @@ vi.mock('@/api/auth', () => ({
   authApi: { forcePasswordChange: forcePasswordChangeMock },
 }));
 
+function observePasswordChangeUi() {
+  const exposure = { heading: false, form: false, password: false, confirmation: false };
+  const scan = (node: Node) => {
+    if (!(node instanceof Element)) return;
+    exposure.heading ||= Array.from(node.querySelectorAll('h2')).some(
+      (heading) => heading.textContent === '修改初始密码',
+    ) || (node.matches('h2') && node.textContent === '修改初始密码');
+    exposure.form ||= node.matches('form#password-change') || Boolean(node.querySelector('form#password-change'));
+    exposure.password ||= node.matches('[aria-label="新密码"]') || Boolean(node.querySelector('[aria-label="新密码"]'));
+    exposure.confirmation ||= node.matches('[aria-label="确认新密码"]') || Boolean(node.querySelector('[aria-label="确认新密码"]'));
+  };
+  const consume = (records: MutationRecord[]) => {
+    records.forEach((record) => record.addedNodes.forEach(scan));
+  };
+  const observer = new MutationObserver(consume);
+  observer.observe(document.body, { childList: true, subtree: true });
+  return () => {
+    consume(observer.takeRecords());
+    observer.disconnect();
+    return exposure;
+  };
+}
+
 beforeEach(() => {
   forcePasswordChangeMock.mockReset();
   useAuthStore.setState({ token: null, refreshToken: null, userInfo: null, isAuthenticated: false });
@@ -19,6 +42,10 @@ beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   vi.restoreAllMocks();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 function renderPage() {
@@ -109,11 +136,73 @@ test('rejects mismatched confirmation before calling the endpoint', async () => 
 
 test('page expiry clears memory and returns to login without calling the endpoint', async () => {
   usePasswordChangeStore.setState({ token: 'expired-token', expiresAt: Date.now() - 1 });
+  const stopObserving = observePasswordChangeUi();
+  const { container } = renderPage();
+
+  expect(stopObserving()).toEqual({ heading: false, form: false, password: false, confirmation: false });
+  expect(screen.queryByRole('heading', { name: '修改初始密码' })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('新密码')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('确认新密码')).not.toBeInTheDocument();
+  expect(container.querySelector('form#password-change')).toBeNull();
+  expect(await screen.findByRole('heading', { name: '登录页' })).toBeInTheDocument();
+  expect(usePasswordChangeStore.getState()).toMatchObject({ token: null, expiresAt: null });
+  expect(forcePasswordChangeMock).not.toHaveBeenCalled();
+});
+
+test('a short-lived token automatically clears and redirects exactly at expiry', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-07-15T08:00:00.000Z'));
+  usePasswordChangeStore.getState().begin('short-token', 1);
   renderPage();
+
+  expect(screen.getByRole('heading', { name: '修改初始密码' })).toBeInTheDocument();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+
+  expect(screen.getByRole('heading', { name: '登录页' })).toBeInTheDocument();
+  expect(usePasswordChangeStore.getState()).toMatchObject({ token: null, expiresAt: null });
+  expect(forcePasswordChangeMock).not.toHaveBeenCalled();
+});
+
+test('unmount cancels the scheduled expiry cleanup', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-07-15T08:00:00.000Z'));
+  usePasswordChangeStore.getState().begin('short-token', 1);
+  const page = renderPage();
+
+  page.unmount();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+
+  expect(usePasswordChangeStore.getState().token).toBe('short-token');
+  expect(forcePasswordChangeMock).not.toHaveBeenCalled();
+});
+
+test('expiry after render but before submit clears state and never calls the endpoint', async () => {
+  const error = vi.spyOn(message, 'error').mockImplementation(() => ({}) as never);
+  let now = 1000;
+  vi.spyOn(Date, 'now').mockImplementation(() => now);
+  usePasswordChangeStore.setState({ token: 'short-token', expiresAt: 100_000 });
+  renderPage();
+
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText('新密码'), { target: { value: 'Replacement-Horse-93!' } });
+    fireEvent.change(screen.getByLabelText('确认新密码'), { target: { value: 'Replacement-Horse-93!' } });
+    await Promise.resolve();
+  });
+  now = 100_001;
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: '确认修改' }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
 
   expect(await screen.findByRole('heading', { name: '登录页' })).toBeInTheDocument();
   expect(usePasswordChangeStore.getState()).toMatchObject({ token: null, expiresAt: null });
   expect(forcePasswordChangeMock).not.toHaveBeenCalled();
+  expect(error).toHaveBeenCalledWith('登录状态已失效，请重新登录');
 });
 
 test('back to login clears both password-change memory and any normal session storage', async () => {

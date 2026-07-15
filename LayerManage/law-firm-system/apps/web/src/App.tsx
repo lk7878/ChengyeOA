@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
 import { usePasswordChangeStore } from './stores/passwordChangeStore';
 import MainLayout from './components/Layout';
@@ -27,18 +27,26 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 };
 
 const PasswordChangeRoute: React.FC = () => {
+  const navigate = useNavigate();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const token = usePasswordChangeStore((state) => state.token);
   const expiresAt = usePasswordChangeStore((state) => state.expiresAt);
   const clear = usePasswordChangeStore((state) => state.clear);
+  // Route admission must reject expiry before protected UI can render.
+  // eslint-disable-next-line react-hooks/purity
+  const valid = Boolean(token && expiresAt && expiresAt > Date.now());
 
   useEffect(() => {
-    const expired = token !== null && (!expiresAt || expiresAt <= Date.now());
-    if (expired || isAuthenticated) clear();
-  }, [clear, expiresAt, isAuthenticated, token]);
+    if (isAuthenticated) {
+      clear();
+      navigate('/', { replace: true });
+    } else if (!valid) {
+      clear();
+      navigate('/login', { replace: true });
+    }
+  }, [clear, isAuthenticated, navigate, valid]);
 
-  if (isAuthenticated) return <Navigate to="/" replace />;
-  if (!token || !expiresAt) return <Navigate to="/login" replace />;
+  if (isAuthenticated || !valid) return null;
   return <PasswordChange />;
 };
 

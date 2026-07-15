@@ -34,20 +34,29 @@ const PasswordChange: React.FC = () => {
   const expiresAt = usePasswordChangeStore((state) => state.expiresAt);
   const clearPasswordChange = usePasswordChangeStore((state) => state.clear);
   const clearSession = useAuthStore((state) => state.clearSession);
+  // The form must never render from missing or expired memory state.
+  // eslint-disable-next-line react-hooks/purity
+  const valid = Boolean(token && expiresAt && expiresAt > Date.now());
 
   useEffect(() => {
-    if (!token || !expiresAt || expiresAt <= Date.now()) {
+    if (!valid) {
       clearPasswordChange();
       navigate('/login', { replace: true });
       return;
     }
 
+    const delay = (expiresAt ?? 0) - Date.now();
+    if (delay <= 0) {
+      clearPasswordChange();
+      navigate('/login', { replace: true });
+      return;
+    }
     const timeout = window.setTimeout(() => {
       clearPasswordChange();
       navigate('/login', { replace: true });
-    }, expiresAt - Date.now());
+    }, delay);
     return () => window.clearTimeout(timeout);
-  }, [clearPasswordChange, expiresAt, navigate, token]);
+  }, [clearPasswordChange, expiresAt, navigate, valid]);
 
   const returnToLogin = () => {
     clearPasswordChange();
@@ -90,7 +99,7 @@ const PasswordChange: React.FC = () => {
     }
   };
 
-  if (!token || !expiresAt) return null;
+  if (!valid) return null;
 
   return (
     <div

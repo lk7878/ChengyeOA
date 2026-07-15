@@ -14,6 +14,31 @@ type RequestInstance = Omit<AxiosInstance, 'delete' | 'get' | 'patch' | 'post' |
   put<T>(url: string, data?: unknown, config?: AppRequestConfig): Promise<T>;
 };
 
+type HeaderAccess = {
+  get?: (name: string) => unknown;
+  has?: (name: string) => boolean;
+  set?: (name: string, value: string) => unknown;
+};
+
+function hasExplicitAuthorization(headers: InternalAxiosRequestConfig['headers']): boolean {
+  const access = headers as HeaderAccess;
+  if (typeof access.has === 'function' && access.has('Authorization')) return true;
+  if (typeof access.get === 'function') {
+    const value = access.get('Authorization');
+    if (value !== null && value !== undefined) return true;
+  }
+  return Object.keys(headers).some((name) => name.toLowerCase() === 'authorization');
+}
+
+function setAuthorization(headers: InternalAxiosRequestConfig['headers'], value: string): void {
+  const access = headers as HeaderAccess;
+  if (typeof access.set === 'function') {
+    access.set('Authorization', value);
+    return;
+  }
+  (headers as unknown as Record<string, unknown>).Authorization = value;
+}
+
 const request = axios.create({
   baseURL: '/api',
   timeout: 10000,
@@ -26,8 +51,8 @@ const request = axios.create({
 request.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = localStorage.getItem('law_firm_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    if (token && !hasExplicitAuthorization(config.headers)) {
+      setAuthorization(config.headers, `Bearer ${token}`);
     }
     return config;
   },
