@@ -30,3 +30,36 @@ test('rejects invalid signatures and tokens missing required claims', () => {
   assert.throws(() => tokens.verify('not-a-token', ['access']), /TOKEN_INVALID/);
   assert.throws(() => tokens.verify(missingCredentialVersion, ['access']), /TOKEN_INVALID/);
 });
+
+test('rejects tokens signed with an unexpected algorithm', () => {
+  const tokens = new JwtTokenService(secret);
+  const hs512Token = jwt.sign(
+    { userId: 'user-1', tokenType: 'access', credentialVersion: 3 },
+    secret,
+    { algorithm: 'HS512', expiresIn: '1h' },
+  );
+
+  assert.throws(() => tokens.verify(hs512Token, ['access']), /TOKEN_INVALID/);
+});
+
+test('rejects correctly signed tokens without an expiration claim', () => {
+  const tokens = new JwtTokenService(secret);
+  const tokenWithoutExpiry = jwt.sign(
+    { userId: 'user-1', tokenType: 'access', credentialVersion: 3 },
+    secret,
+    { algorithm: 'HS256' },
+  );
+
+  assert.throws(() => tokens.verify(tokenWithoutExpiry, ['access']), /TOKEN_INVALID/);
+});
+
+test('rejects expired tokens signed with the expected algorithm', () => {
+  const tokens = new JwtTokenService(secret);
+  const expiredToken = jwt.sign(
+    { userId: 'user-1', tokenType: 'access', credentialVersion: 3 },
+    secret,
+    { algorithm: 'HS256', expiresIn: -1 },
+  );
+
+  assert.throws(() => tokens.verify(expiredToken, ['access']), /TOKEN_INVALID/);
+});

@@ -25,7 +25,20 @@ test('enforces the approved password policy', () => {
     ' password-92A!',
     'password-92A! ',
     'password-92A!\n',
+  ]) {
+    assert.throws(() => validatePassword(value, 'root.admin'), /PASSWORD_INVALID/);
+  }
+});
+
+test('rejects every mandated weak password case-insensitively', () => {
+  for (const value of [
     'password123',
+    'admin123456',
+    'qwerty123456',
+    '123456789012',
+    'chengye123456',
+    'chengyeoa123',
+    'QwErTy123456',
   ]) {
     assert.throws(() => validatePassword(value, 'root.admin'), /PASSWORD_INVALID/);
   }

@@ -10,6 +10,7 @@ export interface AuthTokenClaims extends jwt.JwtPayload {
 }
 
 const TOKEN_TYPES: ReadonlySet<TokenType> = new Set(['access', 'refresh', 'password_change']);
+const JWT_ALGORITHM = 'HS256';
 
 export class JwtTokenService {
   constructor(private readonly secret: string) {}
@@ -28,7 +29,7 @@ export class JwtTokenService {
 
   verify(token: string, allowedTypes: readonly TokenType[]): AuthTokenClaims {
     try {
-      const claims = jwt.verify(token, this.secret);
+      const claims = jwt.verify(token, this.secret, { algorithms: [JWT_ALGORITHM] });
       if (!this.hasRequiredClaims(claims)) {
         throw new SecurityError('TOKEN_INVALID', 401);
       }
@@ -48,13 +49,19 @@ export class JwtTokenService {
     tokenType: TokenType,
     expiresIn: jwt.SignOptions['expiresIn'],
   ): string {
-    return jwt.sign({ userId, credentialVersion, tokenType }, this.secret, { expiresIn });
+    return jwt.sign(
+      { userId, credentialVersion, tokenType },
+      this.secret,
+      { algorithm: JWT_ALGORITHM, expiresIn },
+    );
   }
 
   private hasRequiredClaims(claims: string | jwt.JwtPayload): claims is AuthTokenClaims {
     return typeof claims === 'object'
       && typeof claims.userId === 'string'
       && TOKEN_TYPES.has(claims.tokenType as TokenType)
-      && typeof claims.credentialVersion === 'number';
+      && typeof claims.credentialVersion === 'number'
+      && typeof claims.exp === 'number'
+      && Number.isFinite(claims.exp);
   }
 }
