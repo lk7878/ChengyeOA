@@ -28,6 +28,8 @@
     "db:studio": "prisma studio",
     "db:reset:test": "tsx scripts/db/reset-test-db.ts",
     "db:assert-empty": "tsx scripts/db/assert-empty-application-tables.ts",
+    "system:bootstrap": "tsx scripts/system/bootstrap-system.ts",
+    "super-admin:recover": "tsx scripts/system/recover-super-admin.ts",
     "check:baseline": "tsx scripts/ci/check-baseline-contract.ts",
     "check:gitleaks-semantics": "node scripts/ci/check-gitleaks-semantics.js",
     "migration:inventory": "tsx scripts/migration/cli.ts inventory",
