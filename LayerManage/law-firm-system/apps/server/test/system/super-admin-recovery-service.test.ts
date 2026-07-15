@@ -163,7 +163,7 @@ test('rejects reasons shorter than 10 or longer than 500 trimmed characters', as
     await bootstrap(prisma);
     const service = createRecoveryService(prisma);
 
-    for (const reason of ['short', 'x'.repeat(501)]) {
+    for (const reason of ['x'.repeat(9), 'x'.repeat(501)]) {
       await assert.rejects(() => service.execute({ ...recoveryInput, reason }), ValidationCommandError);
     }
 
@@ -240,6 +240,7 @@ test('recovers only the initialized super-admin, invalidates sessions, and recor
       targetUserId: before.id,
       reason: recoveryInput.reason,
       hostname: metadata.hostname,
+      result: 'SUCCESS',
     });
     assert.equal(audit.userId, null);
     assert.equal(audit.targetType, 'USER');

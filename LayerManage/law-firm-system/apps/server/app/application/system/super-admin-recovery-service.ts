@@ -87,6 +87,7 @@ export class SuperAdminRecoveryService {
           targetUserId: user.id,
           reason: normalizedInput.reason,
           hostname: this.metadata.hostname,
+          result: 'SUCCESS',
         }),
       });
 
