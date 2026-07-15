@@ -185,6 +185,29 @@ test('unknown, wrong-password, disabled, and locked logins share one safe HTTP r
   );
 });
 
+test('missing-user login performs one compare against the current versioned dummy hash', async () => {
+  const comparisons: Array<{ value: string; stored: string }> = [];
+  const recordingHasher: PasswordHasher = {
+    async hash(): Promise<string> {
+      throw new Error('hash is not used by this test');
+    },
+    async compare(value: string, stored: string): Promise<boolean> {
+      comparisons.push({ value, stored });
+      return false;
+    },
+  };
+  const service = new AuthenticationService(prisma, recordingHasher, new JwtTokenService(jwtSecret));
+
+  await assert.rejects(
+    service.login('missing.user', 'Candidate-Horse-92!', {}),
+    (error: unknown) => error instanceof SecurityError && error.code === 'AUTHENTICATION_FAILED',
+  );
+
+  assert.equal(comparisons.length, 1);
+  assert.equal(comparisons[0].value, 'Candidate-Horse-92!');
+  assert.match(comparisons[0].stored, /^chengye\$bcrypt-sha256\$v1\$\$2[aby]\$12\$/);
+});
+
 test('five wrong passwords atomically lock the user for fifteen minutes', async () => {
   const startedAt = Date.now();
   for (let attempt = 1; attempt <= 5; attempt += 1) {

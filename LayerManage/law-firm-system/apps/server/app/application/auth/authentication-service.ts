@@ -5,7 +5,7 @@ import { SecurityError } from '../../domain/security/security-errors';
 import { AuthTokenClaims, JwtTokenService, TokenType } from '../../domain/security/token-service';
 import { AuditWriter, writeAuditLog } from '../system/audit-writer';
 
-const DUMMY_PASSWORD_HASH = '$2a$12$C5uWbpLRuvFGG/pMcJzQZescRbcydM98mP6ZRJKLstKHtEls5h7yS';
+const DUMMY_PASSWORD_HASH = 'chengye$bcrypt-sha256$v1$$2a$12$qOeCc6HkVowb3pPphggWdeP1K0WB6I8VddCxCKgOspC5YUTOXmvR.';
 const LOCK_THRESHOLD = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000;
 
@@ -32,20 +32,13 @@ export interface RequestMetadata {
   userAgent?: string;
 }
 
-type LoginOutcome = 'SUCCESS' | 'FAILURE' | 'LOCKED';
-type LoginReason =
-  | 'UNKNOWN_USER'
-  | 'INVALID_PASSWORD'
-  | 'USER_DISABLED'
-  | 'ACCOUNT_LOCKED'
-  | 'CREDENTIAL_CHANGED';
-
 export class AuthenticationService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly hasher: PasswordHasher,
     private readonly tokens: JwtTokenService,
     private readonly auditWriter: AuditWriter = writeAuditLog,
+    private readonly clock: () => Date = () => new Date(),
   ) {}
 
   async login(username: string, password: string, metadata: RequestMetadata): Promise<LoginResult> {
@@ -81,17 +74,8 @@ export class AuthenticationService {
     }
 
     const passwordMatches = await this.hasher.compare(passwordValue, user.password);
-    const now = new Date();
-    if (user.status !== 'ENABLED') {
-      await this.recordKnownUserFailure(user.id, usernameSnapshot, 'FAILURE', 'USER_DISABLED', metadata);
-      throw authenticationFailed();
-    }
-    if (isLocked(user.lockedUntil, now)) {
-      await this.recordKnownUserFailure(user.id, usernameSnapshot, 'LOCKED', 'ACCOUNT_LOCKED', metadata);
-      throw authenticationFailed();
-    }
     if (!passwordMatches) {
-      await this.recordWrongPassword(user.id, usernameSnapshot, metadata, now);
+      await this.recordWrongPassword(user.id, usernameSnapshot, metadata);
       throw authenticationFailed();
     }
 
@@ -121,7 +105,8 @@ export class AuthenticationService {
         });
         return null;
       }
-      const locked = isLocked(current.lockedUntil, now);
+      const decisionTime = this.clock();
+      const locked = isLocked(current.lockedUntil, decisionTime);
       const credentialChanged = current.credentialVersion !== user.credentialVersion || current.password !== user.password;
       if (current.status !== 'ENABLED' || locked || credentialChanged) {
         await tx.loginLog.create({
@@ -142,7 +127,7 @@ export class AuthenticationService {
       }
       await tx.user.update({
         where: { id: current.id },
-        data: { lastLoginAt: now, failedLoginCount: 0, lockedUntil: null },
+        data: { lastLoginAt: decisionTime, failedLoginCount: 0, lockedUntil: null },
       });
       await tx.loginLog.create({
         data: {
@@ -194,7 +179,7 @@ export class AuthenticationService {
     if (
       !user
       || user.status !== 'ENABLED'
-      || isLocked(user.lockedUntil, new Date())
+      || isLocked(user.lockedUntil, this.clock())
       || user.credentialVersion !== claims.credentialVersion
       || (user.mustChangePassword && claims.tokenType !== 'password_change')
     ) {
@@ -218,7 +203,6 @@ export class AuthenticationService {
       throw new SecurityError('PASSWORD_REUSED');
     }
     const passwordHash = await this.hasher.hash(password);
-    const changedAt = new Date();
 
     await this.prisma.$transaction(async tx => {
       const [current] = await tx.$queryRaw<Array<{
@@ -233,6 +217,7 @@ export class AuthenticationService {
         WHERE "id" = ${claims.userId}
         FOR UPDATE
       `;
+      const changedAt = this.clock();
       if (
         !current
         || current.status !== 'ENABLED'
@@ -266,7 +251,6 @@ export class AuthenticationService {
     userId: string,
     usernameSnapshot: string,
     metadata: RequestMetadata,
-    now: Date,
   ): Promise<void> {
     await this.prisma.$transaction(async tx => {
       const [current] = await tx.$queryRaw<Array<{
@@ -291,13 +275,15 @@ export class AuthenticationService {
         });
         return;
       }
-      if (current.status !== 'ENABLED' || isLocked(current.lockedUntil, now)) {
+      const decisionTime = this.clock();
+      const lockedAtDecision = isLocked(current.lockedUntil, decisionTime);
+      if (current.status !== 'ENABLED' || lockedAtDecision) {
         await tx.loginLog.create({
           data: {
             user: { connect: { id: userId } },
             usernameSnapshot,
-            outcome: isLocked(current.lockedUntil, now) ? 'LOCKED' : 'FAILURE',
-            reasonCode: isLocked(current.lockedUntil, now) ? 'ACCOUNT_LOCKED' : 'USER_DISABLED',
+            outcome: lockedAtDecision ? 'LOCKED' : 'FAILURE',
+            reasonCode: lockedAtDecision ? 'ACCOUNT_LOCKED' : 'USER_DISABLED',
             ip: metadata.ip,
             userAgent: metadata.userAgent,
           },
@@ -311,7 +297,9 @@ export class AuthenticationService {
         where: { id: userId },
         data: {
           failedLoginCount,
-          lockedUntil: locked ? new Date(now.getTime() + LOCK_DURATION_MS) : current.lockedUntil,
+          lockedUntil: locked
+            ? new Date(decisionTime.getTime() + LOCK_DURATION_MS)
+            : current.lockedUntil,
         },
       });
       await tx.loginLog.create({
@@ -320,27 +308,6 @@ export class AuthenticationService {
           usernameSnapshot,
           outcome: locked ? 'LOCKED' : 'FAILURE',
           reasonCode: 'INVALID_PASSWORD',
-          ip: metadata.ip,
-          userAgent: metadata.userAgent,
-        },
-      });
-    });
-  }
-
-  private async recordKnownUserFailure(
-    userId: string,
-    usernameSnapshot: string,
-    outcome: LoginOutcome,
-    reasonCode: LoginReason,
-    metadata: RequestMetadata,
-  ): Promise<void> {
-    await this.prisma.$transaction(async tx => {
-      await tx.loginLog.create({
-        data: {
-          user: { connect: { id: userId } },
-          usernameSnapshot,
-          outcome,
-          reasonCode,
           ip: metadata.ip,
           userAgent: metadata.userAgent,
         },
