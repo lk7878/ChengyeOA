@@ -246,7 +246,58 @@ function identifierBinding(name: ts.BindingName): string | undefined {
   return ts.isIdentifier(name) ? name.text : undefined;
 }
 
-function callConsumesArgumentFlag(node: ts.CallExpression): boolean {
+function invocationLeafName(expression: ts.Expression): string {
+  const target = unwrapExpression(expression);
+  if (ts.isIdentifier(target)) return target.text;
+  if (ts.isPropertyAccessExpression(target)) return target.name.text;
+  if (ts.isElementAccessExpression(target)) return stringValue(target.argumentExpression) ?? '';
+  return '';
+}
+
+function namedProperty(node: ts.ObjectLiteralElementLike): string | undefined {
+  if (!('name' in node) || !node.name) return undefined;
+  return ts.isIdentifier(node.name) ? node.name.text : stringValue(node.name);
+}
+
+function passwordishOptionName(value: string): boolean {
+  const optionName = value.trim().replace(/^--?/, '').split(/[\s<=[,|]/, 1)[0];
+  const normalized = optionName.replace(/[^a-z0-9]/gi, '').toLowerCase();
+  return /(?:password|passwd|pwd)$/.test(normalized);
+}
+
+function parserOptionsHavePassword(node: ts.CallExpression, parserFunctions: ReadonlySet<string>): boolean {
+  if (!parserFunctions.has(invocationLeafName(node.expression))) return false;
+  return node.arguments.some(argument => {
+    if (!ts.isObjectLiteralExpression(argument)) return false;
+    const options = argument.properties.find(property => namedProperty(property) === 'options');
+    if (!options || !ts.isPropertyAssignment(options) || !ts.isObjectLiteralExpression(options.initializer)) {
+      return false;
+    }
+    return options.initializer.properties.some(property => {
+      const name = namedProperty(property);
+      return name !== undefined && passwordishOptionName(name);
+    });
+  });
+}
+
+function isParserResult(node: ts.Node, parserFunctions: ReadonlySet<string>): boolean {
+  if (ts.isCallExpression(node)) {
+    const name = invocationLeafName(node.expression);
+    return parserFunctions.has(name) || /^(?:option|requiredOption|options|opts|parse|parseSync|argv)$/i.test(name);
+  }
+  return (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))
+    && propertyName(node)?.toLowerCase() === 'argv';
+}
+
+function callConsumesArgumentFlag(node: ts.CallExpression, parserFunctions: ReadonlySet<string>): boolean {
+  if (parserOptionsHavePassword(node, parserFunctions)) return true;
+  const callName = invocationLeafName(node.expression);
+  if (/^(?:option|requiredOption|options)$/i.test(callName)) {
+    return node.arguments.some(argument => {
+      const value = stringValue(argument);
+      return value !== undefined && passwordishOptionName(value);
+    });
+  }
   const hasPasswordFlag = node.arguments.some(argument => {
     const value = stringValue(argument);
     if (value === undefined) return false;
@@ -265,6 +316,24 @@ function cliSourceHasPasswordSource(filePath: string): boolean {
   const parsed = sourceFile(filePath, read(filePath));
   const envAliases = new Set<string>();
   const argvAliases = new Set<string>();
+  const parserAliases = new Set<string>();
+  const parserFunctions = new Set(['parseArgs']);
+
+  const collectParserImports = (node: ts.Node) => {
+    if (ts.isImportDeclaration(node)
+      && ts.isStringLiteral(node.moduleSpecifier)
+      && ['node:util', 'util'].includes(node.moduleSpecifier.text)
+      && node.importClause?.namedBindings
+      && ts.isNamedImports(node.importClause.namedBindings)) {
+      for (const specifier of node.importClause.namedBindings.elements) {
+        if ((specifier.propertyName?.text ?? specifier.name.text) === 'parseArgs') {
+          parserFunctions.add(specifier.name.text);
+        }
+      }
+    }
+    ts.forEachChild(node, collectParserImports);
+  };
+  collectParserImports(parsed);
 
   let changed = true;
   while (changed) {
@@ -288,6 +357,11 @@ function cliSourceHasPasswordSource(filePath: string): boolean {
           argvAliases.add(name);
           changed = true;
         }
+        if (!parserAliases.has(name)
+          && expressionUsesSource(initializer, parserAliases, candidate => isParserResult(candidate, parserFunctions))) {
+          parserAliases.add(name);
+          changed = true;
+        }
       }
       ts.forEachChild(node, collectAliases);
     };
@@ -309,13 +383,22 @@ function cliSourceHasPasswordSource(filePath: string): boolean {
       && expressionUsesSource(node.initializer, argvAliases, isProcessArgv)) {
       forbidden = true;
     }
+    if ((ts.isVariableDeclaration(node) || ts.isParameter(node)) && node.initializer
+      && bindingSourceNames(node.name).some(passwordishOptionName)
+      && expressionUsesSource(
+        node.initializer,
+        parserAliases,
+        candidate => isParserResult(candidate, parserFunctions),
+      )) {
+      forbidden = true;
+    }
     if (ts.isElementAccessExpression(node)
       && ((ts.isIdentifier(node.expression) && argvAliases.has(node.expression.text))
         || isProcessArgv(node.expression))) {
       const value = stringValue(node.argumentExpression);
       if (value && PASSWORD_FLAG.test(value)) forbidden = true;
     }
-    if (ts.isCallExpression(node) && callConsumesArgumentFlag(node)) forbidden = true;
+    if (ts.isCallExpression(node) && callConsumesArgumentFlag(node, parserFunctions)) forbidden = true;
     ts.forEachChild(node, visit);
   };
   visit(parsed);
@@ -332,6 +415,48 @@ function invokedName(expression: ts.Expression): string {
     return `${invokedName(target.expression)}.${stringValue(target.argumentExpression) ?? ''}`;
   }
   return '';
+}
+
+const INTERACTIVE_SCRIPTS = new Set(['system:bootstrap', 'super-admin:recover']);
+const OUTPUT_INVOCATIONS = new Set([
+  'debug', 'dir', 'error', 'info', 'log', 'output', 'print', 'printf', 'table', 'trace', 'warn', 'write', 'writeline',
+]);
+const DISPATCH_INVOCATIONS = new Set(['dispatch', 'run']);
+const PROCESS_INVOCATIONS = new Set([
+  'command', 'exec', 'execfile', 'execfilesync', 'execsync', 'spawn', 'spawnsync', 'system',
+]);
+
+function literalStrings(node: ts.Node): string[] {
+  const direct = stringValue(node);
+  if (direct !== undefined) return [direct];
+  if (ts.isArrayLiteralExpression(node)) return node.elements.flatMap(literalStrings);
+  return [];
+}
+
+function commandLiteralInvokesInteractive(value: string): boolean {
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 1) return INTERACTIVE_SCRIPTS.has(tokens[0].toLowerCase());
+  const npmIndex = tokens.findIndex(token => ['npm', 'npm.cmd'].includes(token.toLowerCase()));
+  if (npmIndex === -1) return false;
+  const runIndex = tokens.findIndex(
+    (token, index) => index > npmIndex && ['run', 'run-script'].includes(token.toLowerCase()),
+  );
+  return runIndex !== -1
+    && tokens.slice(runIndex + 1).some(token => INTERACTIVE_SCRIPTS.has(token.toLowerCase()));
+}
+
+function invocationHasInteractiveLiteral(node: ts.CallExpression | ts.NewExpression): boolean {
+  const leafName = invocationLeafName(node.expression).toLowerCase();
+  if (OUTPUT_INVOCATIONS.has(leafName)) return false;
+  const argumentsList: readonly ts.Expression[] = node.arguments ?? [];
+  const literals = argumentsList.flatMap(literalStrings);
+  if (DISPATCH_INVOCATIONS.has(leafName)) {
+    return literals.some(value => INTERACTIVE_SCRIPTS.has(value.trim().toLowerCase())
+      || commandLiteralInvokesInteractive(value));
+  }
+  if (!PROCESS_INVOCATIONS.has(leafName)) return false;
+  return literals.some(commandLiteralInvokesInteractive)
+    || commandLiteralInvokesInteractive(literals.join(' '));
 }
 
 function startupInvokesSystemCommand(filePath: string): boolean {
@@ -379,8 +504,14 @@ function startupInvokesSystemCommand(filePath: string): boolean {
   let forbidden = false;
   const visit = (node: ts.Node) => {
     if (forbidden) return;
-    if (ts.isNewExpression(node) && isDangerousInvocation(invokedName(node.expression))) forbidden = true;
-    if (ts.isCallExpression(node) && isDangerousInvocation(invokedName(node.expression))) forbidden = true;
+    if (ts.isNewExpression(node)
+      && (isDangerousInvocation(invokedName(node.expression)) || invocationHasInteractiveLiteral(node))) {
+      forbidden = true;
+    }
+    if (ts.isCallExpression(node)
+      && (isDangerousInvocation(invokedName(node.expression)) || invocationHasInteractiveLiteral(node))) {
+      forbidden = true;
+    }
     ts.forEachChild(node, visit);
   };
   visit(parsed);

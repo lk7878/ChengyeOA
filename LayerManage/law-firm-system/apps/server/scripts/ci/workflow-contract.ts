@@ -116,7 +116,7 @@ function commandTokens(command: string): string[] {
       else current += character;
     } else if (character === "'" || character === '"') {
       quote = character;
-    } else if (/\s/.test(character)) {
+    } else if (/\s/.test(character) || character === ',') {
       push();
     } else {
       current += character;
@@ -127,7 +127,7 @@ function commandTokens(command: string): string[] {
 }
 
 function isOutputOnly(tokens: string[]): boolean {
-  return ['echo', 'printf', 'write-output'].includes(tokens[0]?.toLowerCase());
+  return ['echo', 'printf', 'write-host', 'write-output'].includes(tokens[0]?.toLowerCase());
 }
 
 const npmOptionsWithValues = new Set([
@@ -148,8 +148,11 @@ function skipNpmOptions(tokens: string[], start: number): number {
   return index;
 }
 
-function invokesInteractiveCommand(command: string): boolean {
-  const tokens = commandTokens(command);
+const interactiveScripts = new Set(['system:bootstrap', 'super-admin:recover']);
+const shells = new Set(['bash', 'sh', 'zsh']);
+const powershells = new Set(['powershell', 'powershell.exe', 'pwsh', 'pwsh.exe']);
+
+function npmInvokesInteractive(tokens: string[]): boolean {
   let executableIndex = tokens[0]?.toLowerCase() === 'env' ? 1 : 0;
   while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[executableIndex] ?? '')) executableIndex += 1;
   if (!['npm', 'npm.cmd'].includes(tokens[executableIndex]?.toLowerCase())) return false;
@@ -157,7 +160,95 @@ function invokesInteractiveCommand(command: string): boolean {
   let index = skipNpmOptions(tokens, executableIndex + 1);
   if (!['run', 'run-script'].includes(tokens[index]?.toLowerCase())) return false;
   index = skipNpmOptions(tokens, index + 1);
-  return ['system:bootstrap', 'super-admin:recover'].includes(tokens[index]?.toLowerCase());
+  return interactiveScripts.has(tokens[index]?.toLowerCase());
+}
+
+function startProcessCommand(tokens: string[]): string[] | undefined {
+  let executable: string | undefined;
+  const argumentsList: string[] = [];
+  for (let index = 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const lower = token.toLowerCase();
+    if (['-filepath', '-file'].includes(lower)) {
+      executable = tokens[index + 1];
+      index += 1;
+      continue;
+    }
+    if (['-argumentlist', '-args'].includes(lower)) {
+      index += 1;
+      while (index < tokens.length) {
+        argumentsList.push(tokens[index]);
+        index += 1;
+      }
+      index -= 1;
+      continue;
+    }
+    if (!token.startsWith('-') && executable === undefined) executable = token;
+  }
+  return executable ? [executable, ...argumentsList] : undefined;
+}
+
+function wrapperPayload(tokens: string[]): string | undefined {
+  const executable = tokens[0]?.toLowerCase();
+  if (shells.has(executable)) {
+    const optionIndex = tokens.findIndex((token, index) => index > 0 && /^-[a-z]*c[a-z]*$/i.test(token));
+    return optionIndex === -1 ? undefined : tokens.slice(optionIndex + 1).join(' ');
+  }
+  if (powershells.has(executable)) {
+    const optionIndex = tokens.findIndex((token, index) => index > 0
+      && ['-c', '-command', '-commandwithargs'].includes(token.toLowerCase()));
+    return optionIndex === -1 ? undefined : tokens.slice(optionIndex + 1).join(' ');
+  }
+  return undefined;
+}
+
+function tokensInvokeInteractive(tokens: string[], depth: number): boolean {
+  if (depth > 8 || tokens.length === 0 || isOutputOnly(tokens)) return false;
+  const executable = tokens[0].toLowerCase();
+
+  if (executable === 'command') {
+    let index = 1;
+    while (tokens[index]?.startsWith('-')) index += 1;
+    return tokensInvokeInteractive(tokens.slice(index), depth + 1);
+  }
+  if (executable === 'env') {
+    let index = 1;
+    while (index < tokens.length) {
+      const token = tokens[index];
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
+        index += 1;
+        continue;
+      }
+      if (['-u', '--unset', '-c', '--chdir'].includes(token.toLowerCase())) {
+        index += 2;
+        continue;
+      }
+      if (token.startsWith('-')) {
+        index += 1;
+        continue;
+      }
+      break;
+    }
+    return tokensInvokeInteractive(tokens.slice(index), depth + 1);
+  }
+  if (executable === 'start-process' || executable === 'start') {
+    const child = startProcessCommand(tokens);
+    return child ? tokensInvokeInteractive(child, depth + 1) : false;
+  }
+
+  const payload = wrapperPayload(tokens);
+  if (payload !== undefined) return invokesInteractiveCommandAtDepth(payload, depth + 1);
+  if (npmInvokesInteractive(tokens)) return true;
+  return tokens.slice(1).some(token => interactiveScripts.has(token.toLowerCase()));
+}
+
+function invokesInteractiveCommandAtDepth(command: string, depth: number): boolean {
+  if (depth > 8) return true;
+  return shellCommands(command).some(part => tokensInvokeInteractive(commandTokens(part), depth));
+}
+
+function invokesInteractiveCommand(command: string): boolean {
+  return invokesInteractiveCommandAtDepth(command, 0);
 }
 
 function enablesRecoveryInCommand(command: string): boolean {

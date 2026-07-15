@@ -296,6 +296,37 @@ test('rejects invocation through an aliased bootstrap service import', () => {
   ].join('\n')), 'startup invokes system commands');
 });
 
+for (const invocation of [
+  "run('system:bootstrap');",
+  'dispatch(`super-admin:recover`);',
+  "exec('npm run system:bootstrap');",
+  "spawn('npm --silent run super-admin:recover');",
+  "spawn('npm', ['run', 'system:bootstrap']);",
+  "new Command('npm run super-admin:recover');",
+]) {
+  test(`rejects startup dispatcher or process invocation ${invocation}`, () => {
+    assertOnlyIssue(fixture => fixture.write(
+      'apps/server/app.ts',
+      `${invocation}\n`,
+    ), 'startup invokes system commands');
+  });
+}
+
+test('allows startup command names in comments, imports, arbitrary strings, and output calls', () => {
+  withFixture(fixture => {
+    fixture.write('apps/server/app.ts', [
+      "import { run as importedRun } from './runner';",
+      '// run(`system:bootstrap`);',
+      "const example = 'npm run super-admin:recover';",
+      "logger.info('npm run system:bootstrap');",
+      "console.log('super-admin:recover');",
+      "dispatch('documentation for system:bootstrap');",
+      'export { importedRun, example };',
+    ].join('\n'));
+    assert.deepEqual(checkBootstrapContract(fixture.projectRoot), []);
+  });
+});
+
 test('rejects password command-line arguments in system CLIs', () => {
   assertOnlyIssue(fixture => fixture.write('apps/server/scripts/system/bootstrap-system.ts', "process.argv.includes('--admin-password');\n"), 'CLI accepts a password argument or environment variable');
 });
@@ -373,6 +404,55 @@ for (const optionSpec of [
     ), 'CLI accepts a password argument or environment variable');
   });
 }
+
+for (const [optionKey, importLine, parserName] of [
+  ['password', "import { parseArgs } from 'node:util';", 'parseArgs'],
+  ['adminPassword', "import { parseArgs as parseCliArgs } from 'node:util';", 'parseCliArgs'],
+] as const) {
+  test(`rejects node:util parseArgs password option key ${optionKey}`, () => {
+    assertOnlyIssue(fixture => fixture.write(
+      'apps/server/scripts/system/system-cli.ts',
+      `${importLine}\n${parserName}({ options: { ${optionKey}: { type: 'string' } } });\n`,
+    ), 'CLI accepts a password argument or environment variable');
+  });
+}
+
+for (const [parser, optionName] of [
+  ['yargs.option', 'password'],
+  ['program.option', 'admin-password'],
+  ['yargs.option', 'passwd'],
+  ['program.option', 'pwd'],
+  ['program.requiredOption', 'recovery_passwd'],
+  ['yargs.option', 'temporaryPwd'],
+] as const) {
+  test(`rejects parser option name ${optionName}`, () => {
+    assertOnlyIssue(fixture => fixture.write(
+      'apps/server/scripts/system/system-cli.ts',
+      `${parser}('${optionName}', { type: 'string' });\n`,
+    ), 'CLI accepts a password argument or environment variable');
+  });
+}
+
+test('rejects a parser result assigned to a password-ish variable', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    "const parsed = parseArgs({ options: { secret: { type: 'string' } } });\nconst recoveryPassword = parsed.values.secret;\n",
+  ), 'CLI accepts a password argument or environment variable');
+});
+
+test('rejects parser result destructuring of a password-ish property', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    'const { adminPassword: supplied } = program.opts();\n',
+  ), 'CLI accepts a password argument or environment variable');
+});
+
+test('rejects a Yargs argv result feeding a password-ish variable', () => {
+  assertOnlyIssue(fixture => fixture.write(
+    'apps/server/scripts/system/system-cli.ts',
+    'const parsed = yargs.argv;\nconst temporaryPassword = parsed.secret;\n',
+  ), 'CLI accepts a password argument or environment variable');
+});
 
 test('rejects positional argv assigned to a password variable', () => {
   assertOnlyIssue(fixture => fixture.write(

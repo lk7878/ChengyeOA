@@ -240,6 +240,76 @@ for (const [name, run] of [
   });
 }
 
+for (const [name, run] of [
+  ['command wrapper', 'command npm run system:bootstrap'],
+  ['quoted bash command', "bash -c 'npm run super-admin:recover'"],
+  ['quoted sh login command', 'sh -lc "npm --silent run system:bootstrap"'],
+  ['PowerShell command wrapper', 'pwsh -Command "npm run super-admin:recover"'],
+] as const) {
+  test(`workflow contract rejects interactive invocation through ${name}`, () => {
+    const fixture = workflowFixture(`${validAcceptanceSteps}      - name: forbidden wrapper
+        run: ${JSON.stringify(run)}
+`);
+
+    assert.deepEqual(checkWorkflowContract(fixture), [
+      'CI must not invoke interactive bootstrap or recovery commands',
+    ]);
+  });
+}
+
+test('workflow contract rejects PowerShell Start-Process npm argument lists', () => {
+  const fixture = workflowFixture(`${validAcceptanceSteps}      - name: forbidden process
+        shell: pwsh
+        run: Start-Process 'npm.cmd' -ArgumentList 'run','system:bootstrap'
+`);
+
+  assert.deepEqual(checkWorkflowContract(fixture), [
+    'CI must not invoke interactive bootstrap or recovery commands',
+  ]);
+});
+
+test('workflow contract rejects Start-Process argument lists containing npm options', () => {
+  const fixture = workflowFixture(`${validAcceptanceSteps}      - name: forbidden process options
+        shell: pwsh
+        run: Start-Process npm.cmd -ArgumentList '--prefix','LayerManage/law-firm-system','run','super-admin:recover'
+`);
+
+  assert.deepEqual(checkWorkflowContract(fixture), [
+    'CI must not invoke interactive bootstrap or recovery commands',
+  ]);
+});
+
+test('workflow contract recursively inspects env and zsh wrappers', () => {
+  const fixture = workflowFixture(`${validAcceptanceSteps}      - name: forbidden nested wrapper
+        run: env NODE_ENV=test zsh -c 'npm run system:bootstrap'
+`);
+
+  assert.deepEqual(checkWorkflowContract(fixture), [
+    'CI must not invoke interactive bootstrap or recovery commands',
+  ]);
+});
+
+test('workflow contract fails closed on an exact interactive script executable argument', () => {
+  const fixture = workflowFixture(`${validAcceptanceSteps}      - name: forbidden custom runner
+        run: custom-runner system:bootstrap
+`);
+
+  assert.deepEqual(checkWorkflowContract(fixture), [
+    'CI must not invoke interactive bootstrap or recovery commands',
+  ]);
+});
+
+test('workflow contract permits wrapped command text in output-only commands', () => {
+  const fixture = workflowFixture(`${validAcceptanceSteps}      - name: harmless output
+        shell: pwsh
+        run: |
+          echo "bash -c 'npm run system:bootstrap'"
+          Write-Output "Start-Process npm.cmd -ArgumentList run,super-admin:recover"
+`);
+
+  assert.deepEqual(checkWorkflowContract(fixture), []);
+});
+
 test('workflow contract rejects interactive commands in parsed literal and folded YAML scalars', () => {
   const fixture = workflowFixture(`${validAcceptanceSteps}      - name: literal
         run: |
