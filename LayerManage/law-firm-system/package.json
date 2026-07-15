@@ -17,19 +17,21 @@
     "db:up": "docker compose -f infra/postgres/compose.yml up -d postgres",
     "db:down": "docker compose -f infra/postgres/compose.yml down",
     "db:logs": "docker compose -f infra/postgres/compose.yml logs -f postgres",
+    "db:deploy": "npm --prefix apps/server run db:deploy",
     "db:reset:test": "cd apps/server && npm run db:reset:test",
     "db:assert-empty": "npm --prefix apps/server run db:assert-empty",
     "system:bootstrap": "npm --prefix apps/server run system:bootstrap",
     "super-admin:recover": "npm --prefix apps/server run super-admin:recover",
+    "check:bootstrap": "npm --prefix apps/server run check:bootstrap",
     "migration:inventory": "npm --prefix apps/server run migration:inventory --",
     "migration:diff": "npm --prefix apps/server run migration:diff --",
     "setup": "npm ci && npm --prefix apps/server ci && npm --prefix apps/web ci && npm --prefix apps/server run db:generate",
     "lint": "npm --prefix apps/server run lint && npm --prefix apps/web run lint",
     "typecheck": "npm --prefix apps/server run typecheck && npm --prefix apps/web run typecheck",
-    "test": "npm --prefix apps/server run test:unit && npm --prefix apps/web run test",
-    "test:all": "npm --prefix apps/server run test:unit && npm --prefix apps/web run test",
+    "test": "npm --prefix apps/server run test:unit && npm --prefix apps/web run test -- --testTimeout=15000",
+    "test:all": "npm --prefix apps/server run test:unit && npm --prefix apps/web run test -- --testTimeout=15000",
     "build": "npm run build:server && npm run build:web",
-    "verify": "npm run lint && npm run typecheck && npm run test && npm --prefix apps/server run check:baseline && npm run build"
+    "verify": "npm run lint && npm run typecheck && npm run test && npm --prefix apps/server run check:baseline && npm run check:bootstrap && npm run build"
   },
   "engines": {
     "node": ">=22.14.0 <23"

@@ -12,14 +12,13 @@
 Copy-Item apps\server\.env.example apps\server\.env
 npm.cmd run db:up
 npm.cmd run setup
-Set-Location apps\server
-npx.cmd prisma migrate deploy
-Set-Location ..\..
+npm.cmd run db:deploy
 npm.cmd run db:assert-empty
+npm.cmd run system:bootstrap
 npm.cmd run dev:server
 ```
 
-Configure the external `DATABASE_URL` only in `apps/server/.env`. `apps/server/prisma` is the canonical schema and migration directory. The baseline creates schema only; it has no login account.
+Configure the external `DATABASE_URL` only in `apps/server/.env`. `apps/server/prisma` is the canonical schema and migration directory. On a new empty database, deploy migrations, prove all application tables are empty, and run the interactive bootstrap exactly once. Enter the temporary password only through the hidden terminal prompts. Follow the first-login forced-change flow in `../../../docs/superpowers/runbooks/system-bootstrap-and-super-admin-recovery.md`.
 
 ## Test Database
 
@@ -31,4 +30,4 @@ npm.cmd run db:assert-empty
 npm.cmd run verify
 ```
 
-The reset is intentionally guarded. It recreates only the configured test database and applies canonical migrations. Do not create business records as part of baseline setup. First organization and administrator initialization requires a separate approved Spec.
+The reset is intentionally guarded. It recreates only the configured test database and applies canonical migrations. Do not create business records as part of baseline setup. Run interactive bootstrap only when a test scenario explicitly needs an initialized trust root, and reset the test database afterward.

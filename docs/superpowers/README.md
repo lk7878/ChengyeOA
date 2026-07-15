@@ -13,8 +13,9 @@ This directory holds the approved engineering decisions and operator records for
 | Database boundary | `adr/0002-postgresql-and-canonical-prisma.md` |
 | Local setup | `runbooks/local-development.md` |
 | Backup and restore | `runbooks/postgresql-backup-restore.md` |
+| System bootstrap and super-admin recovery | `runbooks/system-bootstrap-and-super-admin-recovery.md` |
 | Historical source audit | `runbooks/sqlite-to-postgresql-migration.md` |
 
-SPEC-001 local implementation is complete. Remote CI execution, dependency-security triage, and Inno Setup installer compilation remain release gates and are not recorded as passed. SPEC-002 is approved and planned but has not entered implementation.
+SPEC-001 local implementation is complete. Remote CI execution, dependency-security triage, and Inno Setup installer compilation remain release gates and are not recorded as passed. SPEC-002 implementation is under acceptance; it is not complete until automated verification and the manual interactive-TTY smoke test are both recorded.
 
 Never commit local environment files, database artifacts, backup files, audit exports, logs, or generated distributions.

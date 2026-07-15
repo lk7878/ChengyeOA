@@ -31,6 +31,52 @@ test('CI compares the migrated PostgreSQL database with the canonical Prisma sch
   assert.match(workflow, /working-directory: LayerManage\/law-firm-system\/apps\/server\s+run: npx prisma migrate diff --from-url "\$DATABASE_URL" --to-schema-datamodel prisma\/schema\.prisma --exit-code/);
 });
 
+test('CI preserves bootstrap verification and clean-database acceptance order', () => {
+  const workflow = fs.readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
+  const requiredSteps = [
+    'run: npx prisma migrate deploy',
+    'run: npm run db:assert-empty',
+    'run: npm run verify',
+    'run: npm run db:reset:test',
+    'run: npm run db:assert-empty',
+    'run: git diff --exit-code',
+  ];
+
+  let previousIndex = -1;
+  for (const step of requiredSteps) {
+    const currentIndex = workflow.indexOf(step, previousIndex + 1);
+    assert.notEqual(currentIndex, -1, `missing CI step: ${step}`);
+    assert.ok(currentIndex > previousIndex, `CI step is out of order: ${step}`);
+    previousIndex = currentIndex;
+  }
+
+  assert.doesNotMatch(workflow, /ALLOW_SUPER_ADMIN_RECOVERY:\s*['"]?true/i);
+  assert.doesNotMatch(workflow, /run:\s*(?:npm|npm\.cmd)\b[^\n]*(?:system:bootstrap|super-admin:recover)/i);
+});
+
+test('the verification runner serializes backend files that share the test database', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'apps', 'server', 'package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  const runnerPath = path.join(projectRoot, 'apps', 'server', 'scripts', 'ci', 'run-node-tests-serial.ts');
+
+  assert.equal(manifest.scripts['test:unit'], 'tsx scripts/ci/run-node-tests-serial.ts');
+  assert.ok(fs.existsSync(runnerPath), 'serial backend test runner is missing');
+  const runner = fs.readFileSync(runnerPath, 'utf8');
+  assert.match(runner, /discoverBackendTests/);
+  assert.match(runner, /['"]--test-concurrency=1['"]/);
+  assert.match(runner, /['"]--test-force-exit['"]/);
+});
+
+test('root verification gives web interaction tests a stable cross-runtime timeout', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+
+  assert.match(manifest.scripts.test, /apps\/web run test -- --testTimeout=15000/);
+  assert.match(manifest.scripts['test:all'], /apps\/web run test -- --testTimeout=15000/);
+});
+
 test('CI runs Gitleaks from an immutable scanner image with repository config', () => {
   const workflow = fs.readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
   const config = fs.readFileSync(path.join(repositoryRoot, '.gitleaks.toml'), 'utf8');

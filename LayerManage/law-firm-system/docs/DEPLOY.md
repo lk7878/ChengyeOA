@@ -6,16 +6,21 @@ Deploy with Node 22, npm, PostgreSQL 16, and an externally managed `DATABASE_URL
 
 ```powershell
 npm.cmd run setup
-Set-Location apps\server
-npx.cmd prisma migrate deploy
-Set-Location ..\..
-npm.cmd run db:assert-empty
+npm.cmd run db:deploy
 npm.cmd run verify
+```
+
+For the first deployment to a new database, take and verify a production backup or restore point before initialization, then run:
+
+```powershell
+npm.cmd run db:deploy
+npm.cmd run db:assert-empty
+npm.cmd run system:bootstrap
 ```
 
 `npm.cmd run setup` installs the root, server, and web lockfiles and generates Prisma Client for a clean checkout.
 
-Set runtime secrets and the database URL through the deployment environment, never through committed files. Apply the canonical migrations before starting the application. The empty baseline intentionally creates no organization, user, role, permission, or other business record.
+Set runtime secrets and the database URL through the deployment environment, never through committed files. Apply canonical migrations before starting the application. `db:assert-empty` is a first-initialization safety check and must not be run as an emptiness expectation after the system has been initialized. Enter the temporary password only through hidden interactive prompts and complete the first-login forced-change procedure in `../../../docs/superpowers/runbooks/system-bootstrap-and-super-admin-recovery.md`.
 
 Use the protected `db:reset:test` command only for test databases. Use the backup and restore rehearsal in `../../../docs/superpowers/runbooks/postgresql-backup-restore.md` for recovery validation. Deployment rollback must use PostgreSQL backups and reviewed migration procedures.
 

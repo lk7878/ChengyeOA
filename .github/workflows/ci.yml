@@ -26,6 +26,7 @@ jobs:
       DATABASE_URL: postgresql://chengye_test:chengye_test_local_only@localhost:5432/chengye_oa_test?schema=public
       DATABASE_URL_TEST: postgresql://chengye_test:chengye_test_local_only@localhost:5432/chengye_oa_test?schema=public
       ALLOW_TEST_DB_RESET: 'true'
+      ALLOW_SUPER_ADMIN_RECOVERY: 'false'
       JWT_SECRET: 01234567890123456789012345678901
       APP_KEYS: first-32-character-application-key,second-32-character-app-key
     steps:
@@ -57,7 +58,7 @@ jobs:
       - name: Assert empty application tables
         working-directory: LayerManage/law-firm-system
         run: npm run db:assert-empty
-      - name: Verify
+      - name: Verify repository and bootstrap contracts
         working-directory: LayerManage/law-firm-system
         run: npm run verify
       - name: Rebuild empty test database
