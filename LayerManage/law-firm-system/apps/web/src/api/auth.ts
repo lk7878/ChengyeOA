@@ -6,23 +6,32 @@ export interface LoginParams {
   password: string;
 }
 
-export interface LoginData {
-  token: string;
-  refreshToken: string;
-  expiresIn: number;
-  user: {
-    id: string;
-    username: string;
-    name: string;
-    roles: string[];
-    permissions: string[];
-  };
+export interface LoginUser {
+  id: string;
+  username: string;
+  name: string;
+  roles: string[];
+  permissions: string[];
 }
+
+export type LoginData =
+  | { mode: 'PASSWORD_CHANGE_REQUIRED'; passwordChangeToken: string; expiresIn: 300 }
+  | { mode: 'AUTHENTICATED'; token: string; refreshToken: string; expiresIn: number; user: LoginUser };
 
 export const authApi = {
   // 登录
   login: (params: LoginParams) =>
     request.post<ApiResponse<LoginData>>('/v1/auth/login', params),
+
+  forcePasswordChange: (token: string, password: string, confirmation: string) =>
+    request.post<ApiResponse<null>>(
+      '/v1/auth/password/forced-change',
+      { password, confirmation },
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        suppressGlobalError: true,
+      },
+    ),
 
   // 刷新Token
   refresh: (refreshToken: string) =>

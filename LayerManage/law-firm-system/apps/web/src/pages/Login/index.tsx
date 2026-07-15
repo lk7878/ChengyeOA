@@ -4,12 +4,14 @@ import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '@/api/auth';
 import { useAuthStore } from '@/stores/authStore';
+import { usePasswordChangeStore } from '@/stores/passwordChangeStore';
 
 const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const navigate = useNavigate();
-  const { setToken, setUserInfo } = useAuthStore();
+  const { setToken, setUserInfo, clearSession } = useAuthStore();
+  const beginPasswordChange = usePasswordChangeStore((state) => state.begin);
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
@@ -17,11 +19,17 @@ const Login: React.FC = () => {
     try {
       const res = await authApi.login(values);
       if (res.code === 200) {
-        const { token, refreshToken, user } = res.data;
-        setToken(token, refreshToken);
-        setUserInfo(user);
-        message.success('登录成功');
-        navigate('/');
+        if (res.data.mode === 'PASSWORD_CHANGE_REQUIRED') {
+          clearSession();
+          beginPasswordChange(res.data.passwordChangeToken, res.data.expiresIn);
+          navigate('/password-change');
+        } else {
+          const { token, refreshToken, user } = res.data;
+          setToken(token, refreshToken);
+          setUserInfo(user);
+          message.success('登录成功');
+          navigate('/');
+        }
       }
     } catch {
       setErrorMessage('登录失败，请重试');
@@ -43,7 +51,7 @@ const Login: React.FC = () => {
       <Spin spinning={loading}>
         <Card
           title={<h2 style={{ textAlign: 'center', margin: 0 }}>律所管理系统</h2>}
-          style={{ width: 400, borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
+          style={{ width: 'min(400px, calc(100vw - 32px))', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
         >
           <Form
             name="login"
@@ -63,14 +71,14 @@ const Login: React.FC = () => {
               name="username"
               rules={[{ required: true, message: '请输入用户名' }]}
             >
-              <Input prefix={<UserOutlined />} placeholder="用户名" />
+              <Input aria-label="用户名" prefix={<UserOutlined />} placeholder="用户名" />
             </Form.Item>
 
             <Form.Item
               name="password"
               rules={[{ required: true, message: '请输入密码' }]}
             >
-              <Input.Password prefix={<LockOutlined />} placeholder="密码" />
+              <Input.Password aria-label="密码" prefix={<LockOutlined />} placeholder="密码" />
             </Form.Item>
 
             <Form.Item>

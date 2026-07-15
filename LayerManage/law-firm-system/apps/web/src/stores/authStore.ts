@@ -18,6 +18,7 @@ interface AuthState {
   // Actions
   setToken: (token: string, refreshToken: string) => void;
   setUserInfo: (userInfo: UserInfo) => void;
+  clearSession: () => void;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
   hasAnyPermission: (permissions: string[]) => boolean;
@@ -41,10 +42,15 @@ export const useAuthStore = create<AuthState>()(
         set({ userInfo });
       },
 
-      logout: () => {
+      clearSession: () => {
         localStorage.removeItem('law_firm_token');
         localStorage.removeItem('law_firm_refresh_token');
         set({ token: null, refreshToken: null, userInfo: null, isAuthenticated: false });
+        localStorage.removeItem('auth-storage');
+      },
+
+      logout: () => {
+        get().clearSession();
         window.location.href = '/login';
       },
 

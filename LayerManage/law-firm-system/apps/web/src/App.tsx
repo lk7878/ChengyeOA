@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
+import { usePasswordChangeStore } from './stores/passwordChangeStore';
 import MainLayout from './components/Layout';
 import Login from './pages/Login';
+import PasswordChange from './pages/PasswordChange';
 import Dashboard from './pages/Dashboard';
 import CustomerPage from './pages/Customer';
 import ContractPage from './pages/Contract';
@@ -22,6 +24,22 @@ import PerformancePage from './pages/Performance';
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAuthStore();
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+};
+
+const PasswordChangeRoute: React.FC = () => {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const token = usePasswordChangeStore((state) => state.token);
+  const expiresAt = usePasswordChangeStore((state) => state.expiresAt);
+  const clear = usePasswordChangeStore((state) => state.clear);
+
+  useEffect(() => {
+    const expired = token !== null && (!expiresAt || expiresAt <= Date.now());
+    if (expired || isAuthenticated) clear();
+  }, [clear, expiresAt, isAuthenticated, token]);
+
+  if (isAuthenticated) return <Navigate to="/" replace />;
+  if (!token || !expiresAt) return <Navigate to="/login" replace />;
+  return <PasswordChange />;
 };
 
 // 包装布局的组件
@@ -45,6 +63,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/password-change" element={<PasswordChangeRoute />} />
         <Route path="/" element={<WithLayout><Dashboard /></WithLayout>} />
         <Route path="/leads" element={<WithLayout><LeadPage /></WithLayout>} />
         <Route path="/customers" element={<WithLayout><CustomerPage /></WithLayout>} />

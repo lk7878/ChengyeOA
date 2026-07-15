@@ -2,12 +2,16 @@
 import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 import { message } from 'antd';
 
+type AppRequestConfig = AxiosRequestConfig & {
+  suppressGlobalError?: boolean;
+};
+
 type RequestInstance = Omit<AxiosInstance, 'delete' | 'get' | 'patch' | 'post' | 'put'> & {
-  delete<T>(url: string, config?: AxiosRequestConfig): Promise<T>;
-  get<T>(url: string, config?: AxiosRequestConfig): Promise<T>;
-  patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>;
-  post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>;
-  put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>;
+  delete<T>(url: string, config?: AppRequestConfig): Promise<T>;
+  get<T>(url: string, config?: AppRequestConfig): Promise<T>;
+  patch<T>(url: string, data?: unknown, config?: AppRequestConfig): Promise<T>;
+  post<T>(url: string, data?: unknown, config?: AppRequestConfig): Promise<T>;
+  put<T>(url: string, data?: unknown, config?: AppRequestConfig): Promise<T>;
 };
 
 const request = axios.create({
@@ -43,7 +47,8 @@ request.interceptors.response.use(
     return data;
   },
   (error: AxiosError) => {
-    if (error.response) {
+    const suppressGlobalError = (error.config as AppRequestConfig | undefined)?.suppressGlobalError;
+    if (error.response && !suppressGlobalError) {
       const { status, data } = error.response as { status: number; data: { message?: string } };
       if (status === 401) {
         message.error('登录已过期，请重新登录');
@@ -59,7 +64,7 @@ request.interceptors.response.use(
       } else {
         message.error(data?.message || '服务器错误');
       }
-    } else {
+    } else if (!suppressGlobalError) {
       message.error('网络错误，请检查网络连接');
     }
     return Promise.reject(error);
