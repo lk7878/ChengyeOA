@@ -1,6 +1,7 @@
 # SEC-SPEC-001：依赖安全基线与供应链治理设计
 
-> 状态：待书面审核
+> 状态：已批准，进入 Implementation Plan
+> 批准日期：2026-07-16
 > 日期：2026-07-16
 > 适用项目：`LayerManage/law-firm-system`
 > 前置基线：SPEC-001、SPEC-002 已完成本地验收，Node.js 固定为 `22.14.0`

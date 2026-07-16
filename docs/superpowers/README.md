@@ -6,7 +6,8 @@ This directory holds the approved engineering decisions and operator records for
 | --- | --- |
 | Implemented baseline | `specs/2026-07-12-engineering-baseline-postgresql-migration-design.md` |
 | Approved SPEC-002 design | `specs/2026-07-15-system-bootstrap-super-admin-trust-root-design.md` |
-| Draft SEC-SPEC-001 dependency security design | `specs/2026-07-16-dependency-security-supply-chain-governance-design.md` |
+| Approved SEC-SPEC-001 dependency security design | `specs/2026-07-16-dependency-security-supply-chain-governance-design.md` |
+| SEC-SPEC-001 implementation plan | `plans/2026-07-16-dependency-security-supply-chain-governance-implementation.md` |
 | SPEC-002 implementation plan | `plans/2026-07-15-system-bootstrap-super-admin-trust-root-implementation.md` |
 | Completed implementation plan | `plans/2026-07-14-empty-postgresql-baseline-implementation.md` |
 | Closeout evidence | `reports/spec-001-closeout.md` |
@@ -17,6 +18,6 @@ This directory holds the approved engineering decisions and operator records for
 | System bootstrap and super-admin recovery | `runbooks/system-bootstrap-and-super-admin-recovery.md` |
 | Historical source audit | `runbooks/sqlite-to-postgresql-migration.md` |
 
-SPEC-001 and SPEC-002 local implementation and acceptance are complete. SEC-SPEC-001 is awaiting written review. Remote CI execution and Inno Setup installer compilation remain release gates and are not recorded as passed.
+SPEC-001 and SPEC-002 local implementation and acceptance are complete. SEC-SPEC-001 is approved and its implementation plan is ready; implementation has not started. Remote CI execution and Inno Setup installer compilation remain release gates and are not recorded as passed.
 
 Never commit local environment files, database artifacts, backup files, audit exports, logs, or generated distributions.
