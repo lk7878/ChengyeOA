@@ -430,6 +430,8 @@ Run: `cd LayerManage/law-firm-system/apps/server && npm install egg@3.34.0 egg-s
 
 Do not add an override unless the command leaves a production critical/high advisory. If that occurs, stop this task with evidence rather than forcing a framework-incompatible major; revise SEC-SPEC-001 before proceeding.
 
+Approval record (2026-07-17): the compatible refresh left `urllib 3.27.3 -> undici 5.29.0` as a production-high chain. The user approved the narrow `urllib@3.27.3` and `urllib-next` alias override to `undici 6.27.0`, subject to the complete compatibility verification in Step 4 and removal when upstream publishes a compatible safe release.
+
 - [ ] **Step 4: Run complete server verification and production gate**
 
 Run: `cd LayerManage/law-firm-system && node --test scripts/security/dependency-contract.test.mjs && npm --prefix apps/server run lint && npm --prefix apps/server run typecheck && npm --prefix apps/server run test:unit && npm --prefix apps/server run build && npm run security:audit:prod`
