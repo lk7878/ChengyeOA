@@ -2,7 +2,7 @@
 
 ## Status
 
-SEC-SPEC-001 is locally implemented and accepted on branch `codex/spec-003-dependency-security`. The initial measured implementation baseline is commit `f523c4b7c22fd983e99511c1d86cd13d90cbeadd`; final review hardening is commit `5eb4a2115b63ab472140ff285440e8b22892c0bb`. Acceptance used Node.js `22.14.0` and npm `10.9.2`. Remote GitHub Actions execution remains pending and is not recorded as passed.
+SEC-SPEC-001 is locally implemented and accepted on branch `codex/spec-003-dependency-security`. The initial measured implementation baseline is commit `f523c4b7c22fd983e99511c1d86cd13d90cbeadd`; final review hardening is recorded in commits `5eb4a2115b63ab472140ff285440e8b22892c0bb` and `170ee4fa192b262da727be0d8e3993381df3e7ff`. Acceptance used Node.js `22.14.0` and npm `10.9.2`. Remote GitHub Actions execution remains pending and is not recorded as passed.
 
 ## Security Outcome
 
@@ -44,7 +44,7 @@ npm run security:sbom
 npm run verify
 ```
 
-The final verification passed `359/359` server tests, `23/23` web tests, and `32/32` dependency-security tests. Baseline and bootstrap contracts passed, and server and web production builds completed. PostgreSQL acceptance reset `chengye_oa_test`, confirmed all application tables empty before verification, reset it again afterward, and confirmed all application tables empty.
+The final verification passed `359/359` server tests, `23/23` web tests, and `34/34` dependency-security tests. Baseline and bootstrap contracts passed, and server and web production builds completed. PostgreSQL acceptance reset `chengye_oa_test`, confirmed all application tables empty before verification, reset it again afterward, and confirmed all application tables empty.
 
 The web build retains a non-blocking chunk-size warning for the approximately 1.74 MB minified main bundle. Existing React Hook lint warnings also remain non-blocking; neither changes the security gates recorded here.
 
