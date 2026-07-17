@@ -1,0 +1,44 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "undici": {
+      "name": "undici",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1121244,
+          "name": "undici",
+          "dependency": "undici",
+          "url": "https://github.com/advisories/GHSA-vxpw-j846-p89q",
+          "severity": "high",
+          "range": "<6.27.0"
+        }
+      ],
+      "effects": ["urllib"],
+      "range": "<6.27.0",
+      "nodes": ["node_modules/undici"],
+      "fixAvailable": true
+    },
+    "urllib": {
+      "name": "urllib",
+      "severity": "high",
+      "isDirect": false,
+      "via": ["undici"],
+      "effects": ["egg"],
+      "range": "*",
+      "nodes": ["node_modules/urllib"],
+      "fixAvailable": true
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 2,
+      "critical": 0,
+      "total": 2
+    }
+  }
+}
