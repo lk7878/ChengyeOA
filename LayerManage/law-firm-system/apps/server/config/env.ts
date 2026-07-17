@@ -1,8 +1,11 @@
+import { parseCorsAllowedOrigins } from './cors';
+
 export interface AppEnvironment {
   nodeEnv: string;
   databaseUrl: string;
   jwtSecret: string;
   appKeys: string[];
+  corsAllowedOrigins: string[];
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -26,7 +29,8 @@ export function loadEnvironment(env: NodeJS.ProcessEnv = process.env): AppEnviro
     throw new Error('Production environment contains sample DATABASE_URL, JWT_SECRET, or APP_KEYS values');
   }
 
-  return { nodeEnv, databaseUrl, jwtSecret, appKeys };
+  const corsAllowedOrigins = parseCorsAllowedOrigins(env.CORS_ALLOWED_ORIGINS, nodeEnv);
+  return { nodeEnv, databaseUrl, jwtSecret, appKeys, corsAllowedOrigins };
 }
 
 export function loadProductionEnvironment(env: NodeJS.ProcessEnv = process.env): AppEnvironment {

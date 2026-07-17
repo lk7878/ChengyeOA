@@ -10,7 +10,16 @@ const valid = {
 };
 
 test('accepts a PostgreSQL development environment', () => {
-  assert.equal(loadEnvironment(valid).databaseUrl, valid.DATABASE_URL);
+  const loaded = loadEnvironment(valid);
+  assert.equal(loaded.databaseUrl, valid.DATABASE_URL);
+  assert.deepEqual(loaded.corsAllowedOrigins, ['http://localhost:3000']);
+});
+
+test('requires explicit CORS origins in production', () => {
+  assert.throws(() => loadEnvironment({
+    ...valid,
+    NODE_ENV: 'production',
+  }), /CORS_ALLOWED_ORIGINS/);
 });
 
 test('rejects SQLite URLs', () => {

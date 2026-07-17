@@ -36,3 +36,13 @@ test('web production dependency floors stay above remediated versions', () => {
   assertVersionAtLeast(lock.packages['node_modules/react-router-dom'].version, '7.18.1');
   assertVersionAtLeast(lock.packages['node_modules/react-router'].version, '7.18.1');
 });
+
+test('server uses the remediated CORS plugin and has no Egg JWT plugin chain', () => {
+  const manifest = JSON.parse(readFileSync(path.resolve(projectRoot, 'apps/server/package.json'), 'utf8'));
+  const lock = readLock('apps/server/package-lock.json');
+  assert.equal(manifest.dependencies['egg-jwt'], undefined);
+  assertVersionAtLeast(lock.packages['node_modules/egg-cors'].version, '3.0.1');
+  for (const key of Object.keys(lock.packages)) {
+    assert.doesNotMatch(key, /node_modules\/(?:egg-jwt|koa-jwt2|lodash\.set)$/);
+  }
+});

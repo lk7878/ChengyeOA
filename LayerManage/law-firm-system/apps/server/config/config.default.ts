@@ -1,6 +1,7 @@
-import { EggAppConfig, EggAppInfo, PowerPartial } from 'egg';
+import { Context, EggAppConfig, EggAppInfo, PowerPartial } from 'egg';
 import * as dotenv from 'dotenv';
 import { loadEnvironment } from './env';
+import { resolveCorsOrigin } from './cors';
 import { resolveRunDirectory, resolveStaticDirectory } from './static-path';
 
 // 加载环境变量
@@ -29,7 +30,7 @@ export default (appInfo: EggAppInfo) => {
 
   // CORS 配置
   config.cors = {
-    origin: '*',
+    origin: (ctx: Context) => resolveCorsOrigin(ctx.get('origin'), env.corsAllowedOrigins),
     allowMethods: 'GET,HEAD,PUT,POST,DELETE,PATCH',
     credentials: true,
   };

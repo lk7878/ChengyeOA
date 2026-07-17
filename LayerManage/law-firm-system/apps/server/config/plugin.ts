@@ -6,11 +6,6 @@ const plugin: EggPlugin = {
     enable: true,
     package: 'egg-cors',
   },
-  // JWT 认证
-  jwt: {
-    enable: true,
-    package: 'egg-jwt',
-  },
 };
 
 export default plugin;

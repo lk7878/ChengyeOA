@@ -42,8 +42,7 @@
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.5",
     "egg": "^3.17.0",
-    "egg-cors": "^2.2.3",
-    "egg-jwt": "^3.1.6",
+    "egg-cors": "^3.0.1",
     "egg-scripts": "^2.15.2",
     "jsonwebtoken": "^9.0.2"
   },
