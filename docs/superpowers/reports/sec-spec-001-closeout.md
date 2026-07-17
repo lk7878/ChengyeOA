@@ -2,7 +2,7 @@
 
 ## Status
 
-SEC-SPEC-001 is locally implemented and accepted on branch `codex/spec-003-dependency-security`. The measured implementation baseline is commit `f523c4b7c22fd983e99511c1d86cd13d90cbeadd`, using Node.js `22.14.0` and npm `10.9.2`. Remote GitHub Actions execution remains pending and is not recorded as passed.
+SEC-SPEC-001 is locally implemented and accepted on branch `codex/spec-003-dependency-security`. The initial measured implementation baseline is commit `f523c4b7c22fd983e99511c1d86cd13d90cbeadd`; final review hardening is commit `5eb4a2115b63ab472140ff285440e8b22892c0bb`. Acceptance used Node.js `22.14.0` and npm `10.9.2`. Remote GitHub Actions execution remains pending and is not recorded as passed.
 
 ## Security Outcome
 
@@ -21,6 +21,7 @@ Both production workspaces have zero `critical` and zero `high` findings. Both c
 - Server runtime was raised to Egg `3.34.0`, `egg-scripts 3.1.0`, `jsonwebtoken 9.0.3`, and `egg-cors 3.0.1`; the unused `egg-jwt` dependency and plugin were removed.
 - The `urllib 3.27.3` dependency paths are constrained to `undici 6.27.0`; the separate `urllib 4` path remains on its compatible newer `undici` line.
 - Credentialed CORS now reflects only normalized configured origins. Development defaults to the local web origin; production refuses startup without an explicit origin list. Wildcards, credentials in origins, non-HTTP protocols, paths, queries, and fragments are rejected.
+- Final review hardening binds `server` and `web` to their exact workspace paths, rejects every unresolved severe advisory chain, prevents future-dated exceptions from becoming active, and makes missing CI evidence a hard upload failure.
 
 ## Residual Exception
 
@@ -43,7 +44,7 @@ npm run security:sbom
 npm run verify
 ```
 
-The final verification passed `359/359` server tests, `23/23` web tests, and `30/30` dependency-security tests. Baseline and bootstrap contracts passed, and server and web production builds completed. PostgreSQL acceptance reset `chengye_oa_test`, confirmed all application tables empty before verification, reset it again afterward, and confirmed all application tables empty.
+The final verification passed `359/359` server tests, `23/23` web tests, and `32/32` dependency-security tests. Baseline and bootstrap contracts passed, and server and web production builds completed. PostgreSQL acceptance reset `chengye_oa_test`, confirmed all application tables empty before verification, reset it again afterward, and confirmed all application tables empty.
 
 The web build retains a non-blocking chunk-size warning for the approximately 1.74 MB minified main bundle. Existing React Hook lint warnings also remain non-blocking; neither changes the security gates recorded here.
 
