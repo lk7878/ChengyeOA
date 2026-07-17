@@ -291,6 +291,85 @@ const expectedAcceptance: ReadonlyArray<readonly [string, string | undefined]> =
   ['git diff --exit-code', undefined],
 ];
 
+const dependencySecurityContractIssue =
+  'CI dependency-security job must match the approved Node, install, audit, SBOM, and artifact contract';
+const dependencySecuritySafetyIssue =
+  'CI dependency-security job must not include repair commands, interactive commands, or database credentials';
+const projectDirectory = 'LayerManage/law-firm-system';
+
+function dependencySecurityJob(root: Record<string, unknown>): Record<string, unknown> | undefined {
+  return record(record(root.jobs)?.['dependency-security']);
+}
+
+function dependencySecurityStructureIsValid(root: Record<string, unknown>): boolean {
+  const job = dependencySecurityJob(root);
+  if (!job || job['runs-on'] !== 'ubuntu-latest' || job.needs !== undefined || !Array.isArray(job.steps)) {
+    return false;
+  }
+  const steps = job.steps.map(record);
+  if (steps.length !== 10 || steps.some(step => !step)) return false;
+
+  const checkout = steps[0]!;
+  const setup = steps[1]!;
+  const setupWith = record(setup.with);
+  const cachePaths = typeof setupWith?.['cache-dependency-path'] === 'string'
+    ? setupWith['cache-dependency-path'].split(/\r?\n/).map(item => item.trim()).filter(Boolean)
+    : [];
+  if (checkout.uses !== 'actions/checkout@v4'
+    || setup.uses !== 'actions/setup-node@v4'
+    || setupWith?.['node-version'] !== '22.14.0'
+    || setupWith.cache !== 'npm'
+    || JSON.stringify(cachePaths) !== JSON.stringify([
+      `${projectDirectory}/package-lock.json`,
+      `${projectDirectory}/apps/server/package-lock.json`,
+      `${projectDirectory}/apps/web/package-lock.json`,
+    ])) {
+    return false;
+  }
+
+  const expectedRuns: ReadonlyArray<readonly [string, string, string | undefined]> = [
+    ['npm ci', projectDirectory, undefined],
+    ['npm ci', `${projectDirectory}/apps/server`, undefined],
+    ['npm ci', `${projectDirectory}/apps/web`, undefined],
+    ['npm run security:policy:validate', projectDirectory, undefined],
+    ['npm run security:audit:prod', projectDirectory, undefined],
+    ['npm run security:audit:all', projectDirectory, 'always()'],
+    ['npm run security:sbom', projectDirectory, 'always()'],
+  ];
+  for (let index = 0; index < expectedRuns.length; index += 1) {
+    const step = steps[index + 2]!;
+    const [run, workingDirectory, condition] = expectedRuns[index];
+    if (step.run !== run
+      || step['working-directory'] !== workingDirectory
+      || step.if !== condition
+      || step.uses !== undefined) {
+      return false;
+    }
+  }
+
+  const upload = steps[9]!;
+  const uploadWith = record(upload.with);
+  return upload.uses === 'actions/upload-artifact@v4'
+    && upload.if === 'always()'
+    && upload.run === undefined
+    && uploadWith?.name === 'dependency-security-${{ github.sha }}'
+    && uploadWith.path === `${projectDirectory}/var/security`
+    && uploadWith['retention-days'] === 14;
+}
+
+function dependencySecurityIsSafe(root: Record<string, unknown>): boolean {
+  const job = dependencySecurityJob(root);
+  if (!job) return true;
+  const commands = Array.isArray(job.steps)
+    ? job.steps.map(record).flatMap(step => typeof step?.run === 'string' ? [step.run] : [])
+    : [];
+  const hasRepairCommand = commands.some(command => /\bnpm(?:\.cmd)?\s+audit\s+fix\b|(?:^|\s)--force(?:\s|$)/i.test(command));
+  const hasInteractiveCommand = commands.some(invokesInteractiveCommand);
+  const hasCredential = /DATABASE_URL(?:_TEST)?|POSTGRES_(?:DB|USER|PASSWORD)|JWT_SECRET|APP_KEYS/i
+    .test(JSON.stringify(job));
+  return !hasRepairCommand && !hasInteractiveCommand && !hasCredential;
+}
+
 export function checkWorkflowContract(source: string): string[] {
   const parsed = parseWorkflow(source);
   if (!parsed.valid || !parsed.root) return ['CI workflow YAML is invalid'];
@@ -306,6 +385,12 @@ export function checkWorkflowContract(source: string): string[] {
     issues.push(
       'CI verify job bootstrap acceptance steps must match exact commands, directories, order, and uniqueness',
     );
+  }
+  if (!dependencySecurityStructureIsValid(parsed.root)) {
+    issues.push(dependencySecurityContractIssue);
+  }
+  if (!dependencySecurityIsSafe(parsed.root)) {
+    issues.push(dependencySecuritySafetyIssue);
   }
 
   const commands = steps.flatMap(step => step.run ? shellCommands(step.run) : []);

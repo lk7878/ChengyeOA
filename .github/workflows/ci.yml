@@ -70,6 +70,49 @@ jobs:
       - name: Reject generated drift
         run: git diff --exit-code
 
+  dependency-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+          cache-dependency-path: |
+            LayerManage/law-firm-system/package-lock.json
+            LayerManage/law-firm-system/apps/server/package-lock.json
+            LayerManage/law-firm-system/apps/web/package-lock.json
+      - name: Install root dependencies
+        working-directory: LayerManage/law-firm-system
+        run: npm ci
+      - name: Install server dependencies
+        working-directory: LayerManage/law-firm-system/apps/server
+        run: npm ci
+      - name: Install web dependencies
+        working-directory: LayerManage/law-firm-system/apps/web
+        run: npm ci
+      - name: Validate dependency policy
+        working-directory: LayerManage/law-firm-system
+        run: npm run security:policy:validate
+      - name: Enforce production dependency gate
+        working-directory: LayerManage/law-firm-system
+        run: npm run security:audit:prod
+      - name: Enforce complete dependency gate
+        if: always()
+        working-directory: LayerManage/law-firm-system
+        run: npm run security:audit:all
+      - name: Generate CycloneDX SBOMs
+        if: always()
+        working-directory: LayerManage/law-firm-system
+        run: npm run security:sbom
+      - name: Upload dependency security evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-security-${{ github.sha }}
+          path: LayerManage/law-firm-system/var/security
+          retention-days: 14
+
   windows-package:
     runs-on: windows-latest
     steps:

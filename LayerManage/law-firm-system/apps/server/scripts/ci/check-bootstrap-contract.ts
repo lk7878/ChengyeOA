@@ -6,7 +6,7 @@ interface PackageManifest {
   scripts?: Record<string, unknown>;
 }
 
-const ROOT_VERIFY = 'npm run lint && npm run typecheck && npm run test && npm --prefix apps/server run check:baseline && npm run check:bootstrap && npm run build';
+const ROOT_VERIFY = 'npm run lint && npm run typecheck && npm run test && npm --prefix apps/server run check:baseline && npm run check:bootstrap && npm run build && npm run security:policy:validate';
 const ROUTER_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'all']);
 const PASSWORD_ENV_NAME = /^(?:PASSWORD|PASSWD|PWD|.+_(?:PASSWORD|PASSWD|PWD))$/i;
 const PASSWORD_FLAG = /^--(?:[a-z0-9]+-)*(?:password|passwd|pwd)$/i;

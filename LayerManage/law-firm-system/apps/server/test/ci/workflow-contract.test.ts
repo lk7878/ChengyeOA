@@ -35,7 +35,43 @@ test('CI compares the migrated PostgreSQL database with the canonical Prisma sch
   assert.match(workflow, /working-directory: LayerManage\/law-firm-system\/apps\/server\s+run: npx prisma migrate diff --from-url "\$DATABASE_URL" --to-schema-datamodel prisma\/schema\.prisma --exit-code/);
 });
 
-function workflowFixture(acceptanceSteps: string, extra = ''): string {
+const validDependencySecurityJob = `  dependency-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+          cache-dependency-path: |
+            LayerManage/law-firm-system/package-lock.json
+            LayerManage/law-firm-system/apps/server/package-lock.json
+            LayerManage/law-firm-system/apps/web/package-lock.json
+      - working-directory: LayerManage/law-firm-system
+        run: npm ci
+      - working-directory: LayerManage/law-firm-system/apps/server
+        run: npm ci
+      - working-directory: LayerManage/law-firm-system/apps/web
+        run: npm ci
+      - working-directory: LayerManage/law-firm-system
+        run: npm run security:policy:validate
+      - working-directory: LayerManage/law-firm-system
+        run: npm run security:audit:prod
+      - if: always()
+        working-directory: LayerManage/law-firm-system
+        run: npm run security:audit:all
+      - if: always()
+        working-directory: LayerManage/law-firm-system
+        run: npm run security:sbom
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-security-\${{ github.sha }}
+          path: LayerManage/law-firm-system/var/security
+          retention-days: 14
+`;
+
+function workflowFixture(acceptanceSteps: string, extra = '', includeSecurity = true): string {
   return `name: fixture
 jobs:
   verify:
@@ -43,7 +79,7 @@ jobs:
     env:
       ALLOW_SUPER_ADMIN_RECOVERY: 'false'
     steps:
-${acceptanceSteps}${extra}
+${acceptanceSteps}${extra}${includeSecurity ? validDependencySecurityJob : ''}
 `;
 }
 
@@ -77,13 +113,52 @@ test('workflow extractor reads literal and folded run blocks without treating co
           build
       # - run: npm run system:bootstrap
 `));
+  const verifySteps = steps.filter(step => step.job === 'verify');
 
-  assert.equal(steps.at(-2)?.run, 'npm run lint\nnpm run typecheck\n');
-  assert.equal(steps.at(-1)?.run, 'npm run build');
+  assert.equal(verifySteps.at(-2)?.run, 'npm run lint\nnpm run typecheck\n');
+  assert.equal(verifySteps.at(-1)?.run, 'npm run build');
 });
 
 test('workflow contract accepts the exact verify-job acceptance sequence', () => {
   assert.deepEqual(checkWorkflowContract(workflowFixture(validAcceptanceSteps)), []);
+});
+
+test('workflow contract requires the independent dependency-security job', () => {
+  assert.deepEqual(checkWorkflowContract(workflowFixture(validAcceptanceSteps, '', false)), [
+    'CI dependency-security job must match the approved Node, install, audit, SBOM, and artifact contract',
+  ]);
+});
+
+test('workflow contract rejects dependency-security command, retention, and Node drift', () => {
+  const fixtures = [
+    workflowFixture(validAcceptanceSteps).replace("node-version: '22.14.0'", "node-version: '22'"),
+    workflowFixture(validAcceptanceSteps).replace('run: npm run security:audit:prod', 'run: npm run security:audit:all'),
+    workflowFixture(validAcceptanceSteps).replace('retention-days: 14', 'retention-days: 7'),
+    workflowFixture(validAcceptanceSteps).replace('if: always()\n        uses: actions/upload-artifact@v4', 'uses: actions/upload-artifact@v4'),
+  ];
+
+  for (const fixture of fixtures) {
+    assert.deepEqual(checkWorkflowContract(fixture), [
+      'CI dependency-security job must match the approved Node, install, audit, SBOM, and artifact contract',
+    ]);
+  }
+});
+
+test('workflow contract rejects repair commands and credentials in dependency-security', () => {
+  const fixtures = [
+    workflowFixture(validAcceptanceSteps).replace('run: npm run security:audit:prod', 'run: npm audit fix --force'),
+    workflowFixture(validAcceptanceSteps).replace('run: npm run security:audit:prod', 'run: npm run system:bootstrap'),
+    workflowFixture(validAcceptanceSteps).replace(
+      '  dependency-security:\n    runs-on: ubuntu-latest\n    steps:',
+      '  dependency-security:\n    runs-on: ubuntu-latest\n    env: { DATABASE_URL: postgresql://example.invalid/db }\n    steps:',
+    ),
+  ];
+
+  for (const fixture of fixtures) {
+    assert.ok(checkWorkflowContract(fixture).includes(
+      'CI dependency-security job must not include repair commands, interactive commands, or database credentials',
+    ));
+  }
 });
 
 test('workflow comments, unrelated strings, and wrong-job commands cannot satisfy positives', () => {
@@ -216,6 +291,7 @@ jobs:
 ${validAcceptanceSteps}      - name: forbidden step env
         env: { 'ALLOW_SUPER_ADMIN_RECOVERY': '\${{ vars.RECOVERY }}' }
         run: echo ready
+${validDependencySecurityJob}
 `;
 
   assert.deepEqual(checkWorkflowContract(fixture), [
@@ -362,8 +438,10 @@ test('root verification uses the standard web test timeout', () => {
     scripts: Record<string, string>;
   };
 
-  assert.equal(manifest.scripts.test, 'npm --prefix apps/server run test:unit && npm --prefix apps/web run test');
-  assert.equal(manifest.scripts['test:all'], 'npm --prefix apps/server run test:unit && npm --prefix apps/web run test');
+  assert.equal(manifest.scripts.test, 'npm --prefix apps/server run test:unit && npm --prefix apps/web run test && npm run security:test');
+  assert.equal(manifest.scripts['test:all'], 'npm --prefix apps/server run test:unit && npm --prefix apps/web run test && npm run security:test');
+  assert.match(manifest.scripts.verify, /&& npm run security:policy:validate$/);
+  assert.doesNotMatch(manifest.scripts.verify, /security:audit|security:sbom/);
 });
 
 test('CI runs Gitleaks from an immutable scanner image with repository config', () => {

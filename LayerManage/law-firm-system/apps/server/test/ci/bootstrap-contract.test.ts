@@ -13,7 +13,7 @@ const validRootScripts = {
   'system:bootstrap': 'npm --prefix apps/server run system:bootstrap',
   'super-admin:recover': 'npm --prefix apps/server run super-admin:recover',
   'check:bootstrap': 'npm --prefix apps/server run check:bootstrap',
-  verify: 'npm run lint && npm run typecheck && npm run test && npm --prefix apps/server run check:baseline && npm run check:bootstrap && npm run build',
+  verify: 'npm run lint && npm run typecheck && npm run test && npm --prefix apps/server run check:baseline && npm run check:bootstrap && npm run build && npm run security:policy:validate',
 };
 
 const validServerScripts = {
