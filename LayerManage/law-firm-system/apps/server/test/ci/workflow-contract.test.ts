@@ -69,6 +69,7 @@ const validDependencySecurityJob = `  dependency-security:
           name: dependency-security-\${{ github.sha }}
           path: LayerManage/law-firm-system/var/security
           retention-days: 14
+          if-no-files-found: error
 `;
 
 function workflowFixture(acceptanceSteps: string, extra = '', includeSecurity = true): string {
@@ -134,6 +135,7 @@ test('workflow contract rejects dependency-security command, retention, and Node
     workflowFixture(validAcceptanceSteps).replace("node-version: '22.14.0'", "node-version: '22'"),
     workflowFixture(validAcceptanceSteps).replace('run: npm run security:audit:prod', 'run: npm run security:audit:all'),
     workflowFixture(validAcceptanceSteps).replace('retention-days: 14', 'retention-days: 7'),
+    workflowFixture(validAcceptanceSteps).replace('          if-no-files-found: error\n', ''),
     workflowFixture(validAcceptanceSteps).replace('if: always()\n        uses: actions/upload-artifact@v4', 'uses: actions/upload-artifact@v4'),
   ];
 

@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const WORKSPACES = new Set(['server', 'web']);
+const WORKSPACE_PATHS = new Map([
+  ['server', 'apps/server'],
+  ['web', 'apps/web'],
+]);
+const WORKSPACES = new Set(WORKSPACE_PATHS.keys());
 const SEVERITIES = ['critical', 'high', 'moderate', 'low'];
 const EXCEPTION_FIELDS = [
   'id',
@@ -96,7 +100,10 @@ export function validatePolicy(value) {
     if (!WORKSPACES.has(name)) fail(`unsupported workspace: ${name}`);
     if (names.has(name)) fail(`duplicate workspace: ${name}`);
     names.add(name);
-    relativePath(workspace.path, `workspace ${name}.path`);
+    const workspacePath = relativePath(workspace.path, `workspace ${name}.path`);
+    if (workspacePath !== WORKSPACE_PATHS.get(name)) {
+      fail(`workspace ${name}.path must be ${WORKSPACE_PATHS.get(name)}`);
+    }
   }
   if ([...WORKSPACES].some(name => !names.has(name))) fail('dependency policy must define server and web workspaces');
 
@@ -158,6 +165,7 @@ export function validateExceptions(value, policy, now = new Date()) {
     if ((expiresAt - createdAt) / DAY_MS > policy.maxDevelopmentExceptionDays) {
       fail(`exception lifetime must not exceed ${policy.maxDevelopmentExceptionDays} days`);
     }
+    if (createdAt > today) fail(`exception ${exception.id} has a future createdAt date`);
     if (expiresAt < today) fail(`exception ${exception.id} is expired`);
   }
 

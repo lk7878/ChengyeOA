@@ -354,7 +354,8 @@ function dependencySecurityStructureIsValid(root: Record<string, unknown>): bool
     && upload.run === undefined
     && uploadWith?.name === 'dependency-security-${{ github.sha }}'
     && uploadWith.path === `${projectDirectory}/var/security`
-    && uploadWith['retention-days'] === 14;
+    && uploadWith['retention-days'] === 14
+    && uploadWith['if-no-files-found'] === 'error';
 }
 
 function dependencySecurityIsSafe(root: Record<string, unknown>): boolean {

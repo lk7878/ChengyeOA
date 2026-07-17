@@ -62,6 +62,47 @@ export function normalizeFindings(reportValue) {
   const report = validateAuditReport(reportValue);
   const findings = new Map();
   const traversed = new Set();
+  const severeResolution = new Map();
+
+  const resolvesSevereAdvisory = (name, visiting = new Set()) => {
+    if (severeResolution.has(name)) return severeResolution.get(name);
+    if (visiting.has(name)) return false;
+    const vulnerability = report.vulnerabilities[name];
+    if (!vulnerability || typeof vulnerability !== 'object' || Array.isArray(vulnerability)) {
+      fail(`severe audit metadata cannot be tied to a concrete advisory: missing via ${name}`);
+    }
+    if (!Array.isArray(vulnerability.via)) fail(`audit vulnerability ${name} has invalid via data`);
+
+    const nextVisiting = new Set(visiting).add(name);
+    let resolved = false;
+    for (const via of vulnerability.via) {
+      if (typeof via === 'string') {
+        resolved = resolvesSevereAdvisory(via, nextVisiting) || resolved;
+        continue;
+      }
+      const advisory = record(via, `audit advisory for ${name}`);
+      if (!SEVERITIES.includes(advisory.severity)) {
+        fail(`audit advisory for ${name} has invalid severity`);
+      }
+      if (advisory.severity !== 'high' && advisory.severity !== 'critical') continue;
+      if (!advisoryId(advisory)
+        || !((typeof advisory.name === 'string' && advisory.name.length > 0)
+          || (typeof advisory.dependency === 'string' && advisory.dependency.length > 0))) {
+        fail(`severe audit vulnerability ${name} cannot be tied to a concrete advisory`);
+      }
+      resolved = true;
+    }
+    severeResolution.set(name, resolved);
+    return resolved;
+  };
+
+  for (const [name, vulnerability] of Object.entries(report.vulnerabilities)) {
+    if (vulnerability && typeof vulnerability === 'object' && !Array.isArray(vulnerability)
+      && (vulnerability.severity === 'high' || vulnerability.severity === 'critical')
+      && !resolvesSevereAdvisory(name)) {
+      fail(`severe audit vulnerability ${name} cannot be tied to a concrete advisory`);
+    }
+  }
 
   const visit = name => {
     if (traversed.has(name)) return;
@@ -71,6 +112,9 @@ export function normalizeFindings(reportValue) {
     if (!Array.isArray(vulnerability.via)) fail(`audit vulnerability ${name} has invalid via data`);
     for (const via of vulnerability.via) {
       if (typeof via === 'string') {
+        if (!Object.hasOwn(report.vulnerabilities, via)) {
+          fail(`audit vulnerability ${name} references missing via: ${via}`);
+        }
         visit(via);
         continue;
       }

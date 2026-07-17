@@ -62,6 +62,14 @@ test('rejects unknown policy fields and unsupported workspace definitions', () =
     ...validPolicy(),
     workspaces: [{ name: 'server', path: 'apps/server' }, { name: 'desktop', path: 'apps/desktop' }],
   }), /unsupported workspace/i);
+  assert.throws(() => validatePolicy({
+    ...validPolicy(),
+    workspaces: [{ name: 'server', path: 'apps/web' }, { name: 'web', path: 'apps/server' }],
+  }), /workspace server\.path/i);
+  assert.throws(() => validatePolicy({
+    ...validPolicy(),
+    workspaces: [{ name: 'server', path: 'apps/server' }, { name: 'web', path: 'apps/server' }],
+  }), /workspace web\.path/i);
 });
 
 test('rejects unknown exception fields, wildcards, and production scope', () => {
@@ -104,6 +112,11 @@ test('rejects expired, reversed, and overlong exception periods', () => {
     policy,
     new Date('2026-07-16T00:00:00Z'),
   ), /30 days/i);
+  assert.throws(() => validateExceptions(
+    document(validException({ createdAt: '2026-07-17', expiresAt: '2026-08-15' })),
+    policy,
+    new Date('2026-07-16T23:59:59Z'),
+  ), /future/i);
 });
 
 test('rejects duplicate identifiers and duplicate advisory entries', () => {

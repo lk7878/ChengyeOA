@@ -112,6 +112,7 @@ jobs:
           name: dependency-security-${{ github.sha }}
           path: LayerManage/law-firm-system/var/security
           retention-days: 14
+          if-no-files-found: error
 
   windows-package:
     runs-on: windows-latest

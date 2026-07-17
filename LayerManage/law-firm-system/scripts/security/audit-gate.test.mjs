@@ -140,3 +140,17 @@ test('fails when severe metadata cannot be tied to a concrete advisory', () => {
   report.vulnerabilities.vite.via = ['missing-child'];
   assert.throws(() => normalizeFindings(report), /concrete advisory/i);
 });
+
+test('fails when any severe advisory reference cannot be resolved', () => {
+  const report = structuredClone(fixture('development-high.json'));
+  report.vulnerabilities.vite.via.push('missing-child');
+  assert.throws(() => normalizeFindings(report), /missing-child/i);
+});
+
+test('fails when a severe advisory entry has no concrete identifier', () => {
+  const report = structuredClone(fixture('development-high.json'));
+  report.vulnerabilities.vite.via.push({
+    name: 'vite', severity: 'high', title: 'missing identifier',
+  });
+  assert.throws(() => normalizeFindings(report), /concrete advisory/i);
+});
