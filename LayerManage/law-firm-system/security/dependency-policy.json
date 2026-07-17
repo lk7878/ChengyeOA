@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "workspaces": [
+    {
+      "name": "server",
+      "path": "apps/server"
+    },
+    {
+      "name": "web",
+      "path": "apps/web"
+    }
+  ],
+  "gates": {
+    "production": {
+      "critical": "block",
+      "high": "block",
+      "moderate": "report",
+      "low": "report"
+    },
+    "development": {
+      "critical": "block",
+      "high": "exception",
+      "moderate": "report",
+      "low": "report"
+    }
+  },
+  "maxDevelopmentExceptionDays": 30,
+  "outputDirectory": "var/security"
+}

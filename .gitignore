@@ -25,6 +25,7 @@
 **/backups/
 
 /LayerManage/law-firm-system/apps/server/public/
+/LayerManage/law-firm-system/var/security/
 **/*.exe
 **/*.zip
 **/*.7z
