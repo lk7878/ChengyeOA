@@ -44,6 +44,11 @@ test('web production dependency floors stay above remediated versions', () => {
   assertVersionAtLeast(lock.packages['node_modules/react-router'].version, '7.18.1');
 });
 
+test('web development toolchain stays above the remediated Vite floor', () => {
+  const lock = readLock('apps/web/package-lock.json');
+  assertVersionAtLeast(lock.packages['node_modules/vite'].version, '8.1.4');
+});
+
 test('server uses the remediated CORS plugin and has no Egg JWT plugin chain', () => {
   const manifest = JSON.parse(readFileSync(path.resolve(projectRoot, 'apps/server/package.json'), 'utf8'));
   const lock = readLock('apps/server/package-lock.json');
@@ -67,4 +72,24 @@ test('server runtime dependency tree stays above remediated security floors', ()
   assert.ok(undici.length > 0, 'undici must remain visible to the lockfile contract');
   formData.forEach(([, value]) => assertVersionAtLeast(value.version, '4.0.6'));
   undici.forEach(([, value]) => assertUndiciVersionSafe(value.version));
+});
+
+test('the initial development exception is exact and time bounded', () => {
+  const document = JSON.parse(readFileSync(path.resolve(projectRoot, 'security/dependency-exceptions.json'), 'utf8'));
+  assert.deepEqual(document.exceptions, [
+    {
+      id: 'SEC-2026-001',
+      workspace: 'server',
+      package: 'serialize-javascript',
+      advisories: ['GHSA-5c6j-r48x-rmvq'],
+      scope: 'development',
+      reason: 'The current Egg test toolchain has no compatible upstream release that removes this advisory without a framework downgrade.',
+      mitigation: 'The package is restricted to local and CI test/build execution; production audit and runtime artifacts omit development dependencies.',
+      owner: 'platform-engineering',
+      approvedBy: 'system-super-admin',
+      createdAt: '2026-07-16',
+      expiresAt: '2026-08-15',
+      trackingRef: 'SEC-SPEC-001/serialize-javascript',
+    },
+  ]);
 });
