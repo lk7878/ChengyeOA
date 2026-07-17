@@ -96,9 +96,13 @@ export function normalizeFindings(reportValue) {
     return resolved;
   };
 
-  for (const [name, vulnerability] of Object.entries(report.vulnerabilities)) {
-    if (vulnerability && typeof vulnerability === 'object' && !Array.isArray(vulnerability)
-      && (vulnerability.severity === 'high' || vulnerability.severity === 'critical')
+  for (const [name, value] of Object.entries(report.vulnerabilities)) {
+    const vulnerability = record(value, `audit vulnerability ${name}`);
+    if (!SEVERITIES.includes(vulnerability.severity)) {
+      fail(`audit vulnerability ${name} has invalid severity`);
+    }
+    if (!Array.isArray(vulnerability.via)) fail(`audit vulnerability ${name} has invalid via data`);
+    if ((vulnerability.severity === 'high' || vulnerability.severity === 'critical')
       && !resolvesSevereAdvisory(name)) {
       fail(`severe audit vulnerability ${name} cannot be tied to a concrete advisory`);
     }
@@ -125,7 +129,11 @@ export function normalizeFindings(reportValue) {
         : typeof advisory.dependency === 'string' && advisory.dependency.length > 0
           ? advisory.dependency
           : undefined;
-      if (!id || !packageName || !SEVERITIES.includes(advisory.severity)) continue;
+      if (!SEVERITIES.includes(advisory.severity)) fail(`audit advisory for ${name} has invalid severity`);
+      if ((advisory.severity === 'high' || advisory.severity === 'critical') && (!id || !packageName)) {
+        fail(`severe audit vulnerability ${name} cannot be tied to a concrete advisory`);
+      }
+      if (!id || !packageName) continue;
       const finding = { package: packageName, advisory: id, severity: advisory.severity };
       findings.set(findingKey(finding), finding);
     }

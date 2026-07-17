@@ -154,3 +154,21 @@ test('fails when a severe advisory entry has no concrete identifier', () => {
   });
   assert.throws(() => normalizeFindings(report), /concrete advisory/i);
 });
+
+test('fails for a malformed severe advisory even when its parent is not severe', () => {
+  const report = structuredClone(fixture('development-high.json'));
+  report.vulnerabilities.broken = {
+    name: 'broken',
+    severity: 'moderate',
+    via: [{ name: 'broken', severity: 'high', title: 'missing identifier' }],
+  };
+  report.metadata.vulnerabilities.high = 2;
+  report.metadata.vulnerabilities.total = 2;
+  assert.throws(() => normalizeFindings(report), /concrete advisory/i);
+});
+
+test('fails when a vulnerability has an unsupported severity', () => {
+  const report = structuredClone(fixture('development-high.json'));
+  report.vulnerabilities.broken = { name: 'broken', severity: 'unknown', via: [] };
+  assert.throws(() => normalizeFindings(report), /invalid severity/i);
+});
