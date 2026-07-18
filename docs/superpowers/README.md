@@ -8,6 +8,8 @@ This directory holds the approved engineering decisions and operator records for
 | Approved SPEC-002 design | `specs/2026-07-15-system-bootstrap-super-admin-trust-root-design.md` |
 | Approved SPEC-003 organization and personnel design | `specs/2026-07-18-organization-personnel-master-data-design.md` |
 | SPEC-003 implementation plan | `plans/2026-07-18-organization-personnel-master-data-implementation.md` |
+| SPEC-004 authorization design pending approval | `specs/2026-07-18-rbac-data-scope-sensitive-permissions-design.md` |
+| SPEC-004 implementation plan pending approval | `plans/2026-07-18-rbac-data-scope-sensitive-permissions-implementation.md` |
 | SPEC-003 restart handoff | `handoffs/2026-07-18-spec-003-organization-personnel-handoff.md` |
 | SPEC-003 operations | `runbooks/organization-personnel-master-data.md` |
 | SPEC-003 closeout evidence | `reports/spec-003-closeout.md` |
