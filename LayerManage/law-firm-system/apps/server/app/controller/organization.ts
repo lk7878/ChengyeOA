@@ -1,210 +1,93 @@
-import { randomUUID } from 'node:crypto';
-import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
-import { assertDeletableOrganization } from '../application/system/trust-root-guard';
+import {
+  CreateOrganizationInput,
+  MoveOrganizationInput,
+  OrganizationService,
+  UpdateOrganizationInput,
+} from '../application/master-data/organization-service';
+import {
+  assertExactKeys,
+  normalizeAllowedValue,
+  normalizeName,
+  normalizeNonNegativeInteger,
+  normalizeRequiredText,
+  normalizeStableCode,
+  normalizeVersion,
+} from '../domain/master-data/master-data-validation';
 
 export default class OrganizationController extends Controller {
-  /**
-   * 组织列表
-   */
-  async index() {
-    const { ctx } = this;
-    const { type, status } = ctx.query;
-
-    const where: Prisma.OrganizationWhereInput = {};
-    if (type) where.type = type;
-    if (status) where.status = status;
-
-    const list = await ctx.prisma.organization.findMany({
-      where,
-      include: {
-        parent: true,
-        _count: {
-          select: { employees: true, positions: true },
-        },
-      },
-      orderBy: { sort: 'asc' },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: list,
-    };
-  }
-
-  /**
-   * 组织树
-   */
   async tree() {
     const { ctx } = this;
-
-    const orgs = await ctx.prisma.organization.findMany({
-      where: { status: 'ENABLED' },
-      include: {
-        _count: {
-          select: { employees: true },
-        },
-      },
-      orderBy: { sort: 'asc' },
-    });
-
-    const buildTree = (items: Prisma.OrganizationGetPayload<Record<never, never>>[], parentId: string | null = null): Prisma.OrganizationGetPayload<Record<never, never>>[] => {
-      return items
-        .filter(item => item.parentId === parentId)
-        .map(item => ({
-          ...item,
-          children: buildTree(items, item.id),
-        }));
-    };
-
-    const tree = buildTree(orgs);
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: tree,
-    };
+    const status = ctx.query.status === undefined
+      ? undefined
+      : normalizeAllowedValue(ctx.query.status, ['ENABLED', 'DISABLED'] as const);
+    this.respond(await this.organizationService().tree(status));
   }
 
-  /**
-   * 组织详情
-   */
   async show() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const org = await ctx.prisma.organization.findUnique({
-      where: { id },
-      include: {
-        parent: true,
-        children: true,
-        positions: true,
-        employees: {
-          include: {
-            position: true,
-          },
-        },
-      },
-    });
-
-    if (!org) {
-      ctx.throw(404, '组织不存在');
-    }
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: org,
-    };
+    this.respond(await this.organizationService().detail(this.ctx.params.id));
   }
 
-  /**
-   * 创建组织
-   */
   async create() {
-    const { ctx } = this;
-    const { code, name, type, parentId, sort = 0 } = ctx.request.body;
-
-    if (!code || !name || !type || !parentId) {
-      ctx.throw(400, '编码、名称、类型和上级组织不能为空');
-    }
-
-    const parent = await ctx.prisma.organization.findUnique({ where: { id: parentId } });
-    if (!parent) {
-      ctx.throw(404, '上级组织不存在');
-    }
-
-    const id = randomUUID();
-    const data: Prisma.OrganizationUncheckedCreateInput = {
-      id,
-      code,
-      name,
-      type,
-      parentId,
-      path: `${parent.path}/${id}`,
-      level: parent.level + 1,
-      sort,
-    };
-    const org = await ctx.prisma.organization.create({
-      data,
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '创建成功',
-      data: org,
-    };
+    this.respond(await this.organizationService().create(parseCreate(this.ctx.request.body)));
   }
 
-  /**
-   * 更新组织
-   */
   async update() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { name, type, parentId, sort, status } = ctx.request.body;
-
-    const org = await ctx.prisma.organization.findUnique({
-      where: { id },
-    });
-    if (!org) {
-      ctx.throw(404, '组织不存在');
-    }
-
-    const updateData: Prisma.OrganizationUncheckedUpdateInput = {};
-    if (name) updateData.name = name;
-    if (type) updateData.type = type;
-    if (parentId !== undefined) updateData.parentId = parentId;
-    if (sort !== undefined) updateData.sort = sort;
-    if (status) updateData.status = status;
-
-    const updated = await ctx.prisma.organization.update({
-      where: { id },
-      data: updateData,
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '更新成功',
-      data: updated,
-    };
+    this.respond(await this.organizationService().update(this.ctx.params.id, parseUpdate(this.ctx.request.body)));
   }
 
-  /**
-   * 删除组织
-   */
-  async destroy() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    await assertDeletableOrganization(ctx.prisma, id);
-    const org = await ctx.prisma.organization.findUnique({
-      where: { id },
-      include: {
-        children: true,
-        employees: true,
-      },
-    });
-    if (!org) {
-      ctx.throw(404, '组织不存在');
-    }
-
-    if (org.children.length > 0) {
-      ctx.throw(400, '该组织下有子组织，无法删除');
-    }
-    if (org.employees.length > 0) {
-      ctx.throw(400, '该组织下有员工，无法删除');
-    }
-
-    await ctx.prisma.organization.delete({
-      where: { id },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '删除成功',
-      data: null,
-    };
+  async move() {
+    this.respond(await this.organizationService().move(this.ctx.params.id, parseMove(this.ctx.request.body)));
   }
+
+  async disable() {
+    this.respond(await this.organizationService().disable(this.ctx.params.id, parseVersionCommand(this.ctx.request.body)));
+  }
+
+  async enable() {
+    this.respond(await this.organizationService().enable(this.ctx.params.id, parseVersionCommand(this.ctx.request.body)));
+  }
+
+  private organizationService(): OrganizationService {
+    return new OrganizationService(this.ctx.prisma, {
+      actorUserId: this.ctx.state.user.userId,
+      ip: this.ctx.ip,
+    });
+  }
+
+  private respond(data: unknown): void {
+    this.ctx.body = { code: 200, message: 'success', data };
+  }
+}
+
+function parseCreate(input: unknown): CreateOrganizationInput {
+  assertExactKeys(input, ['code', 'name', 'type', 'parentId', 'sort']);
+  return {
+    code: normalizeStableCode(input.code),
+    name: normalizeName(input.name),
+    type: normalizeAllowedValue(input.type, ['HQ_CENTER', 'DEPARTMENT', 'BRANCH', 'GROUP'] as const),
+    parentId: normalizeRequiredText(input.parentId, 1, 100),
+    sort: input.sort === undefined ? undefined : normalizeNonNegativeInteger(input.sort),
+  };
+}
+
+function parseUpdate(input: unknown): UpdateOrganizationInput {
+  assertExactKeys(input, ['name', 'sort', 'version']);
+  const parsed: UpdateOrganizationInput = { version: normalizeVersion(input.version) };
+  if (input.name !== undefined) parsed.name = normalizeName(input.name);
+  if (input.sort !== undefined) parsed.sort = normalizeNonNegativeInteger(input.sort);
+  return parsed;
+}
+
+function parseMove(input: unknown): MoveOrganizationInput {
+  assertExactKeys(input, ['parentId', 'version']);
+  return {
+    parentId: normalizeRequiredText(input.parentId, 1, 100),
+    version: normalizeVersion(input.version),
+  };
+}
+
+function parseVersionCommand(input: unknown): number {
+  assertExactKeys(input, ['version']);
+  return normalizeVersion(input.version);
 }

@@ -36,12 +36,13 @@ export default (app: Application) => {
   router.get('/api/v1/permissions/tree', controller.permission.tree);
 
   // 组织架构模块
-  router.get('/api/v1/organizations', controller.organization.index);
   router.get('/api/v1/organizations/tree', controller.organization.tree);
   router.get('/api/v1/organizations/:id', controller.organization.show);
   router.post('/api/v1/organizations', controller.organization.create);
-  router.put('/api/v1/organizations/:id', controller.organization.update);
-  router.delete('/api/v1/organizations/:id', controller.organization.destroy);
+  router.patch('/api/v1/organizations/:id', controller.organization.update);
+  router.post('/api/v1/organizations/:id/move', controller.organization.move);
+  router.post('/api/v1/organizations/:id/disable', controller.organization.disable);
+  router.post('/api/v1/organizations/:id/enable', controller.organization.enable);
 
   // 岗位模块
   router.get('/api/v1/positions', controller.position.index);

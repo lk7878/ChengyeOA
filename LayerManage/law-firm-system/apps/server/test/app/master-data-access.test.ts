@@ -83,7 +83,7 @@ test('rejects a disabled system super-admin role', async () => {
 test('allows an enabled system super-admin to reach the controller', async () => {
   const token = await tokenForRole({ code: 'SYSTEM_SUPER_ADMIN', type: 'SYSTEM', status: 'ENABLED' });
   const response = await app.httpRequest()
-    .get('/api/v1/organizations')
+    .get('/api/v1/organizations/tree')
     .set('Authorization', `Bearer ${token}`)
     .expect(200);
   assert.deepEqual(response.body.data, []);

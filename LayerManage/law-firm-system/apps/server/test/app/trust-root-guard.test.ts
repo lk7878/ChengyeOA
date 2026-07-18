@@ -243,19 +243,26 @@ test('cannot assign SYSTEM_SUPER_ADMIN through the mutable user-role endpoint', 
   assert.equal(await prisma.userRole.count({ where: { userId: user.id } }), 0);
 });
 
-test('cannot delete the current root organization but can update its name', async () => {
-  const deleteResponse = await app.httpRequest()
+test('exposes no physical organization delete and protects root disable while allowing rename', async () => {
+  await app.httpRequest()
     .delete(`/api/v1/organizations/${rootOrganizationId}`)
     .set('Authorization', bearer)
-    .expect(409);
-  assertTrustRootProtected(deleteResponse);
+    .expect(404);
+  assert.ok(await prisma.organization.findUnique({ where: { id: rootOrganizationId } }));
 
   const updateResponse = await app.httpRequest()
-    .put(`/api/v1/organizations/${rootOrganizationId}`)
+    .patch(`/api/v1/organizations/${rootOrganizationId}`)
     .set('Authorization', bearer)
-    .send({ name: 'Renamed Test Firm' })
+    .send({ name: 'Renamed Test Firm', version: 1 })
     .expect(200);
   assert.equal(updateResponse.body.data.name, 'Renamed Test Firm');
+
+  const disableResponse = await app.httpRequest()
+    .post(`/api/v1/organizations/${rootOrganizationId}/disable`)
+    .set('Authorization', bearer)
+    .send({ version: 2 })
+    .expect(409);
+  assertTrustRootProtected(disableResponse);
 });
 
 test('legacy organization creation derives a valid materialized path during the expand phase', async () => {

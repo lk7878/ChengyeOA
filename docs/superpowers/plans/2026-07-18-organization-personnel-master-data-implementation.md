@@ -440,7 +440,7 @@ git commit -m "feat(server): secure master data foundations"
 - Produces: `OrganizationService.create/update/move/disable/enable/tree/detail`.
 - Uses: Task 2 errors, validators, and audit writer.
 
-- [ ] **Step 1: Write failing hierarchy policy tests**
+- [x] **Step 1: Write failing hierarchy policy tests**
 
 ```ts
 assert.equal(canParent('FIRM', 'BRANCH'), true);
@@ -451,11 +451,11 @@ assert.equal(isDescendantPath('/root/branch/department', '/root/branch'), true);
 assert.equal(rebasePath('/root/a', '/root/a/b/c', '/root/x'), '/root/x/b/c');
 ```
 
-- [ ] **Step 2: Run policy tests and confirm RED**
+- [x] **Step 2: Run policy tests and confirm RED**
 
 Expected: module not found.
 
-- [ ] **Step 3: Implement the complete hierarchy policy**
+- [x] **Step 3: Implement the complete hierarchy policy**
 
 ```ts
 const ALLOWED_PARENTS: Record<OrganizationType, ReadonlySet<OrganizationType>> = {
@@ -470,11 +470,11 @@ export const isDescendantPath = (candidate: string, ancestor: string) => candida
 export const rebasePath = (oldRoot: string, descendant: string, newRoot: string) => `${newRoot}${descendant.slice(oldRoot.length)}`;
 ```
 
-- [ ] **Step 4: Write failing PostgreSQL service tests**
+- [x] **Step 4: Write failing PostgreSQL service tests**
 
 Cover create department/branch, duplicate code race, second FIRM rejection, invalid parent type, move subtree path/level updates, cycle rejection, root move/disable rejection, disabled ancestor enable rejection, active child/position/assignment disable rejection, version conflict, deterministic tree ordering, and audit rollback injection.
 
-- [ ] **Step 5: Implement OrganizationService transactions**
+- [x] **Step 5: Implement OrganizationService transactions**
 
 Use explicit input and result types:
 
@@ -496,7 +496,7 @@ export class OrganizationService {
 
 Create IDs in the service, derive `path` and `level`, lock moved rows using `SELECT ... FOR UPDATE`, update descendants with version increments, and use `updateMany({ where: { id, version } })` for optimistic actions. Map every unique organization code race to `MASTER_DATA_CODE_CONFLICT`.
 
-- [ ] **Step 6: Replace controller and routes**
+- [x] **Step 6: Replace controller and routes**
 
 Controller methods only parse, call, and map the standard response. Register exactly:
 
@@ -512,7 +512,7 @@ router.post('/api/v1/organizations/:id/enable', controller.organization.enable);
 
 Remove the organization physical delete route.
 
-- [ ] **Step 7: Verify and commit locally**
+- [x] **Step 7: Verify and commit locally**
 
 Run the two new tests plus trust-root guard tests, lint, and typecheck. Commit:
 
