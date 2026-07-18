@@ -1,127 +1,87 @@
-import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
+import {
+  CreatePositionInput,
+  PositionService,
+  UpdatePositionInput,
+} from '../application/master-data/position-service';
+import {
+  assertExactKeys,
+  normalizeAllowedValue,
+  normalizeName,
+  normalizeNonNegativeInteger,
+  normalizeOptionalText,
+  normalizeRequiredText,
+  normalizeStableCode,
+  normalizeVersion,
+} from '../domain/master-data/master-data-validation';
 
 export default class PositionController extends Controller {
   async index() {
-    const { ctx } = this;
-    const { orgId } = ctx.query;
-
-    const where: Prisma.PositionWhereInput = {};
-    if (orgId) where.organizationId = orgId;
-
-    const list = await ctx.prisma.position.findMany({
-      where,
-      include: {
-        organization: true,
-        _count: { select: { employees: true } },
-      },
-      orderBy: { level: 'desc' },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: list,
-    };
+    const { organizationId, status, keyword } = this.ctx.query;
+    this.respond(await this.positionService().list({
+      organizationId: organizationId === undefined ? undefined : normalizeRequiredText(organizationId, 1, 100),
+      status: status === undefined ? undefined : normalizeAllowedValue(status, ['ENABLED', 'DISABLED'] as const),
+      keyword: keyword === undefined ? undefined : normalizeRequiredText(keyword, 1, 100),
+    }));
   }
 
   async show() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const position = await ctx.prisma.position.findUnique({
-      where: { id },
-      include: {
-        organization: true,
-        employees: {
-          where: { status: 'FORMAL' },
-        },
-      },
-    });
-
-    if (!position) {
-      ctx.throw(404, '岗位不存在');
-    }
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: position,
-    };
+    this.respond(await this.positionService().detail(this.ctx.params.id));
   }
 
   async create() {
-    const { ctx } = this;
-    const { name, orgId, organizationId = orgId, code, categoryCode, level, responsibilities } = ctx.request.body;
-
-    if (!name || !organizationId || !code || !categoryCode) {
-      ctx.throw(400, '名称、组织、编码和岗位分类不能为空');
-    }
-
-    const position = await ctx.prisma.position.create({
-      data: { name, organizationId, code, categoryCode, level: level || 0, responsibilities },
-      include: { organization: true },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '创建成功',
-      data: position,
-    };
+    this.respond(await this.positionService().create(parseCreate(this.ctx.request.body)));
   }
 
   async update() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { name, level, responsibilities, status } = ctx.request.body;
-
-    const position = await ctx.prisma.position.findUnique({
-      where: { id },
-    });
-    if (!position) {
-      ctx.throw(404, '岗位不存在');
-    }
-
-    const updateData: Prisma.PositionUncheckedUpdateInput = {};
-    if (name) updateData.name = name;
-    if (level !== undefined) updateData.level = level;
-    if (responsibilities !== undefined) updateData.responsibilities = responsibilities;
-    if (status) updateData.status = status;
-
-    const updated = await ctx.prisma.position.update({
-      where: { id },
-      data: updateData,
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '更新成功',
-      data: updated,
-    };
+    this.respond(await this.positionService().update(this.ctx.params.id, parseUpdate(this.ctx.request.body)));
   }
 
-  async destroy() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const position = await ctx.prisma.position.findUnique({
-      where: { id },
-      include: { employees: true },
-    });
-    if (!position) {
-      ctx.throw(404, '岗位不存在');
-    }
-
-    if (position.employees.length > 0) {
-      ctx.throw(400, '该岗位下有员工，无法删除');
-    }
-
-    await ctx.prisma.position.delete({ where: { id } });
-
-    ctx.body = {
-      code: 200,
-      message: '删除成功',
-      data: null,
-    };
+  async disable() {
+    this.respond(await this.positionService().disable(this.ctx.params.id, parseVersionCommand(this.ctx.request.body)));
   }
+
+  async enable() {
+    this.respond(await this.positionService().enable(this.ctx.params.id, parseVersionCommand(this.ctx.request.body)));
+  }
+
+  private positionService(): PositionService {
+    return new PositionService(this.ctx.prisma, {
+      actorUserId: this.ctx.state.user.userId,
+      ip: this.ctx.ip,
+    });
+  }
+
+  private respond(data: unknown): void {
+    this.ctx.body = { code: 200, message: 'success', data };
+  }
+}
+
+function parseCreate(input: unknown): CreatePositionInput {
+  assertExactKeys(input, ['organizationId', 'code', 'name', 'categoryCode', 'level', 'responsibilities']);
+  return {
+    organizationId: normalizeRequiredText(input.organizationId, 1, 100),
+    code: normalizeStableCode(input.code),
+    name: normalizeName(input.name),
+    categoryCode: normalizeStableCode(input.categoryCode),
+    level: normalizeNonNegativeInteger(input.level),
+    responsibilities: input.responsibilities === undefined
+      ? undefined
+      : normalizeOptionalText(input.responsibilities, 2000),
+  };
+}
+
+function parseUpdate(input: unknown): UpdatePositionInput {
+  assertExactKeys(input, ['name', 'categoryCode', 'level', 'responsibilities', 'version']);
+  const parsed: UpdatePositionInput = { version: normalizeVersion(input.version) };
+  if (input.name !== undefined) parsed.name = normalizeName(input.name);
+  if (input.categoryCode !== undefined) parsed.categoryCode = normalizeStableCode(input.categoryCode);
+  if (input.level !== undefined) parsed.level = normalizeNonNegativeInteger(input.level);
+  if (input.responsibilities !== undefined) parsed.responsibilities = normalizeOptionalText(input.responsibilities, 2000);
+  return parsed;
+}
+
+function parseVersionCommand(input: unknown): number {
+  assertExactKeys(input, ['version']);
+  return normalizeVersion(input.version);
 }

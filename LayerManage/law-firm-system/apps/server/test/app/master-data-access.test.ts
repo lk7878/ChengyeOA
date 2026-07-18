@@ -88,3 +88,44 @@ test('allows an enabled system super-admin to reach the controller', async () =>
     .expect(200);
   assert.deepEqual(response.body.data, []);
 });
+
+test('position routes remove physical delete and expose versioned update and disable commands', async () => {
+  const token = await tokenForRole({ code: 'SYSTEM_SUPER_ADMIN', type: 'SYSTEM', status: 'ENABLED' });
+  const organizationId = randomUUID();
+  await prisma.organization.create({
+    data: {
+      id: organizationId,
+      code: 'POSITION_TEST_ORG',
+      name: 'Position Test Organization',
+      type: 'BRANCH',
+      path: `/${organizationId}`,
+    },
+  });
+  const position = await prisma.position.create({
+    data: {
+      organizationId,
+      code: 'LAWYER',
+      name: 'Lawyer',
+      categoryCode: 'LEGAL',
+    },
+  });
+
+  await app.httpRequest()
+    .delete(`/api/v1/positions/${position.id}`)
+    .set('Authorization', `Bearer ${token}`)
+    .expect(404);
+
+  const updated = await app.httpRequest()
+    .patch(`/api/v1/positions/${position.id}`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({ name: 'Senior Lawyer', version: 1 })
+    .expect(200);
+  assert.equal(updated.body.data.name, 'Senior Lawyer');
+
+  const disabled = await app.httpRequest()
+    .post(`/api/v1/positions/${position.id}/disable`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({ version: 2 })
+    .expect(200);
+  assert.equal(disabled.body.data.status, 'DISABLED');
+});

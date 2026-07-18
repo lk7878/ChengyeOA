@@ -533,7 +533,7 @@ git commit -m "feat(server): enforce organization hierarchy"
 - Produces: `PositionService.create/update/disable/enable/list/detail`.
 - Consumes: enabled Organization records, Task 2 validation/audit.
 
-- [ ] **Step 1: Write failing service tests**
+- [x] **Step 1: Write failing service tests**
 
 Assert organization-scoped unique codes, disabled organization rejection, immutable organization/code, active assignment stop, version conflict, deterministic list ordering, and audit rollback.
 
@@ -544,11 +544,11 @@ await assert.rejects(
 );
 ```
 
-- [ ] **Step 2: Run tests and confirm RED**
+- [x] **Step 2: Run tests and confirm RED**
 
 Expected: `position-service` module not found.
 
-- [ ] **Step 3: Implement PositionService**
+- [x] **Step 3: Implement PositionService**
 
 Use these signatures:
 
@@ -566,11 +566,11 @@ detail(id: string): Promise<PositionDetail>;
 
 Never accept `organizationId` or `code` in update DTOs. Disable checks active `EmployeeAssignment` rows. Every write and audit entry shares a transaction.
 
-- [ ] **Step 4: Replace controller/routes and remove physical delete**
+- [x] **Step 4: Replace controller/routes and remove physical delete**
 
 Register GET list/detail, POST create, PATCH update, POST disable, POST enable. Preserve no `DELETE /positions/:id` route.
 
-- [ ] **Step 5: Verify and commit locally**
+- [x] **Step 5: Verify and commit locally**
 
 Run focused tests, lint, typecheck, then commit `feat(server): add organization-scoped positions`.
 

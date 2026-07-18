@@ -48,8 +48,9 @@ export default (app: Application) => {
   router.get('/api/v1/positions', controller.position.index);
   router.get('/api/v1/positions/:id', controller.position.show);
   router.post('/api/v1/positions', controller.position.create);
-  router.put('/api/v1/positions/:id', controller.position.update);
-  router.delete('/api/v1/positions/:id', controller.position.destroy);
+  router.patch('/api/v1/positions/:id', controller.position.update);
+  router.post('/api/v1/positions/:id/disable', controller.position.disable);
+  router.post('/api/v1/positions/:id/enable', controller.position.enable);
 
   // 员工模块
   router.get('/api/v1/employees', controller.employee.index);
