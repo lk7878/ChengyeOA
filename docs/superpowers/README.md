@@ -9,6 +9,8 @@ This directory holds the approved engineering decisions and operator records for
 | Approved SPEC-003 organization and personnel design | `specs/2026-07-18-organization-personnel-master-data-design.md` |
 | SPEC-003 implementation plan | `plans/2026-07-18-organization-personnel-master-data-implementation.md` |
 | SPEC-003 restart handoff | `handoffs/2026-07-18-spec-003-organization-personnel-handoff.md` |
+| SPEC-003 operations | `runbooks/organization-personnel-master-data.md` |
+| SPEC-003 closeout evidence | `reports/spec-003-closeout.md` |
 | Approved SEC-SPEC-001 dependency security design | `specs/2026-07-16-dependency-security-supply-chain-governance-design.md` |
 | SEC-SPEC-001 implementation plan | `plans/2026-07-16-dependency-security-supply-chain-governance-implementation.md` |
 | SEC-SPEC-001 closeout evidence | `reports/sec-spec-001-closeout.md` |
@@ -23,6 +25,6 @@ This directory holds the approved engineering decisions and operator records for
 | Dependency security operations | `runbooks/dependency-security.md` |
 | Historical source audit | `runbooks/sqlite-to-postgresql-migration.md` |
 
-SPEC-001, SPEC-002, and SEC-SPEC-001 local implementation and acceptance are complete. Remote CI execution, including the independent dependency-security job, and Inno Setup installer compilation remain release gates and are not recorded as passed.
+SPEC-001, SPEC-002, SPEC-003, and SEC-SPEC-001 local implementation and acceptance are complete. Remote CI execution, including the independent dependency-security job, and Inno Setup installer compilation remain release gates and are not recorded as passed.
 
 Never commit local environment files, database artifacts, backup files, audit exports, logs, or generated distributions.

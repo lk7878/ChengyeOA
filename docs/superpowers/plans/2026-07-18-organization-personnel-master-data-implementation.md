@@ -1053,7 +1053,7 @@ Commit `feat(web): manage employee assignments and professional teams`.
 **Interfaces:**
 - Produces: local acceptance evidence, operator instructions, and an empty test database after verification.
 
-- [ ] **Step 1: Add a disposable historical migration rehearsal**
+- [x] **Step 1: Add a disposable historical migration rehearsal**
 
 The PowerShell script must use `docker exec chengye-oa-postgres psql`, create only `chengye_oa_spec003_migration_test`, apply the first two migrations, insert one initialized root/branch/position/employee fixture without secrets, apply expand and contract SQL, assert paths and one active primary, then drop the disposable database in `finally`.
 
@@ -1069,15 +1069,15 @@ try {
 }
 ```
 
-- [ ] **Step 2: Add backend acceptance and query-count tests**
+- [x] **Step 2: Add backend acceptance and query-count tests**
 
 Create two offices, three head-office departments, nested groups, positions, employees, cross-office teams, transfer history, account binding, and forbidden ordinary-user access. Assert no N+1 query growth for a 500-node tree fixture and deterministic pagination for employees with equal created times. Record timings and require both target queries to complete within 2 seconds in the controlled local environment.
 
-- [ ] **Step 3: Run migration rehearsal and backend acceptance**
+- [x] **Step 3: Run migration rehearsal and backend acceptance**
 
 Expected: rehearsal exits 0 and always drops the disposable database; backend acceptance passes.
 
-- [ ] **Step 4: Start local servers and execute browser acceptance**
+- [x] **Step 4: Start local servers and execute browser acceptance**
 
 Start server on 7001 and web on the first free port at or above 3000 using hidden/background process handling. Run the Playwright scenario:
 
@@ -1095,7 +1095,7 @@ test('super-admin completes the SPEC-003 master-data flow', async ({ page }) => 
 
 Capture desktop and mobile screenshots and inspect them for blank states, clipping, overlap, and broken controls. Stop both server processes before continuing.
 
-- [ ] **Step 5: Run fresh full verification**
+- [x] **Step 5: Run fresh full verification**
 
 From `LayerManage/law-firm-system`, with the environment preamble:
 
@@ -1112,11 +1112,11 @@ npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd --prefix apps/server run db:ass
 
 Expected: lint has no errors and no new warnings, all server/web/security tests pass, builds pass, production high/critical audit counts are zero, allowed development exception remains exact, SBOM generation succeeds, and every test table is empty afterward.
 
-- [ ] **Step 6: Request local code review and resolve findings**
+- [x] **Step 6: Request local code review and resolve findings**
 
 Invoke `superpowers:requesting-code-review` against the approved Spec and this Plan. Handle feedback with `superpowers:receiving-code-review`; use `superpowers:systematic-debugging` for failures. Rerun the affected focused test after each fix and rerun Step 5 after the final fix.
 
-- [ ] **Step 7: Write operator and closeout records**
+- [x] **Step 7: Write operator and closeout records**
 
 The runbook must document organization setup order, safe disable/move rules, employee transfer/leave, team lead replacement, account binding, version conflicts, migration commands, backup prerequisite, and recovery checks. The closeout report must record exact local commit, test counts, audit result, migration rehearsal, screenshot paths, empty database proof, known warnings, and this statement:
 
@@ -1126,7 +1126,7 @@ GitHub push, pull request, and remote CI were intentionally not executed. They r
 
 Change SPEC status to `已实施` only after fresh verification and review are green.
 
-- [ ] **Step 8: Commit the local closeout**
+- [x] **Step 8: Commit the local closeout**
 
 ```powershell
 git add docs/superpowers LayerManage/law-firm-system/apps/server/scripts/db LayerManage/law-firm-system/apps/server/test/acceptance LayerManage/law-firm-system/apps/web/e2e
