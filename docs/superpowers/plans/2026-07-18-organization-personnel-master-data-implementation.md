@@ -587,7 +587,7 @@ Run focused tests, lint, typecheck, then commit `feat(server): add organization-
 - Produces: normalized employee views and atomic primary/secondary/acting assignment operations.
 - Consumed by: HTTP adapters and downstream projections.
 
-- [ ] **Step 1: Write failing assignment tests**
+- [x] **Step 1: Write failing assignment tests**
 
 Cover one active primary, active tuple uniqueness, position organization match, disabled reference rejection, transfer history, concurrent transfer with one winner, ending only non-primary assignments, invalid intervals, and audit rollback.
 
@@ -602,15 +602,15 @@ assert.equal(await prisma.employeeAssignment.count({ where: { employeeId: employ
 assert.equal(await prisma.employeeAssignment.count({ where: { employeeId: employee.id, assignmentType: 'PRIMARY', endedAt: { not: null } } }), 1);
 ```
 
-- [ ] **Step 2: Write failing employee lifecycle tests**
+- [x] **Step 2: Write failing employee lifecycle tests**
 
 Cover atomic employee + primary creation, duplicate employee number race, normalized email and employee number, invalid ID/license uniqueness, probation to formal, invalid transition, update version conflict, leave handover requirement, active legacy lead/case blocking, ending all assignments, and protected first-super-admin leave rejection.
 
-- [ ] **Step 3: Run tests and confirm RED**
+- [x] **Step 3: Run tests and confirm RED**
 
 Expected: service modules not found.
 
-- [ ] **Step 4: Implement employee projection**
+- [x] **Step 4: Implement employee projection**
 
 ```ts
 export const EMPLOYEE_DETAIL_INCLUDE = Prisma.validator<Prisma.EmployeeInclude>()({
@@ -628,7 +628,7 @@ export const EMPLOYEE_DETAIL_INCLUDE = Prisma.validator<Prisma.EmployeeInclude>(
 
 Add `primaryAssignment(view)` that fails closed with `PRIMARY_ASSIGNMENT_CONFLICT` when an active employee does not have exactly one active primary.
 
-- [ ] **Step 5: Implement EmployeeAssignmentService**
+- [x] **Step 5: Implement EmployeeAssignmentService**
 
 Use row locking and exact signatures:
 
@@ -642,7 +642,7 @@ end(employeeId: string, assignmentId: string, input: { version: number }): Promi
 
 For transfer: lock employee, verify `employee.version`, validate enabled organization and position, end the active primary at one transaction timestamp, create the replacement, increment employee version, write one sanitized audit record, return the refreshed employee.
 
-- [ ] **Step 6: Implement EmployeeService**
+- [x] **Step 6: Implement EmployeeService**
 
 ```ts
 export interface CreateEmployeeInput { employeeNo: string; name: string; phone: string; email?: string | null; idCard?: string | null; licenseNo?: string | null; employeeType: string; professionalDirections?: string[]; entryDate: string }
@@ -660,7 +660,7 @@ Creation writes Employee and active PRIMARY assignment in one transaction. Leave
 
 Map concurrent duplicate `employeeNo`, `idCard`, or `licenseNo` constraints to `EMPLOYEE_IDENTITY_CONFLICT`. Never return the conflicting stored value.
 
-- [ ] **Step 7: Verify and commit locally**
+- [x] **Step 7: Verify and commit locally**
 
 Run the two focused suites, server lint/typecheck, then commit `feat(server): add employee assignments and lifecycle`.
 
