@@ -118,7 +118,8 @@ export class EmployeeService {
     ]);
     return { list: records.map(record => { const detail = projectEmployeeDetail(record); return {
       id: detail.id, employeeNo: detail.employeeNo, name: detail.name, employeeType: detail.employeeType,
-      status: detail.status, version: detail.version, primaryAssignment: detail.primaryAssignment,
+      status: detail.status, entryDate: detail.entryDate, activeProfessionalTeamIds: detail.activeProfessionalTeamIds,
+      version: detail.version, primaryAssignment: detail.primaryAssignment,
     }; }), pagination: { page, pageSize, total, totalPages: Math.ceil(total/pageSize) } };
   }
 

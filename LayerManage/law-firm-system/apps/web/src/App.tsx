@@ -15,6 +15,7 @@ import UserPage from './pages/User';
 import RolePage from './pages/Role';
 import OrganizationPage from './pages/Organization';
 import PositionPage from './pages/Position';
+import ProfessionalTeamPage from './pages/ProfessionalTeam';
 import ChannelPage from './pages/Channel';
 import LeadPage from './pages/Lead';
 import ApprovalPage from './pages/Approval';
@@ -85,7 +86,7 @@ function App() {
         <Route path="/org/tree" element={<WithLayout><SuperAdminRoute><OrganizationPage /></SuperAdminRoute></WithLayout>} />
         <Route path="/org/positions" element={<WithLayout><SuperAdminRoute><PositionPage /></SuperAdminRoute></WithLayout>} />
         <Route path="/org/employees" element={<WithLayout><SuperAdminRoute><EmployeePage /></SuperAdminRoute></WithLayout>} />
-        <Route path="/org/professional-teams" element={<WithLayout><SuperAdminRoute><PlaceholderPage title="专业团队" /></SuperAdminRoute></WithLayout>} />
+        <Route path="/org/professional-teams" element={<WithLayout><SuperAdminRoute><ProfessionalTeamPage /></SuperAdminRoute></WithLayout>} />
         <Route path="/users" element={<WithLayout><UserPage /></WithLayout>} />
         <Route path="/roles" element={<WithLayout><RolePage /></WithLayout>} />
         <Route path="/channels" element={<WithLayout><ChannelPage /></WithLayout>} />

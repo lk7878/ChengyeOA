@@ -51,7 +51,7 @@ export default function PositionPage() {
   }
 
   return <section className="md-page"><header className="md-toolbar"><div><h1>岗位管理</h1><p>岗位编码在组织内唯一，任职关系以岗位所属组织为准。</p></div><div className="md-toolbar-actions"><Select aria-label="组织筛选" value={organizationId} options={organizationOptions} onChange={setOrganizationId} style={{ minWidth: 220 }} /><Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button><Button type="primary" icon={<PlusOutlined />} disabled={!organizationId} onClick={() => showForm()}>新增岗位</Button></div></header>
-    {error && <Alert type="error" showIcon message="岗位数据加载失败" action={<Button onClick={() => void load()}>重试</Button>} />}
+    {error && <Alert type="error" showIcon title="岗位数据加载失败" action={<Button onClick={() => void load()}>重试</Button>} />}
     <PositionTable data={positions} loading={loading} onEdit={showForm} onToggle={position => void toggle(position)} onRetry={() => void load()} />
     <Modal title={editing ? '编辑岗位' : '新增岗位'} open={open} confirmLoading={submitting} onCancel={() => setOpen(false)} onOk={() => form.submit()} destroyOnHidden>
       <Form form={form} layout="vertical" onFinish={submit}><Form.Item label="所属组织"><Input value={selectedName} disabled /></Form.Item><Form.Item name="code" label="岗位编码" rules={[{ required: true }]}><Input disabled={Boolean(editing)} /></Form.Item><Form.Item name="name" label="岗位名称" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="categoryCode" label="岗位分类" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="level" label="岗位级别" rules={[{ required: true }]}><InputNumber min={0} precision={0} /></Form.Item><Form.Item name="responsibilities" label="岗位职责"><Input.TextArea rows={4} /></Form.Item></Form>

@@ -1011,31 +1011,31 @@ Run both focused tests, web lint/typecheck, then commit `feat(web): manage organ
 **Interfaces:**
 - Produces: usable `/org/employees` and `/org/professional-teams` pages.
 
-- [ ] **Step 1: Write failing employee page tests**
+- [x] **Step 1: Write failing employee page tests**
 
 Cover pagination/filtering, create with organization-driven position options, profile update, formalize, transfer primary, add/end secondary, protected leave, account bind/unbind, sensitive values absent from URL/errors, 403 state, and version conflict input preservation.
 
-- [ ] **Step 2: Write failing professional team tests**
+- [x] **Step 2: Write failing professional team tests**
 
 Cover open category input, cross-office member selection, member role, unique lead action, member history, active-member disable conflict, empty/retry state, and version conflict.
 
-- [ ] **Step 3: Run and confirm RED**
+- [x] **Step 3: Run and confirm RED**
 
 Expected: new components/page do not exist.
 
-- [ ] **Step 4: Implement Employee page and detail drawer**
+- [x] **Step 4: Implement Employee page and detail drawer**
 
 Use a scanning-oriented table for employee number, name, status, primary organization/position, teams, and entry date. Detail Drawer tabs are `基础档案`, `任职关系`, `专业团队`, `账号绑定`. Organization selection must fetch positions and clear an invalid previous position. Transfer and leave are explicit command dialogs, not ordinary field edits.
 
-- [ ] **Step 5: Implement Professional Team page**
+- [x] **Step 5: Implement Professional Team page**
 
 Use a compact list/detail layout. The member dialog filters enabled employees across all offices. Lead replacement is a separate command with confirmation. Ended members remain visible in history and cannot be reactivated; rejoining creates a new relation through the API.
 
-- [ ] **Step 6: Verify layout and code quality**
+- [x] **Step 6: Verify layout and code quality**
 
 Run focused tests, web lint/typecheck, and inspect both pages at desktop and mobile viewport widths. Confirm no text overlap, nested cards, unstable toolbar dimensions, or new Hook warnings.
 
-- [ ] **Step 7: Commit locally**
+- [x] **Step 7: Commit locally**
 
 Commit `feat(web): manage employee assignments and professional teams`.
 

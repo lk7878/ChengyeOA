@@ -39,6 +39,10 @@ test('creates employee and primary assignment atomically with normalized identit
   assert.equal(created.employeeNo, 'EMP-001');
   assert.equal(created.name, 'Alice Lawyer');
   assert.equal(created.email, 'alice@example.com');
+  assert.equal(created.entryDate.toISOString().slice(0, 10), '2026-01-01');
+  assert.deepEqual(created.professionalDirections, ['Civil']);
+  assert.equal(created.formalDate, null);
+  assert.deepEqual(created.activeProfessionalTeamIds, []);
   assert.equal(created.primaryAssignment?.organizationId, organizationId);
   assert.equal(await prisma.employeeAssignment.count({ where: { employeeId: created.id } }), 1);
 });
@@ -65,6 +69,7 @@ test('updates with optimistic locking and formalizes only probation employees', 
   await assert.rejects(() => service.update(created.id, { name: 'Stale', version: 1 }), hasCode('VERSION_CONFLICT'));
   const formal = await service.formalize(created.id, { formalDate: '2026-02-01', version: 2 });
   assert.equal(formal.status, 'FORMAL');
+  assert.equal(formal.formalDate?.toISOString().slice(0, 10), '2026-02-01');
   await assert.rejects(
     () => service.formalize(created.id, { formalDate: '2026-03-01', version: 3 }),
     hasCode('VALIDATION_FAILED'),

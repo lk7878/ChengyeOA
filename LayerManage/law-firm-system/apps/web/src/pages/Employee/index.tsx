@@ -1,167 +1,144 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Table, Button, Input, Tag, Space, Modal, Form, message,
-  Popconfirm, Card, Row, Col, TreeSelect
-} from 'antd';
-import {
-  PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined,
-  SyncOutlined, CheckCircleOutlined, LogoutOutlined
-} from '@ant-design/icons';
-import { employeeApi, organizationApi } from '../../api/organization';
-import type { Employee, Organization } from '../../types';
-import dayjs from 'dayjs';
+import { EyeOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Alert, Button, Checkbox, Form, Input, Modal, Select, Table, Tag, message } from 'antd';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { userApi } from '@/api/user';
+import { masterDataApi } from '@/features/master-data/api';
+import AssignmentDialog from '@/features/master-data/components/AssignmentDialog';
+import EmployeeDetailDrawer from '@/features/master-data/components/EmployeeDetailDrawer';
+import EmployeeForm from '@/features/master-data/components/EmployeeForm';
+import type { SelectOption } from '@/features/master-data/components/EmployeeForm';
+import type { AssignmentType, CreateEmployeeInput, EmployeeAssignment, EmployeeDetail, EmployeeListItem, EmployeeStatus, OrganizationNode, Position, ProfessionalTeam, UpdateEmployeeInput } from '@/features/master-data/types';
+import '@/features/master-data/master-data.css';
 
-const statusMap: Record<string, { text: string; color: string }> = {
-  PROBATION: { text: '试用期', color: 'orange' },
-  FORMAL: { text: '正式', color: 'green' },
-  LEAVED: { text: '已离职', color: 'default' },
-};
+type EmployeeFormValues = CreateEmployeeInput & { version?: number };
+type AssignmentValues = { organizationId: string; positionId: string; assignmentType?: AssignmentType };
+const statusOptions = [{ value: 'PROBATION', label: '试用' }, { value: 'FORMAL', label: '正式' }, { value: 'LEAVED', label: '已离职' }];
+const statusText = { PROBATION: '试用', FORMAL: '正式', LEAVED: '已离职' } as const;
 
-const typeMap: Record<string, string> = {
-  PARTNER: '合伙人',
-  SENIOR_LAWYER: '资深律师',
-  JUNIOR_LAWYER: '初级律师',
-  ASSISTANT: '律师助理',
-  SALES: '销售',
-  ADMIN: '行政',
-  HR: '人事',
-  FINANCE: '财务',
-  OPERATOR: '运营',
-};
+function flatten(nodes: OrganizationNode[]): OrganizationNode[] { return nodes.flatMap(node => [node, ...flatten(node.children)]); }
+function errorStatus(error: unknown): number | undefined { return (error as { response?: { status?: number } })?.response?.status; }
 
-const EmployeePage: React.FC = () => {
-  const [data, setData] = useState<Employee[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
-  const [searchKeyword, setSearchKeyword] = useState('');
-  const [modalVisible, setModalVisible] = useState(false);
-  const [form] = Form.useForm();
-  const [orgs, setOrgs] = useState<Organization[]>([]);
+export default function EmployeePage() {
+  const [employees, setEmployees] = useState<EmployeeListItem[]>([]);
+  const [organizations, setOrganizations] = useState<OrganizationNode[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [formPositions, setFormPositions] = useState<Position[]>([]);
+  const [teams, setTeams] = useState<ProfessionalTeam[]>([]);
+  const [users, setUsers] = useState<SelectOption[]>([]);
+  const [detail, setDetail] = useState<EmployeeDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>();
+  const [keyword, setKeyword] = useState('');
+  const [status, setStatus] = useState<EmployeeStatus>();
+  const [organizationId, setOrganizationId] = useState<string>();
+  const [teamId, setTeamId] = useState<string>();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [formalOpen, setFormalOpen] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [handoverConfirmed, setHandoverConfirmed] = useState(false);
+  const [assignmentMode, setAssignmentMode] = useState<'transfer' | 'add'>();
+  const [selectedUserId, setSelectedUserId] = useState<string>();
+  const [submitting, setSubmitting] = useState(false);
+  const [employeeForm] = Form.useForm<EmployeeFormValues>();
+  const [assignmentForm] = Form.useForm<AssignmentValues>();
+  const [formalForm] = Form.useForm<{ formalDate: string }>();
+  const [leaveForm] = Form.useForm<{ leaveDate: string }>();
 
-  useEffect(() => { fetchData(); fetchOrgs(); }, [pagination.current, pagination.pageSize]);
+  const flatOrganizations = useMemo(() => flatten(organizations), [organizations]);
+  const organizationOptions = useMemo(() => flatOrganizations.map(item => ({ value: item.id, label: item.name })), [flatOrganizations]);
+  const positionOptions = useMemo(() => formPositions.filter(item => item.status === 'ENABLED').map(item => ({ value: item.id, label: item.name })), [formPositions]);
+  const organizationNames = useMemo(() => new Map(flatOrganizations.map(item => [item.id, item.name])), [flatOrganizations]);
+  const positionNames = useMemo(() => new Map(positions.map(item => [item.id, item.name])), [positions]);
+  const teamNames = useMemo(() => new Map(teams.map(item => [item.id, item.name])), [teams]);
 
-  async function fetchData() {
-    setLoading(true);
+  const load = useCallback(async (requestedPage = page, requestedPageSize = pageSize) => {
+    setLoading(true); setError(undefined);
     try {
-      const params: Record<string, string | number | boolean | undefined> = { page: pagination.current, pageSize: pagination.pageSize };
-      if (searchKeyword) params.keyword = searchKeyword;
-      const res = await employeeApi.list(params);
-      if (res.code === 200) {
-        setData(res.data.list);
-        setPagination({ ...pagination, total: res.data.pagination.total });
-      }
-    } finally { setLoading(false); }
-  };
+      const response = await masterDataApi.employees.list({ page: requestedPage, pageSize: requestedPageSize, keyword: keyword || undefined, status, organizationId, teamId });
+      setEmployees(response.data.list); setTotal(response.data.pagination.total);
+      const organizationIds = [...new Set(response.data.list.flatMap(item => item.primaryAssignment?.organizationId ?? []))];
+      const positionResponses = await Promise.all(organizationIds.map(id => masterDataApi.positions.list({ organizationId: id })));
+      setPositions(current => {
+        const merged = new Map(current.map(item => [item.id, item]));
+        positionResponses.flatMap(item => item.data).forEach(item => merged.set(item.id, item));
+        return [...merged.values()];
+      });
+    } catch (cause) { setError(errorStatus(cause) === 403 ? '您没有权限查看人员主数据' : '人员数据加载失败'); }
+    finally { setLoading(false); }
+  }, [keyword, organizationId, page, pageSize, status, teamId]);
 
-  async function fetchOrgs() {
+  useEffect(() => {
+    const timer = window.setTimeout(() => void (async () => {
+      setLoading(true); setError(undefined);
+      try {
+        const [orgResponse, teamResponse, employeeResponse] = await Promise.all([
+          masterDataApi.organizations.tree(), masterDataApi.professionalTeams.list({ page: 1, pageSize: 100 }), masterDataApi.employees.list({ page: 1, pageSize: 20 }),
+        ]);
+        setOrganizations(orgResponse.data); setTeams(teamResponse.data.list);
+        setEmployees(employeeResponse.data.list); setTotal(employeeResponse.data.pagination.total);
+        const organizationIds = [...new Set(employeeResponse.data.list.flatMap(item => item.primaryAssignment?.organizationId ?? []))];
+        const positionResponses = await Promise.all(organizationIds.map(id => masterDataApi.positions.list({ organizationId: id })));
+        setPositions(positionResponses.flatMap(item => item.data));
+      } catch (cause) { setError(errorStatus(cause) === 403 ? '您没有权限查看人员主数据' : '人员数据加载失败'); }
+      finally { setLoading(false); }
+    })(), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  async function positionsFor(organization: string, form = employeeForm) {
+    form.setFieldValue('primaryPositionId', undefined);
+    assignmentForm.setFieldValue('positionId', undefined);
+    try { const response = await masterDataApi.positions.list({ organizationId: organization, status: 'ENABLED' }); setFormPositions(response.data); }
+    catch { setFormPositions([]); message.error('岗位选项加载失败'); }
+  }
+
+  async function openDetail(employee: EmployeeListItem) {
     try {
-      const res = await organizationApi.list();
-      if (res.code === 200) setOrgs(res.data);
-    } catch { /* Request errors are handled by the shared interceptor. */ }
-  };
+      const [employeeResponse, userResponse] = await Promise.all([masterDataApi.employees.detail(employee.id), userApi.list({ page: 1, pageSize: 100, status: 'ENABLED' })]);
+      setDetail(employeeResponse.data); setUsers(userResponse.data.list.filter(user => !user.employeeId || user.employeeId === employee.id).map(user => ({ value: user.id, label: user.username })));
+    } catch { message.error('员工详情加载失败'); }
+  }
+  async function refreshDetail() { if (!detail) return; const response = await masterDataApi.employees.detail(detail.id); setDetail(response.data); await load(); }
 
-  const handleDelete = async (id: string) => {
-    try { await employeeApi.delete(id); message.success('删除成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
-  };
+  async function submitCreate() {
+    const values = await employeeForm.validateFields(); setSubmitting(true);
+    try { await masterDataApi.employees.create(values); message.success('员工已创建'); setCreateOpen(false); employeeForm.resetFields(); await load(1); }
+    catch { message.error('创建未完成，当前输入已保留'); }
+    finally { setSubmitting(false); }
+  }
+  async function submitEdit() {
+    if (!detail) return; const values = await employeeForm.validateFields(); setSubmitting(true);
+    try { await masterDataApi.employees.update(detail.id, { ...values, employeeNo: undefined, entryDate: undefined, primaryOrganizationId: undefined, primaryPositionId: undefined, version: detail.version } as UpdateEmployeeInput); message.success('档案已更新'); setEditOpen(false); await refreshDetail(); }
+    catch { message.error('更新未完成，当前输入已保留'); }
+    finally { setSubmitting(false); }
+  }
+  async function submitFormalize() { if (!detail) return; const values = await formalForm.validateFields(); setSubmitting(true); try { await masterDataApi.employees.formalize(detail.id, { ...values, version: detail.version }); setFormalOpen(false); await refreshDetail(); } catch { message.error('转正未完成'); } finally { setSubmitting(false); } }
+  async function submitLeave() { if (!detail || !handoverConfirmed) return; const values = await leaveForm.validateFields(); setSubmitting(true); try { await masterDataApi.employees.leave(detail.id, { ...values, handoverConfirmed: true, version: detail.version }); setLeaveOpen(false); await refreshDetail(); } catch { message.error('离职未完成，请检查保护条件'); } finally { setSubmitting(false); } }
+  async function submitAssignment(values: AssignmentValues) { if (!detail || !assignmentMode) return; setSubmitting(true); try { if (assignmentMode === 'transfer') await masterDataApi.employees.transferPrimary(detail.id, { organizationId: values.organizationId, positionId: values.positionId, employeeVersion: detail.version }); else await masterDataApi.employees.addAssignment(detail.id, { organizationId: values.organizationId, positionId: values.positionId, assignmentType: values.assignmentType === 'ACTING' ? 'ACTING' : 'SECONDARY' }); setAssignmentMode(undefined); await refreshDetail(); } catch { message.error('任职变更未完成，当前输入已保留'); } finally { setSubmitting(false); } }
+  async function endAssignment(assignment: EmployeeAssignment) { if (!detail) return; try { await masterDataApi.employees.endAssignment(detail.id, assignment.id, { version: assignment.version }); await refreshDetail(); } catch { message.error('结束任职失败'); } }
+  async function bindAccount() { if (!detail || !selectedUserId) return; try { await masterDataApi.employees.bindAccount(detail.id, { userId: selectedUserId, employeeVersion: detail.version }); setSelectedUserId(undefined); await refreshDetail(); } catch { message.error('账号绑定失败'); } }
+  async function unbindAccount() { if (!detail) return; try { await masterDataApi.employees.unbindAccount(detail.id, { version: detail.version }); await refreshDetail(); } catch { message.error('解除绑定失败'); } }
 
-  const handleFormalize = async (id: string) => {
-    try { await employeeApi.formalize(id); message.success('转正成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
-  };
-
-  const handleLeave = async (id: string) => {
-    try { await employeeApi.leave(id, dayjs().format('YYYY-MM-DD')); message.success('离职处理成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
-  };
-
-  const columns = [
-    { title: '工号', dataIndex: 'employeeNo', key: 'employeeNo' },
-    { title: '姓名', dataIndex: 'name', key: 'name' },
-    { title: '电话', dataIndex: 'phone', key: 'phone' },
-    { title: '类型', dataIndex: 'type', key: 'type', render: (t: string) => typeMap[t] || t },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (s: string) => <Tag color={statusMap[s]?.color}>{statusMap[s]?.text}</Tag>,
-    },
-    { title: '部门', dataIndex: 'organization', key: 'organization', render: (o: Employee['organization']) => o?.name || '-' },
-    { title: '岗位', dataIndex: 'position', key: 'position', render: (p: Employee['position']) => p?.name || '-' },
-    { title: '入职日期', dataIndex: 'entryDate', key: 'entryDate', render: (d: string) => dayjs(d).format('YYYY-MM-DD') },
-    {
-      title: '操作',
-      key: 'action',
-      width: 280,
-      render: (_: unknown, record: Employee) => (
-        <Space size="small">
-          {record.status === 'PROBATION' && (
-            <Button type="link" size="small" icon={<CheckCircleOutlined />} onClick={() => handleFormalize(record.id)}>转正</Button>
-          )}
-          {record.status === 'FORMAL' && (
-            <Popconfirm title="确认离职？" onConfirm={() => handleLeave(record.id)}>
-              <Button type="link" size="small" icon={<LogoutOutlined />}>离职</Button>
-            </Popconfirm>
-          )}
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { form.setFieldsValue(record); setModalVisible(true); }}>编辑</Button>
-          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger size="small" icon={<DeleteOutlined />}>删除</Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
-
-  return (
-    <div>
-      <Card style={{ marginBottom: 16 }}>
-        <Row gutter={16} align="middle">
-          <Col flex="auto">
-            <Space>
-              <Input placeholder="搜索姓名/工号" value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)} onPressEnter={fetchData} prefix={<SearchOutlined />} style={{ width: 200 }} />
-              <Button type="primary" icon={<SearchOutlined />} onClick={fetchData}>搜索</Button>
-              <Button icon={<SyncOutlined />} onClick={() => { setSearchKeyword(''); fetchData(); }}>重置</Button>
-            </Space>
-          </Col>
-          <Col>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setModalVisible(true); }}>新建员工</Button>
-          </Col>
-        </Row>
-      </Card>
-
-      <Table columns={columns} dataSource={data} rowKey="id" loading={loading}
-        pagination={{ ...pagination, showSizeChanger: true, showTotal: (t) => `共 ${t} 条`, onChange: (p, ps) => setPagination({ ...pagination, current: p, pageSize: ps || 10 }) }} />
-
-      <Modal title="员工信息" open={modalVisible} onCancel={() => setModalVisible(false)} onOk={() => form.submit()} width={700}>
-        <Form form={form} layout="vertical" onFinish={async (v) => {
-          if (v.id) { await employeeApi.update(v.id, v); message.success('更新成功'); }
-          else { await employeeApi.create(v); message.success('创建成功'); }
-          setModalVisible(false); fetchData();
-        }}>
-          <Form.Item name="id" hidden><Input /></Form.Item>
-          <Row gutter={16}>
-            <Col span={12}><Form.Item name="employeeNo" label="工号" rules={[{ required: true }]}><Input /></Form.Item></Col>
-            <Col span={12}><Form.Item name="name" label="姓名" rules={[{ required: true }]}><Input /></Form.Item></Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}><Form.Item name="phone" label="电话" rules={[{ required: true }]}><Input /></Form.Item></Col>
-            <Col span={12}><Form.Item name="email" label="邮箱"><Input /></Form.Item></Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}><Form.Item name="type" label="类型" rules={[{ required: true }]}>
-              <select style={{ width: '100%', height: 32, borderRadius: 6, border: '1px solid #d9d9d9' }}>
-                {Object.entries(typeMap).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
-            </Form.Item></Col>
-            <Col span={12}><Form.Item name="entryDate" label="入职日期" rules={[{ required: true }]}><Input type="date" /></Form.Item></Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}><Form.Item name="orgId" label="部门" rules={[{ required: true }]}>
-              <TreeSelect treeData={orgs.map(o => ({ title: o.name, value: o.id }))} placeholder="选择部门" style={{ width: '100%' }} />
-            </Form.Item></Col>
-            <Col span={12}><Form.Item name="positionId" label="岗位"><Input placeholder="岗位ID" /></Form.Item></Col>
-          </Row>
-        </Form>
-      </Modal>
-    </div>
-  );
-};
-
-export default EmployeePage;
+  return <section className="md-page"><header className="md-toolbar"><div><h1>员工与任职</h1><p>员工档案与任职关系分离管理，所有组织归属以生效任职为准。</p></div><Button type="primary" icon={<PlusOutlined />} onClick={() => { employeeForm.resetFields(); setFormPositions([]); setCreateOpen(true); }}>新增员工</Button></header>
+    <div className="md-filter-bar"><Input placeholder="姓名或工号" value={keyword} onChange={event => setKeyword(event.target.value)} onPressEnter={() => { setPage(1); void load(1); }} prefix={<SearchOutlined />} /><Select aria-label="员工状态" allowClear placeholder="状态" value={status} options={statusOptions} onChange={setStatus} /><Select aria-label="组织筛选" allowClear showSearch placeholder="组织" value={organizationId} options={organizationOptions} onChange={setOrganizationId} /><Select aria-label="团队筛选" allowClear showSearch placeholder="专业团队" value={teamId} options={teams.map(item => ({ value: item.id, label: item.name }))} onChange={setTeamId} /><Button type="primary" onClick={() => { setPage(1); void load(1); }}>查询</Button><Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button></div>
+    {error && <Alert type="error" showIcon title={error} action={<Button onClick={() => void load()}>重试</Button>} />}
+    <Table rowKey="id" loading={loading} dataSource={employees} scroll={{ x: 1060 }} pagination={{ current: page, pageSize, total, showSizeChanger: true, onChange: (nextPage, nextSize) => { setPage(nextPage); setPageSize(nextSize); void load(nextPage, nextSize); } }} columns={[
+      { title: '工号', dataIndex: 'employeeNo', width: 120 }, { title: '姓名', dataIndex: 'name', width: 120 }, { title: '状态', dataIndex: 'status', width: 90, render: (value: EmployeeStatus) => <Tag>{statusText[value]}</Tag> },
+      { title: '主组织', dataIndex: 'primaryAssignment', width: 150, render: (value: EmployeeListItem['primaryAssignment']) => value ? organizationNames.get(value.organizationId) || value.organizationId : '-' },
+      { title: '主岗位', dataIndex: 'primaryAssignment', width: 120, render: (value: EmployeeListItem['primaryAssignment']) => value ? positionNames.get(value.positionId) || value.positionId : '-' },
+      { title: '专业团队', dataIndex: 'activeProfessionalTeamIds', width: 160, render: (ids: string[]) => ids.map(id => teamNames.get(id) || id).join('、') || '-' },
+      { title: '人员类型', dataIndex: 'employeeType', width: 120 }, { title: '入职日期', dataIndex: 'entryDate', width: 130, render: (value: string) => value.slice(0, 10) },
+      { title: '操作', width: 84, render: (_: unknown, row: EmployeeListItem) => <Button type="text" icon={<EyeOutlined />} aria-label={`查看${row.name}`} onClick={() => void openDetail(row)} /> },
+    ]} />
+    <Modal title="新增员工" open={createOpen} confirmLoading={submitting} onCancel={() => setCreateOpen(false)} onOk={() => void submitCreate()} width={680} destroyOnHidden><EmployeeForm form={employeeForm} organizations={organizationOptions} positions={positionOptions} onOrganizationChange={id => void positionsFor(id)} /></Modal>
+    <Modal title="编辑基础档案" open={editOpen} confirmLoading={submitting} onCancel={() => setEditOpen(false)} onOk={() => void submitEdit()} width={680} destroyOnHidden><EmployeeForm form={employeeForm} editing organizations={organizationOptions} positions={[]} onOrganizationChange={() => undefined} /></Modal>
+    <Modal title="员工转正" open={formalOpen} confirmLoading={submitting} onCancel={() => setFormalOpen(false)} onOk={() => void submitFormalize()} destroyOnHidden><Form form={formalForm} layout="vertical"><Form.Item name="formalDate" label="转正日期" rules={[{ required: true }]}><Input type="date" /></Form.Item></Form></Modal>
+    <Modal title="办理离职" open={leaveOpen} confirmLoading={submitting} okButtonProps={{ disabled: !handoverConfirmed }} onCancel={() => setLeaveOpen(false)} onOk={() => void submitLeave()} destroyOnHidden><Form form={leaveForm} layout="vertical"><Form.Item name="leaveDate" label="离职日期" rules={[{ required: true }]}><Input type="date" /></Form.Item></Form><Checkbox checked={handoverConfirmed} onChange={event => setHandoverConfirmed(event.target.checked)}>确认交接完成后才能提交离职</Checkbox></Modal>
+    <AssignmentDialog open={Boolean(assignmentMode)} title={assignmentMode === 'transfer' ? '调动主职' : '新增兼任'} form={assignmentForm} organizations={organizationOptions} positions={positionOptions} allowType={assignmentMode === 'add'} submitting={submitting} onOrganizationChange={id => void positionsFor(id, employeeForm)} onCancel={() => setAssignmentMode(undefined)} onSubmit={values => void submitAssignment(values)} />
+    <EmployeeDetailDrawer employee={detail} open={Boolean(detail)} organizations={organizationNames} positions={positionNames} teams={teamNames} users={users} selectedUserId={selectedUserId} onClose={() => setDetail(null)} onEdit={() => { if (!detail) return; employeeForm.setFieldsValue(detail); setEditOpen(true); }} onFormalize={() => { formalForm.resetFields(); setFormalOpen(true); }} onLeave={() => { leaveForm.resetFields(); setHandoverConfirmed(false); setLeaveOpen(true); }} onTransfer={() => { assignmentForm.resetFields(); setFormPositions([]); setAssignmentMode('transfer'); }} onAddAssignment={() => { assignmentForm.resetFields(); setFormPositions([]); setAssignmentMode('add'); }} onEndAssignment={assignment => void endAssignment(assignment)} onSelectUser={setSelectedUserId} onBind={() => void bindAccount()} onUnbind={() => void unbindAccount()} />
+  </section>;
+}

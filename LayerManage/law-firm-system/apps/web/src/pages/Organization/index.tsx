@@ -48,7 +48,7 @@ export default function OrganizationPage() {
 
   return <section className="md-page">
     <header className="md-toolbar"><div><h1>组织架构</h1><p>维护总所、总部中心、部门、分所与工作组的行政层级。</p></div><Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button></header>
-    {error && <Alert type="error" showIcon message="组织数据加载失败" action={<Button onClick={() => void load()}>重试</Button>} />}
+    {error && <Alert type="error" showIcon title="组织数据加载失败" action={<Button onClick={() => void load()}>重试</Button>} />}
     <Spin spinning={loading}><div className="md-org-layout">
       <aside className="md-tree-pane">{tree.length ? <OrganizationTree nodes={tree} selectedId={selected?.id} onSelect={node => setSelectedId(node.id)} /> : !loading && <Empty description="暂无组织" />}</aside>
       <main className="md-detail-pane">{selected ? <>

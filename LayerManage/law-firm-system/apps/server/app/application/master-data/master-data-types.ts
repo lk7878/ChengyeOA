@@ -74,6 +74,8 @@ export interface EmployeeListItem {
   name: string;
   employeeType: string;
   status: EmployeeStatus;
+  entryDate: Date;
+  activeProfessionalTeamIds: string[];
   version: number;
   primaryAssignment: EmployeeAssignmentView | null;
 }
@@ -83,6 +85,9 @@ export interface EmployeeDetail extends EmployeeListItem {
   email: string | null;
   idCard: string | null;
   licenseNo: string | null;
+  professionalDirections: string[];
+  formalDate: Date | null;
+  leaveDate: Date | null;
   assignments: EmployeeAssignmentView[];
   professionalTeams: ProfessionalTeamMemberView[];
   account: { id: string; username: string; status: string } | null;

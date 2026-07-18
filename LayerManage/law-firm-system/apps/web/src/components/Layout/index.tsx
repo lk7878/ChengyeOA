@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Avatar, Badge, Dropdown, Breadcrumb, theme, type MenuProps } from 'antd';
+import { Layout, Menu, Avatar, Badge, Dropdown, Breadcrumb, Drawer, Grid, theme, type MenuProps } from 'antd';
 import {
   DashboardOutlined,
   UserOutlined,
@@ -86,6 +86,9 @@ interface MainLayoutProps {
 
 const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const location = useLocation();
   const navigate = useNavigate();
   const { userInfo, logout } = useAuthStore();
@@ -112,10 +115,18 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       onClick: logout,
     },
   ];
+  const menu = <Menu
+    theme="dark"
+    mode="inline"
+    selectedKeys={[location.pathname]}
+    items={menuItems}
+    onClick={({ key }) => { setMobileMenuOpen(false); navigate(key); }}
+    style={{ borderRight: 0 }}
+  />;
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider
+      {!isMobile && <Sider
         trigger={null}
         collapsible
         collapsed={collapsed}
@@ -137,16 +148,13 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         >
           {collapsed ? '律所' : '律所管理系统'}
         </div>
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[location.pathname]}
-          items={menuItems}
-          onClick={({ key }) => navigate(key)}
-          style={{ borderRight: 0 }}
-        />
-      </Sider>
-      <Layout style={{ marginLeft: collapsed ? 80 : 220, transition: 'all 0.2s' }}>
+        {menu}
+      </Sider>}
+      <Drawer open={isMobile && mobileMenuOpen} placement="left" closable={false} onClose={() => setMobileMenuOpen(false)} size="default" styles={{ body: { padding: 0, background: '#001529' } }}>
+        <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 18, fontWeight: 'bold', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>律所管理系统</div>
+        {menu}
+      </Drawer>
+      <Layout style={{ marginLeft: isMobile ? 0 : collapsed ? 80 : 220, transition: 'all 0.2s', minWidth: 0 }}>
         <AntHeader
           style={{
             padding: '0 24px',
@@ -161,9 +169,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            {React.createElement(collapsed ? MenuUnfoldOutlined : MenuFoldOutlined, {
+            {React.createElement(isMobile || collapsed ? MenuUnfoldOutlined : MenuFoldOutlined, {
               style: { fontSize: 18, cursor: 'pointer' },
-              onClick: () => setCollapsed(!collapsed),
+              onClick: () => isMobile ? setMobileMenuOpen(true) : setCollapsed(!collapsed),
             })}
             <Breadcrumb items={breadcrumbItems} />
           </div>
@@ -174,16 +182,15 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <Avatar icon={<UserOutlined />} size="small" />
-                <span>{userInfo?.name || userInfo?.username || '用户'}</span>
-                <DownOutlined style={{ fontSize: 12 }} />
+                {!isMobile && <><span>{userInfo?.name || userInfo?.username || '用户'}</span><DownOutlined style={{ fontSize: 12 }} /></>}
               </div>
             </Dropdown>
           </div>
         </AntHeader>
         <Content
           style={{
-            margin: 24,
-            padding: 24,
+            margin: isMobile ? 12 : 24,
+            padding: isMobile ? 16 : 24,
             background: colorBgContainer,
             borderRadius: borderRadiusLG,
             minHeight: 280,
