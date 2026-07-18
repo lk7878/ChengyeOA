@@ -718,15 +718,15 @@ Run focused tests, lint/typecheck, then commit `feat(server): add cross-office p
 **Interfaces:**
 - Produces: dedicated bind/unbind path that may bind the initialized super-admin without weakening generic user guards.
 
-- [ ] **Step 1: Write failing binding tests**
+- [x] **Step 1: Write failing binding tests**
 
 Prove ordinary bind/unbind, duplicate user binding, duplicate employee binding, absent objects, super-admin binding without changing role/credential/initialization, and audit rollback. Retain the existing test that generic `PUT /users/:id` cannot mutate the first super-admin.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Expected: binding service module not found.
 
-- [ ] **Step 3: Implement dedicated service**
+- [x] **Step 3: Implement dedicated service**
 
 ```ts
 bind(employeeId: string, input: { userId: string; employeeVersion: number }): Promise<EmployeeDetail>;
@@ -735,7 +735,7 @@ unbind(employeeId: string, input: { employeeVersion: number }): Promise<Employee
 
 Lock Employee and User, check both one-to-one sides, update only `User.employeeId`, increment Employee version, write `BIND_ACCOUNT` or `UNBIND_ACCOUNT`, and return the safe employee detail. Do not call `assertMutableUser()` because this dedicated operation is the approved SPEC-002 extension; do not change or loosen `assertMutableUser()` itself.
 
-- [ ] **Step 4: Verify and commit locally**
+- [x] **Step 4: Verify and commit locally**
 
 Run binding and trust-root tests, lint/typecheck, then commit `feat(server): bind employee identities without weakening trust root`.
 
