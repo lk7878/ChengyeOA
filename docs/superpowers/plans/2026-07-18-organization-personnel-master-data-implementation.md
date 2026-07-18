@@ -69,7 +69,7 @@ npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd exec -- vitest run src/pages/Or
 - Consumes: SPEC-002 schema and `SystemBootstrapService.execute()`.
 - Produces: Expanded Organization, Position, Employee, EmployeeAssignment, ProfessionalTeam, and ProfessionalTeamMember Prisma models while temporarily retaining legacy Employee organization fields.
 
-- [ ] **Step 1: Install exact lockfile dependencies and generate Prisma Client**
+- [x] **Step 1: Install exact lockfile dependencies and generate Prisma Client**
 
 Run from `LayerManage/law-firm-system`:
 
@@ -82,7 +82,7 @@ npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd --prefix apps/server run db:gen
 
 Expected: all commands exit 0; no lockfile changes.
 
-- [ ] **Step 2: Write failing schema and migration contract tests**
+- [x] **Step 2: Write failing schema and migration contract tests**
 
 Add exact assertions for the expanded state:
 
@@ -107,7 +107,7 @@ test('expand migration backfills root identity and adds partial unique indexes',
 });
 ```
 
-- [ ] **Step 3: Run the new tests and confirm RED**
+- [x] **Step 3: Run the new tests and confirm RED**
 
 Run:
 
@@ -117,7 +117,7 @@ npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd exec -- tsx --test --test-force
 
 Expected: fail because the three models, fields, migration, and root path creation do not exist.
 
-- [ ] **Step 4: Add the expanded Prisma models**
+- [x] **Step 4: Add the expanded Prisma models**
 
 Implement these final field contracts in `schema.prisma`; keep legacy `Employee.orgId`, `Employee.positionId`, `organization`, and `position` only until Task 9:
 
@@ -180,7 +180,7 @@ model ProfessionalTeamMember {
 
 Add Organization `code`, `path`, `level`, `version`; Position `code`, `categoryCode`, `version`; Employee `licenseNo`, `professionalDirections String[] @default([])`, `formalDate`, `version`, and relation arrays. Add inverse relation arrays to Organization and Position. Rename the Prisma Position field to `organizationId String @map("orgId")` so the approved API vocabulary is used without a physical column rename; update the temporary legacy Position controller and affected test fixtures in the same task so typecheck remains green.
 
-- [ ] **Step 5: Write the expand SQL**
+- [x] **Step 5: Write the expand SQL**
 
 The SQL must perform this order in one migration:
 
@@ -229,7 +229,7 @@ ON "professional_team_member" ("professionalTeamId")
 WHERE "memberRole" = 'LEAD' AND "endedAt" IS NULL;
 ```
 
-- [ ] **Step 6: Make bootstrap create a valid expanded root**
+- [x] **Step 6: Make bootstrap create a valid expanded root**
 
 Generate the root ID before the create call and write stable derived values:
 
@@ -249,7 +249,7 @@ const rootOrganization = await tx.organization.create({
 
 Extend bootstrap tests to assert `ROOT`, the exact `/${rootOrganization.id}` path, level 0, version 1, and no business master data.
 
-- [ ] **Step 7: Reset the test database and verify GREEN**
+- [x] **Step 7: Reset the test database and verify GREEN**
 
 Run from `LayerManage/law-firm-system` with the environment preamble:
 
@@ -262,7 +262,7 @@ npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd --prefix apps/server run test:u
 
 Expected: migration applies, server typecheck passes, all backend tests pass.
 
-- [ ] **Step 8: Commit locally**
+- [x] **Step 8: Commit locally**
 
 ```powershell
 git add LayerManage/law-firm-system/apps/server/prisma LayerManage/law-firm-system/apps/server/app/application/system/system-bootstrap-service.ts LayerManage/law-firm-system/apps/server/test

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 import { assertDeletableOrganization } from '../application/system/trust-root-guard';
@@ -103,14 +104,30 @@ export default class OrganizationController extends Controller {
    */
   async create() {
     const { ctx } = this;
-    const { name, type, parentId, sort = 0 } = ctx.request.body;
+    const { code, name, type, parentId, sort = 0 } = ctx.request.body;
 
-    if (!name || !type) {
-      ctx.throw(400, '名称和类型不能为空');
+    if (!code || !name || !type || !parentId) {
+      ctx.throw(400, '编码、名称、类型和上级组织不能为空');
     }
 
+    const parent = await ctx.prisma.organization.findUnique({ where: { id: parentId } });
+    if (!parent) {
+      ctx.throw(404, '上级组织不存在');
+    }
+
+    const id = randomUUID();
+    const data: Prisma.OrganizationUncheckedCreateInput = {
+      id,
+      code,
+      name,
+      type,
+      parentId,
+      path: `${parent.path}/${id}`,
+      level: parent.level + 1,
+      sort,
+    };
     const org = await ctx.prisma.organization.create({
-      data: { name, type, parentId, sort },
+      data,
     });
 
     ctx.body = {

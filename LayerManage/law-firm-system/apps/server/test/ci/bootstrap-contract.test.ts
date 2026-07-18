@@ -7,6 +7,10 @@ import { checkBootstrapContract } from '../../scripts/ci/check-bootstrap-contrac
 
 const repositoryRoot = path.resolve(__dirname, '../../../../../..');
 const projectRoot = path.join(repositoryRoot, 'LayerManage', 'law-firm-system');
+const bootstrapServiceSource = fs.readFileSync(
+  path.join(projectRoot, 'apps', 'server', 'app', 'application', 'system', 'system-bootstrap-service.ts'),
+  'utf8',
+);
 
 const validRootScripts = {
   'db:deploy': 'npm --prefix apps/server run db:deploy',
@@ -71,6 +75,13 @@ function assertOnlyIssue(mutate: (fixture: ProjectFixture) => void, expectedIssu
 
 test('the repository satisfies the bootstrap contract', () => {
   assert.deepEqual(checkBootstrapContract(projectRoot), []);
+});
+
+test('bootstrap creates the expanded root identity from one explicit UUID', () => {
+  assert.match(bootstrapServiceSource, /randomUUID\(\)/);
+  assert.match(bootstrapServiceSource, /code:\s*'ROOT'/);
+  assert.match(bootstrapServiceSource, /path:\s*`\/\$\{rootOrganizationId\}`/);
+  assert.match(bootstrapServiceSource, /level:\s*0/);
 });
 
 test('a complete fixture satisfies the bootstrap contract', () => {

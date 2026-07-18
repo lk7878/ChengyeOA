@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PasswordHasher } from '../../domain/security/password-hasher';
 import { normalizeUsername, validatePassword, validateUsername } from '../../domain/security/password-policy';
@@ -57,11 +58,16 @@ export class SystemBootstrapService {
           throw new InconsistentSystemStateError('Application data exists without initialization');
         }
 
+        const rootOrganizationId = randomUUID();
         const organization = await tx.organization.create({
           data: {
+            id: rootOrganizationId,
+            code: 'ROOT',
             name: normalized.organizationName,
             type: 'FIRM',
             parentId: null,
+            path: `/${rootOrganizationId}`,
+            level: 0,
             status: 'ENABLED',
           },
         });

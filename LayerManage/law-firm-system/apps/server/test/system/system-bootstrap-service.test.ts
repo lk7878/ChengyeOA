@@ -91,6 +91,11 @@ test('creates exactly one atomic trust root without employee or permissions', as
       { name: organization.name, type: organization.type, parentId: organization.parentId, status: organization.status },
       { name: input.organizationName, type: 'FIRM', parentId: null, status: 'ENABLED' },
     );
+    const expandedOrganization = organization as unknown as Record<string, unknown>;
+    assert.equal(expandedOrganization.code, 'ROOT');
+    assert.equal(expandedOrganization.path, `/${organization.id}`);
+    assert.equal(expandedOrganization.level, 0);
+    assert.equal(expandedOrganization.version, 1);
     assert.deepEqual(
       { name: role.name, type: role.type, status: role.status },
       { name: '系统超级管理员', type: 'SYSTEM', status: 'ENABLED' },
@@ -198,8 +203,15 @@ test('rejects a second bootstrap without writing additional data', async () => {
 test('rejects a dirty uninitialized database without changing it', async () => {
   const prisma = createTestPrisma();
   try {
+    const dirtyOrganizationId = '00000000-0000-4000-8000-000000000003';
     const dirtyOrganization = await prisma.organization.create({
-      data: { name: 'Existing firm', type: 'FIRM' },
+      data: {
+        id: dirtyOrganizationId,
+        code: 'DIRTY_ROOT',
+        name: 'Existing firm',
+        type: 'FIRM',
+        path: `/${dirtyOrganizationId}`,
+      },
     });
 
     await assert.rejects(() => createService(prisma).execute(input), InconsistentSystemStateError);

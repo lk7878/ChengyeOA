@@ -7,7 +7,7 @@ export default class PositionController extends Controller {
     const { orgId } = ctx.query;
 
     const where: Prisma.PositionWhereInput = {};
-    if (orgId) where.orgId = orgId;
+    if (orgId) where.organizationId = orgId;
 
     const list = await ctx.prisma.position.findMany({
       where,
@@ -52,14 +52,14 @@ export default class PositionController extends Controller {
 
   async create() {
     const { ctx } = this;
-    const { name, orgId, level, responsibilities } = ctx.request.body;
+    const { name, orgId, organizationId = orgId, code, categoryCode, level, responsibilities } = ctx.request.body;
 
-    if (!name || !orgId) {
-      ctx.throw(400, '名称和组织不能为空');
+    if (!name || !organizationId || !code || !categoryCode) {
+      ctx.throw(400, '名称、组织、编码和岗位分类不能为空');
     }
 
     const position = await ctx.prisma.position.create({
-      data: { name, orgId, level: level || 0, responsibilities },
+      data: { name, organizationId, code, categoryCode, level: level || 0, responsibilities },
       include: { organization: true },
     });
 

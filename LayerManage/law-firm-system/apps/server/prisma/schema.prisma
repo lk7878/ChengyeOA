@@ -11,18 +11,24 @@ datasource db {
 
 model Organization {
   id        String   @id @default(uuid())
+  code      String   @unique
   name      String
-  type      String // FIRM | BRANCH | DEPARTMENT
+  type      String // FIRM | HQ_CENTER | DEPARTMENT | BRANCH | GROUP
   parentId  String?
+  path      String   @unique
+  level     Int      @default(0)
   sort      Int      @default(0)
   status    String   @default("ENABLED") // ENABLED | DISABLED
+  version   Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  parent    Organization?  @relation("OrgHierarchy", fields: [parentId], references: [id])
-  children  Organization[] @relation("OrgHierarchy")
-  positions Position[]
-  employees Employee[]
+  parent             Organization?      @relation("OrgHierarchy", fields: [parentId], references: [id])
+  children           Organization[]     @relation("OrgHierarchy")
+  positions          Position[]
+  employees          Employee[]
+  assignments        EmployeeAssignment[]
+  professionalTeams  ProfessionalTeam[]
   systemInitialization SystemInitialization? @relation("RootOrganization")
 
   @@map("organization")
@@ -30,37 +36,47 @@ model Organization {
 
 model Position {
   id               String   @id @default(uuid())
+  organizationId   String   @map("orgId")
+  code             String
   name             String
-  orgId            String
+  categoryCode     String
   level            Int      @default(0)
   responsibilities String?
   status           String   @default("ENABLED")
+  version          Int      @default(1)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  organization Organization @relation(fields: [orgId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
   employees    Employee[]
+  assignments  EmployeeAssignment[]
 
+  @@unique([organizationId, code])
+  @@index([organizationId, status])
   @@map("position")
 }
 
 // ==================== 人事/员工模块 ====================
 
 model Employee {
-  id         String    @id @default(uuid())
-  employeeNo String    @unique
-  name       String
-  idCard     String?   @unique
-  phone      String
-  email      String?
-  type       String // PARTNER | SENIOR_LAWYER | JUNIOR_LAWYER | ASSISTANT | SALES | ADMIN | HR | FINANCE | OPERATOR
-  status     String    @default("PROBATION") // PROBATION | FORMAL | LEAVED
-  entryDate  DateTime
-  leaveDate  DateTime?
-  orgId      String
-  positionId String
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id                     String    @id @default(uuid())
+  employeeNo             String    @unique
+  name                   String
+  idCard                 String?   @unique
+  licenseNo              String?   @unique
+  phone                  String
+  email                  String?
+  type                   String // PARTNER | SENIOR_LAWYER | JUNIOR_LAWYER | ASSISTANT | SALES | ADMIN | HR | FINANCE | OPERATOR
+  professionalDirections String[]  @default([])
+  status                 String    @default("PROBATION") // PROBATION | FORMAL | LEAVED
+  entryDate              DateTime
+  formalDate             DateTime?
+  leaveDate              DateTime?
+  orgId                  String
+  positionId             String
+  version                Int       @default(1)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   organization Organization  @relation(fields: [orgId], references: [id])
   position     Position      @relation(fields: [positionId], references: [id])
@@ -68,8 +84,71 @@ model Employee {
   leads        Lead[]        @relation("LeadAssignee")
   cases        Case[]        @relation("CaseLawyer")
   performance  Performance[]
+  assignments  EmployeeAssignment[]
+  professionalTeams ProfessionalTeamMember[]
 
   @@map("employee")
+}
+
+model EmployeeAssignment {
+  id             String   @id @default(uuid())
+  employeeId     String
+  organizationId String
+  positionId     String
+  assignmentType String
+  startedAt      DateTime
+  endedAt        DateTime?
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  position     Position     @relation(fields: [positionId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, endedAt])
+  @@index([organizationId, endedAt])
+  @@index([positionId, endedAt])
+  @@map("employee_assignment")
+}
+
+model ProfessionalTeam {
+  id                 String   @id @default(uuid())
+  code               String   @unique
+  name               String
+  categoryCode       String
+  homeOrganizationId String
+  description        String?
+  status             String   @default("ENABLED")
+  version            Int      @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  homeOrganization Organization             @relation(fields: [homeOrganizationId], references: [id], onDelete: Restrict)
+  members          ProfessionalTeamMember[]
+
+  @@index([homeOrganizationId, status])
+  @@index([categoryCode, status])
+  @@map("professional_team")
+}
+
+model ProfessionalTeamMember {
+  id                 String   @id @default(uuid())
+  professionalTeamId String
+  employeeId         String
+  memberRole         String
+  startedAt          DateTime
+  endedAt            DateTime?
+  version            Int      @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  professionalTeam ProfessionalTeam @relation(fields: [professionalTeamId], references: [id], onDelete: Restrict)
+  employee         Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([professionalTeamId, endedAt])
+  @@index([employeeId, endedAt])
+  @@map("professional_team_member")
 }
 
 // ==================== 用户/权限模块 ====================

@@ -23,7 +23,9 @@ async function createLinkedEmployee(userId?: string): Promise<{ employeeId: stri
   const position = await prisma.position.create({
     data: {
       name: `Test position ${randomUUID()}`,
-      orgId: rootOrganizationId,
+      organizationId: rootOrganizationId,
+      code: `TEST_${randomUUID().replaceAll('-', '').toUpperCase()}`,
+      categoryCode: 'TEST',
     },
   });
   const employee = await prisma.employee.create({
@@ -254,6 +256,25 @@ test('cannot delete the current root organization but can update its name', asyn
     .send({ name: 'Renamed Test Firm' })
     .expect(200);
   assert.equal(updateResponse.body.data.name, 'Renamed Test Firm');
+});
+
+test('legacy organization creation derives a valid materialized path during the expand phase', async () => {
+  const response = await app.httpRequest()
+    .post('/api/v1/organizations')
+    .set('Authorization', bearer)
+    .send({
+      code: 'TEST_BRANCH',
+      name: 'Test Branch',
+      type: 'BRANCH',
+      parentId: rootOrganizationId,
+      sort: 10,
+    })
+    .expect(200);
+
+  assert.equal(response.body.data.code, 'TEST_BRANCH');
+  assert.equal(response.body.data.parentId, rootOrganizationId);
+  assert.equal(response.body.data.level, 1);
+  assert.equal(response.body.data.path, `/${rootOrganizationId}/${response.body.data.id}`);
 });
 
 test('user endpoints use safe projections and creation applies shared credential policy', async () => {
