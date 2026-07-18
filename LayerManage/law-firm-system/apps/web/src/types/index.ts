@@ -310,3 +310,4 @@ export interface DashboardAlerts {
   unassignedLeads: number;
   urgentCases: Case[];
 }
+export * from '@/features/master-data/types';

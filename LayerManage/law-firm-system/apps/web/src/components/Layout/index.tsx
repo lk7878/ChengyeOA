@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Avatar, Badge, Dropdown, Breadcrumb, theme } from 'antd';
+import { Layout, Menu, Avatar, Badge, Dropdown, Breadcrumb, theme, type MenuProps } from 'antd';
 import {
   DashboardOutlined,
   UserOutlined,
@@ -24,7 +24,7 @@ import { useAuthStore } from '@/stores/authStore';
 
 const { Header: AntHeader, Sider, Content } = Layout;
 
-const menuItems = [
+const baseMenuItems: Required<MenuProps>['items'] = [
   { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/leads', icon: <FileSearchOutlined />, label: '线索管理' },
   { key: '/customers', icon: <UsergroupAddOutlined />, label: '客户管理' },
@@ -41,6 +41,24 @@ const menuItems = [
   { key: '/performances', icon: <TrophyOutlined />, label: '绩效管理' },
 ];
 
+// Exported for deterministic role-gated navigation tests.
+// eslint-disable-next-line react-refresh/only-export-components
+export function buildMenuItems(roles: string[]): Required<MenuProps>['items'] {
+  const items = baseMenuItems.filter(item => item?.key !== '/employees' && item?.key !== '/organizations');
+  if (!roles.includes('SYSTEM_SUPER_ADMIN')) return items;
+  return [...items, {
+    key: 'master-data',
+    icon: <ApartmentOutlined />,
+    label: '组织与人员',
+    children: [
+      { key: '/org/tree', icon: <ApartmentOutlined />, label: '组织架构' },
+      { key: '/org/positions', icon: <SafetyCertificateOutlined />, label: '岗位管理' },
+      { key: '/org/employees', icon: <TeamOutlined />, label: '员工管理' },
+      { key: '/org/professional-teams', icon: <UsergroupAddOutlined />, label: '专业团队' },
+    ],
+  }];
+}
+
 const routeNameMap: Record<string, string> = {
   '/': '仪表盘',
   '/leads': '线索管理',
@@ -56,6 +74,10 @@ const routeNameMap: Record<string, string> = {
   '/approvals': '审批管理',
   '/notifications': '通知中心',
   '/performances': '绩效管理',
+  '/org/tree': '组织架构',
+  '/org/positions': '岗位管理',
+  '/org/employees': '员工管理',
+  '/org/professional-teams': '专业团队',
 };
 
 interface MainLayoutProps {
@@ -67,6 +89,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { userInfo, logout } = useAuthStore();
+  const menuItems = buildMenuItems(userInfo?.roles ?? []);
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();

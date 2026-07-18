@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-interface UserInfo {
+export interface UserInfo {
   id: string;
   username: string;
   name: string;
@@ -22,6 +22,7 @@ interface AuthState {
   logout: () => void;
   hasPermission: (permission: string) => boolean;
   hasAnyPermission: (permissions: string[]) => boolean;
+  hasRole: (role: string) => boolean;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -65,6 +66,8 @@ export const useAuthStore = create<AuthState>()(
         if (!userInfo) return false;
         return permissions.some(p => userInfo.permissions.includes(p)) || userInfo.roles.includes('admin');
       },
+
+      hasRole: (role: string) => get().userInfo?.roles.includes(role) === true,
     }),
     {
       name: 'auth-storage',

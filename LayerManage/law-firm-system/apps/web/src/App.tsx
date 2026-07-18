@@ -19,6 +19,7 @@ import LeadPage from './pages/Lead';
 import ApprovalPage from './pages/Approval';
 import NotificationPage from './pages/Notification';
 import PerformancePage from './pages/Performance';
+import SuperAdminRoute from './features/master-data/SuperAdminRoute';
 
 // 路由守卫组件
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -78,8 +79,12 @@ function App() {
         <Route path="/contracts" element={<WithLayout><ContractPage /></WithLayout>} />
         <Route path="/cases" element={<WithLayout><CasePage /></WithLayout>} />
         <Route path="/payments" element={<WithLayout><PaymentPage /></WithLayout>} />
-        <Route path="/employees" element={<WithLayout><EmployeePage /></WithLayout>} />
-        <Route path="/organizations" element={<WithLayout><OrganizationPage /></WithLayout>} />
+        <Route path="/organizations" element={<Navigate to="/org/tree" replace />} />
+        <Route path="/employees" element={<Navigate to="/org/employees" replace />} />
+        <Route path="/org/tree" element={<WithLayout><SuperAdminRoute><OrganizationPage /></SuperAdminRoute></WithLayout>} />
+        <Route path="/org/positions" element={<WithLayout><SuperAdminRoute><PlaceholderPage title="岗位管理" /></SuperAdminRoute></WithLayout>} />
+        <Route path="/org/employees" element={<WithLayout><SuperAdminRoute><EmployeePage /></SuperAdminRoute></WithLayout>} />
+        <Route path="/org/professional-teams" element={<WithLayout><SuperAdminRoute><PlaceholderPage title="专业团队" /></SuperAdminRoute></WithLayout>} />
         <Route path="/users" element={<WithLayout><UserPage /></WithLayout>} />
         <Route path="/roles" element={<WithLayout><RolePage /></WithLayout>} />
         <Route path="/channels" element={<WithLayout><ChannelPage /></WithLayout>} />

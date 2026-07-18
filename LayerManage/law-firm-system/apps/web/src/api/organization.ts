@@ -1,4 +1,5 @@
 import request from './request';
+export { masterDataApi } from '@/features/master-data/api';
 import type { ApiResponse, PaginatedData, Employee, Organization, Position, Channel, Approval, Notification, Performance } from '@/types';
 
 type QueryParams = Record<string, unknown>;

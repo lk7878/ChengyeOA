@@ -913,7 +913,7 @@ Commit `feat(db): make employee assignments canonical`.
 - Produces: typed SPEC-003 API client and role-gated route shell.
 - Consumed by: Tasks 11-12 pages.
 
-- [ ] **Step 1: Write failing route and navigation tests**
+- [x] **Step 1: Write failing route and navigation tests**
 
 Assert a user whose roles contain `SYSTEM_SUPER_ADMIN` can render protected content; a normal user receives an access-denied result and sees no organization navigation group.
 
@@ -923,11 +923,11 @@ render(<MemoryRouter><SuperAdminRoute><div>allowed</div></SuperAdminRoute></Memo
 expect(screen.getByText('allowed')).toBeInTheDocument();
 ```
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Expected: feature modules do not exist.
 
-- [ ] **Step 3: Define final frontend contracts**
+- [x] **Step 3: Define final frontend contracts**
 
 Define discriminated types matching API values, including `OrganizationNode`, `Position`, `EmployeeListItem`, `EmployeeDetail`, `EmployeeAssignment`, `ProfessionalTeam`, `ProfessionalTeamMember`, and `VersionedMutation`.
 
@@ -943,15 +943,15 @@ export interface EmployeeDetail extends EmployeeListItem {
 }
 ```
 
-- [ ] **Step 4: Implement the typed API module**
+- [x] **Step 4: Implement the typed API module**
 
 Create one method for every approved endpoint. Use `patch` for metadata updates, `post` for state actions, `put/delete` only for account binding, and no physical delete method.
 
-- [ ] **Step 5: Implement route and menu guard**
+- [x] **Step 5: Implement route and menu guard**
 
 `SuperAdminRoute` checks the current persisted `userInfo.roles`. Add `/org/tree`, `/org/positions`, `/org/employees`, `/org/professional-teams`; make old `/organizations` and `/employees` routes `Navigate` redirects. Show one grouped organization navigation section only to the super-admin.
 
-- [ ] **Step 6: Verify and commit locally**
+- [x] **Step 6: Verify and commit locally**
 
 Run focused frontend test, web lint/typecheck, then commit `feat(web): add protected master data shell`.
 
