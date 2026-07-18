@@ -59,6 +59,8 @@ Evidence is generated locally under ignored `var/security` paths and is never co
 
 The SBOMs contain commit, workspace, Node.js, npm, and generation-time traceability properties. Artifact safety tests and the final sensitive-value scan found no committed credentials or local audit exports.
 
-## Remaining Release Gate
+## Deferred Remote Release Gate
 
-The independent `dependency-security` GitHub Actions job has been defined and contract-tested, but no remote run was observed during local closeout. Merge and release remain blocked until that job succeeds and uploads the expected 14-day dependency-security evidence artifact.
+By project-owner decision on `2026-07-18`, development will continue through local integration only. SEC-SPEC-001 may therefore be merged into the local `main` branch without a GitHub push, pull request, or remote workflow run.
+
+The independent `dependency-security` GitHub Actions job has been defined and contract-tested, but no remote run was observed during local closeout. This remote gate is explicitly deferred until the project owner manually publishes the completed project. It must pass and upload the expected 14-day dependency-security evidence artifact before any remote release is declared accepted.
