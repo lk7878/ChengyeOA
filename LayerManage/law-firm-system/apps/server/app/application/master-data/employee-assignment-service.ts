@@ -44,7 +44,7 @@ export class EmployeeAssignmentService {
       });
       const changed = await tx.employee.updateMany({
         where: { id: employeeId, version: employeeVersion },
-        data: { orgId: organizationId, positionId, version: { increment: 1 } },
+        data: { version: { increment: 1 } },
       });
       if (changed.count !== 1) versionConflict();
       await writeMasterDataAudit(tx, {

@@ -32,7 +32,6 @@ export class EmployeeService {
           employeeNo: values.employeeNo, name: values.name, phone: values.phone, email: values.email,
           idCard: values.idCard, licenseNo: values.licenseNo, type: values.employeeType,
           professionalDirections: values.professionalDirections, entryDate: values.entryDate,
-          orgId: values.primaryOrganizationId, positionId: values.primaryPositionId,
         } });
         await tx.employeeAssignment.create({ data: {
           employeeId: employee.id, organizationId: values.primaryOrganizationId, positionId: values.primaryPositionId,

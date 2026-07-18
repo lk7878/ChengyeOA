@@ -5,6 +5,12 @@ import test from 'node:test';
 
 const schema = fs.readFileSync(path.resolve('prisma/schema.prisma'), 'utf8');
 
+function modelBlock(name: string): string {
+  const match = schema.match(new RegExp(`model ${name} \\{[\\s\\S]*?^\\}`, 'm'));
+  assert.ok(match, `${name} model is missing`);
+  return match[0];
+}
+
 test('uses PostgreSQL and retains exactly 26 current models', () => {
   assert.match(schema, /provider\s*=\s*"postgresql"/);
   assert.equal([...schema.matchAll(/^model\s+\w+\s+\{/gm)].length, 26);
@@ -33,6 +39,20 @@ test('adds the SPEC-003 expanded organization and personnel schema', () => {
   assert.match(schema, /model EmployeeAssignment\s+\{/);
   assert.match(schema, /model ProfessionalTeam\s+\{/);
   assert.match(schema, /model ProfessionalTeamMember\s+\{/);
+});
+
+test('uses employee assignments as the only organization ownership source', () => {
+  const employee = modelBlock('Employee');
+  const organization = modelBlock('Organization');
+  const position = modelBlock('Position');
+
+  assert.doesNotMatch(employee, /^\s*orgId\s+/m);
+  assert.doesNotMatch(employee, /^\s*positionId\s+/m);
+  assert.doesNotMatch(employee, /^\s*organization\s+Organization\b/m);
+  assert.doesNotMatch(employee, /^\s*position\s+Position\b/m);
+  assert.doesNotMatch(organization, /^\s*employees\s+Employee\[\]/m);
+  assert.doesNotMatch(position, /^\s*employees\s+Employee\[\]/m);
+  assert.match(employee, /^\s*assignments\s+EmployeeAssignment\[\]/m);
 });
 
 test('maps every current money field to numeric 18,2', () => {

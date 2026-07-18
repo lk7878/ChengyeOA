@@ -67,8 +67,19 @@ function runtimeSourceFiles(serverRoot: string): string[] {
 export function checkBaselineContract(projectRoot: string): string[] {
   const issues: string[] = [];
   const serverRoot = path.join(projectRoot, 'apps', 'server');
+  const canonicalSchemaPath = path.join(serverRoot, 'prisma', 'schema.prisma');
   if (fs.existsSync(path.join(projectRoot, 'prisma', 'schema.prisma'))) issues.push('duplicate root Prisma schema exists');
-  if (!fs.existsSync(path.join(serverRoot, 'prisma', 'schema.prisma'))) issues.push('canonical Prisma schema is missing');
+  if (!fs.existsSync(canonicalSchemaPath)) {
+    issues.push('canonical Prisma schema is missing');
+  } else {
+    const canonicalSchema = fs.readFileSync(canonicalSchemaPath, 'utf8');
+    const modelCount = [...canonicalSchema.matchAll(/^model\s+\w+\s+\{/gm)].length;
+    if (modelCount !== 26) issues.push(`canonical Prisma model count is ${modelCount}; expected 26`);
+    const employee = canonicalSchema.match(/model Employee\s+\{[\s\S]*?^\}/m)?.[0] ?? '';
+    if (/^\s*(?:orgId|positionId)\s+/m.test(employee)) {
+      issues.push('Employee retains direct organization ownership fields');
+    }
+  }
   if (hasGenericSeedScript(serverRoot)) issues.push('generic seed script exists');
   if (fs.existsSync(path.join(serverRoot, 'scripts', 'build-dist.js'))) issues.push('SQLite distribution builder exists');
 

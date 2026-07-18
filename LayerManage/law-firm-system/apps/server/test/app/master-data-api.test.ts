@@ -169,8 +169,6 @@ test('maps validation, missing records, and optimistic conflicts to stable respo
       phone: '13800000000',
       type: 'LAWYER',
       entryDate: new Date('2026-01-01'),
-      orgId: rootId,
-      positionId: position.id,
     },
   });
   await prisma.employeeAssignment.create({
@@ -201,8 +199,15 @@ test('requires the dedicated account-binding endpoint for employee identity link
       phone: '13800000000',
       type: 'LAWYER',
       entryDate: new Date('2026-01-01'),
-      orgId: rootId,
+    },
+  });
+  await prisma.employeeAssignment.create({
+    data: {
+      employeeId: employee.id,
+      organizationId: rootId,
       positionId: position.id,
+      assignmentType: 'PRIMARY',
+      startedAt: employee.entryDate,
     },
   });
   const rejectedCreate = await app.httpRequest()

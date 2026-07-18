@@ -23,8 +23,6 @@ async function createEmployee(employeeNo: string): Promise<string> {
       phone: '13800000000',
       type: 'LAWYER',
       entryDate: new Date('2026-01-01'),
-      orgId: rootOrganizationId,
-      positionId,
     },
   });
   await prisma.employeeAssignment.create({

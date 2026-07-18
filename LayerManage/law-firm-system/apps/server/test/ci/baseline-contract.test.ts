@@ -20,7 +20,13 @@ function createProjectFixture() {
   fs.mkdirSync(path.join(projectRoot, 'infra', 'postgres', 'init'), { recursive: true });
   fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ scripts: {} }));
   fs.writeFileSync(path.join(serverRoot, 'package.json'), JSON.stringify({ scripts: {} }));
-  fs.writeFileSync(path.join(serverRoot, 'prisma', 'schema.prisma'), '');
+  fs.writeFileSync(path.join(serverRoot, 'prisma', 'schema.prisma'), [
+    'model Employee {',
+    '  id String @id',
+    '  assignments EmployeeAssignment[]',
+    '}',
+    ...Array.from({ length: 25 }, (_, index) => `model ContractModel${index + 1} { id String @id }`),
+  ].join('\n'));
   fs.writeFileSync(path.join(serverRoot, 'server-entry.js'), '');
   fs.writeFileSync(path.join(serverRoot, 'scripts', 'build-pkg.js'), '');
   fs.writeFileSync(path.join(serverRoot, 'scripts', 'build.js'), '');
@@ -40,6 +46,23 @@ function createProjectFixture() {
   ].join('\n'));
   return { projectRoot, serverRoot };
 }
+
+test('reports a non-canonical model count and direct employee ownership fields', (t) => {
+  const fixture = createProjectFixture();
+  t.after(() => fs.rmSync(fixture.projectRoot, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(fixture.serverRoot, 'prisma', 'schema.prisma'), [
+    'model Employee {',
+    '  id String @id',
+    '  orgId String',
+    '  positionId String',
+    '}',
+  ].join('\n'));
+
+  assert.deepEqual(checkBaselineContract(fixture.projectRoot), [
+    'canonical Prisma model count is 1; expected 26',
+    'Employee retains direct organization ownership fields',
+  ]);
+});
 
 test('reports a duplicate Prisma schema and root seed command', (t) => {
   const fixture = createProjectFixture();

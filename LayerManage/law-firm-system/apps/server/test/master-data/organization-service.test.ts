@@ -194,8 +194,6 @@ test('blocks disable while an enabled descendant, position, or assignment is act
       phone: '13800000000',
       type: 'LAWYER',
       entryDate: new Date('2026-01-01T00:00:00.000Z'),
-      orgId: branch.id,
-      positionId: position.id,
     },
   });
   await prisma.employeeAssignment.create({

@@ -35,8 +35,6 @@ async function createLinkedEmployee(userId?: string): Promise<{ employeeId: stri
       phone: '13800000000',
       type: 'ADMIN',
       entryDate: new Date('2026-01-01T00:00:00.000Z'),
-      orgId: rootOrganizationId,
-      positionId: position.id,
     },
   });
   await prisma.employeeAssignment.create({

@@ -129,8 +129,6 @@ test('rejects stale versions and blocks disable while an assignment is active', 
       phone: '13800000000',
       type: 'LAWYER',
       entryDate: new Date('2026-01-01T00:00:00.000Z'),
-      orgId: branchId,
-      positionId: position.id,
     },
   });
   await prisma.employeeAssignment.create({

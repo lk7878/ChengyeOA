@@ -26,7 +26,6 @@ model Organization {
   parent             Organization?      @relation("OrgHierarchy", fields: [parentId], references: [id])
   children           Organization[]     @relation("OrgHierarchy")
   positions          Position[]
-  employees          Employee[]
   assignments        EmployeeAssignment[]
   professionalTeams  ProfessionalTeam[]
   systemInitialization SystemInitialization? @relation("RootOrganization")
@@ -48,7 +47,6 @@ model Position {
   updatedAt        DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id])
-  employees    Employee[]
   assignments  EmployeeAssignment[]
 
   @@unique([organizationId, code])
@@ -72,14 +70,10 @@ model Employee {
   entryDate              DateTime
   formalDate             DateTime?
   leaveDate              DateTime?
-  orgId                  String
-  positionId             String
   version                Int       @default(1)
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
-  organization Organization  @relation(fields: [orgId], references: [id])
-  position     Position      @relation(fields: [positionId], references: [id])
   user         User?
   leads        Lead[]        @relation("LeadAssignee")
   cases        Case[]        @relation("CaseLawyer")

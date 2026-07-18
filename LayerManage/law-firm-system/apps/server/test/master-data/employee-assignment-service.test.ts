@@ -30,7 +30,7 @@ async function position(organizationId: string, code: string, status = 'ENABLED'
 async function employeeWithPrimary(employeeNo = 'EMP-001') {
   const employee = await prisma.employee.create({ data: {
     employeeNo, name: employeeNo, phone: '13800000000', type: 'LAWYER',
-    entryDate: new Date('2026-01-01T00:00:00.000Z'), orgId: rootId, positionId: rootPositionId,
+    entryDate: new Date('2026-01-01T00:00:00.000Z'),
   } });
   await prisma.employeeAssignment.create({ data: {
     employeeId: employee.id, organizationId: rootId, positionId: rootPositionId,

@@ -845,7 +845,7 @@ Run API, router contract, auth, trust-root, server lint, and typecheck. Commit `
 - Consumes: all reads and writes switched to EmployeeAssignment in Task 8.
 - Produces: final 26-model SPEC-003 schema with no direct Employee organization ownership.
 
-- [ ] **Step 1: Write failing final-contract tests**
+- [x] **Step 1: Write failing final-contract tests**
 
 ```ts
 assert.equal(modelNames.length, 26);
@@ -856,11 +856,11 @@ assert.match(contractSql, /ALTER TABLE "employee" DROP COLUMN "positionId"/);
 assert.match(contractSql, /RAISE EXCEPTION[\s\S]+active primary/i);
 ```
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Expected: legacy fields still exist and migration file is absent.
 
-- [ ] **Step 3: Write the contract migration with fail-closed validation**
+- [x] **Step 3: Write the contract migration with fail-closed validation**
 
 Before dropping columns, execute a PostgreSQL block that raises when any non-left employee lacks exactly one active PRIMARY assignment or any assignment position belongs to a different organization:
 
@@ -884,15 +884,15 @@ ALTER TABLE "employee" DROP COLUMN "orgId";
 ALTER TABLE "employee" DROP COLUMN "positionId";
 ```
 
-- [ ] **Step 4: Remove legacy Prisma fields and update model count contracts**
+- [x] **Step 4: Remove legacy Prisma fields and update model count contracts**
 
 Remove direct fields and relations from Employee and inverse direct Employee arrays from Organization/Position. Retain only assignments. Update the canonical model count from 23 to 26 without weakening other baseline checks.
 
-- [ ] **Step 5: Reset, generate, and run complete backend tests**
+- [x] **Step 5: Reset, generate, and run complete backend tests**
 
 Expected: both migrations apply in order, Prisma generation succeeds, server typecheck passes, and all backend tests pass.
 
-- [ ] **Step 6: Commit locally**
+- [x] **Step 6: Commit locally**
 
 Commit `feat(db): make employee assignments canonical`.
 

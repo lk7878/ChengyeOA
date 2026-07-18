@@ -14,7 +14,9 @@ let employeeB: string;
 let service: ProfessionalTeamService;
 
 async function makeEmployee(no: string, orgId: string, positionId: string) {
-  return prisma.employee.create({ data: { employeeNo: no, name: no, phone: '13800000000', type: 'LAWYER', entryDate: new Date('2026-01-01'), orgId, positionId } });
+  const employee = await prisma.employee.create({ data: { employeeNo: no, name: no, phone: '13800000000', type: 'LAWYER', entryDate: new Date('2026-01-01') } });
+  await prisma.employeeAssignment.create({ data: { employeeId: employee.id, organizationId: orgId, positionId, assignmentType: 'PRIMARY', startedAt: employee.entryDate } });
+  return employee;
 }
 async function dropAuditTrigger(){await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS fail_team_audit_trigger ON "operation_log"');await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS fail_team_audit()');}
 
