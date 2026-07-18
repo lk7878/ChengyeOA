@@ -1,8 +1,9 @@
 # SPEC-003：组织架构与人员主数据设计
 
-> 状态：待文档审核  
+> 状态：已批准，待实施
 > 日期：2026-07-18  
 > 设计基线确认：2026-07-18  
+> 文档批准日期：2026-07-18
 > 需求基线：`律所闭环管理系统需求开发文档.md` V1.0  
 > 前置 Spec：SPEC-001、SPEC-002、SEC-SPEC-001 已完成本地实施和验收  
 > 关联专项设计：`docs/专项设计/数据库核心表设计草案.md`、`docs/专项设计/角色权限与数据范围设计.md`、`docs/专项设计/页面与接口清单.md`  
@@ -363,6 +364,8 @@ SPEC-004 上线后，本门禁由正式权限资源替换；迁移前不得放�
 | 403 | `SYSTEM_SUPER_ADMIN_REQUIRED` | 未通过临时超级管理员门禁 |
 | 404 | `ORGANIZATION_NOT_FOUND` 等 | 目标不存在 |
 | 409 | `VERSION_CONFLICT` | 乐观锁版本不一致 |
+| 409 | `MASTER_DATA_CODE_CONFLICT` | 组织、岗位或团队稳定编码重复 |
+| 409 | `EMPLOYEE_IDENTITY_CONFLICT` | 工号、身份证或执业证唯一标识重复 |
 | 409 | `ORGANIZATION_HIERARCHY_INVALID` | 父子类型不合法 |
 | 409 | `ORGANIZATION_CYCLE` | 组织移动产生循环 |
 | 409 | `MASTER_DATA_IN_USE` | 停用对象仍被生效关系引用 |
