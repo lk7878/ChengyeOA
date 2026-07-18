@@ -1,110 +1,65 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Button, Input, Tag, Space, Modal, Form, message,
-  Popconfirm, Card, Row, Col, Tree
-} from 'antd';
-import {
-  PlusOutlined, EditOutlined, DeleteOutlined, SyncOutlined
-} from '@ant-design/icons';
-import { organizationApi } from '@/api/organization';
-import type { Organization } from '@/types';
+import { EditOutlined, PlusOutlined, ReloadOutlined, SwapOutlined } from '@ant-design/icons';
+import { Alert, Button, Descriptions, Empty, message, Popconfirm, Space, Spin, Tag, Tooltip } from 'antd';
+import { useCallback, useEffect, useState } from 'react';
+import { masterDataApi } from '@/features/master-data/api';
+import OrganizationForm from '@/features/master-data/components/OrganizationForm';
+import OrganizationMoveDialog from '@/features/master-data/components/OrganizationMoveDialog';
+import OrganizationTree from '@/features/master-data/components/OrganizationTree';
+import type { CreateOrganizationInput, OrganizationNode, UpdateOrganizationInput } from '@/features/master-data/types';
+import '@/features/master-data/master-data.css';
 
-const typeMap: Record<string, string> = {
-  FIRM: '律所总部',
-  BRANCH: '分所',
-  DEPARTMENT: '部门',
-};
+function find(nodes: OrganizationNode[], id?: string): OrganizationNode | null {
+  for (const node of nodes) { if (node.id === id) return node; const child = find(node.children, id); if (child) return child; }
+  return null;
+}
 
-const OrganizationPage: React.FC = () => {
-  const [data, setData] = useState<Organization[]>([]);
-  const [, setLoading] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [form] = Form.useForm();
+export default function OrganizationPage() {
+  const [tree, setTree] = useState<OrganizationNode[]>([]);
+  const [selectedId, setSelectedId] = useState<string>();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [formMode, setFormMode] = useState<'create' | 'edit' | null>(null);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const selected = find(tree, selectedId) ?? tree[0] ?? null;
 
-  useEffect(() => { fetchData(); }, []);
+  const load = useCallback(async () => {
+    setLoading(true); setError(false);
+    try { const response = await masterDataApi.organizations.tree(); setTree(response.data); setSelectedId(current => find(response.data, current)?.id ?? response.data[0]?.id); }
+    catch { setError(true); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
 
-  async function fetchData() {
-    setLoading(true);
-    try {
-      const res = await organizationApi.tree();
-      if (res.code === 200) setData(res.data);
-    } finally { setLoading(false); }
-  };
+  async function mutate(action: () => Promise<unknown>, success: string, close: () => void) {
+    setSubmitting(true);
+    try { await action(); message.success(success); close(); await load(); }
+    catch { message.error('操作未完成，当前输入已保留'); }
+    finally { setSubmitting(false); }
+  }
+  async function submit(value: CreateOrganizationInput | UpdateOrganizationInput) {
+    if (!selected) return;
+    await mutate(() => formMode === 'edit' ? masterDataApi.organizations.update(selected.id, value as UpdateOrganizationInput) : masterDataApi.organizations.create(value as CreateOrganizationInput), '组织已保存', () => setFormMode(null));
+  }
+  async function toggle() {
+    if (!selected) return;
+    await mutate(() => selected.status === 'ENABLED' ? masterDataApi.organizations.disable(selected.id, { version: selected.version }) : masterDataApi.organizations.enable(selected.id, { version: selected.version }), selected.status === 'ENABLED' ? '组织已停用' : '组织已启用', () => undefined);
+  }
 
-  const handleDelete = async (id: string) => {
-    try { await organizationApi.delete(id); message.success('删除成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
-  };
-
-  const treeData = data.map((org) => ({
-    title: (
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-        <span><Tag color="blue">{typeMap[org.type]}</Tag> {org.name}</span>
-        <Space>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { form.setFieldsValue(org); setModalVisible(true); }}>编辑</Button>
-          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(org.id)}>
-            <Button type="link" danger size="small" icon={<DeleteOutlined />}>删除</Button>
-          </Popconfirm>
-        </Space>
-      </div>
-    ),
-    key: org.id,
-    children: org.children?.map((child) => ({
-      title: (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-          <span><Tag color="green">{typeMap[child.type]}</Tag> {child.name}</span>
-          <Space>
-            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { form.setFieldsValue(child); setModalVisible(true); }}>编辑</Button>
-            <Popconfirm title="确定删除？" onConfirm={() => handleDelete(child.id)}>
-              <Button type="link" danger size="small" icon={<DeleteOutlined />}>删除</Button>
-            </Popconfirm>
-          </Space>
+  return <section className="md-page">
+    <header className="md-toolbar"><div><h1>组织架构</h1><p>维护总所、总部中心、部门、分所与工作组的行政层级。</p></div><Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button></header>
+    {error && <Alert type="error" showIcon message="组织数据加载失败" action={<Button onClick={() => void load()}>重试</Button>} />}
+    <Spin spinning={loading}><div className="md-org-layout">
+      <aside className="md-tree-pane">{tree.length ? <OrganizationTree nodes={tree} selectedId={selected?.id} onSelect={node => setSelectedId(node.id)} /> : !loading && <Empty description="暂无组织" />}</aside>
+      <main className="md-detail-pane">{selected ? <>
+        <div className="md-detail-heading"><div><h2>{selected.name}</h2><Space><Tag>{selected.code}</Tag><Tag color={selected.status === 'ENABLED' ? 'green' : 'default'}>{selected.status === 'ENABLED' ? '启用' : '停用'}</Tag></Space></div>
+          <Space wrap><Button icon={<PlusOutlined />} onClick={() => setFormMode('create')}>新增下级组织</Button><Tooltip title="编辑组织"><Button aria-label="编辑组织" icon={<EditOutlined />} onClick={() => setFormMode('edit')} /></Tooltip>
+          {selected.type !== 'FIRM' && <><Tooltip title="移动组织"><Button aria-label="移动组织" icon={<SwapOutlined />} onClick={() => setMoveOpen(true)} /></Tooltip><Popconfirm title={`确认${selected.status === 'ENABLED' ? '停用' : '启用'}该组织？`} onConfirm={() => void toggle()}><Button aria-label={selected.status === 'ENABLED' ? '停用组织' : '启用组织'}>{selected.status === 'ENABLED' ? '停用' : '启用'}</Button></Popconfirm></>}</Space>
         </div>
-      ),
-      key: child.id,
-    })),
-  }));
-
-  return (
-    <div>
-      <Card style={{ marginBottom: 16 }}>
-        <Row gutter={16} align="middle">
-          <Col flex="auto">
-            <Button icon={<SyncOutlined />} onClick={fetchData}>刷新</Button>
-          </Col>
-          <Col>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setModalVisible(true); }}>新建组织</Button>
-          </Col>
-        </Row>
-      </Card>
-
-      <Card>
-        <Tree treeData={treeData} defaultExpandAll blockNode />
-      </Card>
-
-      <Modal title="组织信息" open={modalVisible} onCancel={() => setModalVisible(false)} onOk={() => form.submit()}>
-        <Form form={form} onFinish={async (v) => {
-          if (v.id) { await organizationApi.update(v.id, v); message.success('更新成功'); }
-          else { await organizationApi.create(v); message.success('创建成功'); }
-          setModalVisible(false); fetchData();
-        }}>
-          <Form.Item name="id" hidden><Input /></Form.Item>
-          <Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="type" label="类型" rules={[{ required: true }]}>
-            <select style={{ width: '100%', height: 32, borderRadius: 6, border: '1px solid #d9d9d9' }}>
-              {Object.entries(typeMap).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
-          </Form.Item>
-          <Form.Item name="parentId" label="上级组织">
-            <select style={{ width: '100%', height: 32, borderRadius: 6, border: '1px solid #d9d9d9' }}>
-              <option value="">无</option>
-              {data.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-            </select>
-          </Form.Item>
-          <Form.Item name="sort" label="排序" initialValue={0}><Input type="number" /></Form.Item>
-        </Form>
-      </Modal>
-    </div>
-  );
-};
-
-export default OrganizationPage;
+        <Descriptions column={{ xs: 1, md: 2 }} items={[{ key: 'type', label: '类型', children: selected.type }, { key: 'level', label: '层级', children: selected.level }, { key: 'path', label: '路径', children: selected.path }, { key: 'sort', label: '排序', children: selected.sort }]} />
+      </> : <Empty description="请选择组织" />}</main>
+    </div></Spin>
+    <OrganizationForm open={formMode !== null} parent={selected} editing={formMode === 'edit' ? selected : null} submitting={submitting} onCancel={() => setFormMode(null)} onSubmit={submit} />
+    <OrganizationMoveDialog open={moveOpen} organization={selected} tree={tree} submitting={submitting} onCancel={() => setMoveOpen(false)} onSubmit={parentId => mutate(() => masterDataApi.organizations.move(selected!.id, { parentId, version: selected!.version }), '组织已移动', () => setMoveOpen(false))} />
+  </section>;
+}

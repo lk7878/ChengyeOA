@@ -970,27 +970,27 @@ Run focused frontend test, web lint/typecheck, then commit `feat(web): add prote
 **Interfaces:**
 - Produces: usable `/org/tree` and `/org/positions` pages.
 
-- [ ] **Step 1: Write failing page tests**
+- [x] **Step 1: Write failing page tests**
 
 Organization tests cover arbitrary-depth recursion, create under selected parent, root action restrictions, explicit move dialog, disable conflict, refresh after mutation, and preserved input after version conflict. Position tests cover organization filter, linked position options, create/update, active-assignment disable conflict, empty state, and retry.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Expected: new components/page do not exist or old page cannot satisfy nested behavior.
 
-- [ ] **Step 3: Implement Organization page**
+- [x] **Step 3: Implement Organization page**
 
 Use a responsive CSS grid with a stable tree track and detail track, not nested cards. Render recursively through `OrganizationTree`; use Ant Design icons/tooltips for actions. Movement must require a dialog and explicit confirmation. Keep root actions absent.
 
-- [ ] **Step 4: Implement Position page**
+- [x] **Step 4: Implement Position page**
 
 Use a compact table with code, name, category, level, active assignments, and status. Use Select, InputNumber, Switch/confirmation controls, and a Drawer or Modal for create/edit. Position choices always come from the selected organization.
 
-- [ ] **Step 5: Add stable responsive styles**
+- [x] **Step 5: Add stable responsive styles**
 
 Create component-local CSS with fixed icon-button dimensions, `minmax(0, 1fr)` tracks, text wrapping, mobile single-column layout, and no viewport-scaled font sizes or negative letter spacing.
 
-- [ ] **Step 6: Verify and commit locally**
+- [x] **Step 6: Verify and commit locally**
 
 Run both focused tests, web lint/typecheck, then commit `feat(web): manage organization hierarchy and positions`.
 
