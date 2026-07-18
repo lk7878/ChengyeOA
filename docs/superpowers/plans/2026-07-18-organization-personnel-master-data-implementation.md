@@ -674,15 +674,15 @@ Run the two focused suites, server lint/typecheck, then commit `feat(server): ad
 - Produces: team CRUD state actions, member join/end, and atomic lead replacement.
 - Consumes: active Employees and enabled home Organization.
 
-- [ ] **Step 1: Write failing team tests**
+- [x] **Step 1: Write failing team tests**
 
 Test open category codes, cross-office members, disabled employee/team rejection, duplicate active membership, one active lead, atomic lead replacement, member history, active member disable rejection, version conflicts, unique race mapping, and audit rollback.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Expected: module not found.
 
-- [ ] **Step 3: Implement ProfessionalTeamService**
+- [x] **Step 3: Implement ProfessionalTeamService**
 
 ```ts
 export interface CreateProfessionalTeamInput { code: string; name: string; categoryCode: string; homeOrganizationId: string; description?: string | null }
@@ -703,7 +703,7 @@ Use a team row lock for lead changes. If the new lead already has an active memb
 
 Map duplicate team codes to `MASTER_DATA_CODE_CONFLICT`; map partial-index member and lead races to `TEAM_LEAD_CONFLICT` or the active-member conflict response without exposing index names.
 
-- [ ] **Step 4: Verify and commit locally**
+- [x] **Step 4: Verify and commit locally**
 
 Run focused tests, lint/typecheck, then commit `feat(server): add cross-office professional teams`.
 
