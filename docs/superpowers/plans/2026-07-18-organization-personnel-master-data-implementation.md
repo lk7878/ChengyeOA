@@ -287,7 +287,7 @@ git commit -m "feat(db): expand organization and personnel master data"
 - Produces: `MasterDataError`, strict normalization functions, `writeMasterDataAudit()`, and route-prefix middleware.
 - Consumed by: Tasks 3-9.
 
-- [ ] **Step 1: Write failing validation, audit, and access tests**
+- [x] **Step 1: Write failing validation, audit, and access tests**
 
 Use these exact contracts:
 
@@ -310,11 +310,11 @@ export function hasCode(code: string): (error: unknown) => boolean {
 }
 ```
 
-- [ ] **Step 2: Run tests and confirm RED**
+- [x] **Step 2: Run tests and confirm RED**
 
 Run the three new test files. Expected: imports fail because the modules do not exist.
 
-- [ ] **Step 3: Implement stable errors and validators**
+- [x] **Step 3: Implement stable errors and validators**
 
 ```ts
 export class MasterDataError extends Error {
@@ -357,7 +357,7 @@ export interface ProfessionalTeamListItem { id: string; code: string; name: stri
 export interface ProfessionalTeamDetail extends ProfessionalTeamListItem { description: string | null; members: ProfessionalTeamMemberView[] }
 ```
 
-- [ ] **Step 4: Implement sanitized same-transaction audit**
+- [x] **Step 4: Implement sanitized same-transaction audit**
 
 ```ts
 const SAFE_KEYS = new Set([
@@ -398,7 +398,7 @@ export interface MasterDataAuditInput extends AuditActor {
 }
 ```
 
-- [ ] **Step 5: Implement the database-backed middleware**
+- [x] **Step 5: Implement the database-backed middleware**
 
 Export `isMasterDataPath(path: string)` and middleware that queries the current user role on every matching request:
 
@@ -417,7 +417,7 @@ if (!allowed) throw new MasterDataError('SYSTEM_SUPER_ADMIN_REQUIRED', 403);
 
 Register it after `auth`: `['errorHandler', 'auth', 'masterDataAccess']`.
 
-- [ ] **Step 6: Verify and commit locally**
+- [x] **Step 6: Verify and commit locally**
 
 Run focused tests, server lint, and server typecheck; then:
 

@@ -19,7 +19,7 @@ export default (appInfo: EggAppInfo) => {
   config.keys = env.appKeys.join(',');
 
   // 中间件配置
-  config.middleware = ['errorHandler', 'auth'];
+  config.middleware = ['errorHandler', 'auth', 'masterDataAccess'];
 
   // 安全配置
   config.security = {
