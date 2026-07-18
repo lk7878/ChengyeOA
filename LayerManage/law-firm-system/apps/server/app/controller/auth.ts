@@ -1,5 +1,9 @@
 import { Controller } from 'egg';
 import { createAuthenticationService } from '../application/auth/authentication-factory';
+import {
+  EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
+  projectEmployeeWithPrimaryAssignment,
+} from '../application/master-data/employee-projection';
 
 export default class AuthController extends Controller {
   public async login() {
@@ -38,7 +42,7 @@ export default class AuthController extends Controller {
     const user = await ctx.prisma.user.findUnique({
       where: { id: ctx.state.user.userId },
       include: {
-        employee: { include: { organization: true, position: true } },
+        employee: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
         userRoles: {
           include: {
             role: { include: { permissions: { include: { permission: true } } } },
@@ -61,7 +65,7 @@ export default class AuthController extends Controller {
         username: user.username,
         status: user.status,
         name: user.username,
-        employee: user.employee,
+        employee: user.employee ? projectEmployeeWithPrimaryAssignment(user.employee) : null,
         roles,
         permissions,
       },

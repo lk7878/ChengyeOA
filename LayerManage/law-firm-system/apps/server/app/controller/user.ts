@@ -1,5 +1,9 @@
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
+import {
+  EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
+  projectEmployeeWithPrimaryAssignment,
+} from '../application/master-data/employee-projection';
 import { rethrowKnownUniqueConflict } from '../application/system/prisma-unique-conflict';
 import { SAFE_USER_SELECT } from '../application/system/safe-user-projection';
 import { assertMutableRole, assertMutableUser } from '../application/system/trust-root-guard';
@@ -35,23 +39,7 @@ export default class UserController extends Controller {
       select: {
         ...SAFE_USER_SELECT,
         employee: {
-          select: {
-            id: true,
-            employeeNo: true,
-            name: true,
-            phone: true,
-            email: true,
-            type: true,
-            status: true,
-            entryDate: true,
-            leaveDate: true,
-            orgId: true,
-            positionId: true,
-            createdAt: true,
-            updatedAt: true,
-            organization: true,
-            position: true,
-          },
+          include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
         },
         userRoles: {
           include: {
@@ -66,7 +54,10 @@ export default class UserController extends Controller {
       code: 200,
       message: 'success',
       data: {
-        list,
+        list: list.map(user => ({
+          ...user,
+          employee: user.employee ? projectEmployeeWithPrimaryAssignment(user.employee) : null,
+        })),
         pagination: {
           page: Number(page),
           pageSize: Number(pageSize),
@@ -89,23 +80,7 @@ export default class UserController extends Controller {
       select: {
         ...SAFE_USER_SELECT,
         employee: {
-          select: {
-            id: true,
-            employeeNo: true,
-            name: true,
-            phone: true,
-            email: true,
-            type: true,
-            status: true,
-            entryDate: true,
-            leaveDate: true,
-            orgId: true,
-            positionId: true,
-            createdAt: true,
-            updatedAt: true,
-            organization: true,
-            position: true,
-          },
+          include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
         },
         userRoles: {
           include: {
@@ -128,7 +103,10 @@ export default class UserController extends Controller {
     ctx.body = {
       code: 200,
       message: 'success',
-      data: user,
+      data: {
+        ...user,
+        employee: user.employee ? projectEmployeeWithPrimaryAssignment(user.employee) : null,
+      },
     };
   }
 
@@ -137,11 +115,14 @@ export default class UserController extends Controller {
    */
   async create() {
     const { ctx } = this;
-    const { username, password, status = 'ENABLED', employeeId } = ctx.request.body as {
+    const body = ctx.request.body as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(body, 'employeeId')) {
+      ctx.throw(400, 'ACCOUNT_BINDING_REQUIRES_DEDICATED_ENDPOINT');
+    }
+    const { username, password, status = 'ENABLED' } = body as {
       username?: unknown;
       password?: unknown;
       status?: string;
-      employeeId?: string | null;
     };
 
     if (typeof username !== 'string' || typeof password !== 'string') {
@@ -167,19 +148,21 @@ export default class UserController extends Controller {
         username: normalizedUsername,
         password: hashedPassword,
         status,
-        employeeId,
         mustChangePassword: true,
       },
       select: {
         ...SAFE_USER_SELECT,
-        employee: true,
+        employee: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
       },
     }).catch(error => rethrowKnownUniqueConflict(error, ['username'], '用户名已存在'));
 
     ctx.body = {
       code: 200,
       message: '创建成功',
-      data: user,
+      data: {
+        ...user,
+        employee: user.employee ? projectEmployeeWithPrimaryAssignment(user.employee) : null,
+      },
     };
   }
 
@@ -189,9 +172,13 @@ export default class UserController extends Controller {
   async update() {
     const { ctx } = this;
     const { id } = ctx.params;
-    const { status, employeeId } = ctx.request.body;
 
     await assertMutableUser(ctx.prisma, id);
+    const body = ctx.request.body as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(body, 'employeeId')) {
+      ctx.throw(400, 'ACCOUNT_BINDING_REQUIRES_DEDICATED_ENDPOINT');
+    }
+    const { status } = body;
     const user = await ctx.prisma.user.findUnique({
       where: { id },
     });
@@ -200,22 +187,24 @@ export default class UserController extends Controller {
     }
 
     const updateData: Prisma.UserUncheckedUpdateInput = {};
-    if (status) updateData.status = status;
-    if (employeeId !== undefined) updateData.employeeId = employeeId;
+    if (typeof status === 'string' && status) updateData.status = status;
 
     const updated = await ctx.prisma.user.update({
       where: { id },
       data: updateData,
       select: {
         ...SAFE_USER_SELECT,
-        employee: true,
+        employee: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
       },
     });
 
     ctx.body = {
       code: 200,
       message: '更新成功',
-      data: updated,
+      data: {
+        ...updated,
+        employee: updated.employee ? projectEmployeeWithPrimaryAssignment(updated.employee) : null,
+      },
     };
   }
 

@@ -1,5 +1,9 @@
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
+import {
+  EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
+  projectEmployeeWithPrimaryAssignment,
+} from '../application/master-data/employee-projection';
 
 export default class PerformanceController extends Controller {
   async index() {
@@ -18,10 +22,7 @@ export default class PerformanceController extends Controller {
       take: Number(pageSize),
       include: {
         employee: {
-          include: {
-            organization: true,
-            position: true,
-          },
+          include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -31,7 +32,10 @@ export default class PerformanceController extends Controller {
       code: 200,
       message: 'success',
       data: {
-        list,
+        list: list.map(performance => ({
+          ...performance,
+          employee: projectEmployeeWithPrimaryAssignment(performance.employee),
+        })),
         pagination: {
           page: Number(page),
           pageSize: Number(pageSize),
@@ -50,10 +54,7 @@ export default class PerformanceController extends Controller {
       where: { id },
       include: {
         employee: {
-          include: {
-            organization: true,
-            position: true,
-          },
+          include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
         },
       },
     });
@@ -65,7 +66,10 @@ export default class PerformanceController extends Controller {
     ctx.body = {
       code: 200,
       message: 'success',
-      data: performance,
+      data: {
+        ...performance,
+        employee: projectEmployeeWithPrimaryAssignment(performance.employee),
+      },
     };
   }
 
@@ -88,14 +92,17 @@ export default class PerformanceController extends Controller {
         remark,
       },
       include: {
-        employee: true,
+        employee: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
       },
     });
 
     ctx.body = {
       code: 200,
       message: '创建成功',
-      data: performance,
+      data: {
+        ...performance,
+        employee: projectEmployeeWithPrimaryAssignment(performance.employee),
+      },
     };
   }
 

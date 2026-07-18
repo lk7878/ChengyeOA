@@ -1,5 +1,9 @@
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
+import {
+  EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
+  projectEmployeeWithPrimaryAssignment,
+} from '../application/master-data/employee-projection';
 
 export default class LeadController extends Controller {
   /**
@@ -30,10 +34,7 @@ export default class LeadController extends Controller {
       include: {
         channel: true,
         assignee: {
-          include: {
-            organization: true,
-            position: true,
-          },
+          include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
         },
         followRecords: {
           orderBy: { createdAt: 'desc' },
@@ -47,7 +48,10 @@ export default class LeadController extends Controller {
       code: 200,
       message: 'success',
       data: {
-        list,
+        list: list.map(lead => ({
+          ...lead,
+          assignee: lead.assignee ? projectEmployeeWithPrimaryAssignment(lead.assignee) : null,
+        })),
         pagination: {
           page: Number(page),
           pageSize: Number(pageSize),
@@ -70,10 +74,7 @@ export default class LeadController extends Controller {
       include: {
         channel: true,
         assignee: {
-          include: {
-            organization: true,
-            position: true,
-          },
+          include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
         },
         followRecords: {
           orderBy: { createdAt: 'desc' },
@@ -89,7 +90,10 @@ export default class LeadController extends Controller {
     ctx.body = {
       code: 200,
       message: 'success',
-      data: lead,
+      data: {
+        ...lead,
+        assignee: lead.assignee ? projectEmployeeWithPrimaryAssignment(lead.assignee) : null,
+      },
     };
   }
 
@@ -156,14 +160,17 @@ export default class LeadController extends Controller {
       data: updateData,
       include: {
         channel: true,
-        assignee: true,
+        assignee: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
       },
     });
 
     ctx.body = {
       code: 200,
       message: '更新成功',
-      data: updated,
+      data: {
+        ...updated,
+        assignee: updated.assignee ? projectEmployeeWithPrimaryAssignment(updated.assignee) : null,
+      },
     };
   }
 
@@ -227,14 +234,17 @@ export default class LeadController extends Controller {
       where: { id },
       data: { assignedTo: employeeId },
       include: {
-        assignee: true,
+        assignee: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
       },
     });
 
     ctx.body = {
       code: 200,
       message: '分配成功',
-      data: updated,
+      data: {
+        ...updated,
+        assignee: updated.assignee ? projectEmployeeWithPrimaryAssignment(updated.assignee) : null,
+      },
     };
   }
 

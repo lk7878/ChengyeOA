@@ -15,6 +15,52 @@ export const EMPLOYEE_DETAIL_INCLUDE = Prisma.validator<Prisma.EmployeeInclude>(
   user: { select: { id: true, username: true, status: true } },
 });
 
+export const EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE = Prisma.validator<Prisma.EmployeeInclude>()({
+  assignments: {
+    where: { assignmentType: 'PRIMARY', endedAt: null },
+    take: 1,
+    include: { organization: true, position: true },
+  },
+});
+
+interface PrimaryAssignmentRecord {
+  id: string;
+  employeeId: string;
+  organizationId: string;
+  positionId: string;
+  assignmentType: string;
+  startedAt: Date;
+  endedAt: Date | null;
+  version: number;
+  organization: unknown;
+  position: unknown;
+}
+
+interface EmployeeWithPrimaryAssignment {
+  orgId?: unknown;
+  positionId?: unknown;
+  organization?: unknown;
+  position?: unknown;
+  assignments: PrimaryAssignmentRecord[];
+}
+
+export function projectEmployeeWithPrimaryAssignment<T extends EmployeeWithPrimaryAssignment>(
+  employee: T,
+): Omit<T, 'orgId' | 'positionId' | 'organization' | 'position' | 'assignments'> & {
+  primaryAssignment: PrimaryAssignmentRecord | null;
+} {
+  const { assignments, ...projected } = employee;
+  const [primaryAssignment = null] = assignments;
+  delete projected.orgId;
+  delete projected.positionId;
+  delete projected.organization;
+  delete projected.position;
+  return { ...projected, primaryAssignment } as Omit<
+    T,
+    'orgId' | 'positionId' | 'organization' | 'position' | 'assignments'
+  > & { primaryAssignment: PrimaryAssignmentRecord | null };
+}
+
 export type EmployeeDetailRecord = Prisma.EmployeeGetPayload<{ include: typeof EMPLOYEE_DETAIL_INCLUDE }>;
 
 export function projectEmployeeDetail(employee: EmployeeDetailRecord): EmployeeDetail {

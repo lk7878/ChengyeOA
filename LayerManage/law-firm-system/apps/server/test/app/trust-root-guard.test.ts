@@ -39,6 +39,15 @@ async function createLinkedEmployee(userId?: string): Promise<{ employeeId: stri
       positionId: position.id,
     },
   });
+  await prisma.employeeAssignment.create({
+    data: {
+      employeeId: employee.id,
+      organizationId: rootOrganizationId,
+      positionId: position.id,
+      assignmentType: 'PRIMARY',
+      startedAt: employee.entryDate,
+    },
+  });
   const linkedUser = userId
     ? await prisma.user.update({ where: { id: userId }, data: { employeeId: employee.id } })
     : await prisma.user.create({
@@ -359,12 +368,8 @@ test('business roles require normalized immutable codes and remain mutable other
   assert.equal(invalid.body.message, 'ROLE_CODE_INVALID');
 });
 
-test('employee list and detail safely project a linked user without losing useful fields', async () => {
+test('employee list and detail use safe canonical employee projections', async () => {
   const linked = await createLinkedEmployee();
-  const role = await prisma.role.create({
-    data: { name: 'Employee role', code: 'EMPLOYEE_ROLE', type: 'BUSINESS' },
-  });
-  await prisma.userRole.create({ data: { userId: linked.userId, roleId: role.id } });
 
   const list = await app.httpRequest()
     .get('/api/v1/employees')
@@ -378,11 +383,11 @@ test('employee list and detail safely project a linked user without losing usefu
   assertNoPasswordProperty(list.body);
   assertNoPasswordProperty(detail.body);
   const listedEmployee = list.body.data.list.find((item: { id: string }) => item.id === linked.employeeId);
-  assert.equal(listedEmployee.user.id, linked.userId);
-  assert.match(listedEmployee.user.username, /^employee\./);
-  assert.equal(listedEmployee.user.status, 'ENABLED');
-  assert.equal(detail.body.data.user.id, linked.userId);
-  assert.equal(detail.body.data.user.userRoles[0].role.code, 'EMPLOYEE_ROLE');
+  assert.equal(listedEmployee.primaryAssignment.organizationId, rootOrganizationId);
+  assert.equal(detail.body.data.account.id, linked.userId);
+  assert.match(detail.body.data.account.username, /^employee\./);
+  assert.equal(detail.body.data.account.status, 'ENABLED');
+  assert.equal(detail.body.data.primaryAssignment.organizationId, rootOrganizationId);
 });
 
 test('employee leave cannot disable the protected first super-admin or mutate its employee', async () => {
@@ -392,7 +397,7 @@ test('employee leave cannot disable the protected first super-admin or mutate it
   const response = await app.httpRequest()
     .post(`/api/v1/employees/${linked.employeeId}/leave`)
     .set('Authorization', bearer)
-    .send({ leaveDate: '2026-07-15' })
+    .send({ leaveDate: '2026-07-15', handoverConfirmed: true, version: 1 })
     .expect(409);
 
   assertTrustRootProtected(response);
@@ -405,7 +410,7 @@ test('normal employee leave updates the employee and linked user together', asyn
   const response = await app.httpRequest()
     .post(`/api/v1/employees/${linked.employeeId}/leave`)
     .set('Authorization', bearer)
-    .send({ leaveDate: '2026-07-15' })
+    .send({ leaveDate: '2026-07-15', handoverConfirmed: true, version: 1 })
     .expect(200);
 
   assert.equal(response.body.data.status, 'LEAVED');
@@ -438,7 +443,7 @@ test('employee leave rolls back the employee update when linked user disable fai
     await app.httpRequest()
       .post(`/api/v1/employees/${linked.employeeId}/leave`)
       .set('Authorization', bearer)
-      .send({ leaveDate: '2026-07-15' })
+      .send({ leaveDate: '2026-07-15', handoverConfirmed: true, version: 1 })
       .expect(500);
     const employee = await prisma.employee.findUniqueOrThrow({ where: { id: linked.employeeId } });
     const user = await prisma.user.findUniqueOrThrow({ where: { id: linked.userId } });

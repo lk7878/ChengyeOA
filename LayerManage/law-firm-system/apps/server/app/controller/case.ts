@@ -1,5 +1,9 @@
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
+import {
+  EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
+  projectEmployeeWithPrimaryAssignment,
+} from '../application/master-data/employee-projection';
 
 export default class CaseController extends Controller {
   /**
@@ -29,10 +33,7 @@ export default class CaseController extends Controller {
       include: {
         customer: true,
         lawyer: {
-          include: {
-            organization: true,
-            position: true,
-          },
+          include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
         },
         contract: true,
         _count: {
@@ -46,7 +47,10 @@ export default class CaseController extends Controller {
       code: 200,
       message: 'success',
       data: {
-        list,
+        list: list.map(caseItem => ({
+          ...caseItem,
+          lawyer: projectEmployeeWithPrimaryAssignment(caseItem.lawyer),
+        })),
         pagination: {
           page: Number(page),
           pageSize: Number(pageSize),
@@ -69,10 +73,7 @@ export default class CaseController extends Controller {
       include: {
         customer: true,
         lawyer: {
-          include: {
-            organization: true,
-            position: true,
-          },
+          include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
         },
         contract: true,
         tasks: {
@@ -91,7 +92,10 @@ export default class CaseController extends Controller {
     ctx.body = {
       code: 200,
       message: 'success',
-      data: caseItem,
+      data: {
+        ...caseItem,
+        lawyer: projectEmployeeWithPrimaryAssignment(caseItem.lawyer),
+      },
     };
   }
 
@@ -127,7 +131,7 @@ export default class CaseController extends Controller {
       },
       include: {
         customer: true,
-        lawyer: true,
+        lawyer: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
         contract: true,
       },
     });
@@ -135,7 +139,10 @@ export default class CaseController extends Controller {
     ctx.body = {
       code: 200,
       message: '创建成功',
-      data: caseItem,
+      data: {
+        ...caseItem,
+        lawyer: projectEmployeeWithPrimaryAssignment(caseItem.lawyer),
+      },
     };
   }
 
@@ -171,14 +178,17 @@ export default class CaseController extends Controller {
       data: updateData,
       include: {
         customer: true,
-        lawyer: true,
+        lawyer: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
       },
     });
 
     ctx.body = {
       code: 200,
       message: '更新成功',
-      data: updated,
+      data: {
+        ...updated,
+        lawyer: projectEmployeeWithPrimaryAssignment(updated.lawyer),
+      },
     };
   }
 

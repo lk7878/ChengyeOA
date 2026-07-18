@@ -5,10 +5,12 @@
 import 'egg';
 import ExportAuth from '../../../app/middleware/auth';
 import ExportErrorHandler from '../../../app/middleware/errorHandler';
+import ExportMasterDataAccess from '../../../app/middleware/masterDataAccess';
 
 declare module 'egg' {
   interface IMiddleware {
     auth: typeof ExportAuth;
     errorHandler: typeof ExportErrorHandler;
+    masterDataAccess: typeof ExportMasterDataAccess;
   }
 }

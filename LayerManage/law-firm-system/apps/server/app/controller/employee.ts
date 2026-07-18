@@ -1,306 +1,133 @@
-import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
-import { SAFE_USER_SELECT } from '../application/system/safe-user-projection';
-import { assertMutableUser } from '../application/system/trust-root-guard';
+import {
+  employeeService,
+} from '../application/master-data/master-data-factory';
+import {
+  CreateEmployeeInput,
+  EmployeeListQuery,
+  UpdateEmployeeInput,
+} from '../application/master-data/employee-service';
+import {
+  assertExactKeys,
+  normalizeAllowedValue,
+  normalizeEmployeeNo,
+  normalizeName,
+  normalizeOptionalText,
+  normalizeRequiredText,
+  normalizeStableCode,
+  normalizeStringArray,
+  normalizeVersion,
+  parseIsoDate,
+} from '../domain/master-data/master-data-validation';
+import { MasterDataError } from '../domain/master-data/master-data-errors';
+
+type CreateEmployeeRequest = CreateEmployeeInput & {
+  primaryOrganizationId: string;
+  primaryPositionId: string;
+};
 
 export default class EmployeeController extends Controller {
-  /**
-   * 员工列表
-   */
   async index() {
-    const { ctx } = this;
-    const { page = 1, pageSize = 10, keyword, type, status, orgId } = ctx.query;
-
-    const where: Prisma.EmployeeWhereInput = {};
-    if (keyword) {
-      where.OR = [
-        { name: { contains: keyword } },
-        { employeeNo: { contains: keyword } },
-        { phone: { contains: keyword } },
-      ];
-    }
-    if (type) where.type = type;
-    if (status) where.status = status;
-    if (orgId) where.orgId = orgId;
-
-    const total = await ctx.prisma.employee.count({ where });
-    const list = await ctx.prisma.employee.findMany({
-      where,
-      skip: (Number(page) - 1) * Number(pageSize),
-      take: Number(pageSize),
-      include: {
-        organization: true,
-        position: true,
-        user: { select: SAFE_USER_SELECT },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: {
-        list,
-        pagination: {
-          page: Number(page),
-          pageSize: Number(pageSize),
-          total,
-          totalPages: Math.ceil(total / Number(pageSize)),
-        },
-      },
-    };
+    this.respond(await employeeService(this.ctx).list(parseListQuery(this.ctx.query)));
   }
 
-  /**
-   * 员工详情
-   */
   async show() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const employee = await ctx.prisma.employee.findUnique({
-      where: { id },
-      include: {
-        organization: true,
-        position: true,
-        user: {
-          select: {
-            ...SAFE_USER_SELECT,
-            userRoles: {
-              include: { role: true },
-            },
-          },
-        },
-        leads: true,
-        cases: true,
-      },
-    });
-
-    if (!employee) {
-      ctx.throw(404, '员工不存在');
-    }
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: employee,
-    };
+    this.respond(await employeeService(this.ctx).detail(this.ctx.params.id));
   }
 
-  /**
-   * 创建员工
-   */
   async create() {
-    const { ctx } = this;
-    const {
-      employeeNo,
-      name,
-      phone,
-      email,
-      idCard,
-      type,
-      entryDate,
-      orgId,
-      positionId,
-    } = ctx.request.body;
-
-    if (!employeeNo || !name || !phone || !type || !entryDate || !orgId || !positionId) {
-      ctx.throw(400, '缺少必填字段');
-    }
-
-    // 检查工号是否已存在
-    const existing = await ctx.prisma.employee.findUnique({
-      where: { employeeNo },
-    });
-    if (existing) {
-      ctx.throw(409, '工号已存在');
-    }
-
-    const employee = await ctx.prisma.employee.create({
-      data: {
-        employeeNo,
-        name,
-        phone,
-        email,
-        idCard,
-        type,
-        entryDate: new Date(entryDate),
-        orgId,
-        positionId,
-      },
-      include: {
-        organization: true,
-        position: true,
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '创建成功',
-      data: employee,
-    };
+    this.respond(await employeeService(this.ctx).create(parseCreate(this.ctx.request.body)));
   }
 
-  /**
-   * 更新员工
-   */
   async update() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { name, phone, email, type, orgId, positionId } = ctx.request.body;
-
-    const employee = await ctx.prisma.employee.findUnique({
-      where: { id },
-    });
-    if (!employee) {
-      ctx.throw(404, '员工不存在');
-    }
-
-    const updateData: Prisma.EmployeeUncheckedUpdateInput = {};
-    if (name) updateData.name = name;
-    if (phone) updateData.phone = phone;
-    if (email !== undefined) updateData.email = email;
-    if (type) updateData.type = type;
-    if (orgId) updateData.orgId = orgId;
-    if (positionId) updateData.positionId = positionId;
-
-    const updated = await ctx.prisma.employee.update({
-      where: { id },
-      data: updateData,
-      include: {
-        organization: true,
-        position: true,
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '更新成功',
-      data: updated,
-    };
+    this.respond(await employeeService(this.ctx).update(this.ctx.params.id, parseUpdate(this.ctx.request.body)));
   }
 
-  /**
-   * 删除员工
-   */
-  async destroy() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const employee = await ctx.prisma.employee.findUnique({
-      where: { id },
-      include: {
-        user: { select: { id: true } },
-        leads: true,
-        cases: true,
-      },
-    });
-    if (!employee) {
-      ctx.throw(404, '员工不存在');
-    }
-
-    if (employee.user) {
-      ctx.throw(400, '该员工已关联用户账号，无法删除');
-    }
-    if (employee.leads.length > 0) {
-      ctx.throw(400, '该员工负责线索，无法删除');
-    }
-    if (employee.cases.length > 0) {
-      ctx.throw(400, '该员工主办案件，无法删除');
-    }
-
-    await ctx.prisma.employee.delete({
-      where: { id },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '删除成功',
-      data: null,
-    };
-  }
-
-  /**
-   * 转正
-   */
   async formalize() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const employee = await ctx.prisma.employee.findUnique({
-      where: { id },
-    });
-    if (!employee) {
-      ctx.throw(404, '员工不存在');
-    }
-
-    if (employee.status !== 'PROBATION') {
-      ctx.throw(400, '只有试用期员工可以转正');
-    }
-
-    const updated = await ctx.prisma.employee.update({
-      where: { id },
-      data: { status: 'FORMAL' },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '转正成功',
-      data: updated,
-    };
+    this.respond(await employeeService(this.ctx).formalize(this.ctx.params.id, parseFormalize(this.ctx.request.body)));
   }
 
-  /**
-   * 离职
-   */
   async leave() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { leaveDate } = ctx.request.body;
-
-    const updated = await ctx.prisma.$transaction(async tx => {
-      const employee = await tx.employee.findUnique({
-        where: { id },
-        include: {
-          user: { select: { id: true } },
-          leads: { where: { status: { not: 'SIGNED' } } },
-          cases: { where: { status: { not: 'CLOSED' } } },
-        },
-      });
-      if (!employee) {
-        ctx.throw(404, '员工不存在');
-      }
-
-      if (employee.user) {
-        await assertMutableUser(tx, employee.user.id);
-      }
-      if (employee.leads.length > 0) {
-        ctx.throw(400, '该员工有未完成的线索，请先交接');
-      }
-      if (employee.cases.length > 0) {
-        ctx.throw(400, '该员工有未结案的案件，请先交接');
-      }
-
-      const leftEmployee = await tx.employee.update({
-        where: { id },
-        data: {
-          status: 'LEAVED',
-          leaveDate: leaveDate ? new Date(leaveDate) : new Date(),
-        },
-      });
-      if (employee.user) {
-        await tx.user.update({
-          where: { id: employee.user.id },
-          data: { status: 'DISABLED' },
-        });
-      }
-      return leftEmployee;
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '离职处理成功',
-      data: updated,
-    };
+    this.respond(await employeeService(this.ctx).leave(this.ctx.params.id, parseLeave(this.ctx.request.body)));
   }
+
+  private respond(data: unknown): void {
+    this.ctx.body = { code: 200, message: 'success', data };
+  }
+}
+
+function parseListQuery(input: unknown): EmployeeListQuery {
+  assertExactKeys(input, ['page', 'pageSize', 'keyword', 'status', 'organizationId', 'teamId']);
+  return {
+    page: parseQueryInteger(input.page, 1),
+    pageSize: parseQueryInteger(input.pageSize, 10),
+    keyword: input.keyword === undefined ? undefined : normalizeRequiredText(input.keyword, 1, 100),
+    status: input.status === undefined
+      ? undefined
+      : normalizeAllowedValue(input.status, ['PROBATION', 'FORMAL', 'LEAVED'] as const),
+    organizationId: input.organizationId === undefined
+      ? undefined
+      : normalizeRequiredText(input.organizationId, 1, 100),
+    teamId: input.teamId === undefined ? undefined : normalizeRequiredText(input.teamId, 1, 100),
+  };
+}
+
+function parseCreate(input: unknown): CreateEmployeeRequest {
+  assertExactKeys(input, [
+    'employeeNo', 'name', 'phone', 'email', 'idCard', 'licenseNo', 'employeeType',
+    'professionalDirections', 'entryDate', 'primaryOrganizationId', 'primaryPositionId',
+  ]);
+  return {
+    employeeNo: normalizeEmployeeNo(input.employeeNo),
+    name: normalizeName(input.name),
+    phone: normalizeRequiredText(input.phone, 5, 30),
+    email: input.email === undefined ? undefined : normalizeOptionalText(input.email, 254),
+    idCard: input.idCard === undefined ? undefined : normalizeOptionalText(input.idCard, 100),
+    licenseNo: input.licenseNo === undefined ? undefined : normalizeOptionalText(input.licenseNo, 100),
+    employeeType: normalizeStableCode(input.employeeType),
+    professionalDirections: input.professionalDirections === undefined
+      ? undefined
+      : normalizeStringArray(input.professionalDirections, 20, 100),
+    entryDate: parseIsoDate(input.entryDate).toISOString(),
+    primaryOrganizationId: normalizeRequiredText(input.primaryOrganizationId, 1, 100),
+    primaryPositionId: normalizeRequiredText(input.primaryPositionId, 1, 100),
+  };
+}
+
+function parseUpdate(input: unknown): UpdateEmployeeInput & { version: number } {
+  assertExactKeys(input, [
+    'name', 'phone', 'email', 'idCard', 'licenseNo', 'employeeType', 'professionalDirections', 'version',
+  ]);
+  const parsed: UpdateEmployeeInput & { version: number } = { version: normalizeVersion(input.version) };
+  if (input.name !== undefined) parsed.name = normalizeName(input.name);
+  if (input.phone !== undefined) parsed.phone = normalizeRequiredText(input.phone, 5, 30);
+  if (input.email !== undefined) parsed.email = normalizeOptionalText(input.email, 254);
+  if (input.idCard !== undefined) parsed.idCard = normalizeOptionalText(input.idCard, 100);
+  if (input.licenseNo !== undefined) parsed.licenseNo = normalizeOptionalText(input.licenseNo, 100);
+  if (input.employeeType !== undefined) parsed.employeeType = normalizeStableCode(input.employeeType);
+  if (input.professionalDirections !== undefined) {
+    parsed.professionalDirections = normalizeStringArray(input.professionalDirections, 20, 100);
+  }
+  return parsed;
+}
+
+function parseFormalize(input: unknown): { formalDate: string; version: number } {
+  assertExactKeys(input, ['formalDate', 'version']);
+  return { formalDate: parseIsoDate(input.formalDate).toISOString(), version: normalizeVersion(input.version) };
+}
+
+function parseLeave(input: unknown): { leaveDate: string; handoverConfirmed: true; version: number } {
+  assertExactKeys(input, ['leaveDate', 'handoverConfirmed', 'version']);
+  if (input.handoverConfirmed !== true) throw new MasterDataError('VALIDATION_FAILED', 400);
+  return {
+    leaveDate: parseIsoDate(input.leaveDate).toISOString(),
+    handoverConfirmed: true,
+    version: normalizeVersion(input.version),
+  };
+}
+
+function parseQueryInteger(value: unknown, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) throw new MasterDataError('VALIDATION_FAILED', 400);
+  return normalizeVersion(Number(value));
 }

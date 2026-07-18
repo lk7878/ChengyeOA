@@ -56,10 +56,25 @@ export default (app: Application) => {
   router.get('/api/v1/employees', controller.employee.index);
   router.get('/api/v1/employees/:id', controller.employee.show);
   router.post('/api/v1/employees', controller.employee.create);
-  router.put('/api/v1/employees/:id', controller.employee.update);
-  router.delete('/api/v1/employees/:id', controller.employee.destroy);
+  router.patch('/api/v1/employees/:id', controller.employee.update);
   router.post('/api/v1/employees/:id/formalize', controller.employee.formalize);
   router.post('/api/v1/employees/:id/leave', controller.employee.leave);
+  router.post('/api/v1/employees/:id/assignments/transfer', controller.employeeAssignment.transfer);
+  router.post('/api/v1/employees/:id/assignments', controller.employeeAssignment.create);
+  router.post('/api/v1/employees/:id/assignments/:assignmentId/end', controller.employeeAssignment.end);
+  router.put('/api/v1/employees/:id/account-binding', controller.employeeAccountBinding.update);
+  router.delete('/api/v1/employees/:id/account-binding', controller.employeeAccountBinding.destroy);
+
+  // 专业团队模块
+  router.get('/api/v1/professional-teams', controller.professionalTeam.index);
+  router.get('/api/v1/professional-teams/:id', controller.professionalTeam.show);
+  router.post('/api/v1/professional-teams', controller.professionalTeam.create);
+  router.patch('/api/v1/professional-teams/:id', controller.professionalTeam.update);
+  router.post('/api/v1/professional-teams/:id/disable', controller.professionalTeam.disable);
+  router.post('/api/v1/professional-teams/:id/enable', controller.professionalTeam.enable);
+  router.post('/api/v1/professional-teams/:id/members', controller.professionalTeam.addMember);
+  router.post('/api/v1/professional-teams/:id/members/:memberId/end', controller.professionalTeam.endMember);
+  router.post('/api/v1/professional-teams/:id/lead', controller.professionalTeam.replaceLead);
 
   // 渠道模块
   router.get('/api/v1/channels', controller.channel.index);

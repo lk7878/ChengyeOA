@@ -761,7 +761,7 @@ Run binding and trust-root tests, lint/typecheck, then commit `feat(server): bin
 **Interfaces:**
 - Produces: the complete SPEC-003 HTTP surface and assignment-based employee response shape.
 
-- [ ] **Step 1: Write failing API and router contract tests**
+- [x] **Step 1: Write failing API and router contract tests**
 
 Cover every route and old route absence. API flow:
 
@@ -774,11 +774,11 @@ assert.equal(employee.body.data.primaryAssignment.organizationId, branch.id);
 
 Also assert ordinary-user 403 for every resource prefix, stable 400/404/409 responses, no password fields, no sensitive audit snapshots, and no physical delete routes.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Expected: new routes/controllers do not exist and old response shape differs.
 
-- [ ] **Step 3: Implement strict DTO parsing and thin controllers**
+- [x] **Step 3: Implement strict DTO parsing and thin controllers**
 
 Each method follows one pattern:
 
@@ -805,11 +805,11 @@ export const employeeAccountBindingService = (ctx: Context) => new EmployeeAccou
 
 No Prisma query, password operation, hierarchy rule, transaction, or audit serialization remains in these controllers.
 
-- [ ] **Step 4: Register the exact approved routes**
+- [x] **Step 4: Register the exact approved routes**
 
 Add all Employee, Assignment, Account Binding, and Professional Team paths from SPEC-003 Section 9. Keep `DELETE /employees/:id/account-binding`; remove physical DELETE for organization, position, and employee.
 
-- [ ] **Step 5: Replace downstream direct organization/position includes**
+- [x] **Step 5: Replace downstream direct organization/position includes**
 
 Use a shared assignment projection in Auth, User, Lead, Case, Performance, and Organization responses:
 
@@ -823,11 +823,11 @@ assignments: {
 
 Do not manufacture stale `orgId` or `positionId` fields. Consumers receive `primaryAssignment` through the projection mapper.
 
-- [ ] **Step 6: Regenerate Egg controller typings**
+- [x] **Step 6: Regenerate Egg controller typings**
 
 Run the repository's Egg TypeScript helper or update the generated declarations deterministically so the four controllers appear in `typings/app/controller/index.d.ts`.
 
-- [ ] **Step 7: Verify and commit locally**
+- [x] **Step 7: Verify and commit locally**
 
 Run API, router contract, auth, trust-root, server lint, and typecheck. Commit `feat(api): expose protected organization and personnel endpoints`.
 
