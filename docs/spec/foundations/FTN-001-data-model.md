@@ -39,7 +39,7 @@ erDiagram
   Matter ||--o{ MatterAnalysisReport : has
   Matter ||--o{ QualityReview : reviewed_by
   Matter ||--o{ SatisfactionSurvey : surveyed_by
-  Matter ||--o{ KnowledgeAssets : deposits
+  Matter ||--o{ KnowledgeAsset : deposits
   AudioRecording ||--o{ TranscriptionJob : transcribes
   TranscriptionJob ||--o{ AiExtractionResult : extracts
   Employee ||--o{ PerformanceReview : assessed
@@ -62,7 +62,7 @@ erDiagram
 
 源 PRD §9.2 建议核心表。
 
-> 注：物理 schema 以 Prisma `apps/server/prisma/schema.prisma` 45 model 为准，本契约为需求侧对象关系定义。
+> 注：物理 schema 以 Prisma `apps/server/prisma/schema.prisma` 49 model 为准，本契约为需求侧对象关系定义。
 
 | 表 | 用途 |
 |---|---|
