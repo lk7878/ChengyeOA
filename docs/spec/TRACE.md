@@ -25,12 +25,12 @@ last_updated: 2026-07-28
 
 | 编号 | 模块 | 专项设计 | 已落地SPEC | 现状 |
 |---|---|---|---|---|
-| MOD-001 | 组织权限 | 角色权限/系统管理员权限设计 | SPEC-002/003/004/005 | ✅已验收 |
+| MOD-001 | 组织权限 | 角色权限/系统管理员权限设计 | SPEC-002/003/004/005；[SPEC-003-A](../superpowers/specs/2026-09-11-organization-management-extension.md) | ✅原基线已验收；003-A 本地自动化通过，浏览器手工验收未执行 |
 | MOD-002 | 系统配置中心 | 动态字段表格与模板配置 | — | ⬜待开发 |
 | MOD-003 | 品牌获客 | 页面与接口清单(渠道部分) | — | ⚠️有代码无SPEC |
-| MOD-004 | 线索销转 | 页面与接口清单 | SPEC-009(待实施) | ⚠️有代码无SPEC |
-| MOD-005 | 客户主数据 | 页面与接口清单 | SPEC-009(待实施) | ⚠️有代码无SPEC |
-| MOD-006 | 合同财务 | — | — | ⚠️有代码无SPEC |
+| MOD-004 | 线索销转 | 页面与接口清单 | SPEC-009(部分,已验收2026-07-30); SPEC-010(立项,CRM-07) | ⚠️部分落地 |
+| MOD-005 | 客户主数据 | 页面与接口清单 | SPEC-009(部分,已验收2026-07-30) | ⚠️部分落地 |
+| MOD-006 | 合同财务 | SPEC-010设计(已批准2026-07-30) | SPEC-010(立项,待实施;CON-01~07+FIN-01) | 📋有设计无SPEC |
 | MOD-007 | 专业团队SOP | 三大团队SOP字段清单 | — | ⚠️有代码无SPEC |
 | MOD-008 | 案件交付质控 | 三大团队SOP字段清单 | — | ⚠️有代码无SPEC |
 | MOD-009 | 满意度转介绍 | — | — | ⬜待开发 |
@@ -53,6 +53,33 @@ last_updated: 2026-07-28
 
 ## 维护说明
 
+- 2026-09-11：MOD-001 ORG-13 完成 [SPEC-003-B](../superpowers/specs/2026-09-11-organization-tree-ordering.md)，组织树折叠与全局唯一排序号已实现；自动化及迁移验证见[验收记录](../superpowers/plans/2026-09-11-organization-tree-ordering.md)。
+
 - 本矩阵为项目全局追溯入口，每次 SPEC 立项/验收、每次新模块进入实现时，更新对应行的「已落地SPEC」与「现状」两列。
 - 与各文档 frontmatter `implements` 字段配合：`grep "implements: SPEC-" docs/spec/**/*.md` 可快速统计哪些需求已由哪个 SPEC 落地。
 - 详情下沉到各 spec 文档；本表保持模块级粗粒度，不新增功能点级行。
+
+- 2026-09-11：MOD-013 APPR-02/03/04 完成 [SPEC-APPR-20260911](../superpowers/specs/2026-09-11-approval-materials.md)，个人审批类型、凭证上传、Office 基本编辑与导出打印已实现；验收与格式边界见[实施记录](../superpowers/plans/2026-09-11-approval-materials.md)。
+
+## SPEC-EMP-UI-20260911：员工类型与完整组织路径
+
+- 规格：[员工类型中文与完整组织路径](../superpowers/specs/2026-09-11-employee-display.md)。
+- 实现与验证：[实施记录](../superpowers/plans/2026-09-11-employee-display.md)。
+
+## SPEC-UI-20260911：全局列宽与中文显示
+
+- 规格：[全局业务表格列宽与中文显示](../superpowers/specs/2026-09-11-table-resize-chinese.md)。
+- 实现：共用 ResizableTable、ChineseConfig、business-labels、岗位管理及业务表格接入。
+- 验证：组件/岗位回归、中文显示和真实浏览器拖动检查；结果见实施记录。
+
+### SPEC-MD-DELETE-20260911：主数据删除与离职工号复用
+
+参见 [增量规格](../superpowers/specs/2026-09-11-master-data-delete-number-reuse.md)。本规格将工号唯一范围更新为在职员工；历史档案保留原工号，通过员工 ID 区分历任人员。岗位受任职关联保护，员工档案逻辑删除，删除仅超级管理员可执行。
+
+## SPEC-FIN-APPR-PAYROLL-20260911
+
+[规格](../superpowers/specs/2026-09-11-finance-approval-payroll.md)与[实施记录](../superpowers/plans/2026-09-11-finance-approval-payroll.md)：团队中文分类、财务与案件关联、审批通过同步、工资表编辑及审批。
+
+## SPEC-INVENTORY-20260911
+
+[物品管理规格](../superpowers/specs/2026-09-11-inventory-management.md)与[实施记录](../superpowers/plans/2026-09-11-inventory-management.md)：定制物品/办公用品、库存、领用、盘点、统计和仪表盘。

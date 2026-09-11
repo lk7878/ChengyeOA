@@ -4,6 +4,7 @@ const PRIMARY_INITIALIZATION_ID = 'PRIMARY';
 export const SYSTEM_SUPER_ADMIN_ROLE_CODE = 'SYSTEM_SUPER_ADMIN';
 
 type TrustRootPrisma = Pick<Prisma.TransactionClient, 'systemInitialization' | 'role'>;
+type AdministratorGuardPrisma = Pick<Prisma.TransactionClient, 'userRole'>;
 
 export class TrustRootProtectedError extends Error {
   readonly status = 409;
@@ -20,6 +21,30 @@ export async function assertMutableUser(prisma: TrustRootPrisma, userId: string)
     select: { superAdminUserId: true },
   });
   if (initialization?.superAdminUserId === userId) {
+    throw new TrustRootProtectedError();
+  }
+}
+
+export async function assertNonAdministratorUserMutable(
+  prisma: AdministratorGuardPrisma,
+  userId: string,
+  evaluatedAt = new Date(),
+): Promise<void> {
+  const administratorGrant = await prisma.userRole.findFirst({
+    where: {
+      userId,
+      revokedAt: null,
+      validFrom: { lte: evaluatedAt },
+      OR: [{ validUntil: null }, { validUntil: { gt: evaluatedAt } }],
+      role: {
+        type: 'SYSTEM',
+        status: 'ENABLED',
+        code: { in: ['SYSTEM_ADMIN', 'SYSTEM_SUPER_ADMIN'] },
+      },
+    },
+    select: { id: true },
+  });
+  if (administratorGrant) {
     throw new TrustRootProtectedError();
   }
 }

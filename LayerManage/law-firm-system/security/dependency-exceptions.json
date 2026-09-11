@@ -1,21 +1,4 @@
 {
   "schemaVersion": 1,
-  "exceptions": [
-    {
-      "id": "SEC-2026-001",
-      "workspace": "server",
-      "package": "serialize-javascript",
-      "advisories": [
-        "GHSA-5c6j-r48x-rmvq"
-      ],
-      "scope": "development",
-      "reason": "The current Egg test toolchain has no compatible upstream release that removes this advisory without a framework downgrade.",
-      "mitigation": "The package is restricted to local and CI test/build execution; production audit and runtime artifacts omit development dependencies.",
-      "owner": "platform-engineering",
-      "approvedBy": "system-super-admin",
-      "createdAt": "2026-07-16",
-      "expiresAt": "2026-08-15",
-      "trackingRef": "SEC-SPEC-001/serialize-javascript"
-    }
-  ]
+  "exceptions": []
 }

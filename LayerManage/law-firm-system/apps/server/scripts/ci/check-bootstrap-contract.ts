@@ -417,7 +417,7 @@ function invokedName(expression: ts.Expression): string {
   return '';
 }
 
-const INTERACTIVE_SCRIPTS = new Set(['system:bootstrap', 'super-admin:recover']);
+const INTERACTIVE_SCRIPTS = new Set(['system:bootstrap', 'super-admin:recover', 'super-admin:add-second']);
 const OUTPUT_INVOCATIONS = new Set([
   'debug', 'dir', 'error', 'info', 'log', 'output', 'print', 'printf', 'table', 'trace', 'warn', 'write', 'writeline',
 ]);
@@ -466,7 +466,9 @@ function startupInvokesSystemCommand(filePath: string): boolean {
     return normalized.includes('systembootstrap')
       || normalized.includes('bootstrapsystem')
       || normalized.includes('superadminrecover')
-      || normalized.includes('recoversuperadmin');
+      || normalized.includes('recoversuperadmin')
+      || normalized.includes('secondsuperadmin')
+      || normalized.includes('addsecondsuperadmin');
   };
   const dangerousAliases = new Set<string>();
   const collectImports = (node: ts.Node) => {
@@ -546,6 +548,73 @@ function cliSourceHasDefaultCredential(filePath: string): boolean {
   return found;
 }
 
+const REQUIRED_ROLE_CODES = ['SYSTEM_ADMIN', 'SYSTEM_SUPER_ADMIN', 'HR', 'SEAL_ADMIN', 'FINANCE', 'PARTNER', 'MANAGER'];
+const SYSTEM_ROLE_CODES = ['SYSTEM_ADMIN', 'SYSTEM_SUPER_ADMIN'];
+const BUSINESS_ROLE_CODES = ['HR', 'SEAL_ADMIN', 'FINANCE', 'PARTNER', 'MANAGER'];
+const APPROVAL_REVIEWER_PERMISSION_CODES = ['approval.read', 'approval.process'];
+
+interface BootstrapRoleLiteral {
+  code?: string;
+  type?: string;
+  status?: string;
+}
+
+function bootstrapRoleLiterals(source: string): BootstrapRoleLiteral[] {
+  const parsed = sourceFile('system-bootstrap-service.ts', source);
+  const roles: BootstrapRoleLiteral[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isObjectLiteralExpression(node)) {
+      const fields = new Map<string, string>();
+      for (const property of node.properties) {
+        if (!ts.isPropertyAssignment(property)) continue;
+        const name = ts.isIdentifier(property.name) ? property.name.text : stringValue(property.name);
+        const value = stringValue(property.initializer);
+        if (name === undefined || value === undefined) continue;
+        fields.set(name, value);
+      }
+      if (fields.has('code') && (fields.has('type') || fields.has('status'))) {
+        roles.push({ code: fields.get('code'), type: fields.get('type'), status: fields.get('status') });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return roles;
+}
+
+function checkBootstrapRoles(source: string): string[] {
+  const issues: string[] = [];
+  const roles = bootstrapRoleLiterals(source);
+  const byCode = new Map(
+    roles.filter(role => role.code !== undefined).map(role => [role.code as string, role]),
+  );
+
+  for (const code of REQUIRED_ROLE_CODES) {
+    if (!byCode.has(code)) issues.push(`bootstrap must provision role ${code}`);
+  }
+  for (const code of BUSINESS_ROLE_CODES) {
+    const role = byCode.get(code);
+    if (role && role.type !== 'BUSINESS') issues.push(`bootstrap role ${code} must have type BUSINESS`);
+    if (role && role.status !== 'ENABLED') issues.push(`bootstrap role ${code} must have status ENABLED`);
+  }
+  for (const code of SYSTEM_ROLE_CODES) {
+    const role = byCode.get(code);
+    if (role && role.type !== 'SYSTEM') issues.push(`bootstrap role ${code} must have type SYSTEM`);
+  }
+  return issues;
+}
+
+function checkApprovalReviewerGrants(source: string): string[] {
+  const issues: string[] = [];
+  const stripped = withoutPrismaComments(source);
+  for (const code of APPROVAL_REVIEWER_PERMISSION_CODES) {
+    if (!stripped.includes(`'${code}'`) && !stripped.includes(`"${code}"`)) {
+      issues.push(`bootstrap must grant approval reviewer permission ${code}`);
+    }
+  }
+  return issues;
+}
+
 export function checkBootstrapContract(projectRoot: string): string[] {
   const issues: string[] = [];
   const serverRoot = path.join(projectRoot, 'apps', 'server');
@@ -554,19 +623,26 @@ export function checkBootstrapContract(projectRoot: string): string[] {
 
   const rootBootstrap = script(rootScripts, 'root', 'system:bootstrap', issues);
   const rootRecovery = script(rootScripts, 'root', 'super-admin:recover', issues);
+  const rootSecondSeat = script(rootScripts, 'root', 'super-admin:add-second', issues);
   const rootChecker = script(rootScripts, 'root', 'check:bootstrap', issues);
   const rootVerify = script(rootScripts, 'root', 'verify', issues);
   const serverBootstrap = script(serverScripts, 'server', 'system:bootstrap', issues);
   const serverRecovery = script(serverScripts, 'server', 'super-admin:recover', issues);
+  const serverSecondSeat = script(serverScripts, 'server', 'super-admin:add-second', issues);
   const serverChecker = script(serverScripts, 'server', 'check:bootstrap', issues);
 
   if (rootBootstrap !== 'npm --prefix apps/server run system:bootstrap') issues.push('root bootstrap command is missing or changed');
   if (rootRecovery !== 'npm --prefix apps/server run super-admin:recover') issues.push('root recovery command is missing or changed');
+  if (rootSecondSeat !== 'npm --prefix apps/server run super-admin:add-second') issues.push('root second-super-admin command is missing or changed');
   if (rootChecker !== 'npm --prefix apps/server run check:bootstrap') issues.push('root bootstrap checker command is missing or changed');
   if (!sameCommandTokens(rootVerify, ROOT_VERIFY)) issues.push('root verify must run check:baseline before check:bootstrap');
   if (serverBootstrap !== 'tsx scripts/system/bootstrap-system.ts') issues.push('server bootstrap command is missing or changed');
   if (serverRecovery !== 'tsx scripts/system/recover-super-admin.ts') issues.push('server recovery command is missing or changed');
+  if (serverSecondSeat !== 'tsx scripts/system/add-second-super-admin.ts') issues.push('server second-super-admin command is missing or changed');
   if (serverChecker !== 'tsx scripts/ci/check-bootstrap-contract.ts') issues.push('server bootstrap checker command is missing or changed');
+  if (!fs.existsSync(path.join(serverRoot, 'scripts', 'system', 'add-second-super-admin.ts'))) {
+    issues.push('second-super-admin CLI source is missing');
+  }
 
   const schema = withoutPrismaComments(read(path.join(serverRoot, 'prisma', 'schema.prisma')));
   if (!/\bmodel\s+SystemInitialization\s+\{/.test(schema)) issues.push('SystemInitialization model is missing');
@@ -575,11 +651,17 @@ export function checkBootstrapContract(projectRoot: string): string[] {
     issues.push('recovery gate example must default to false');
   }
 
+  const bootstrapServiceSource = read(
+    path.join(serverRoot, 'app', 'application', 'system', 'system-bootstrap-service.ts'),
+  );
+  issues.push(...checkBootstrapRoles(bootstrapServiceSource), ...checkApprovalReviewerGrants(bootstrapServiceSource));
+
   const routes = routerPaths(read(path.join(serverRoot, 'app', 'router.ts')));
   if (!routes.some(route => route.routePath === '/api/v1/auth/password/forced-change')) {
     issues.push('forced password change route is missing');
   }
-  if (routes.some(route => route.routePath === undefined || /(?:bootstrap|recover)/i.test(route.routePath))) {
+  if (routes.some(route => route.routePath === undefined
+    || /(?:^|\/)(?:bootstrap|recover)(?:\/|$)/i.test(route.routePath))) {
     issues.push('HTTP bootstrap or recovery route exists');
   }
 

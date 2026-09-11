@@ -1,0 +1,35 @@
+Set-StrictMode -Version Latest
+$targetPath = Join-Path $PSScriptRoot 'production-rollout-evidence.json'
+$temporaryPath = Join-Path $PSScriptRoot ('.' + [System.IO.Path]::GetRandomFileName() + '.tmp')
+$backupPath = Join-Path $PSScriptRoot ('.' + [System.IO.Path]::GetRandomFileName() + '.bak')
+$record = [ordered]@{
+    schemaVersion = 1
+    backup = 'VERIFIED'
+    isolatedRestorePoint = 'VERIFIED'
+    allWorkersDisabled = 'VERIFIED'
+    serverWebSameRelease = 'VERIFIED'
+    governanceApproval = 'VERIFIED'
+    verifiedAtUtc = [datetime]::UtcNow.ToString('o')
+}
+
+try {
+    $json = $record | ConvertTo-Json -Compress
+    [System.IO.File]::WriteAllText($temporaryPath, $json, [System.Text.UTF8Encoding]::new($false))
+    if ([System.IO.File]::Exists($targetPath)) {
+        [System.IO.File]::Replace($temporaryPath, $targetPath, $backupPath)
+    }
+    else {
+        [System.IO.File]::Move($temporaryPath, $targetPath)
+    }
+}
+catch {
+    throw 'EVIDENCE_WRITE_FAILED'
+}
+finally {
+    foreach ($artifactPath in @($temporaryPath, $backupPath)) {
+        try {
+            if ([System.IO.File]::Exists($artifactPath)) { [System.IO.File]::Delete($artifactPath) }
+        }
+        catch { }
+    }
+}

@@ -1,263 +1,87 @@
-import { Prisma } from '@prisma/client';
+// SPEC-010 Task 10: payment HTTP 控制器（整体替代 SPEC-001 原型——原型控制器随 Task 1 移除）。
+// 薄控制器纪律（仿 SPEC-009 T10 lead.ts/customer.ts）：传输层解析 → 调 Task 9 冻结服务 →
+// 包络响应；三方同事务联动/冲抵/幂等重放全部在服务层。无 delete 端点
+// （FTN-001 §3.6：收款记录不得业务删除）；退款归 SPEC-011，原型 /refund 路径 404 锁死。
+
 import { Controller } from 'egg';
 
+import { receivableService } from '../application/contract/contract-factory';
+import {
+  ConfirmPaymentInput,
+  CreatePaymentInput,
+  ListPaymentsQuery,
+  VoidPaymentInput,
+} from '../application/contract/contract-types';
+import { PaymentStatus } from '../domain/events/event-types';
+import { MasterDataError } from '../domain/master-data/master-data-errors';
+import { assertExactKeys } from '../domain/master-data/master-data-validation';
+
+const CREATE_BODY_KEYS = [
+  'contractId', 'caseNo', 'paymentPlanId', 'amount', 'method', 'account', 'paidAt', 'remark', 'idempotencyKey',
+] as const;
+const CONFIRM_BODY_KEYS = ['idempotencyKey'] as const;
+// SPEC-011 Task 10（FIN-03 冲销侧）：voidPayment 白名单（brief 逐字）。
+const VOID_BODY_KEYS = ['reason', 'idempotencyKey'] as const;
+
 export default class PaymentController extends Controller {
-  /**
-   * 收款列表
-   */
-  async index() {
-    const { ctx } = this;
-    const { page = 1, pageSize = 10, status, customerId, contractId } = ctx.query;
-
-    const where: Prisma.PaymentWhereInput = {};
-    if (status) where.status = status;
-    if (customerId) where.customerId = customerId;
-    if (contractId) where.contractId = contractId;
-
-    const total = await ctx.prisma.payment.count({ where });
-    const list = await ctx.prisma.payment.findMany({
-      where,
-      skip: (Number(page) - 1) * Number(pageSize),
-      take: Number(pageSize),
-      include: {
-        customer: true,
-        contract: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: {
-        list,
-        pagination: {
-          page: Number(page),
-          pageSize: Number(pageSize),
-          total,
-          totalPages: Math.ceil(total / Number(pageSize)),
-        },
-      },
-    };
-  }
-
-  /**
-   * 收款详情
-   */
-  async show() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const payment = await ctx.prisma.payment.findUnique({
-      where: { id },
-      include: {
-        customer: true,
-        contract: true,
-      },
-    });
-
-    if (!payment) {
-      ctx.throw(404, '收款记录不存在');
-    }
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: payment,
-    };
-  }
-
-  /**
-   * 创建收款
-   */
+  /** POST /api/v1/payments（payment.create）：收款登记（仅 SIGNED/EFFECTIVE 合同），PENDING。 */
   async create() {
-    const { ctx } = this;
-    const { contractId, customerId, amount, dueDate, remark } = ctx.request.body;
-
-    if (!customerId || !amount) {
-      ctx.throw(400, '客户和金额不能为空');
-    }
-
-    const payment = await ctx.prisma.payment.create({
-      data: {
-        contractId,
-        customerId,
-        amount: Number(amount),
-        dueDate: dueDate ? new Date(dueDate) : null,
-        remark,
-      },
-      include: {
-        customer: true,
-        contract: true,
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '创建成功',
-      data: payment,
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, CREATE_BODY_KEYS);
+    this.respond(await receivableService(this.ctx).createPayment(body as unknown as CreatePaymentInput));
   }
 
-  /**
-   * 更新收款
-   */
-  async update() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { amount, dueDate, remark } = ctx.request.body;
-
-    const payment = await ctx.prisma.payment.findUnique({
-      where: { id },
-    });
-    if (!payment) {
-      ctx.throw(404, '收款记录不存在');
-    }
-
-    // 只有待收款状态可以编辑
-    if (payment.status !== 'PENDING') {
-      ctx.throw(400, '只有待收款状态的记录可以编辑');
-    }
-
-    const updateData: Prisma.PaymentUncheckedUpdateInput = {};
-    if (amount !== undefined) updateData.amount = Number(amount);
-    if (dueDate !== undefined) updateData.dueDate = dueDate ? new Date(dueDate) : null;
-    if (remark !== undefined) updateData.remark = remark;
-
-    const updated = await ctx.prisma.payment.update({
-      where: { id },
-      data: updateData,
-      include: {
-        customer: true,
-        contract: true,
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '更新成功',
-      data: updated,
-    };
+  /** GET /api/v1/payments（payment.read）：范围列表（经合同包裹）+ status/contractId/customerId 过滤。 */
+  async index() {
+    this.respond(await receivableService(this.ctx).listPayments(parsePaymentListQuery(this.ctx.query)));
   }
 
-  /**
-   * 删除收款
-   */
-  async destroy() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const payment = await ctx.prisma.payment.findUnique({
-      where: { id },
-    });
-    if (!payment) {
-      ctx.throw(404, '收款记录不存在');
-    }
-
-    if (payment.status === 'RECEIVED') {
-      ctx.throw(400, '已收款记录无法删除');
-    }
-
-    await ctx.prisma.payment.delete({
-      where: { id },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '删除成功',
-      data: null,
-    };
+  /** GET /api/v1/payments/:id（payment.read）：详情，不存在/越权统一 404。 */
+  async show() {
+    this.respond(await receivableService(this.ctx).getPayment(this.ctx.params.id));
   }
 
-  /**
-   * 确认收款
-   */
+  /** POST /api/v1/payments/:id/confirm（payment.confirm）：PENDING→CONFIRMED + 冲抵 + 合同累计。 */
   async confirm() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { receivedAmount, receivedDate, paymentMethod, paymentAccount } = ctx.request.body;
-
-    const payment = await ctx.prisma.payment.findUnique({
-      where: { id },
-      include: { contract: true },
-    });
-    if (!payment) {
-      ctx.throw(404, '收款记录不存在');
-    }
-
-    if (payment.status === 'RECEIVED') {
-      ctx.throw(400, '该记录已收款');
-    }
-
-    const updated = await ctx.prisma.payment.update({
-      where: { id },
-      data: {
-        status: 'RECEIVED',
-        receivedAmount: receivedAmount ? Number(receivedAmount) : payment.amount,
-        receivedDate: receivedDate ? new Date(receivedDate) : new Date(),
-        paymentMethod,
-        paymentAccount,
-      },
-      include: {
-        customer: true,
-        contract: true,
-      },
-    });
-
-    // 更新合同已付款金额
-    if (payment.contractId) {
-      const contractPayments = await ctx.prisma.payment.findMany({
-        where: {
-          contractId: payment.contractId,
-          status: 'RECEIVED',
-        },
-      });
-      const totalPaid = contractPayments.reduce((sum, p) => sum + Number(p.receivedAmount), 0);
-
-      await ctx.prisma.contract.update({
-        where: { id: payment.contractId },
-        data: { paidAmount: totalPaid },
-      });
-    }
-
-    ctx.body = {
-      code: 200,
-      message: '收款确认成功',
-      data: updated,
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, CONFIRM_BODY_KEYS);
+    this.respond(await receivableService(this.ctx).confirmPayment(
+      this.ctx.params.id,
+      body as unknown as ConfirmPaymentInput,
+    ));
   }
 
-  /**
-   * 退款
-   */
-  async refund() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { refundAmount, reason } = ctx.request.body;
-
-    const payment = await ctx.prisma.payment.findUnique({
-      where: { id },
-    });
-    if (!payment) {
-      ctx.throw(404, '收款记录不存在');
-    }
-
-    if (payment.status !== 'RECEIVED') {
-      ctx.throw(400, '只有已收款记录可以退款');
-    }
-
-    const updated = await ctx.prisma.payment.update({
-      where: { id },
-      data: {
-        status: 'REFUNDED',
-        remark: reason ? `${payment.remark || ''}\n[退款原因: ${reason}, 金额: ${refundAmount}]` : payment.remark,
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '退款处理成功',
-      data: updated,
-    };
+  /** POST /api/v1/payments/:id/void（payment.void，SPEC-011 Task 10）：CONFIRMED→VOIDED + 资金回补。 */
+  async void() {
+    const body = this.ctx.request.body;
+    assertExactKeys(body, VOID_BODY_KEYS);
+    this.respond(await receivableService(this.ctx).voidPayment(
+      this.ctx.params.id,
+      body as unknown as VoidPaymentInput,
+    ));
   }
+
+  private respond(data: unknown): void {
+    this.ctx.body = { code: 200, message: 'success', data };
+  }
+}
+
+function parsePaymentListQuery(input: unknown): ListPaymentsQuery {
+  assertExactKeys(input, ['page', 'pageSize', 'status', 'contractId', 'customerId', 'caseNo']);
+  const query: ListPaymentsQuery = {};
+  if (input.page !== undefined) query.page = parseQueryInteger(input.page);
+  if (input.pageSize !== undefined) query.pageSize = parseQueryInteger(input.pageSize);
+  if (input.status !== undefined) query.status = input.status as PaymentStatus;
+  if (input.contractId !== undefined) query.contractId = input.contractId as string;
+  if (input.customerId !== undefined) query.customerId = input.customerId as string;
+  if (input.caseNo !== undefined) query.caseNo = input.caseNo as string;
+  return query;
+}
+
+/** query 数字解析：非法形态 400（与 lead/customer 控制器同一纪律）。 */
+function parseQueryInteger(value: unknown): number {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
+    throw new MasterDataError('VALIDATION_FAILED', 400);
+  }
+  return Number(value);
 }

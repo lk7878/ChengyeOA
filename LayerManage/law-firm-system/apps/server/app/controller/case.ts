@@ -1,379 +1,137 @@
-import { Prisma } from '@prisma/client';
+// SPEC-033 Task 3: case HTTP 控制器（整体替代 SPEC-001 遗留原型——直连 ctx.prisma、无权限门禁、
+// 无校验/审计/测试，本版本替换为薄控制器调正规 service 层）。
+// 薄控制器纪律（仿 payment.ts / approval.ts）：传输层解析 → 调 case 服务 → 包络响应
+// { code:200, message:'success', data }；业务校验/权限/状态机/审计全在服务层。
+// 移除 destroy（案件业务不可删，归档替代）。
+
 import { Controller } from 'egg';
+
 import {
-  EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
-  projectEmployeeWithPrimaryAssignment,
-} from '../application/master-data/employee-projection';
+  caseCommunicationService,
+  caseFileService,
+  caseService,
+  caseTaskService,
+} from '../application/case/case-factory';
+import { MasterDataError } from '../domain/master-data/master-data-errors';
+import { assertExactKeys } from '../domain/master-data/master-data-validation';
+
+const CREATE_CASE_BODY_KEYS = ['title', 'customerId', 'contractId', 'lawyerId', 'teamIds', 'caseType', 'priority', 'fee', 'description'] as const;
+const UPDATE_CASE_BODY_KEYS = ['title', 'lawyerId', 'teamIds', 'caseType', 'priority', 'description', 'result', 'satisfaction', 'isReferrable', 'version'] as const;
+const CLOSE_CASE_BODY_KEYS = ['result', 'satisfaction'] as const;
+const CREATE_TASK_BODY_KEYS = ['name', 'nodeType', 'dueDate', 'remark'] as const;
+const UPDATE_TASK_BODY_KEYS = ['status', 'remark'] as const;
+const CREATE_COMMUNICATION_BODY_KEYS = ['type', 'content', 'isKey'] as const;
+// SPEC-042：案件文件/证据——上传入参白名单（base64 落盘）。
+const UPLOAD_FILE_BODY_KEYS = ['fileName', 'fileType', 'base64'] as const;
+const FILE_LIST_QUERY_KEYS = ['page', 'pageSize'] as const;
 
 export default class CaseController extends Controller {
-  /**
-   * 案件列表
-   */
+  /** GET /api/v1/cases（case.read）：案件列表（过滤 + 分页）。 */
   async index() {
-    const { ctx } = this;
-    const { page = 1, pageSize = 10, keyword, status, lawyerId, priority } = ctx.query;
-
-    const where: Prisma.CaseWhereInput = {};
-    if (keyword) {
-      where.OR = [
-        { title: { contains: keyword } },
-        { caseNo: { contains: keyword } },
-        { caseType: { contains: keyword } },
-      ];
-    }
-    if (status) where.status = status;
-    if (lawyerId) where.lawyerId = lawyerId;
-    if (priority) where.priority = priority;
-
-    const total = await ctx.prisma.case.count({ where });
-    const list = await ctx.prisma.case.findMany({
-      where,
-      skip: (Number(page) - 1) * Number(pageSize),
-      take: Number(pageSize),
-      include: {
-        customer: true,
-        lawyer: {
-          include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
-        },
-        contract: true,
-        _count: {
-          select: { tasks: true, communications: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: {
-        list: list.map(caseItem => ({
-          ...caseItem,
-          lawyer: projectEmployeeWithPrimaryAssignment(caseItem.lawyer),
-        })),
-        pagination: {
-          page: Number(page),
-          pageSize: Number(pageSize),
-          total,
-          totalPages: Math.ceil(total / Number(pageSize)),
-        },
-      },
-    };
+    this.respond(await caseService(this.ctx).listCases(parseCaseListQuery(this.ctx.query) as never));
   }
 
-  /**
-   * 案件详情
-   */
+  /** GET /api/v1/cases/:id（case.read）：案件详情（含任务 + 沟通）。 */
   async show() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const caseItem = await ctx.prisma.case.findUnique({
-      where: { id },
-      include: {
-        customer: true,
-        lawyer: {
-          include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
-        },
-        contract: true,
-        tasks: {
-          orderBy: { createdAt: 'asc' },
-        },
-        communications: {
-          orderBy: { createdAt: 'desc' },
-        },
-      },
-    });
-
-    if (!caseItem) {
-      ctx.throw(404, '案件不存在');
-    }
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: {
-        ...caseItem,
-        lawyer: projectEmployeeWithPrimaryAssignment(caseItem.lawyer),
-      },
-    };
+    this.respond(await caseService(this.ctx).getCase(this.ctx.params.id));
   }
 
-  /**
-   * 创建案件
-   */
+  /** POST /api/v1/cases（case.create）：新建案件。 */
   async create() {
-    const { ctx } = this;
-    const { caseNo, title, customerId, contractId, lawyerId, caseType, fee, description } = ctx.request.body;
-
-    if (!caseNo || !title || !customerId || !lawyerId || !caseType) {
-      ctx.throw(400, '缺少必填字段');
-    }
-
-    // 检查案件编号是否已存在
-    const existing = await ctx.prisma.case.findUnique({
-      where: { caseNo },
-    });
-    if (existing) {
-      ctx.throw(409, '案件编号已存在');
-    }
-
-    const caseItem = await ctx.prisma.case.create({
-      data: {
-        caseNo,
-        title,
-        customerId,
-        contractId,
-        lawyerId,
-        caseType,
-        fee: fee ? Number(fee) : 0,
-        description,
-      },
-      include: {
-        customer: true,
-        lawyer: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
-        contract: true,
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '创建成功',
-      data: {
-        ...caseItem,
-        lawyer: projectEmployeeWithPrimaryAssignment(caseItem.lawyer),
-      },
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, CREATE_CASE_BODY_KEYS);
+    this.respond(await caseService(this.ctx).createCase(body as never));
   }
 
-  /**
-   * 更新案件
-   */
+  /** PUT /api/v1/cases/:id（case.update）：编辑案件。 */
   async update() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { title, lawyerId, caseType, status, priority, fee, description, result, satisfaction, isReferrable } = ctx.request.body;
-
-    const caseItem = await ctx.prisma.case.findUnique({
-      where: { id },
-    });
-    if (!caseItem) {
-      ctx.throw(404, '案件不存在');
-    }
-
-    const updateData: Prisma.CaseUncheckedUpdateInput = {};
-    if (title) updateData.title = title;
-    if (lawyerId) updateData.lawyerId = lawyerId;
-    if (caseType) updateData.caseType = caseType;
-    if (status) updateData.status = status;
-    if (priority) updateData.priority = priority;
-    if (fee !== undefined) updateData.fee = Number(fee);
-    if (description !== undefined) updateData.description = description;
-    if (result !== undefined) updateData.result = result;
-    if (satisfaction !== undefined) updateData.satisfaction = satisfaction;
-    if (isReferrable !== undefined) updateData.isReferrable = isReferrable;
-
-    const updated = await ctx.prisma.case.update({
-      where: { id },
-      data: updateData,
-      include: {
-        customer: true,
-        lawyer: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '更新成功',
-      data: {
-        ...updated,
-        lawyer: projectEmployeeWithPrimaryAssignment(updated.lawyer),
-      },
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, UPDATE_CASE_BODY_KEYS);
+    this.respond(await caseService(this.ctx).updateCase(this.ctx.params.id, body as never));
   }
 
-  /**
-   * 删除案件
-   */
-  async destroy() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const caseItem = await ctx.prisma.case.findUnique({
-      where: { id },
-      include: {
-        tasks: true,
-        communications: true,
-      },
-    });
-    if (!caseItem) {
-      ctx.throw(404, '案件不存在');
-    }
-
-    if (caseItem.tasks.length > 0) {
-      ctx.throw(400, '该案件有任务记录，无法删除');
-    }
-    if (caseItem.communications.length > 0) {
-      ctx.throw(400, '该案件有沟通记录，无法删除');
-    }
-
-    await ctx.prisma.case.delete({
-      where: { id },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '删除成功',
-      data: null,
-    };
-  }
-
-  /**
-   * 创建任务
-   */
+  /** POST /api/v1/cases/:id/tasks（case.task.manage）：新建案件任务。 */
   async createTask() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { name, nodeType, dueDate, remark } = ctx.request.body;
-
-    if (!name || !nodeType) {
-      ctx.throw(400, '任务名称和节点类型不能为空');
-    }
-
-    const caseItem = await ctx.prisma.case.findUnique({
-      where: { id },
-    });
-    if (!caseItem) {
-      ctx.throw(404, '案件不存在');
-    }
-
-    const task = await ctx.prisma.caseTask.create({
-      data: {
-        caseId: id,
-        name,
-        nodeType,
-        dueDate: dueDate ? new Date(dueDate) : null,
-        remark,
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '任务创建成功',
-      data: task,
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, CREATE_TASK_BODY_KEYS);
+    this.respond(await caseTaskService(this.ctx).createTask(this.ctx.params.id, body as never));
   }
 
-  /**
-   * 更新任务
-   */
+  /** PATCH /api/v1/cases/:id/tasks/:taskId（case.task.manage）：更新任务状态。 */
   async updateTask() {
-    const { ctx } = this;
-    const { id, taskId } = ctx.params;
-    const { status, completedAt, remark } = ctx.request.body;
-
-    const task = await ctx.prisma.caseTask.findUnique({
-      where: { id: taskId },
-    });
-    if (!task || task.caseId !== id) {
-      ctx.throw(404, '任务不存在');
-    }
-
-    const updateData: Prisma.CaseTaskUncheckedUpdateInput = {};
-    if (status) updateData.status = status;
-    if (completedAt !== undefined) updateData.completedAt = completedAt ? new Date(completedAt) : null;
-    if (remark !== undefined) updateData.remark = remark;
-
-    const updated = await ctx.prisma.caseTask.update({
-      where: { id: taskId },
-      data: updateData,
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '任务更新成功',
-      data: updated,
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, UPDATE_TASK_BODY_KEYS);
+    this.respond(await caseTaskService(this.ctx).updateTask(this.ctx.params.id, this.ctx.params.taskId, body as never));
   }
 
-  /**
-   * 添加沟通记录
-   */
+  /** POST /api/v1/cases/:id/communications（case.communication.create）：记录案件沟通。 */
   async createCommunication() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { type, content, isKey } = ctx.request.body;
-
-    if (!type || !content) {
-      ctx.throw(400, '沟通类型和内容不能为空');
-    }
-
-    const caseItem = await ctx.prisma.case.findUnique({
-      where: { id },
-    });
-    if (!caseItem) {
-      ctx.throw(404, '案件不存在');
-    }
-
-    const communication = await ctx.prisma.communication.create({
-      data: {
-        caseId: id,
-        type,
-        content,
-        isKey: isKey || false,
-        createdBy: ctx.state.user.userId,
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '沟通记录添加成功',
-      data: communication,
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, CREATE_COMMUNICATION_BODY_KEYS);
+    this.respond(await caseCommunicationService(this.ctx).createCommunication(this.ctx.params.id, body as never));
   }
 
-  /**
-   * 结案
-   */
+  /** POST /api/v1/cases/:id/close（case.close）：结案。 */
   async close() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { result, satisfaction } = ctx.request.body;
-
-    const caseItem = await ctx.prisma.case.findUnique({
-      where: { id },
-      include: {
-        tasks: {
-          where: { status: { not: 'COMPLETED' } },
-        },
-      },
-    });
-    if (!caseItem) {
-      ctx.throw(404, '案件不存在');
-    }
-
-    if (caseItem.status === 'CLOSED' || caseItem.status === 'ARCHIVED') {
-      ctx.throw(400, '案件已结案');
-    }
-
-    if (caseItem.tasks.length > 0) {
-      ctx.throw(400, '该案件有未完成任务，请先完成');
-    }
-
-    const updated = await ctx.prisma.case.update({
-      where: { id },
-      data: {
-        status: 'CLOSED',
-        result,
-        satisfaction,
-        closedAt: new Date(),
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '案件已结案',
-      data: updated,
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, CLOSE_CASE_BODY_KEYS);
+    this.respond(await caseService(this.ctx).closeCase(this.ctx.params.id, body as never));
   }
+
+  /** GET /api/v1/cases/:id/files（case.file.read，SPEC-042）：案件文件列表（分页）。 */
+  async listFiles() {
+    this.respond(await caseFileService(this.ctx).list(this.ctx.params.id, parseFileListQuery(this.ctx.query)));
+  }
+
+  /** POST /api/v1/cases/:id/files（case.file.manage，SPEC-042）：上传文件（base64 落盘）。 */
+  async uploadFile() {
+    const body = this.ctx.request.body;
+    assertExactKeys(body, UPLOAD_FILE_BODY_KEYS);
+    this.respond(await caseFileService(this.ctx).upload(this.ctx.params.id, body as never));
+  }
+
+  /** GET /api/v1/files/:id/download（case.file.read，SPEC-042）：下载文件（base64 信封）。 */
+  async downloadFile() {
+    this.respond(await caseFileService(this.ctx).download(this.ctx.params.id));
+  }
+
+  /** DELETE /api/v1/files/:id（case.file.manage，SPEC-042）：删除文件（删盘 + 记录）。 */
+  async removeFile() {
+    this.respond(await caseFileService(this.ctx).remove(this.ctx.params.id));
+  }
+
+  private respond(data: unknown): void {
+    this.ctx.body = { code: 200, message: 'success', data };
+  }
+}
+
+/** 案件列表查询解析：page/pageSize/过滤透传（枚举/数字服务层校验）。 */
+function parseCaseListQuery(input: unknown): Record<string, unknown> {
+  assertExactKeys(input, ['page', 'pageSize', 'keyword', 'status', 'lawyerId', 'priority', 'customerId']);
+  const query: Record<string, unknown> = {};
+  if (input.page !== undefined) query.page = parseQueryInteger(input.page);
+  if (input.pageSize !== undefined) query.pageSize = parseQueryInteger(input.pageSize);
+  if (input.keyword !== undefined) query.keyword = input.keyword;
+  if (input.status !== undefined) query.status = input.status;
+  if (input.lawyerId !== undefined) query.lawyerId = input.lawyerId;
+  if (input.priority !== undefined) query.priority = input.priority;
+  if (input.customerId !== undefined) query.customerId = input.customerId;
+  return query;
+}
+
+/** query 数字解析：非法形态 400。 */
+function parseQueryInteger(value: unknown): number {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
+    throw new MasterDataError('VALIDATION_FAILED', 400);
+  }
+  return Number(value);
+}
+
+/** 文件列表查询解析：page/pageSize 透传（服务层数字校验）。 */
+function parseFileListQuery(input: unknown): { page?: number; pageSize?: number } {
+  assertExactKeys(input, FILE_LIST_QUERY_KEYS);
+  const query: { page?: number; pageSize?: number } = {};
+  if (input.page !== undefined) query.page = parseQueryInteger(input.page);
+  if (input.pageSize !== undefined) query.pageSize = parseQueryInteger(input.pageSize);
+  return query;
 }

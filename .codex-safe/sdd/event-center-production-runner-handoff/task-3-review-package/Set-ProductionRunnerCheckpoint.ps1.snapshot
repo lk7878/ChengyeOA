@@ -1,0 +1,42 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('GOVERNANCE_COMPLETED', 'SINGLE_WORKER_ENABLED', 'CANARY_GOVERNANCE_COMPLETED', 'ROLLBACK_CONFIRMED')]
+    [string]$Command,
+
+    [Parameter(Mandatory = $true)]
+    [ValidateScript({ $_ -gt 0 })]
+    [long]$Sequence
+)
+
+Set-StrictMode -Version Latest
+$targetPath = Join-Path $PSScriptRoot 'production-runner-control.json'
+$temporaryPath = Join-Path $PSScriptRoot ('.' + [System.IO.Path]::GetRandomFileName() + '.tmp')
+$backupPath = Join-Path $PSScriptRoot ('.' + [System.IO.Path]::GetRandomFileName() + '.bak')
+$record = [ordered]@{
+    schemaVersion = 1
+    sequence = $Sequence
+    command = $Command
+    issuedAtUtc = [datetime]::UtcNow.ToString('o')
+}
+
+try {
+    $json = $record | ConvertTo-Json -Compress
+    [System.IO.File]::WriteAllText($temporaryPath, $json, [System.Text.UTF8Encoding]::new($false))
+    if ([System.IO.File]::Exists($targetPath)) {
+        [System.IO.File]::Replace($temporaryPath, $targetPath, $backupPath)
+    }
+    else {
+        [System.IO.File]::Move($temporaryPath, $targetPath)
+    }
+}
+catch {
+    throw 'CHECKPOINT_WRITE_FAILED'
+}
+finally {
+    foreach ($artifactPath in @($temporaryPath, $backupPath)) {
+        try {
+            if ([System.IO.File]::Exists($artifactPath)) { [System.IO.File]::Delete($artifactPath) }
+        }
+        catch { }
+    }
+}

@@ -2,6 +2,8 @@
 
 Use this rehearsal only against the local Docker baseline. `var/backup` is Git-ignored. It may create and drop only `chengye_oa_restore_test`; it never drops the development or test application database.
 
+For databases containing SPEC-006 MFA factors, a database dump alone is insufficient. Preserve the matching `MFA_ENCRYPTION_KEY_V1` version in the approved secret manager and inject it into the isolated restore environment before starting the application. Never write the key into the dump directory, command transcript, or rehearsal report. See `identity-security-mfa-step-up.md`.
+
 ```powershell
 $ErrorActionPreference = 'Stop'
 
@@ -30,4 +32,4 @@ $env:DATABASE_URL='postgresql://chengye_app:chengye_local_only@localhost:55432/c
 Invoke-CheckedCommand 'empty application table assertion' { npm.cmd run db:assert-empty }
 ```
 
-Capture the start and end timestamps, dump SHA-256, elapsed time, restore result, and the 22-model empty assertion in the task report. Stop immediately on a `pg_dump`, `docker cp`, `createdb`, `pg_restore`, or empty assertion failure. Do not repair a failed rehearsal automatically and do not commit the dump.
+Capture the start and end timestamps, dump SHA-256, elapsed time, restore result, restored-factor verification when applicable, and the all-application-table assertion in the task report. Stop immediately on a `pg_dump`, `docker cp`, `createdb`, `pg_restore`, factor verification, or empty assertion failure. Do not repair a failed rehearsal automatically and do not commit the dump.

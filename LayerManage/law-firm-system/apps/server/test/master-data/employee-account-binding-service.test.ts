@@ -4,7 +4,7 @@ import test from 'node:test';
 import { PrismaClient } from '@prisma/client';
 import { EmployeeAccountBindingService } from '../../app/application/master-data/employee-account-binding-service';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
-import { hasCode } from './test-helpers';
+import { authorizationContext, hasCode } from './test-helpers';
 
 let prisma: PrismaClient;
 let rootOrganizationId: string;
@@ -75,7 +75,14 @@ test.beforeEach(async () => {
   employeeBId = await createEmployee('EMP-B');
   userAId = await createUser('user_a');
   userBId = await createUser('user_b');
-  service = new EmployeeAccountBindingService(prisma, { actorUserId: 'binding-actor', ip: '127.0.0.1' });
+  service = new EmployeeAccountBindingService(
+    prisma,
+    { actorUserId: 'binding-actor', ip: '127.0.0.1' },
+    authorizationContext({
+      userId: 'binding-actor', permissionCodes: ['employee.account_binding.manage'],
+      resource: 'employee_account_binding', superAdmin: true,
+    }),
+  );
 });
 
 test.after(async () => {
@@ -116,10 +123,60 @@ test('rejects binding when either the user or employee is already bound', async 
   );
 });
 
+test('hides employees outside account-binding data scope before reading account state', async () => {
+  const branchId = randomUUID();
+  await prisma.organization.create({ data: {
+    id: branchId, code: 'BRANCH_A', name: 'Branch A', type: 'BRANCH', parentId: rootOrganizationId,
+    path: `/${rootOrganizationId}/${branchId}`, level: 1,
+  } });
+  const branchPosition = await prisma.position.create({ data: {
+    organizationId: branchId, code: 'BRANCH_LAWYER', name: 'Branch lawyer', categoryCode: 'LEGAL',
+  } });
+  await prisma.employeeAssignment.updateMany({
+    where: { employeeId: employeeAId, endedAt: null },
+    data: { organizationId: branchId, positionId: branchPosition.id },
+  });
+  const scope = await prisma.dataScope.create({ data: {
+    name: 'Branch A account binding', scopeType: 'BRANCH', organizationId: branchId, includeDescendants: true,
+  } });
+  const scoped = new EmployeeAccountBindingService(
+    prisma,
+    { actorUserId: 'binding-actor', ip: '127.0.0.1' },
+    authorizationContext({
+      userId: 'binding-actor', permissionCodes: ['employee.account_binding.manage'],
+      resource: 'employee_account_binding', scopeIds: [scope.id],
+    }),
+  );
+
+  assert.equal((await scoped.bind(employeeAId, { userId: userAId, employeeVersion: 1 })).account?.id, userAId);
+  await assert.rejects(
+    () => scoped.bind(employeeBId, { userId: userBId, employeeVersion: 1 }),
+    hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'),
+  );
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userBId } })).employeeId, null);
+});
+
+test('field-projects employee details returned by account-binding mutations', async () => {
+  const context = authorizationContext({
+    userId: 'binding-reader', permissionCodes: ['employee.account_binding.manage'],
+    resource: 'employee_account_binding', scopeIds: ['ALL'], superAdmin: false,
+  });
+  context.permissionCodes.push('employee.read');
+  context.grants.push({
+    sourceType: 'ROLE', sourceId: 'binding-reader-grant', sourceRoleId: 'binding-reader-role',
+    permissionCode: 'employee.read', resource: 'employee', scopeIds: ['ALL'], validUntil: null,
+  });
+  const scoped = new EmployeeAccountBindingService(
+    prisma, { actorUserId: 'binding-reader' }, context,
+  );
+  const detail = await scoped.bind(employeeAId, { userId: userAId, employeeVersion: 1 });
+  assert.equal(detail.phone, '138****0000');
+});
+
 test('returns stable errors for missing objects, stale versions, and unbound employees', async () => {
   await assert.rejects(
     () => service.bind(randomUUID(), { userId: userAId, employeeVersion: 1 }),
-    hasCode('EMPLOYEE_NOT_FOUND'),
+    hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'),
   );
   await assert.rejects(
     () => service.bind(employeeAId, { userId: randomUUID(), employeeVersion: 1 }),

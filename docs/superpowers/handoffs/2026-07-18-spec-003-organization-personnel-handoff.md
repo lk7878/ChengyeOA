@@ -199,10 +199,10 @@ npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd run db:up
 
 ```powershell
 $env:NODE_ENV='test'
-$env:DATABASE_URL='postgresql://chengye_app:chengye_local_only@localhost:55432/chengye_oa?schema=public'
-$env:DATABASE_URL_TEST='postgresql://chengye_test:chengye_test_local_only@localhost:55432/chengye_oa_test?schema=public'
-$env:JWT_SECRET='01234567890123456789012345678901'
-$env:APP_KEYS='local_test_application_key_number_one,local_test_application_key_number_two'
+$env:DATABASE_URL='<redacted local development URL>'
+$env:DATABASE_URL_TEST='<redacted local test URL>'
+$env:JWT_SECRET='<generate a local value of at least 32 characters>'
+$env:APP_KEYS='<generate two local application keys separated by a comma>'
 $env:ALLOW_TEST_DB_RESET='true'
 ```
 

@@ -1,0 +1,58 @@
+Set-StrictMode -Version Latest
+
+$safeDirectory = $PSScriptRoot
+$workspaceRoot = Split-Path $safeDirectory -Parent
+$modulePath = Join-Path $safeDirectory 'ProductionRolloutRunner.Core.psm1'
+$evidencePath = Join-Path $safeDirectory 'production-rollout-evidence.json'
+$checkpointPath = Join-Path $safeDirectory 'production-runner-control.json'
+$statusPath = Join-Path $safeDirectory 'production-runner-status.jsonl'
+Import-Module $modulePath -Force
+
+function Read-RunnerJsonFile {
+    param([string]$Path, [string]$UtcProperty)
+
+    if (-not [System.IO.File]::Exists($Path)) { return $null }
+    try {
+        $value = [System.IO.File]::ReadAllText($Path) | ConvertFrom-Json
+        if ($null -ne $value -and $value.PSObject.Properties.Name -ccontains $UtcProperty) {
+            $parsedUtc = [datetime]::MinValue
+            if ([datetime]::TryParse([string]$value.$UtcProperty, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsedUtc) -and $parsedUtc.Kind -eq [DateTimeKind]::Utc) {
+                $value.$UtcProperty = $parsedUtc
+            }
+        }
+        return $value
+    }
+    catch {
+        return $null
+    }
+}
+
+$dependencies = @{
+    EnvironmentReader = {
+        return @{
+            DATABASE_URL = [Environment]::GetEnvironmentVariable('DATABASE_URL', 'Process')
+            JWT_SECRET = [Environment]::GetEnvironmentVariable('JWT_SECRET', 'Process')
+            APP_KEYS = [Environment]::GetEnvironmentVariable('APP_KEYS', 'Process')
+            MFA_ENCRYPTION_KEY_V1 = [Environment]::GetEnvironmentVariable('MFA_ENCRYPTION_KEY_V1', 'Process')
+            CORS_ALLOWED_ORIGINS = [Environment]::GetEnvironmentVariable('CORS_ALLOWED_ORIGINS', 'Process')
+            EVENT_WORKER_ENABLED = [Environment]::GetEnvironmentVariable('EVENT_WORKER_ENABLED', 'Process')
+            NODE_ENV = [Environment]::GetEnvironmentVariable('NODE_ENV', 'Process')
+        }
+    }
+    UtcClock = { return [datetime]::UtcNow }
+    Sleep = { Start-Sleep -Seconds 5 }
+    EvidenceReader = { return Read-RunnerJsonFile -Path $evidencePath -UtcProperty 'verifiedAtUtc' }
+    CheckpointReader = { return Read-RunnerJsonFile -Path $checkpointPath -UtcProperty 'issuedAtUtc' }
+    SafeStatusSink = {
+        param($Record)
+        Write-SafeStatusRecord -Path $statusPath -Record $Record
+        [Console]::Out.WriteLine(($Record | ConvertTo-Json -Compress -Depth 4))
+    }
+    ToolchainGate = { return Test-PinnedToolchain -WorkspaceRoot $workspaceRoot }
+    SourceCheck = { param($Mode) return Invoke-SafeNativeCommand -CommandKind 'source-check' -Mode $Mode -WorkspaceRoot $workspaceRoot }
+    PortablePreflight = { return Invoke-SafeNativeCommand -CommandKind 'portable-check' -Mode 'preflight' -WorkspaceRoot $workspaceRoot }
+    SourceDrain = { return Invoke-SafeNativeCommand -CommandKind 'source-drain' -Mode '' -WorkspaceRoot $workspaceRoot }
+}
+
+$exitCode = Start-EventCenterProductionRollout -Dependencies $dependencies
+exit $exitCode

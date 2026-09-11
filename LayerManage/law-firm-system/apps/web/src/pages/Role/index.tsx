@@ -1,6 +1,7 @@
+import { businessLabel } from '@/locales/business-labels';
+import Table from '@/components/ResizableTable';
 import React, { useState, useEffect } from 'react';
-import {
-  Table, Button, Input, Tag, Space, Modal, Form, message,
+import { Button, Input, Tag, Space, Modal, Form, message,
   Popconfirm, Card, Row, Col
 } from 'antd';
 import {
@@ -76,7 +77,7 @@ const RolePage: React.FC = () => {
             }}
           />
           <span>{perm.name}</span>
-          <Tag color={perm.type === 'MENU' ? 'blue' : perm.type === 'BUTTON' ? 'green' : 'orange'}>{perm.type}</Tag>
+          <Tag color={perm.type === 'MENU' ? 'blue' : perm.type === 'BUTTON' ? 'green' : 'orange'}>{businessLabel(perm.type)}</Tag>
           <code style={{ fontSize: 12, color: '#999' }}>{perm.code}</code>
         </label>
         {perm.children && renderPermTree(perm.children, level + 1)}

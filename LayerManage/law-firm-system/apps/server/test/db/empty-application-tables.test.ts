@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  applicationDataModelNames,
   applicationTableCounts,
   assertEmptyApplicationTables,
 } from '../../scripts/db/assert-empty-application-tables';
+
+test('treats migration-owned provisioning catalogs (permission/subscription/template/approval-definition) as system metadata', () => {
+  assert.equal(applicationDataModelNames.includes('Permission'), false);
+  assert.equal(applicationDataModelNames.includes('EventSubscription'), false);
+  assert.equal(applicationDataModelNames.includes('ContractTemplate'), false);
+  assert.equal(applicationDataModelNames.includes('ApprovalDefinition'), false);
+  assert.equal(applicationDataModelNames.includes('Role'), true);
+  assert.equal(applicationDataModelNames.includes('RolePermission'), true);
+  assert.equal(applicationDataModelNames.includes('DataScope'), true);
+});
 
 test('counts every supplied Prisma model delegate', async () => {
   const client = {

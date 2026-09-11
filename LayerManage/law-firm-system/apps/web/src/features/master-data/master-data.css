@@ -26,3 +26,9 @@
 .md-team-detail { min-width: 0; padding: 20px 0 20px 24px; }
 @media (max-width: 980px) { .md-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); } .md-team-layout { grid-template-columns: minmax(0, 1fr); } .md-team-list { border-right: 0; border-bottom: 1px solid #e5e7eb; padding-right: 0; } .md-team-detail { padding-left: 0; } }
 @media (max-width: 760px) { .md-toolbar, .md-detail-heading { flex-direction: column; } .md-toolbar-actions { width: 100%; } .md-org-layout { grid-template-columns: minmax(0, 1fr); } .md-tree-pane { border-right: 0; border-bottom: 1px solid #e5e7eb; padding-right: 0; } .md-detail-pane { padding-left: 0; } .md-filter-bar { grid-template-columns: minmax(0, 1fr); } .md-history-list li { grid-template-columns: minmax(0, 1fr); } }
+
+.md-org-tree-row { display: flex; align-items: center; }
+.md-org-tree .md-org-select { flex: 1; min-width: 0; }
+.md-org-tree .md-org-toggle { display: inline-flex; flex: 0 0 24px; width: 24px; min-height: 32px; align-items: center; justify-content: center; padding: 0; }
+.md-org-toggle-spacer { flex: 0 0 24px; }
+.md-org-tree .md-org-toggle:focus-visible { outline: 2px solid #1677ff; }

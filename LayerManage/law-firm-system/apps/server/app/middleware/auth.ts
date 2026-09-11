@@ -1,16 +1,11 @@
 import { Context } from 'egg';
 import { createAuthenticationService } from '../application/auth/authentication-factory';
+import { isAuthenticationPublicPath } from '../domain/security/auth-paths';
 import { SecurityError } from '../domain/security/security-errors';
-
-const PUBLIC_PATHS = new Set([
-  '/api/health',
-  '/api/v1/auth/login',
-  '/api/v1/auth/refresh',
-]);
 
 export default () => async (ctx: Context, next: () => Promise<unknown>) => {
   const path = ctx.path;
-  if (PUBLIC_PATHS.has(path)) {
+  if (isAuthenticationPublicPath(path)) {
     await next();
     return;
   }
@@ -21,11 +16,6 @@ export default () => async (ctx: Context, next: () => Promise<unknown>) => {
     throw new SecurityError('TOKEN_INVALID', 401);
   }
 
-  const allowedTokenTypes = path === '/api/v1/auth/password/forced-change'
-    ? ['password_change'] as const
-    : path === '/api/v1/auth/logout'
-      ? ['access', 'password_change'] as const
-      : ['access'] as const;
-  ctx.state.user = await createAuthenticationService(ctx).authenticate(token, allowedTokenTypes);
+  ctx.state.user = await createAuthenticationService(ctx).authenticate(token);
   await next();
 };

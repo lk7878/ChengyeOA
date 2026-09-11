@@ -42,3 +42,12 @@ export class RecoveryDisabledError extends Error {
     this.name = 'RecoveryDisabledError';
   }
 }
+
+export class RecoveryWindowUnavailableError extends Error {
+  readonly exitCode = 7;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'RecoveryWindowUnavailableError';
+  }
+}

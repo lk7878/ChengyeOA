@@ -4,7 +4,7 @@ const tseslint = require('typescript-eslint');
 const { defineConfig, globalIgnores } = require('eslint/config');
 
 module.exports = defineConfig([
-  globalIgnores(['dist', 'node_modules', 'typings']),
+  globalIgnores(['coverage', 'dist', 'node_modules', 'typings']),
   {
     files: ['**/*.ts'],
     extends: [

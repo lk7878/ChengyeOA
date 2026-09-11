@@ -160,66 +160,29 @@ export interface Customer {
   createdAt: string;
 }
 
-// 合同
-export interface Contract {
-  id: string;
-  contractNo: string;
-  title: string;
-  type: string;
-  customerId: string;
-  customer?: Customer;
-  amount: number;
-  paidAmount: number;
-  status: string;
-  signDate?: string;
-  startDate?: string;
-  endDate?: string;
-  paymentTerms?: string;
-  terms?: string;
-  createdBy: string;
-  approvedBy?: string;
-  approvedAt?: string;
-  createdAt: string;
-}
-
-// 收款
-export interface Payment {
-  id: string;
-  contractId?: string;
-  contract?: Contract;
-  customerId: string;
-  customer?: Customer;
-  amount: number;
-  receivedAmount: number;
-  status: string;
-  dueDate?: string;
-  receivedDate?: string;
-  paymentMethod?: string;
-  paymentAccount?: string;
-  remark?: string;
-}
-
-// 案件
+// 案件（SPEC-033 Task 3：对齐后端 case-types.ts CaseView——fee 字符串 Decimal、teamIds
+// 字符串数组、lawyerId 可空。customer/lawyer 保留可选嵌套：CaseView 投影不返回（前端用 ID），
+// dashboard alerts urgentCases 为原始 Prisma include 会返回嵌套 customer/lawyer。）
 export interface Case {
+  version: number;
   id: string;
   caseNo: string;
   title: string;
   customerId: string;
   customer?: Customer;
-  contractId?: string;
-  contract?: Contract;
-  lawyerId: string;
+  contractId: string | null;
+  lawyerId: string | null;
   lawyer?: Employee;
-  teamIds?: string;
+  teamIds?: string[] | null;
   caseType: string;
   status: string;
   priority: string;
-  fee: number;
-  description?: string;
-  result?: string;
-  satisfaction?: number;
+  fee: string;
+  description?: string | null;
+  result?: string | null;
+  satisfaction?: number | null;
   isReferrable: boolean;
-  closedAt?: string;
+  closedAt?: string | null;
   tasks?: CaseTask[];
   communications?: Communication[];
   createdAt: string;
@@ -231,9 +194,26 @@ export interface CaseTask {
   name: string;
   nodeType: string;
   status: string;
-  dueDate?: string;
-  completedAt?: string;
-  remark?: string;
+  dueDate?: string | null;
+  completedAt?: string | null;
+  remark?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// SPEC-042：案件文件/证据（base64 上传落盘，fileName 为元数据）。
+export interface CaseFile {
+  id: string;
+  caseId: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  uploadedBy: string;
+  createdAt: string;
+}
+
+export interface CaseFileDownload extends CaseFile {
+  base64: string;
 }
 
 export interface Communication {
@@ -243,20 +223,6 @@ export interface Communication {
   content: string;
   isKey: boolean;
   createdBy: string;
-  createdAt: string;
-}
-
-// 审批
-export interface Approval {
-  id: string;
-  type: string;
-  title: string;
-  applicantId: string;
-  content: string;
-  status: string;
-  approverId?: string;
-  approvedAt?: string;
-  remark?: string;
   createdAt: string;
 }
 
@@ -281,10 +247,26 @@ export interface Performance {
   period: string;
   type: string;
   kpiData: string;
-  score?: number;
-  bonus?: number;
-  remark?: string;
+  score?: string | null;
+  bonus?: string | null;
+  remark?: string | null;
   status: string;
+  goal?: string | null;
+  selfScore?: number | null;
+  selfComment?: string | null;
+  managerScore?: number | null;
+  managerComment?: string | null;
+  reviewerId?: string | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// SPEC-044：绩效业务指标（该员工考核周期案件办结数/回款额）；SPEC-045：+autoScore 自动计分。
+export interface PerformanceBusinessMetrics {
+  closedCases: number;
+  confirmedRevenue: string;
+  autoScore: number;
 }
 
 // 仪表盘
@@ -306,7 +288,9 @@ export interface DashboardMetrics {
 
 export interface DashboardAlerts {
   overdueTasks: number;
-  overduePayments: Payment[];
+  // 服务端返回应收计划行（dashboard.alerts，take 10）；本页仅消费 .length——
+  // 原型 Payment interface 已随 SPEC-010 终审修复轮 F-4 删除（死类型，零消费者）。
+  overduePayments: unknown[];
   unassignedLeads: number;
   urgentCases: Case[];
 }

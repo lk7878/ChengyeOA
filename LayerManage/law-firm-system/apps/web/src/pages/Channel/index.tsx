@@ -1,6 +1,6 @@
+import Table from '@/components/ResizableTable';
 import React, { useState, useEffect } from 'react';
-import {
-  Table, Button, Input, Tag, Space, Modal, Form, message,
+import { Button, Input, Tag, Space, Modal, Form, message,
   Popconfirm, Card, Row, Col
 } from 'antd';
 import {

@@ -63,14 +63,18 @@ export default class ChannelController extends Controller {
 
   async create() {
     const { ctx } = this;
-    const { name, type, accountInfo, cost } = ctx.request.body;
+    const { name, type, accountInfo, cost, code } = ctx.request.body;
 
     if (!name || !type) {
       ctx.throw(400, '名称和类型不能为空');
     }
 
+    // SPEC-001 prototype: channel code is unique. Later SPEC-009 tasks replace
+    // this controller with a proper channel service. Use a generated fallback when
+    // the caller does not supply one.
+    const channelCode = code || `CH${Date.now()}`;
     const channel = await ctx.prisma.channel.create({
-      data: { name, type, accountInfo, cost: cost ? Number(cost) : 0 },
+      data: { code: channelCode, name, type, accountInfo, cost: cost ? Number(cost) : 0 },
     });
 
     ctx.body = {

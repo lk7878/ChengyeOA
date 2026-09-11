@@ -4,12 +4,16 @@ import path from 'node:path';
 import test from 'node:test';
 import { PrismaClient } from '@prisma/client';
 import mm from 'egg-mock';
+import * as jwt from 'jsonwebtoken';
+import type { AuthChallengeService } from '../../app/application/auth/auth-challenge-service';
 import { AuthenticationService } from '../../app/application/auth/authentication-service';
+import type { MfaService } from '../../app/application/auth/mfa-service';
+import type { SessionService } from '../../app/application/auth/session-service';
 import { BcryptPasswordHasher, PasswordHasher } from '../../app/domain/security/password-hasher';
 import { SecurityError } from '../../app/domain/security/security-errors';
-import { JwtTokenService } from '../../app/domain/security/token-service';
 import { SystemBootstrapService } from '../../app/application/system/system-bootstrap-service';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
+import { createApiSession } from '../helpers/auth-session';
 
 process.env.EGG_TYPESCRIPT = 'true';
 
@@ -19,6 +23,16 @@ const replacementPassword = 'Better-Horse-93!';
 const jwtSecret = '01234567890123456789012345678901';
 const hasher = new BcryptPasswordHasher(4);
 let prisma: PrismaClient;
+
+function createPasswordStageService(passwordHasher: PasswordHasher): AuthenticationService {
+  return new AuthenticationService(
+    prisma,
+    passwordHasher,
+    {} as AuthChallengeService,
+    {} as MfaService,
+    {} as SessionService,
+  );
+}
 
 class BlockingPasswordHasher implements PasswordHasher {
   readonly compareStarted: Promise<void>;
@@ -63,25 +77,15 @@ async function passwordChangeToken(): Promise<string> {
     .post('/api/v1/auth/login')
     .send({ username: 'root.admin', password: initialPassword })
     .expect(200);
-  return response.body.data.passwordChangeToken as string;
+  return response.body.data.challengeToken as string;
 }
 
-async function completeForcedChange(token: string, password = replacementPassword): Promise<void> {
-  await app.httpRequest()
-    .post('/api/v1/auth/password/forced-change')
-    .set('Authorization', `Bearer ${token}`)
-    .send({ password, confirmation: password })
-    .expect(200);
-}
-
-async function authenticatedTokens(): Promise<{ token: string; refreshToken: string }> {
-  const changeToken = await passwordChangeToken();
-  await completeForcedChange(changeToken);
-  const response = await app.httpRequest()
-    .post('/api/v1/auth/login')
-    .send({ username: 'root.admin', password: replacementPassword })
-    .expect(200);
-  return response.body.data as { token: string; refreshToken: string };
+async function authenticatedSession() {
+  const user = await prisma.user.update({
+    where: { username: 'root.admin' },
+    data: { mustChangePassword: false },
+  });
+  return createApiSession(prisma, user.id, 'MFA');
 }
 
 function assertSecurityError(response: { body: Record<string, unknown> }, status: number, message: string): void {
@@ -98,6 +102,8 @@ function assertSecurityError(response: { body: Record<string, unknown> }, status
 async function dropInjectedFailureTriggers(): Promise<void> {
   await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS reject_login_log_for_test ON "login_log"');
   await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS reject_login_log_for_test()');
+  await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS reject_auth_challenge_for_test ON "auth_challenge"');
+  await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS reject_auth_challenge_for_test()');
   await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS reject_forced_change_audit_for_test ON "operation_log"');
   await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS reject_forced_change_audit_for_test()');
 }
@@ -121,7 +127,7 @@ test.after(async () => {
   await mm.restore();
 });
 
-test('initial login normalizes username and returns only a password-change token', async () => {
+test('initial login normalizes username and returns only a password-change challenge', async () => {
   const response = await app.httpRequest()
     .post('/api/v1/auth/login')
     .send({ username: '  Root.Admin  ', password: initialPassword })
@@ -129,7 +135,7 @@ test('initial login normalizes username and returns only a password-change token
 
   assert.equal(response.body.data.mode, 'PASSWORD_CHANGE_REQUIRED');
   assert.equal(response.body.data.expiresIn, 300);
-  assert.equal(typeof response.body.data.passwordChangeToken, 'string');
+  assert.equal(typeof response.body.data.challengeToken, 'string');
   assert.equal('token' in response.body.data, false);
   assert.equal('refreshToken' in response.body.data, false);
   assert.equal('user' in response.body.data, false);
@@ -196,7 +202,7 @@ test('missing-user login performs one compare against the current versioned dumm
       return false;
     },
   };
-  const service = new AuthenticationService(prisma, recordingHasher, new JwtTokenService(jwtSecret));
+  const service = createPasswordStageService(recordingHasher);
 
   await assert.rejects(
     service.login('missing.user', 'Candidate-Horse-92!', {}),
@@ -244,7 +250,7 @@ test('a concurrent sixth wrong request observes the fifth lock without extending
   assert.equal(logs.filter(log => log.reasonCode === 'ACCOUNT_LOCKED').length, 1);
 });
 
-test('a valid login clears expired lock state and records success in one transaction', async () => {
+test('a valid password stage clears expired lock state without recording success before a session exists', async () => {
   await prisma.user.update({
     where: { username: 'root.admin' },
     data: { failedLoginCount: 4, lockedUntil: new Date(Date.now() - 1000) },
@@ -258,17 +264,13 @@ test('a valid login clears expired lock state and records success in one transac
   const user = await prisma.user.findUniqueOrThrow({ where: { username: 'root.admin' } });
   assert.equal(user.failedLoginCount, 0);
   assert.equal(user.lockedUntil, null);
-  assert.ok(user.lastLoginAt);
-  const log = await prisma.loginLog.findFirstOrThrow();
-  assert.deepEqual(
-    { userId: log.userId, usernameSnapshot: log.usernameSnapshot, outcome: log.outcome, reasonCode: log.reasonCode },
-    { userId: user.id, usernameSnapshot: 'root.admin', outcome: 'SUCCESS', reasonCode: null },
-  );
+  assert.equal(user.lastLoginAt, null);
+  assert.equal(await prisma.loginLog.count(), 0);
 });
 
 test('login rechecks account state after password comparison before committing success', async () => {
   const blockingHasher = new BlockingPasswordHasher();
-  const service = new AuthenticationService(prisma, blockingHasher, new JwtTokenService(jwtSecret));
+  const service = createPasswordStageService(blockingHasher);
   const login = service.login('root.admin', initialPassword, { ip: '127.0.0.1', userAgent: 'state-race-test' });
   await blockingHasher.compareStarted;
   await prisma.user.update({ where: { username: 'root.admin' }, data: { status: 'DISABLED' } });
@@ -286,8 +288,9 @@ test('login rechecks account state after password comparison before committing s
   );
 });
 
-test('password-change token can only call forced change and logout', async () => {
+test('password-change challenge cannot authenticate, refresh, or log out a session', async () => {
   const token = await passwordChangeToken();
+  const csrf = 'test-csrf-value';
 
   const me = await app.httpRequest()
     .get('/api/v1/auth/me')
@@ -299,34 +302,37 @@ test('password-change token can only call forced change and logout', async () =>
     .expect(401);
   const refresh = await app.httpRequest()
     .post('/api/v1/auth/refresh')
-    .send({ refreshToken: token })
+    .set('Origin', 'http://localhost:3000')
+    .set('X-CSRF-Token', csrf)
+    .set('Cookie', `chengye_csrf=${csrf}; chengye_refresh=${token}`)
     .expect(401);
-  await app.httpRequest()
+  const logout = await app.httpRequest()
     .post('/api/v1/auth/logout')
     .set('Authorization', `Bearer ${token}`)
-    .expect(200);
+    .set('Origin', 'http://localhost:3000')
+    .set('X-CSRF-Token', csrf)
+    .set('Cookie', `chengye_csrf=${csrf}`)
+    .expect(401);
 
-  assertSecurityError(me, 401, 'TOKEN_TYPE_INVALID');
-  assertSecurityError(business, 401, 'TOKEN_TYPE_INVALID');
-  assertSecurityError(refresh, 401, 'TOKEN_TYPE_INVALID');
+  assertSecurityError(me, 401, 'TOKEN_INVALID');
+  assertSecurityError(business, 401, 'TOKEN_INVALID');
+  assertSecurityError(refresh, 401, 'AUTHENTICATION_FAILED');
+  assertSecurityError(logout, 401, 'TOKEN_INVALID');
 });
 
 test('forced change rejects confirmation mismatch, weak password, and password reuse without writes', async () => {
   const token = await passwordChangeToken();
   const mismatch = await app.httpRequest()
     .post('/api/v1/auth/password/forced-change')
-    .set('Authorization', `Bearer ${token}`)
-    .send({ password: replacementPassword, confirmation: `${replacementPassword}x` })
+    .send({ challengeToken: token, password: replacementPassword, confirmation: `${replacementPassword}x` })
     .expect(400);
   const weak = await app.httpRequest()
     .post('/api/v1/auth/password/forced-change')
-    .set('Authorization', `Bearer ${token}`)
-    .send({ password: 'password123', confirmation: 'password123' })
+    .send({ challengeToken: token, password: 'password123', confirmation: 'password123' })
     .expect(400);
   const reused = await app.httpRequest()
     .post('/api/v1/auth/password/forced-change')
-    .set('Authorization', `Bearer ${token}`)
-    .send({ password: initialPassword, confirmation: initialPassword })
+    .send({ challengeToken: token, password: initialPassword, confirmation: initialPassword })
     .expect(400);
 
   assertSecurityError(mismatch, 400, 'PASSWORD_INVALID');
@@ -340,16 +346,19 @@ test('forced change rejects confirmation mismatch, weak password, and password r
   assert.equal(await prisma.operationLog.count({ where: { action: 'FORCED_PASSWORD_CHANGE' } }), 0);
 });
 
-test('forced change updates credentials and audit atomically, returns no token, and requires re-login', async () => {
+test('forced change updates credentials and audit atomically, then continues to mandatory MFA enrollment', async () => {
   const token = await passwordChangeToken();
   const response = await app.httpRequest()
     .post('/api/v1/auth/password/forced-change')
-    .set('Authorization', `Bearer ${token}`)
-    .send({ password: replacementPassword, confirmation: replacementPassword })
+    .send({ challengeToken: token, password: replacementPassword, confirmation: replacementPassword })
     .expect(200);
 
-  assert.equal(response.body.data, null);
-  assert.equal(JSON.stringify(response.body).includes('token'), false);
+  assert.equal(response.body.data.mode, 'MFA_ENROLLMENT_REQUIRED');
+  assert.equal(response.body.data.expiresIn, 600);
+  assert.equal(typeof response.body.data.challengeToken, 'string');
+  assert.equal('token' in response.body.data, false);
+  assert.equal('refreshToken' in response.body.data, false);
+  assert.equal('user' in response.body.data, false);
   const user = await prisma.user.findUniqueOrThrow({ where: { username: 'root.admin' } });
   assert.equal(user.mustChangePassword, false);
   assert.equal(user.credentialVersion, 2);
@@ -365,11 +374,10 @@ test('forced change updates credentials and audit atomically, returns no token, 
   assertSecurityError(
     await app.httpRequest()
       .post('/api/v1/auth/password/forced-change')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ password: 'Another-Horse-94!', confirmation: 'Another-Horse-94!' })
+      .send({ challengeToken: token, password: 'Another-Horse-94!', confirmation: 'Another-Horse-94!' })
       .expect(401),
     401,
-    'AUTHENTICATION_FAILED',
+    'MFA_INVALID',
   );
   assertSecurityError(
     await app.httpRequest()
@@ -384,24 +392,8 @@ test('forced change updates credentials and audit atomically, returns no token, 
     .post('/api/v1/auth/login')
     .send({ username: 'root.admin', password: replacementPassword })
     .expect(200);
-  assert.equal(login.body.data.mode, 'AUTHENTICATED');
-  assert.equal(login.body.data.expiresIn, 604800);
-  assert.equal(typeof login.body.data.token, 'string');
-  assert.equal(typeof login.body.data.refreshToken, 'string');
-  assert.equal(login.body.data.user.username, 'root.admin');
-
-  await app.httpRequest()
-    .get('/api/v1/auth/me')
-    .set('Authorization', `Bearer ${login.body.data.token}`)
-    .expect(200);
-  await app.httpRequest()
-    .post('/api/v1/auth/refresh')
-    .send({ refreshToken: login.body.data.refreshToken })
-    .expect(200);
-  await app.httpRequest()
-    .post('/api/v1/auth/logout')
-    .set('Authorization', `Bearer ${login.body.data.token}`)
-    .expect(200);
+  assert.equal(login.body.data.mode, 'MFA_ENROLLMENT_REQUIRED');
+  assert.equal(await prisma.authSession.count({ where: { userId: user.id } }), 0);
 });
 
 test('one password-change token can commit at most one concurrent forced change', async () => {
@@ -409,13 +401,12 @@ test('one password-change token can commit at most one concurrent forced change'
   const candidatePasswords = [replacementPassword, 'Another-Horse-94!'];
   const responses = await Promise.all(candidatePasswords.map(password => app.httpRequest()
     .post('/api/v1/auth/password/forced-change')
-    .set('Authorization', `Bearer ${token}`)
-    .send({ password, confirmation: password })));
+    .send({ challengeToken: token, password, confirmation: password })));
 
   assert.deepEqual(responses.map(response => response.status).sort(), [200, 401]);
   const rejected = responses.find(response => response.status === 401);
   assert.ok(rejected);
-  assertSecurityError(rejected, 401, 'AUTHENTICATION_FAILED');
+  assertSecurityError(rejected, 401, 'MFA_INVALID');
   const user = await prisma.user.findUniqueOrThrow({ where: { username: 'root.admin' } });
   assert.equal(user.credentialVersion, 2);
   assert.equal(user.mustChangePassword, false);
@@ -424,42 +415,49 @@ test('one password-change token can commit at most one concurrent forced change'
   assert.equal(matchingPasswords.filter(Boolean).length, 1);
 });
 
-test('authenticate and refresh reload disabled, locked, version, must-change, and token-type state', async () => {
+test('session authentication and refresh reload disabled, locked, version, and must-change state', async () => {
   const initialUser = await prisma.user.findUniqueOrThrow({ where: { username: 'root.admin' } });
-  const fabricatedInitialAccess = new JwtTokenService(jwtSecret).signAccess(initialUser.id, initialUser.credentialVersion);
+  const fabricatedInitialAccess = jwt.sign(
+    { userId: initialUser.id, credentialVersion: initialUser.credentialVersion, tokenType: 'access' },
+    jwtSecret,
+    { algorithm: 'HS256', expiresIn: '15m' },
+  );
   assertSecurityError(
     await app.httpRequest()
       .get('/api/v1/auth/me')
       .set('Authorization', `Bearer ${fabricatedInitialAccess}`)
       .expect(401),
     401,
-    'AUTHENTICATION_FAILED',
+    'TOKEN_INVALID',
   );
 
-  const tokens = await authenticatedTokens();
+  const session = await authenticatedSession();
+  const cookie = `chengye_csrf=${session.csrfToken}; chengye_refresh=${session.refreshToken}`;
   const accessAsRefresh = await app.httpRequest()
     .post('/api/v1/auth/refresh')
-    .send({ refreshToken: tokens.token })
+    .set('Origin', 'http://localhost:3000')
+    .set('X-CSRF-Token', session.csrfToken)
+    .set('Cookie', `chengye_csrf=${session.csrfToken}; chengye_refresh=${session.token}`)
     .expect(401);
-  assertSecurityError(accessAsRefresh, 401, 'TOKEN_TYPE_INVALID');
+  assertSecurityError(accessAsRefresh, 401, 'AUTHENTICATION_FAILED');
   const accessAtForcedChange = await app.httpRequest()
     .post('/api/v1/auth/password/forced-change')
-    .set('Authorization', `Bearer ${tokens.token}`)
-    .send({ password: 'Another-Horse-94!', confirmation: 'Another-Horse-94!' })
+    .send({ challengeToken: session.token, password: 'Another-Horse-94!', confirmation: 'Another-Horse-94!' })
     .expect(401);
-  assertSecurityError(accessAtForcedChange, 401, 'TOKEN_TYPE_INVALID');
+  assertSecurityError(accessAtForcedChange, 401, 'MFA_INVALID');
 
   const user = await prisma.user.findUniqueOrThrow({ where: { username: 'root.admin' } });
   await prisma.user.update({ where: { id: user.id }, data: { status: 'DISABLED' } });
   assertSecurityError(
-    await app.httpRequest().get('/api/v1/auth/me').set('Authorization', `Bearer ${tokens.token}`).expect(401),
+    await app.httpRequest().get('/api/v1/auth/me').set('Authorization', `Bearer ${session.token}`).expect(401),
     401,
-    'AUTHENTICATION_FAILED',
+    'SESSION_REVOKED',
   );
   assertSecurityError(
-    await app.httpRequest().post('/api/v1/auth/refresh').send({ refreshToken: tokens.refreshToken }).expect(401),
+    await app.httpRequest().post('/api/v1/auth/refresh')
+      .set('Origin', 'http://localhost:3000').set('X-CSRF-Token', session.csrfToken).set('Cookie', cookie).expect(401),
     401,
-    'AUTHENTICATION_FAILED',
+    'SESSION_REVOKED',
   );
 
   await prisma.user.update({
@@ -467,9 +465,9 @@ test('authenticate and refresh reload disabled, locked, version, must-change, an
     data: { status: 'ENABLED', lockedUntil: new Date(Date.now() + 60_000) },
   });
   assertSecurityError(
-    await app.httpRequest().get('/api/v1/auth/me').set('Authorization', `Bearer ${tokens.token}`).expect(401),
+    await app.httpRequest().get('/api/v1/auth/me').set('Authorization', `Bearer ${session.token}`).expect(401),
     401,
-    'AUTHENTICATION_FAILED',
+    'SESSION_REVOKED',
   );
 
   await prisma.user.update({
@@ -477,29 +475,30 @@ test('authenticate and refresh reload disabled, locked, version, must-change, an
     data: { lockedUntil: null, credentialVersion: { increment: 1 } },
   });
   assertSecurityError(
-    await app.httpRequest().get('/api/v1/auth/me').set('Authorization', `Bearer ${tokens.token}`).expect(401),
+    await app.httpRequest().get('/api/v1/auth/me').set('Authorization', `Bearer ${session.token}`).expect(401),
     401,
-    'AUTHENTICATION_FAILED',
+    'SESSION_REVOKED',
   );
   assertSecurityError(
-    await app.httpRequest().post('/api/v1/auth/refresh').send({ refreshToken: tokens.refreshToken }).expect(401),
+    await app.httpRequest().post('/api/v1/auth/refresh')
+      .set('Origin', 'http://localhost:3000').set('X-CSRF-Token', session.csrfToken).set('Cookie', cookie).expect(401),
     401,
-    'AUTHENTICATION_FAILED',
+    'SESSION_REVOKED',
   );
 });
 
-test('a failed successful-login transaction emits no token or partial state', async () => {
+test('a failed challenge issuance emits no temporary credential or successful-login state', async () => {
   await prisma.$executeRawUnsafe(`
-    CREATE FUNCTION reject_login_log_for_test() RETURNS trigger AS $$
+    CREATE FUNCTION reject_auth_challenge_for_test() RETURNS trigger AS $$
     BEGIN
       RAISE EXCEPTION 'injected login log failure';
     END;
     $$ LANGUAGE plpgsql
   `);
   await prisma.$executeRawUnsafe(`
-    CREATE TRIGGER reject_login_log_for_test
-    BEFORE INSERT ON "login_log"
-    FOR EACH ROW EXECUTE FUNCTION reject_login_log_for_test()
+    CREATE TRIGGER reject_auth_challenge_for_test
+    BEFORE INSERT ON "auth_challenge"
+    FOR EACH ROW EXECUTE FUNCTION reject_auth_challenge_for_test()
   `);
 
   const response = await app.httpRequest()
@@ -508,7 +507,7 @@ test('a failed successful-login transaction emits no token or partial state', as
     .expect(500);
 
   assertSecurityError(response, 500, 'INTERNAL_SERVER_ERROR');
-  assert.equal(JSON.stringify(response.body).includes('passwordChangeToken'), false);
+  assert.equal(JSON.stringify(response.body).includes('challengeToken'), false);
   const user = await prisma.user.findUniqueOrThrow({ where: { username: 'root.admin' } });
   assert.equal(user.lastLoginAt, null);
   assert.equal(user.failedLoginCount, 0);
@@ -535,8 +534,7 @@ test('a failed forced-change audit rolls back password and version without retur
 
   const response = await app.httpRequest()
     .post('/api/v1/auth/password/forced-change')
-    .set('Authorization', `Bearer ${token}`)
-    .send({ password: replacementPassword, confirmation: replacementPassword })
+    .send({ challengeToken: token, password: replacementPassword, confirmation: replacementPassword })
     .expect(500);
 
   assertSecurityError(response, 500, 'INTERNAL_SERVER_ERROR');
@@ -549,18 +547,26 @@ test('a failed forced-change audit rolls back password and version without retur
   assert.equal(await prisma.operationLog.count({ where: { action: 'FORCED_PASSWORD_CHANGE' } }), 0);
 });
 
-test('only health, login, and refresh bypass authorization middleware', async () => {
+test('only health and authentication state-machine endpoints bypass authorization middleware', async () => {
   await app.httpRequest().get('/api/health').expect(200);
   assertSecurityError(
     await app.httpRequest().post('/api/v1/auth/login').send({}).expect(401),
     401,
     'AUTHENTICATION_FAILED',
   );
-  assertSecurityError(
-    await app.httpRequest().post('/api/v1/auth/refresh').send({}).expect(401),
-    401,
-    'TOKEN_INVALID',
-  );
+  const csrf = 'public-route-csrf';
+  assertSecurityError(await app.httpRequest().post('/api/v1/auth/refresh')
+    .set('Origin', 'http://localhost:3000').set('X-CSRF-Token', csrf)
+    .set('Cookie', `chengye_csrf=${csrf}; chengye_refresh=invalid`).expect(401), 401, 'AUTHENTICATION_FAILED');
+  for (const [requestPath, body] of [
+    ['/api/v1/auth/password/forced-change', { challengeToken: 'invalid', password: replacementPassword, confirmation: replacementPassword }],
+    ['/api/v1/auth/mfa/enrollment', { challengeToken: 'invalid' }],
+    ['/api/v1/auth/mfa/enrollment/confirm', { challengeToken: 'invalid', code: '123456' }],
+    ['/api/v1/auth/mfa/verify', { challengeToken: 'invalid', credential: { kind: 'TOTP', code: '123456' } }],
+  ] as const) {
+    const response = await app.httpRequest().post(requestPath).send(body).expect(401);
+    assert.notEqual(response.body.message, 'TOKEN_INVALID');
+  }
   for (const requestPath of ['/api/v1/auth/me', '/api/v1/users', '/api/v1/not-a-real-route']) {
     assertSecurityError(await app.httpRequest().get(requestPath).expect(401), 401, 'TOKEN_INVALID');
   }

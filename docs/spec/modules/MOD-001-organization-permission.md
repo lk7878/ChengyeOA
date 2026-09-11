@@ -3,9 +3,9 @@ id: MOD-001
 title: 组织权限模块
 source: PRD §8.1
 status: approved
-implements: SPEC-002, SPEC-003, SPEC-004, SPEC-005
+implements: SPEC-002, SPEC-003, SPEC-004, SPEC-005, SPEC-003-A
 design_refs: [docs/专项设计/角色权限与数据范围设计.md, docs/专项设计/系统管理员与超级管理员权限设计.md]
-last_updated: 2026-07-28
+last_updated: 2026-09-11
 ---
 
 # MOD-001 组织权限模块
@@ -27,6 +27,9 @@ last_updated: 2026-07-28
 | ORG-08 | 管理员授权 | 系统超级管理员管理系统管理员账号、权限、生效时间和失效时间 | 已实现 |
 | ORG-09 | 临时授权 | 支持带有效期、授权原因和审批记录的临时角色与特殊权限 | 已实现 |
 | ORG-10 | 权限追踪 | 查询用户权限来源、角色组合、数据范围、字段权限和历史变更 | 已实现 |
+| ORG-11 | 超管组织管理与复制 | 仅超级管理员查询、编辑、删除无引用组织；新增可复制全部下级和岗位结构 | 已实现 |
+| ORG-12 | 部门负责人 | 从现有在职员工设置、更换或清空负责人，不隐式授予权限 | 已实现 |
+| ORG-13 | 组织树折叠与排序 | 各节点独立展开/收起；全部组织排序号全局唯一，占用号不可重复选择 | 已实现 |
 
 ## 3. 业务规则
 
@@ -56,9 +59,23 @@ last_updated: 2026-07-28
 - 接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。（源自 §14.1.2）
 
 ## 7. 追溯
+- 增量规格：[SPEC-003-B 组织树折叠与全局排序号](../../superpowers/specs/2026-09-11-organization-tree-ordering.md)（已实现，本地自动化验收通过）。
+- 增量规格：[SPEC-003-A 组织架构管理扩展](../../superpowers/specs/2026-09-11-organization-management-extension.md)（2026-09-11 已实施，本地自动化验收通过，浏览器手工验收未执行）。
 - 专项设计: docs/专项设计/角色权限与数据范围设计.md、docs/专项设计/系统管理员与超级管理员权限设计.md
 - 落地 SPEC: SPEC-002, SPEC-003, SPEC-004, SPEC-005
 - 主要代码: apps/server/app/controller/organization.ts、apps/server/app/controller/role.ts、apps/server/app/controller/permission.ts、apps/server/app/controller/user.ts
 - 测试: apps/server/test/ 下权限相关
 
 <!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->
+
+### 岗位显示与列宽扩展（SPEC-UI-20260911）
+
+按[2026-09-11 规格](../../superpowers/specs/2026-09-11-table-resize-chinese.md)统一业务表格列宽拖动与浏览器记忆。岗位编码以中文编号显示并保留原始标识，新建自动生成；分类使用中文选择，接口值和既有任职关系不变。
+
+### 员工类型与组织路径（SPEC-EMP-UI-20260911）
+
+[2026-09-11 员工显示规格](../../superpowers/specs/2026-09-11-employee-display.md)：人员类型统一中文；主组织及任职组织按可见组织树显示祖先到实际所属组织的完整路径，保留主职 ID 与现有权限边界。
+
+### SPEC-MD-DELETE-20260911：主数据删除与离职工号复用
+
+参见 [增量规格](../../superpowers/specs/2026-09-11-master-data-delete-number-reuse.md)。本规格将工号唯一范围更新为在职员工；历史档案保留原工号，通过员工 ID 区分历任人员。岗位受任职关联保护，员工档案逻辑删除，删除仅超级管理员可执行。

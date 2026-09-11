@@ -10,6 +10,7 @@ import {
   InconsistentSystemStateError,
   RecoveryDisabledError,
   ValidationCommandError,
+  RecoveryWindowUnavailableError,
 } from '../../app/application/system/system-command-errors';
 import {
   type BootstrapInput,
@@ -22,6 +23,15 @@ import {
   type RecoveryResult,
   SuperAdminRecoveryService,
 } from '../../app/application/system/super-admin-recovery-service';
+import {
+  type AddSecondSuperAdminInput,
+  type AddSecondSuperAdminResult,
+  SecondSuperAdminService,
+} from '../../app/application/system/second-super-admin-service';
+import {
+  AdminMfaRecoveryInput,
+  AdminMfaRecoveryService,
+} from '../../app/application/system/admin-mfa-recovery-service';
 import { assertMigrationsReady } from './migration-status';
 import { Prompts, TerminalPrompts } from './terminal-prompts';
 
@@ -36,12 +46,32 @@ export interface SystemCliDependencies {
   randomUUID(): string;
   runBootstrap?(prisma: PrismaClient, input: BootstrapInput, metadata: SystemCommandMetadata): Promise<BootstrapResult>;
   runRecovery?(prisma: PrismaClient, input: RecoveryInput, metadata: SystemCommandMetadata): Promise<RecoveryResult>;
+  runAddSecondSuperAdmin?(
+    prisma: PrismaClient,
+    input: AddSecondSuperAdminInput,
+    metadata: SystemCommandMetadata,
+  ): Promise<AddSecondSuperAdminResult>;
+  runAdminMfaRecovery?(
+    prisma: PrismaClient,
+    input: AdminMfaRecoveryInput,
+    metadata: SystemCommandMetadata,
+  ): Promise<{ username: string }>;
 }
 
 interface DatabaseTarget {
   databaseName: string;
   display: string;
 }
+
+const SAFE_INTERACTIVE_BOOTSTRAP_FLAG = '--safe-interactive';
+
+const safeBootstrapPromptLabels = [
+  '[SAFE_INPUT_ORGANIZATION_NAME] ',
+  '[SAFE_INPUT_SUPER_ADMIN_USERNAME] ',
+  '[SAFE_INPUT_TEMPORARY_PASSWORD] ',
+  '[SAFE_INPUT_TEMPORARY_PASSWORD_CONFIRMATION] ',
+  '[SAFE_INPUT_BOOTSTRAP_CONFIRMATION] ',
+] as const;
 
 export const productionSystemCliDependencies: SystemCliDependencies = {
   isTty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
@@ -60,20 +90,33 @@ export async function bootstrapMain(
   deps: SystemCliDependencies = productionSystemCliDependencies,
 ): Promise<number> {
   let prisma: PrismaClient | undefined;
+  const safeInteractive = argv.length === 1 && argv[0] === SAFE_INTERACTIVE_BOOTSTRAP_FLAG;
   try {
-    assertNoArgumentsAndInteractiveTerminal(argv, deps);
+    assertBootstrapArgumentsAndInteractiveTerminal(argv, deps);
     const target = databaseTarget(env.DATABASE_URL);
-    writeLine(deps.stdout, `Database target: ${target.display}`);
+    if (!safeInteractive) writeLine(deps.stdout, `Database target: ${target.display}`);
     await deps.assertMigrationsReady(env.DATABASE_URL as string);
 
-    const organizationName = await deps.prompts.text('Root organization name: ');
-    const username = await deps.prompts.text('Super-admin username: ');
-    const password = await deps.prompts.secret('Temporary password: ');
-    const confirmation = await deps.prompts.secret('Confirm temporary password: ');
-    if (password !== confirmation) throw new ValidationCommandError('Password confirmation does not match');
-
     const expectedConfirmation = `INITIALIZE ${target.databaseName}`;
-    const phrase = await deps.prompts.text(`Type ${expectedConfirmation} to confirm: `);
+    let organizationName: string;
+    let username: string;
+    let password: string;
+    let confirmation: string;
+    let phrase: string;
+    if (safeInteractive) {
+      organizationName = await deps.prompts.secret(safeBootstrapPromptLabels[0]);
+      username = await deps.prompts.secret(safeBootstrapPromptLabels[1]);
+      password = await deps.prompts.secret(safeBootstrapPromptLabels[2]);
+      confirmation = await deps.prompts.secret(safeBootstrapPromptLabels[3]);
+      phrase = await deps.prompts.secret(safeBootstrapPromptLabels[4]);
+    } else {
+      organizationName = await deps.prompts.text('Root organization name: ');
+      username = await deps.prompts.text('Super-admin username: ');
+      password = await deps.prompts.secret('Temporary password: ');
+      confirmation = await deps.prompts.secret('Confirm temporary password: ');
+      phrase = await deps.prompts.text(`Type ${expectedConfirmation} to confirm: `);
+    }
+    if (password !== confirmation) throw new ValidationCommandError('Password confirmation does not match');
     if (phrase !== expectedConfirmation) throw new ValidationCommandError('Bootstrap confirmation does not match');
 
     prisma = deps.createPrisma(env.DATABASE_URL as string);
@@ -81,13 +124,23 @@ export async function bootstrapMain(
       databaseName: target.databaseName,
       hostname: deps.hostname(),
     });
-    writeLine(deps.stdout, `System bootstrap completed for ${result.organizationName}.`);
+    if (!safeInteractive) writeLine(deps.stdout, `System bootstrap completed for ${result.organizationName}.`);
     return 0;
   } catch (error) {
-    return reportError(error, deps);
+    return reportError(error, deps, safeInteractive);
   } finally {
     await cleanup(deps, prisma);
   }
+}
+
+function assertBootstrapArgumentsAndInteractiveTerminal(
+  argv: readonly string[],
+  deps: SystemCliDependencies,
+): void {
+  if (!deps.isTty) throw new ValidationCommandError('Interactive terminal is required');
+  if (argv.length === 0) return;
+  if (argv.length === 1 && argv[0] === SAFE_INTERACTIVE_BOOTSTRAP_FLAG) return;
+  throw new ValidationCommandError('This command does not accept arguments');
 }
 
 export async function recoveryMain(
@@ -126,6 +179,88 @@ export async function recoveryMain(
       hostname: deps.hostname(),
     });
     writeLine(deps.stdout, `Super-admin recovery completed for ${result.username}.`);
+    return 0;
+  } catch (error) {
+    return reportError(error, deps);
+  } finally {
+    await cleanup(deps, prisma);
+  }
+}
+
+export async function secondSuperAdminMain(
+  argv: string[] = process.argv.slice(2),
+  env: NodeJS.ProcessEnv = process.env,
+  deps: SystemCliDependencies = productionSystemCliDependencies,
+): Promise<number> {
+  let prisma: PrismaClient | undefined;
+  try {
+    assertNoArgumentsAndInteractiveTerminal(argv, deps);
+    const target = databaseTarget(env.DATABASE_URL);
+    writeLine(deps.stdout, `Database target: ${target.display}`);
+    await deps.assertMigrationsReady(env.DATABASE_URL as string);
+
+    const actorUsername = await deps.prompts.text('Current super-admin username: ');
+    const actorPassword = await deps.prompts.secret('Current super-admin password: ');
+    const targetUsername = await deps.prompts.text('Second super-admin username: ');
+    const reason = await deps.prompts.text('Recovery reason: ');
+    const normalizedTarget = normalizeUsername(targetUsername);
+    const expectedConfirmation = `ADD SECOND SUPER ADMIN ${target.databaseName} ${normalizedTarget}`;
+    const confirmation = await deps.prompts.text(`Type ${expectedConfirmation} to confirm: `);
+    if (confirmation !== expectedConfirmation) {
+      throw new ValidationCommandError('Second super-admin confirmation does not match');
+    }
+
+    prisma = deps.createPrisma(env.DATABASE_URL as string);
+    const result = await runAddSecondSuperAdmin(deps, prisma, {
+      actorUsername,
+      actorPassword,
+      targetUsername,
+      reason,
+      confirmation,
+    }, {
+      databaseName: target.databaseName,
+      hostname: deps.hostname(),
+    });
+    writeLine(deps.stdout, `Second super-admin added for ${result.targetUsername}.`);
+    return 0;
+  } catch (error) {
+    return reportError(error, deps);
+  } finally {
+    await cleanup(deps, prisma);
+  }
+}
+
+export async function adminMfaResetMain(
+  argv: string[] = process.argv.slice(2),
+  env: NodeJS.ProcessEnv = process.env,
+  deps: SystemCliDependencies = productionSystemCliDependencies,
+): Promise<number> {
+  let prisma: PrismaClient | undefined;
+  try {
+    assertNoArgumentsAndInteractiveTerminal(argv, deps);
+    const target = databaseTarget(env.DATABASE_URL);
+    writeLine(deps.stdout, `Database target: ${target.display}`);
+    await deps.assertMigrationsReady(env.DATABASE_URL as string);
+
+    const username = await deps.prompts.text('Super-admin username: ');
+    const password = await deps.prompts.secret('Current super-admin password: ');
+    const normalizedUsername = normalizeUsername(username);
+    const expectedConfirmation = `RESET ADMIN MFA ${target.databaseName} ${normalizedUsername}`;
+    const confirmation = await deps.prompts.text(`Type ${expectedConfirmation} to confirm: `);
+    if (confirmation !== expectedConfirmation) {
+      throw new ValidationCommandError('Administrator MFA reset confirmation does not match');
+    }
+
+    prisma = deps.createPrisma(env.DATABASE_URL as string);
+    const result = await runAdminMfaRecovery(deps, prisma, {
+      username,
+      password,
+      confirmation,
+    }, {
+      databaseName: target.databaseName,
+      hostname: deps.hostname(),
+    });
+    writeLine(deps.stdout, `Administrator MFA reset completed for ${result.username}.`);
     return 0;
   } catch (error) {
     return reportError(error, deps);
@@ -183,28 +318,52 @@ async function runRecovery(
   return new SuperAdminRecoveryService(prisma, new BcryptPasswordHasher(), metadata).execute(input);
 }
 
-function reportError(error: unknown, deps: SystemCliDependencies): number {
+async function runAddSecondSuperAdmin(
+  deps: SystemCliDependencies,
+  prisma: PrismaClient,
+  input: AddSecondSuperAdminInput,
+  metadata: SystemCommandMetadata,
+): Promise<AddSecondSuperAdminResult> {
+  if (deps.runAddSecondSuperAdmin) return deps.runAddSecondSuperAdmin(prisma, input, metadata);
+  return new SecondSuperAdminService(prisma, new BcryptPasswordHasher(), metadata).execute(input);
+}
+
+async function runAdminMfaRecovery(
+  deps: SystemCliDependencies,
+  prisma: PrismaClient,
+  input: AdminMfaRecoveryInput,
+  metadata: SystemCommandMetadata,
+): Promise<{ username: string }> {
+  if (deps.runAdminMfaRecovery) return deps.runAdminMfaRecovery(prisma, input, metadata);
+  return new AdminMfaRecoveryService(prisma, new BcryptPasswordHasher(), metadata).execute(input);
+}
+
+function reportError(error: unknown, deps: SystemCliDependencies, silent = false): number {
   if (error instanceof ValidationCommandError || error instanceof SecurityError) {
-    writeLine(deps.stderr, 'System command input is invalid.');
+    if (!silent) writeLine(deps.stderr, 'System command input is invalid.');
     return 2;
   }
   if (error instanceof AlreadyInitializedError) {
-    writeLine(deps.stderr, 'System is already initialized.');
+    if (!silent) writeLine(deps.stderr, 'System is already initialized.');
     return 3;
   }
   if (error instanceof InconsistentSystemStateError) {
-    writeLine(deps.stderr, 'System state is inconsistent. Manual investigation is required.');
+    if (!silent) writeLine(deps.stderr, 'System state is inconsistent. Manual investigation is required.');
     return 4;
   }
   if (error instanceof DatabaseStateError || isPrismaDatabaseError(error)) {
-    writeLine(deps.stderr, 'Database state is unavailable.');
+    if (!silent) writeLine(deps.stderr, 'Database state is unavailable.');
     return 5;
   }
   if (error instanceof RecoveryDisabledError) {
-    writeLine(deps.stderr, 'Super-admin recovery is disabled.');
+    if (!silent) writeLine(deps.stderr, 'Super-admin recovery is disabled.');
     return 6;
   }
-  writeLine(deps.stderr, `System command failed. Reference: ${deps.randomUUID()}`);
+  if (error instanceof RecoveryWindowUnavailableError) {
+    if (!silent) writeLine(deps.stderr, 'Second super-admin recovery window is not available.');
+    return 7;
+  }
+  if (!silent) writeLine(deps.stderr, `System command failed. Reference: ${deps.randomUUID()}`);
   return 70;
 }
 

@@ -6,8 +6,6 @@ export const SAFE_USER_SELECT = {
   status: true,
   employeeId: true,
   lastLoginAt: true,
-  mustChangePassword: true,
-  passwordChangedAt: true,
   createdAt: true,
   updatedAt: true,
 } as const satisfies Prisma.UserSelect;

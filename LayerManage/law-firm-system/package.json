@@ -22,9 +22,8 @@
     "db:assert-empty": "npm --prefix apps/server run db:assert-empty",
     "system:bootstrap": "npm --prefix apps/server run system:bootstrap",
     "super-admin:recover": "npm --prefix apps/server run super-admin:recover",
+    "super-admin:add-second": "npm --prefix apps/server run super-admin:add-second",
     "check:bootstrap": "npm --prefix apps/server run check:bootstrap",
-    "migration:inventory": "npm --prefix apps/server run migration:inventory --",
-    "migration:diff": "npm --prefix apps/server run migration:diff --",
     "security:test": "node --test scripts/security/policy.test.mjs scripts/security/audit-gate.test.mjs scripts/security/process-runner.test.mjs scripts/security/artifacts.test.mjs scripts/security/cli.test.mjs scripts/security/dependency-contract.test.mjs",
     "security:policy:validate": "node scripts/security/cli.mjs policy",
     "security:audit:prod": "node scripts/security/cli.mjs audit-prod",
@@ -36,7 +35,8 @@
     "test": "npm --prefix apps/server run test:unit && npm --prefix apps/web run test && npm run security:test",
     "test:all": "npm --prefix apps/server run test:unit && npm --prefix apps/web run test && npm run security:test",
     "build": "npm run build:server && npm run build:web",
-    "verify": "npm run lint && npm run typecheck && npm run test && npm --prefix apps/server run check:baseline && npm run check:bootstrap && npm run build && npm run security:policy:validate"
+    "verify": "npm run lint && npm run typecheck && npm run test && npm --prefix apps/server run check:baseline && npm run check:bootstrap && npm run build && npm run security:policy:validate",
+    "security:exceptions": "node scripts/security/cli.mjs audit-exceptions"
   },
   "engines": {
     "node": ">=22.14.0 <23"

@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { PrismaClient } from '@prisma/client';
+import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
 import { PositionService } from '../../app/application/master-data/position-service';
+import { PermissionCode } from '../../app/domain/authorization/authorization-types';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 import { hasCode } from './test-helpers';
 
@@ -11,6 +13,52 @@ let rootId: string;
 let branchId: string;
 let disabledOrganizationId: string;
 let service: PositionService;
+
+const POSITION_PERMISSIONS: PermissionCode[] = [
+  'position.read',
+  'position.create',
+  'position.update',
+  'position.status.manage',
+];
+
+test('deletes unused positions with version and administrator protection and writes an audit', async () => {
+  const position = await createPosition();
+  const denied = new PositionService(prisma, { actorUserId: 'position-test-actor' }, { ...authorizationContext(POSITION_PERMISSIONS), isSystemSuperAdmin: false });
+  await assert.rejects(() => denied.remove(position.id, position.version), hasCode('SUPER_ADMIN_REQUIRED'));
+  await assert.rejects(() => service.remove(position.id, 99), hasCode('VERSION_CONFLICT'));
+  await service.remove(position.id, position.version);
+  assert.equal(await prisma.position.findUnique({ where: { id: position.id } }), null);
+  assert.equal(await prisma.operationLog.count({ where: { targetId: position.id, targetType: 'POSITION', action: 'DELETE' } }), 1);
+});
+
+test('positions with ended assignment history cannot be deleted', async () => {
+  const position = await createPosition();
+  const employee = await prisma.employee.create({ data: { employeeNo: 'HISTORY-001', name: 'Old employee', phone: '13800000000', type: 'LAWYER', status: 'LEAVED', entryDate: new Date('2026-01-01') } });
+  await prisma.employeeAssignment.create({ data: { employeeId: employee.id, organizationId: position.organizationId, positionId: position.id, assignmentType: 'PRIMARY', startedAt: new Date('2026-01-01'), endedAt: new Date('2026-08-01') } });
+  await assert.rejects(() => service.remove(position.id, position.version), hasCode('POSITION_DELETE_IN_USE'));
+  assert.equal(await prisma.employeeAssignment.count({ where: { positionId: position.id } }), 1);
+  assert.ok(await prisma.position.findUnique({ where: { id: position.id } }));
+});
+
+function authorizationContext(permissionCodes: PermissionCode[], scopeIds = ['ALL']): AuthorizationContext {
+  return {
+    userId: 'position-test-actor',
+    employeeId: null,
+    isSystemAdmin: false,
+    isSystemSuperAdmin: scopeIds.includes('ALL'),
+    grants: permissionCodes.map(permissionCode => ({
+      sourceType: 'ROLE',
+      sourceId: 'position-test-role',
+      permissionCode,
+      resource: 'position',
+      scopeIds,
+      validUntil: null as Date | null,
+    })),
+    fieldRules: [],
+    permissionCodes,
+    evaluatedAt: new Date('2026-07-18T12:00:00.000Z'),
+  };
+}
 
 async function createOrganization(input: { code: string; status?: string; sort?: number }) {
   const id = randomUUID();
@@ -24,7 +72,7 @@ async function createOrganization(input: { code: string; status?: string; sort?:
       path: input.code === 'ROOT' ? `/${id}` : `/${rootId}/${id}`,
       level: input.code === 'ROOT' ? 0 : 1,
       status: input.status ?? 'ENABLED',
-      sort: input.sort ?? 0,
+      sort: input.sort,
     },
   });
 }
@@ -54,7 +102,11 @@ test.beforeEach(async () => {
   rootId = (await createOrganization({ code: 'ROOT' })).id;
   branchId = (await createOrganization({ code: 'BRANCH_A' })).id;
   disabledOrganizationId = (await createOrganization({ code: 'BRANCH_DISABLED', status: 'DISABLED' })).id;
-  service = new PositionService(prisma, { actorUserId: 'position-test-actor', ip: '127.0.0.1' });
+  service = new PositionService(
+    prisma,
+    { actorUserId: 'position-test-actor', ip: '127.0.0.1' },
+    authorizationContext(POSITION_PERMISSIONS),
+  );
 });
 
 test.after(async () => {
@@ -160,6 +212,107 @@ test('lists positions deterministically with filters and active assignment count
   assert.deepEqual((await service.list({ keyword: 'high' })).map(item => item.id), [high.id]);
 });
 
+test('keeps branch-scoped position list and detail boundaries identical', async () => {
+  const branchB = await createOrganization({ code: 'BRANCH_B' });
+  const branchAPosition = await createPosition(branchId, 'BRANCH_A_LAWYER');
+  const branchBPosition = await createPosition(branchB.id, 'BRANCH_B_LAWYER');
+  const branchScope = await prisma.dataScope.create({
+    data: {
+      name: 'Branch A scope',
+      scopeType: 'BRANCH',
+      organizationId: branchId,
+      includeDescendants: true,
+    },
+  });
+  const scoped = new PositionService(
+    prisma,
+    { actorUserId: 'position-test-actor', ip: '127.0.0.1' },
+    authorizationContext(['position.read'], [branchScope.id]),
+  );
+
+  assert.deepEqual((await scoped.list({})).map(item => item.id), [branchAPosition.id]);
+  assert.equal((await scoped.detail(branchAPosition.id)).id, branchAPosition.id);
+  await assert.rejects(
+    () => scoped.detail(branchBPosition.id),
+    hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'),
+  );
+});
+
+test('enforces branch scope for position create, update, and status operations', async () => {
+  const branchB = await createOrganization({ code: 'BRANCH_B' });
+  const branchAPosition = await createPosition(branchId, 'BRANCH_A_LAWYER');
+  const branchBPosition = await createPosition(branchB.id, 'BRANCH_B_LAWYER');
+  const scope = await prisma.dataScope.create({
+    data: { name: 'Branch A manage', scopeType: 'BRANCH', organizationId: branchId, includeDescendants: true },
+  });
+  const scoped = new PositionService(
+    prisma,
+    { actorUserId: 'position-test-actor', ip: '127.0.0.1' },
+    authorizationContext(POSITION_PERMISSIONS, [scope.id]),
+  );
+
+  const created = await scoped.create({
+    organizationId: branchId, code: 'ASSISTANT_A', name: 'Assistant A', categoryCode: 'LEGAL', level: 1,
+  });
+  assert.equal(created.organizationId, branchId);
+  assert.equal((await scoped.update(branchAPosition.id, { name: 'Updated A', version: 1 })).name, 'Updated A');
+
+  await assert.rejects(
+    () => scoped.create({
+      organizationId: branchB.id, code: 'DENIED', name: 'Denied', categoryCode: 'LEGAL', level: 1,
+    }),
+    hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'),
+  );
+  await assert.rejects(
+    () => scoped.update(branchBPosition.id, { name: 'Denied', version: 1 }),
+    hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'),
+  );
+  await assert.rejects(
+    () => scoped.disable(branchBPosition.id, 1),
+    hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'),
+  );
+});
+
+test('honors exact organization, HQ, and super-admin position scopes', async () => {
+  const departmentId = randomUUID();
+  await prisma.organization.create({
+    data: {
+      id: departmentId, code: 'BRANCH_A_DEPT', name: 'Branch A department', type: 'DEPARTMENT',
+      parentId: branchId, path: `/${rootId}/${branchId}/${departmentId}`, level: 2,
+    },
+  });
+  const directPosition = await createPosition(branchId, 'DIRECT');
+  const childPosition = await createPosition(departmentId, 'CHILD');
+  const hqId = randomUUID();
+  const hqDepartmentId = randomUUID();
+  const nestedBranchId = randomUUID();
+  await prisma.organization.createMany({ data: [
+    { id: hqId, code: 'HQ', name: 'HQ', type: 'HQ_CENTER', parentId: rootId, path: `/${rootId}/${hqId}`, level: 1 },
+    { id: hqDepartmentId, code: 'HQ_DEPT', name: 'HQ department', type: 'DEPARTMENT', parentId: hqId, path: `/${rootId}/${hqId}/${hqDepartmentId}`, level: 2 },
+    { id: nestedBranchId, code: 'HQ_BRANCH', name: 'HQ branch', type: 'BRANCH', parentId: hqId, path: `/${rootId}/${hqId}/${nestedBranchId}`, level: 2 },
+  ] });
+  const hqPosition = await createPosition(hqDepartmentId, 'HQ_POSITION');
+  const nestedBranchPosition = await createPosition(nestedBranchId, 'HQ_BRANCH_POSITION');
+  const exactScope = await prisma.dataScope.create({
+    data: { name: 'Branch A exact', scopeType: 'ORG', organizationId: branchId, includeDescendants: false },
+  });
+  const hqScope = await prisma.dataScope.create({ data: { name: 'HQ scope', scopeType: 'HQ_SCOPE' } });
+
+  const exact = new PositionService(
+    prisma, { actorUserId: 'position-test-actor' }, authorizationContext(['position.read'], [exactScope.id]),
+  );
+  assert.deepEqual((await exact.list({})).map(item => item.id), [directPosition.id]);
+  await assert.rejects(() => exact.detail(childPosition.id), hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'));
+
+  const hqOnly = new PositionService(
+    prisma, { actorUserId: 'position-test-actor' }, authorizationContext(['position.read'], [hqScope.id]),
+  );
+  assert.deepEqual((await hqOnly.list({})).map(item => item.id), [hqPosition.id]);
+  await assert.rejects(() => hqOnly.detail(nestedBranchPosition.id), hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'));
+
+  assert.equal((await service.detail(nestedBranchPosition.id)).id, nestedBranchPosition.id);
+});
+
 test('rolls back position creation when audit writing fails', async () => {
   await prisma.$executeRawUnsafe(`
     CREATE FUNCTION fail_position_audit() RETURNS trigger AS $$
@@ -176,4 +329,27 @@ test('rolls back position creation when audit writing fails', async () => {
 
   await assert.rejects(() => createPosition(branchId, 'ROLLBACK_POSITION'));
   assert.equal(await prisma.position.count({ where: { code: 'ROLLBACK_POSITION' } }), 0);
+});
+
+test('characterizes governance-shared responsibilities and status mutations with audit output', async () => {
+  const position = await createPosition(branchId, 'SHARED_POSITION');
+  const updated = await service.update(position.id, {
+    responsibilities: '  Review governance matters  ', version: position.version,
+  });
+  const disabled = await service.disable(position.id, updated.version);
+  const enabled = await service.enable(position.id, disabled.version);
+
+  assert.equal(updated.responsibilities, 'Review governance matters');
+  assert.equal(disabled.status, 'DISABLED');
+  assert.equal(enabled.status, 'ENABLED');
+  assert.equal(enabled.version, 4);
+  const logs = await prisma.operationLog.findMany({ where: { targetId: position.id }, orderBy: { createdAt: 'asc' } });
+  assert.deepEqual(logs.map(log => log.action), ['CREATE', 'UPDATE', 'DISABLE', 'ENABLE']);
+  assert.deepEqual(JSON.parse(logs[1].newValues ?? '{}'), {
+    organizationId: branchId,
+    code: 'SHARED_POSITION',
+    categoryCode: 'LEGAL',
+    status: 'ENABLED',
+    version: 2,
+  });
 });

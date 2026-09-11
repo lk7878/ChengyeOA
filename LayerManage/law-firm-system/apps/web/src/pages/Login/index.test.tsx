@@ -1,121 +1,106 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, afterEach, expect, test, vi } from 'vitest';
-import App from '@/App';
+import { MemoryRouter, Route, Routes } from 'react-router';
+import { beforeEach, expect, test, vi } from 'vitest';
+import { runtimeSession } from '@/features/auth/runtime-session';
+import { useChallengeStore } from '@/features/auth/challengeStore';
 import { useAuthStore } from '@/stores/authStore';
-import { usePasswordChangeStore } from '@/stores/passwordChangeStore';
 import Login from './index';
 
 const loginMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@/api/auth', () => ({
-  authApi: { login: loginMock },
+vi.mock('@/api/auth', () => ({ authApi: { login: loginMock } }));
+vi.mock('@/features/auth/components/MfaEnrollment', () => ({
+  default: ({ challengeToken }: { challengeToken: string }) => <div>MFA enrollment: {challengeToken}</div>,
+}));
+vi.mock('@/features/auth/components/MfaChallenge', () => ({
+  default: ({ challengeToken }: { challengeToken: string }) => <div>MFA challenge: {challengeToken}</div>,
 }));
 
 beforeEach(() => {
   loginMock.mockReset();
-  useAuthStore.setState({ token: null, refreshToken: null, userInfo: null, isAuthenticated: false });
-  usePasswordChangeStore.getState().clear();
-  window.localStorage.clear();
-  window.sessionStorage.clear();
-  window.history.pushState({}, '', '/login');
+  runtimeSession.clear();
+  useChallengeStore.getState().clear();
+  useAuthStore.setState({
+    userInfo: null,
+    isAuthenticated: false,
+    bootstrapStatus: 'ready',
+    authorization: null,
+    authorizationStatus: 'idle',
+  });
+  localStorage.clear();
+  sessionStorage.clear();
 });
 
-afterEach(() => loginMock.mockReset());
-
-function submitLogin(username = 'root.admin', password = 'Initial-Horse-92!') {
-  fireEvent.change(screen.getByLabelText('用户名'), { target: { value: username } });
-  fireEvent.change(screen.getByLabelText('密码'), { target: { value: password } });
-  fireEvent.click(screen.getByRole('button', { name: /登\s*录/ }));
+function renderLogin() {
+  return render(
+    <MemoryRouter initialEntries={['/login']}>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/password-change" element={<h1>修改初始密码页</h1>} />
+        <Route path="/" element={<h1>工作台</h1>} />
+      </Routes>
+    </MemoryRouter>,
+  );
 }
 
-test('renders explicit username and password inputs', () => {
-  render(<MemoryRouter><Login /></MemoryRouter>);
-  expect(screen.getByLabelText('用户名')).toBeInTheDocument();
-  expect(screen.getByLabelText('密码')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /登\s*录/ })).toBeInTheDocument();
-});
+function submitLogin() {
+  fireEvent.change(screen.getByLabelText('用户名'), { target: { value: 'root.admin' } });
+  fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'Initial-Horse-92!' } });
+  fireEvent.click(screen.getByRole('button', { name: '登录' }));
+}
 
-test('shows a stable page error when the login API fails', async () => {
+test('renders explicit username and password inputs and stable failure copy', async () => {
   loginMock.mockRejectedValueOnce(new Error('internal transport detail'));
-  const { container } = render(<MemoryRouter><Login /></MemoryRouter>);
-  const username = container.querySelector('input:not([type="password"])');
-  const password = container.querySelector('input[type="password"]');
-  expect(username).not.toBeNull();
-  expect(password).not.toBeNull();
-  if (!username || !password) throw new Error('Login inputs were not rendered');
-
-  fireEvent.change(username, { target: { value: 'missing-user' } });
-  fireEvent.change(password, { target: { value: 'bad-password' } });
-  fireEvent.click(screen.getByRole('button'));
-
+  renderLogin();
+  submitLogin();
   expect(await screen.findByRole('alert')).toHaveTextContent('登录失败，请重试');
   expect(screen.queryByText('internal transport detail')).not.toBeInTheDocument();
 });
 
-test('routes a forced-change login without persisting any password-change token or normal session', async () => {
-  window.localStorage.setItem('law_firm_token', 'old-access');
-  window.localStorage.setItem('law_firm_refresh_token', 'old-refresh');
-  window.sessionStorage.setItem('unrelated', 'keep-me');
-  loginMock.mockResolvedValueOnce({
-    code: 200,
-    message: 'OK',
-    data: {
-      mode: 'PASSWORD_CHANGE_REQUIRED',
-      passwordChangeToken: 'change-token',
-      expiresIn: 300,
-    },
-  });
-
-  render(<App />);
+test('routes PASSWORD_CHANGE_REQUIRED through the in-memory challenge store', async () => {
+  loginMock.mockResolvedValueOnce({ code: 200, data: {
+    mode: 'PASSWORD_CHANGE_REQUIRED', challengeToken: 'change-token', expiresIn: 300,
+  } });
+  renderLogin();
   submitLogin();
-
-  expect(await screen.findByRole('heading', { name: '修改初始密码' })).toBeInTheDocument();
-  expect(window.location.pathname).toBe('/password-change');
-  expect(window.localStorage.getItem('law_firm_token')).toBeNull();
-  expect(window.localStorage.getItem('law_firm_refresh_token')).toBeNull();
-  expect(window.localStorage.getItem('password_change_token')).toBeNull();
-  expect(window.sessionStorage.getItem('password_change_token')).toBeNull();
-  expect(JSON.stringify({ ...window.localStorage })).not.toContain('change-token');
-  expect(JSON.stringify({ ...window.sessionStorage })).not.toContain('change-token');
-  expect(document.cookie).not.toContain('change-token');
-  expect(window.location.href).not.toContain('change-token');
-  expect(window.location.search).toBe('');
-  expect(window.location.hash).toBe('');
-  expect(useAuthStore.getState()).toMatchObject({
-    token: null,
-    refreshToken: null,
-    userInfo: null,
-    isAuthenticated: false,
-  });
-  expect(usePasswordChangeStore.getState().token).toBe('change-token');
+  expect(await screen.findByRole('heading', { name: '修改初始密码页' })).toBeInTheDocument();
+  expect(useChallengeStore.getState()).toMatchObject({ kind: 'PASSWORD_CHANGE', token: 'change-token' });
+  expect(JSON.stringify({ ...localStorage, ...sessionStorage })).not.toContain('change-token');
 });
 
-test('keeps the existing authenticated login session and storage behavior', async () => {
-  loginMock.mockResolvedValueOnce({
-    code: 200,
-    message: 'OK',
-    data: {
-      mode: 'AUTHENTICATED',
-      token: 'access-token',
-      refreshToken: 'refresh-token',
-      expiresIn: 604800,
-      user: {
-        id: 'user-1',
-        username: 'root.admin',
-        name: 'Root Admin',
-        roles: ['admin'],
-        permissions: [],
-      },
-    },
+test('explains rejected credentials without claiming the login session expired or exposing account details', async () => {
+  loginMock.mockRejectedValueOnce({
+    isAxiosError: true,
+    response: { status: 401, data: { message: 'AUTHENTICATION_FAILED', detail: 'ACCOUNT_LOCKED' } },
   });
-
-  render(<App />);
+  renderLogin();
   submitLogin();
+  expect(await screen.findByRole('alert')).toHaveTextContent('用户名或密码不正确，或账号暂时无法登录，请核对后重试');
+  expect(screen.queryByText(/登录已过期|ACCOUNT_LOCKED|AUTHENTICATION_FAILED/)).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '登录' })).toBeEnabled();
+});
 
-  await waitFor(() => expect(window.location.pathname).toBe('/'));
-  expect(window.localStorage.getItem('law_firm_token')).toBe('access-token');
-  expect(window.localStorage.getItem('law_firm_refresh_token')).toBe('refresh-token');
-  expect(useAuthStore.getState().isAuthenticated).toBe(true);
-  expect(usePasswordChangeStore.getState().token).toBeNull();
+test.each([
+  ['MFA_ENROLLMENT_REQUIRED', 'MFA_ENROLLMENT', 'MFA enrollment: mfa-token'],
+  ['MFA_CHALLENGE_REQUIRED', 'MFA_VERIFY', 'MFA challenge: mfa-token'],
+] as const)('renders %s without persisting the challenge', async (mode, kind, copy) => {
+  loginMock.mockResolvedValueOnce({ code: 200, data: { mode, challengeToken: 'mfa-token', expiresIn: 300 } });
+  renderLogin();
+  submitLogin();
+  expect(await screen.findByText(copy)).toBeInTheDocument();
+  expect(useChallengeStore.getState()).toMatchObject({ kind, token: 'mfa-token' });
+  expect(JSON.stringify({ ...localStorage, ...sessionStorage })).not.toContain('mfa-token');
+});
+
+test('stores AUTHENTICATED credentials only in runtime memory and enters the app', async () => {
+  loginMock.mockResolvedValueOnce({ code: 200, data: {
+    mode: 'AUTHENTICATED', token: 'access-token', csrfToken: 'csrf-token', expiresIn: 900,
+    user: { id: 'u1', username: 'root.admin', name: 'Root Admin', roles: [], permissions: [] },
+  } });
+  renderLogin();
+  submitLogin();
+  expect(await screen.findByRole('heading', { name: '工作台' })).toBeInTheDocument();
+  await waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(true));
+  expect(runtimeSession.getAccessToken()).toBe('access-token');
+  expect(JSON.stringify({ ...localStorage, ...sessionStorage })).not.toMatch(/access-token|csrf-token/);
 });

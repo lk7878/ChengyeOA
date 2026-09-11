@@ -1,13 +1,21 @@
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
+import { AuthorizationContext, AuthorizationService } from '../application/authorization/authorization-service';
+import { DataScopeService } from '../application/authorization/data-scope-service';
+import { UserGrantService } from '../application/authorization/user-grant-service';
 import {
   EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
   projectEmployeeWithPrimaryAssignment,
 } from '../application/master-data/employee-projection';
 import { rethrowKnownUniqueConflict } from '../application/system/prisma-unique-conflict';
 import { SAFE_USER_SELECT } from '../application/system/safe-user-projection';
-import { assertMutableRole, assertMutableUser } from '../application/system/trust-root-guard';
+import {
+  assertMutableUser,
+  assertNonAdministratorUserMutable,
+} from '../application/system/trust-root-guard';
 import { BcryptPasswordHasher } from '../domain/security/password-hasher';
+import { authorizationInputError } from '../domain/authorization/authorization-errors';
+import { assertAuthorizationExactKeys } from '../domain/authorization/authorization-validation';
 import { normalizeUsername, validatePassword, validateUsername } from '../domain/security/password-policy';
 
 const passwordHasher = new BcryptPasswordHasher();
@@ -20,16 +28,22 @@ export default class UserController extends Controller {
     const { ctx } = this;
     const { page = 1, pageSize = 10, keyword, status } = ctx.query;
 
-    const where: Prisma.UserWhereInput = {};
+    const filters: Prisma.UserWhereInput = {};
     if (keyword) {
-      where.OR = [
+      filters.OR = [
         { username: { contains: keyword } },
         { employee: { name: { contains: keyword } } },
       ];
     }
     if (status) {
-      where.status = status;
+      filters.status = status;
     }
+    const scopeWhere = await this.authorizationService().buildScopeWhere(
+      this.authorizationContext(),
+      'user',
+      'user.read',
+    );
+    const where: Prisma.UserWhereInput = { AND: [scopeWhere, filters] };
 
     const total = await ctx.prisma.user.count({ where });
     const list = await ctx.prisma.user.findMany({
@@ -74,6 +88,12 @@ export default class UserController extends Controller {
   async show() {
     const { ctx } = this;
     const { id } = ctx.params;
+    await this.authorizationService().requireRecord(
+      this.authorizationContext(),
+      'user',
+      'user.read',
+      id,
+    );
 
     const user = await ctx.prisma.user.findUnique({
       where: { id },
@@ -173,7 +193,14 @@ export default class UserController extends Controller {
     const { ctx } = this;
     const { id } = ctx.params;
 
+    await this.authorizationService().requireRecord(
+      this.authorizationContext(),
+      'user',
+      'user.update',
+      id,
+    );
     await assertMutableUser(ctx.prisma, id);
+    await assertNonAdministratorUserMutable(ctx.prisma, id);
     const body = ctx.request.body as Record<string, unknown>;
     if (Object.prototype.hasOwnProperty.call(body, 'employeeId')) {
       ctx.throw(400, 'ACCOUNT_BINDING_REQUIRES_DEDICATED_ENDPOINT');
@@ -208,6 +235,42 @@ export default class UserController extends Controller {
     };
   }
 
+  async authorization() {
+    this.respond(await this.grantService().summary(this.ctx.params.id));
+  }
+
+  async grantRole() {
+    const input = this.ctx.request.body;
+    assertAuthorizationExactKeys(input, ['roleId', 'source', 'validFrom', 'validUntil', 'reason']);
+    if (typeof input.roleId !== 'string' || !input.roleId.trim()) authorizationInputError();
+    this.respond(await this.grantService().grantRole(this.ctx.params.id, input.roleId, {
+      source: input.source,
+      validFrom: input.validFrom,
+      validUntil: input.validUntil,
+      reason: input.reason,
+    }));
+  }
+
+  async revokeRoleGrant() {
+    this.respond(await this.grantService().revokeRole(
+      this.ctx.params.id,
+      this.ctx.params.grantId,
+      this.ctx.request.body,
+    ));
+  }
+
+  async grantSpecial() {
+    this.respond(await this.grantService().grantSpecial(this.ctx.params.id, this.ctx.request.body));
+  }
+
+  async revokeSpecialGrant() {
+    this.respond(await this.grantService().revokeSpecial(
+      this.ctx.params.id,
+      this.ctx.params.grantId,
+      this.ctx.request.body,
+    ));
+  }
+
   /**
    * 删除用户
    */
@@ -215,7 +278,14 @@ export default class UserController extends Controller {
     const { ctx } = this;
     const { id } = ctx.params;
 
+    await this.authorizationService().requireRecord(
+      this.authorizationContext(),
+      'user',
+      'user.status.manage',
+      id,
+    );
     await assertMutableUser(ctx.prisma, id);
+    await assertNonAdministratorUserMutable(ctx.prisma, id);
     const user = await ctx.prisma.user.findUnique({
       where: { id },
     });
@@ -234,49 +304,23 @@ export default class UserController extends Controller {
     };
   }
 
-  /**
-   * 分配角色
-   */
-  async assignRoles() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { roleIds } = ctx.request.body;
+  private grantService(): UserGrantService {
+    return new UserGrantService(
+      this.ctx.prisma,
+      this.ctx.state.authorization as AuthorizationContext,
+      this.ctx.ip,
+    );
+  }
 
-    if (!Array.isArray(roleIds)) {
-      ctx.throw(400, 'roleIds 必须是数组');
-    }
+  private authorizationContext(): AuthorizationContext {
+    return this.ctx.state.authorization as AuthorizationContext;
+  }
 
-    const updated = await ctx.prisma.$transaction(async tx => {
-      await assertMutableUser(tx, id);
-      for (const roleId of roleIds as string[]) {
-        await assertMutableRole(tx, roleId);
-      }
+  private authorizationService(): AuthorizationService {
+    return new AuthorizationService(new DataScopeService(this.ctx.prisma));
+  }
 
-      const user = await tx.user.findUnique({ where: { id }, select: { id: true } });
-      if (!user) {
-        ctx.throw(404, '用户不存在');
-      }
-
-      await tx.userRole.deleteMany({ where: { userId: id } });
-      if (roleIds.length > 0) {
-        await tx.userRole.createMany({
-          data: (roleIds as string[]).map(roleId => ({ userId: id, roleId })),
-        });
-      }
-
-      return tx.user.findUnique({
-        where: { id },
-        select: {
-          ...SAFE_USER_SELECT,
-          userRoles: { include: { role: true } },
-        },
-      });
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '角色分配成功',
-      data: updated,
-    };
+  private respond(data: unknown): void {
+    this.ctx.body = { code: 200, message: 'success', data };
   }
 }

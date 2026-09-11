@@ -53,9 +53,9 @@ if ($LASTEXITCODE -ne 3) { throw "Expected already-initialized exit 3; investiga
 1. Start the server and web application in separate terminals that inherit the approved runtime environment.
 2. Sign in with the bootstrap username and temporary password.
 3. Confirm the application opens only the forced-password-change page and does not expose business pages.
-4. Enter a new policy-compliant password through the password fields. The change endpoint returns no access or refresh token.
-5. Confirm the application returns to login, then sign in again with the new password.
-6. Confirm the temporary password no longer works and the new login opens the authenticated application.
+4. Enter a new policy-compliant password through the password fields. The browser continues with an in-memory MFA enrollment challenge and does not persist a challenge or refresh credential.
+5. Bind TOTP, confirm a current six-digit code, save all recovery codes offline, acknowledge that they were saved, and enter the application.
+6. Sign out, confirm the temporary password no longer works, and verify that the replacement password requires a fresh TOTP or one-time recovery code before a new session is created.
 
 The password-change token is valid for five minutes and belongs only in browser memory. Never place it in storage, a URL, a screenshot, a ticket, or a log.
 
@@ -164,6 +164,6 @@ The current frontend lint has 10 pre-existing `react-hooks/exhaustive-deps` warn
 
 The production web build also reports Vite's existing chunk-size advisory for chunks over 500 kB after minification. The frontend build owner tracks bundle analysis and code splitting; the release owner must record acceptance or escalation, and the advisory does not by itself block SPEC-002's bootstrap security contract.
 
-## Production Boundary
+## Identity-Security Boundary
 
-MFA is not implemented by SPEC-002. Bootstrap and recovery may be accepted in local and controlled test environments, but first-super-admin login is not a complete production security capability until the separate identity-security work implements and accepts MFA. Production enablement requires that gate in addition to this runbook.
+SPEC-006 makes MFA mandatory for both administrator roles. Follow `identity-security-mfa-step-up.md` for synchronized rollout, two-super-admin enrollment, recovery-code custody, governed MFA reset, the sole-super-admin emergency CLI, backup key injection, and key-loss response.

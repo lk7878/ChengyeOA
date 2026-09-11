@@ -7,6 +7,7 @@ export type EmployeeStatus = 'PROBATION' | 'FORMAL' | 'LEAVED';
 export interface AuditActor {
   actorUserId: string;
   ip?: string;
+  requestId?: string;
 }
 
 export interface Pagination {
@@ -32,6 +33,8 @@ export interface OrganizationView {
   sort: number;
   status: MasterDataStatus;
   version: number;
+  managerEmployeeId?: string | null;
+  manager?: { id: string; employeeNo: string; name: string; status: string } | null;
 }
 
 export interface OrganizationNode extends OrganizationView {
@@ -68,6 +71,15 @@ export interface EmployeeAssignmentView {
   version: number;
 }
 
+export interface ReportingLineView {
+  id: string;
+  employeeId: string;
+  managerEmployeeId: string;
+  startedAt: Date;
+  endedAt: Date | null;
+  version: number;
+}
+
 export interface EmployeeListItem {
   id: string;
   employeeNo: string;
@@ -81,11 +93,10 @@ export interface EmployeeListItem {
 }
 
 export interface EmployeeDetail extends EmployeeListItem {
-  phone: string;
-  email: string | null;
-  idCard: string | null;
-  licenseNo: string | null;
-  professionalDirections: string[];
+  phone?: string;
+  email?: string | null;
+  licenseNo?: string | null;
+  professionalDirections?: string[];
   formalDate: Date | null;
   leaveDate: Date | null;
   assignments: EmployeeAssignmentView[];

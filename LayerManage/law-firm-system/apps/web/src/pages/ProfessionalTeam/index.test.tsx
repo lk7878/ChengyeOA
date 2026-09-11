@@ -5,7 +5,7 @@ import type { EmployeeListItem, OrganizationNode, ProfessionalTeamDetail } from 
 import ProfessionalTeamPage from './index';
 
 vi.mock('@/features/master-data/api', () => ({ masterDataApi: {
-  organizations: { tree: vi.fn() }, employees: { list: vi.fn() },
+  organizations: { options: vi.fn() }, employees: { list: vi.fn() },
   professionalTeams: { list: vi.fn(), detail: vi.fn(), create: vi.fn(), update: vi.fn(), disable: vi.fn(), enable: vi.fn(), addMember: vi.fn(), endMember: vi.fn(), replaceLead: vi.fn() },
 } }));
 
@@ -15,7 +15,7 @@ const team: ProfessionalTeamDetail = { id: 'team-1', code: 'CRIMINAL', name: '�
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(masterDataApi.organizations.tree).mockResolvedValue({ code: 200, message: 'success', data: [org] });
+  vi.mocked(masterDataApi.organizations.options).mockResolvedValue({ code: 200, message: 'success', data: [org] });
   vi.mocked(masterDataApi.employees.list).mockResolvedValue({ code: 200, message: 'success', data: { list: [employee], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } } });
   vi.mocked(masterDataApi.professionalTeams.list).mockResolvedValue({ code: 200, message: 'success', data: { list: [team], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } } });
   vi.mocked(masterDataApi.professionalTeams.detail).mockResolvedValue({ code: 200, message: 'success', data: team });
@@ -25,7 +25,7 @@ test('supports an open category when creating a professional team', async () => 
   render(<ProfessionalTeamPage />);
   await screen.findByText('刑事专业团队');
   fireEvent.click(screen.getByRole('button', { name: /新增团队/ }));
-  expect(screen.getByLabelText('团队分类')).toHaveAttribute('placeholder', '输入稳定分类编码');
+  expect(screen.getByLabelText('团队分类')).toHaveAttribute('placeholder', '例如：民商事、刑事辩护、劳动争议');
 });
 
 test('loads cross-office employees and keeps member history visible', async () => {

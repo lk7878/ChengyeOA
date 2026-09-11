@@ -3,13 +3,12 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { PrismaClient } from '@prisma/client';
 import mm from 'egg-mock';
-import { JwtTokenService } from '../../app/domain/security/token-service';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
+import { createApiSession } from '../helpers/auth-session';
 
 process.env.EGG_TYPESCRIPT = 'true';
 
 const app = mm.app();
-const jwtSecret = '01234567890123456789012345678901';
 let prisma: PrismaClient;
 let rootId: string;
 let superAdminToken: string;
@@ -23,7 +22,8 @@ async function tokenForRole(code: string, type: string): Promise<string> {
     data: { name: `SPEC-003 ${suffix}`, code, type, status: 'ENABLED' },
   });
   await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
-  return new JwtTokenService(jwtSecret).signAccess(user.id, user.credentialVersion);
+  const assurance = code === 'SYSTEM_ADMIN' || code === 'SYSTEM_SUPER_ADMIN' ? 'MFA' : 'PASSWORD';
+  return (await createApiSession(prisma, user.id, assurance)).token;
 }
 
 function bearer(token = superAdminToken): { Authorization: string } {
@@ -73,6 +73,7 @@ test('supports the complete organization-to-employee-to-team administration flow
       employeeNo: 'EMP-001',
       name: 'Test Lawyer',
       phone: '13800000000',
+      idCard: '500000199001010000',
       employeeType: 'LAWYER',
       entryDate: '2026-07-18',
       primaryOrganizationId: branch.id,
@@ -81,6 +82,8 @@ test('supports the complete organization-to-employee-to-team administration flow
     .expect(200);
   const employee = employeeResponse.body.data;
   assert.equal(employee.primaryAssignment.organizationId, branch.id);
+  assert.equal(employee.phone, '13800000000');
+  assert.equal('idCard' in employee, false);
   assert.doesNotMatch(JSON.stringify(employeeResponse.body), /password/i);
 
   const secondPosition = await prisma.position.create({
@@ -102,7 +105,7 @@ test('supports the complete organization-to-employee-to-team administration flow
   assert.equal(bindingResponse.body.data.account.id, account.id);
   assert.doesNotMatch(JSON.stringify(bindingResponse.body), /secret-hash|password/i);
 
-  const accountToken = new JwtTokenService(jwtSecret).signAccess(account.id, account.credentialVersion);
+  const accountToken = (await createApiSession(prisma, account.id)).token;
   const meResponse = await app.httpRequest()
     .get('/api/v1/auth/me')
     .set(bearer(accountToken))
@@ -130,9 +133,12 @@ test('supports the complete organization-to-employee-to-team administration flow
     .filter((value): value is string => value !== null)
     .join(' ');
   assert.doesNotMatch(auditText, /Test Lawyer|13800000000|secret-hash/);
+  assert.equal(await prisma.operationLog.count({
+    where: { userId: { not: null }, action: 'READ_L3_FIELDS', targetId: employee.id },
+  }) > 0, true);
 });
 
-test('rejects ordinary users for every SPEC-003 resource prefix', async () => {
+test('rejects users without formal permissions for every SPEC-003 resource prefix', async () => {
   const ordinaryToken = await tokenForRole('BUSINESS_ADMIN', 'BUSINESS');
   for (const path of [
     '/api/v1/organizations/tree',
@@ -141,7 +147,7 @@ test('rejects ordinary users for every SPEC-003 resource prefix', async () => {
     '/api/v1/professional-teams',
   ]) {
     const response = await app.httpRequest().get(path).set(bearer(ordinaryToken)).expect(403);
-    assert.equal(response.body.message, 'SYSTEM_SUPER_ADMIN_REQUIRED');
+    assert.equal(response.body.message, path.includes('/organizations/') ? 'SUPER_ADMIN_REQUIRED' : 'PERMISSION_DENIED');
   }
 });
 
@@ -157,7 +163,15 @@ test('maps validation, missing records, and optimistic conflicts to stable respo
     .get(`/api/v1/employees/${randomUUID()}`)
     .set(bearer())
     .expect(404);
-  assert.equal(missing.body.message, 'EMPLOYEE_NOT_FOUND');
+  assert.equal(missing.body.message, 'RESOURCE_NOT_FOUND_OR_FORBIDDEN');
+
+  for (const path of [
+    `/api/v1/organizations/${randomUUID()}`,
+    `/api/v1/positions/${randomUUID()}`,
+  ]) {
+    const hidden = await app.httpRequest().get(path).set(bearer()).expect(404);
+    assert.equal(hidden.body.message, 'RESOURCE_NOT_FOUND_OR_FORBIDDEN');
+  }
 
   const position = await prisma.position.create({
     data: { organizationId: rootId, code: 'STALE_TEST', name: 'Stale Test', categoryCode: 'TEST' },
@@ -227,12 +241,73 @@ test('requires the dedicated account-binding endpoint for employee identity link
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).employeeId, null);
 });
 
-test('does not expose physical delete routes for organization, position, or employee', async () => {
+test('delete endpoints require versioned commands rather than an unconfirmed empty request', async () => {
   for (const path of [
-    `/api/v1/organizations/${randomUUID()}`,
     `/api/v1/positions/${randomUUID()}`,
     `/api/v1/employees/${randomUUID()}`,
   ]) {
-    await app.httpRequest().delete(path).set(bearer()).expect(404);
+    await app.httpRequest().delete(path).set(bearer()).expect(400);
   }
+});
+
+test('deletes unused positions and employee profiles, preserving historical references and reusable numbers', async () => {
+  const unused = await prisma.position.create({ data: { organizationId: rootId, code: 'UNUSED', name: 'Unused', categoryCode: 'LEGAL' } });
+  await app.httpRequest().delete(`/api/v1/positions/${unused.id}`).set(bearer()).send({ version: 99 }).expect(409);
+  await app.httpRequest().delete(`/api/v1/positions/${unused.id}`).set(bearer()).send({ version: 1 }).expect(200);
+  const position = await prisma.position.create({ data: { organizationId: rootId, code: 'LAWYER', name: 'Lawyer', categoryCode: 'LEGAL' } });
+  const input = { employeeNo: 'REUSE-API', name: 'Old employee', phone: '13800000000', employeeType: 'LAWYER', entryDate: '2026-01-01', primaryOrganizationId: rootId, primaryPositionId: position.id };
+  const created = (await app.httpRequest().post('/api/v1/employees').set(bearer()).send(input).expect(200)).body.data;
+  await app.httpRequest().delete(`/api/v1/employees/${created.id}`).set(bearer()).send({ version: 1 }).expect(400);
+  await app.httpRequest().delete(`/api/v1/employees/${created.id}`).set(bearer()).send({ version: 1, confirmed: true }).expect(200);
+  await app.httpRequest().get(`/api/v1/employees/${created.id}`).set(bearer()).expect(404);
+  const replacement = (await app.httpRequest().post('/api/v1/employees').set(bearer()).send({ ...input, name: 'New employee' }).expect(200)).body.data;
+  assert.notEqual(replacement.id, created.id);
+  assert.ok((await prisma.employee.findUniqueOrThrow({ where: { id: created.id } })).deletedAt);
+  const rejected = await app.httpRequest().delete(`/api/v1/positions/${position.id}`).set(bearer()).send({ version: 1 }).expect(409);
+  assert.equal(rejected.body.message, 'POSITION_DELETE_IN_USE');
+});
+
+test('SPEC-003-A supports manager editing, nested copy and guarded deletion over HTTP', async () => {
+  const source = (await app.httpRequest().post('/api/v1/organizations').set(bearer())
+    .send({ code: 'SOURCE', name: '源部门', type: 'DEPARTMENT', parentId: rootId }).expect(200)).body.data;
+  await app.httpRequest().post('/api/v1/organizations').set(bearer())
+    .send({ code: 'CHILD', name: '下级工作组', type: 'GROUP', parentId: source.id }).expect(200);
+  await prisma.position.create({ data: { organizationId: source.id, code: 'LAWYER', name: '律师岗位', categoryCode: 'LEGAL' } });
+  const employee = await prisma.employee.create({ data: { employeeNo: 'MANAGER', name: '部门负责人', phone: '13800000000', type: 'LAWYER', status: 'FORMAL', entryDate: new Date() } });
+  const updated = await app.httpRequest().patch('/api/v1/organizations/' + source.id).set(bearer())
+    .send({ version: 1, managerEmployeeId: employee.id }).expect(200);
+  assert.equal(updated.body.data.manager.id, employee.id);
+  const candidates = await app.httpRequest().get('/api/v1/organizations/manager-options?keyword=MANAGER').set(bearer()).expect(200);
+  assert.deepEqual(candidates.body.data.map((item: { id: string }) => item.id), [employee.id]);
+  const copy = (await app.httpRequest().post('/api/v1/organizations/' + source.id + '/copy').set(bearer())
+    .send({ sourceVersion: 2, code: 'COPIED', name: '复制部门', type: 'DEPARTMENT', parentId: rootId }).expect(200)).body.data;
+  const detail = (await app.httpRequest().get('/api/v1/organizations/' + copy.id).set(bearer()).expect(200)).body.data;
+  assert.equal(detail.children.length, 1);
+  assert.equal(detail.counts.positions, 1);
+  assert.equal(detail.managerEmployeeId, null);
+  const blocked = await app.httpRequest().delete('/api/v1/organizations/' + copy.id).set(bearer()).send({ version: 1 }).expect(409);
+  assert.deepEqual(blocked.body.errors.organizationDeleteBlockers, { children: 1, positions: 1 });
+  await app.httpRequest().delete('/api/v1/organizations/' + detail.children[0].id).set(bearer()).send({ version: 1 }).expect(200);
+  await app.httpRequest().delete('/api/v1/organizations/' + rootId).set(bearer()).send({ version: 1 }).expect(409);
+});
+
+test('SPEC-003-A rejects ordinary administrators on management endpoints while retaining scoped options', async () => {
+  const token = await tokenForRole('SYSTEM_ADMIN', 'SYSTEM');
+  const role = await prisma.role.findUniqueOrThrow({ where: { code: 'SYSTEM_ADMIN' } });
+  const scope = await prisma.dataScope.create({ data: { name: 'All organization options', scopeType: 'ALL' } });
+  await prisma.roleDataScope.create({ data: { roleId: role.id, dataScopeId: scope.id, resource: 'organization' } });
+  for (const code of ['organization.read', 'organization.create', 'organization.update']) {
+    const permission = await prisma.permission.findUniqueOrThrow({ where: { code } });
+    await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } });
+  }
+  for (const path of ['/tree', '/' + rootId, '/manager-options']) {
+    const result = await app.httpRequest().get('/api/v1/organizations' + path).set(bearer(token)).expect(403);
+    assert.equal(result.body.message, 'SUPER_ADMIN_REQUIRED');
+  }
+  await app.httpRequest().post('/api/v1/organizations/' + rootId + '/copy').set(bearer(token)).send({}).expect(403);
+  await app.httpRequest().patch('/api/v1/organizations/' + rootId).set(bearer(token)).send({}).expect(403);
+  await app.httpRequest().delete('/api/v1/organizations/' + rootId).set(bearer(token)).send({ version: 1 }).expect(403);
+  const options = await app.httpRequest().get('/api/v1/organizations/options').set(bearer(token)).expect(200);
+  assert.equal(options.body.data[0].id, rootId);
+  assert.equal('manager' in options.body.data[0], false);
 });

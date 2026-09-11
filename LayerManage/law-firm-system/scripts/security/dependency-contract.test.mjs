@@ -25,9 +25,9 @@ function assertVersionAtLeast(actual, minimum) {
 
 function assertUndiciVersionSafe(actual) {
   const [major] = versionParts(actual);
-  if (major === 6) return assertVersionAtLeast(actual, '6.27.0');
-  if (major === 7) return assertVersionAtLeast(actual, '7.28.0');
-  assert.ok(major >= 8, `${actual} must be 6.27+, 7.28+, or 8+`);
+  if (major === 6) return assertVersionAtLeast(actual, '6.28.0');
+  if (major === 7) return assertVersionAtLeast(actual, '7.29.0');
+  assert.ok(major >= 8, `${actual} must be 6.28+, 7.29+, or 8+`);
 }
 
 test('all npm lockfiles retain lockfile version 3', () => {
@@ -40,13 +40,15 @@ test('web production dependency floors stay above remediated versions', () => {
   const lock = readLock('apps/web/package-lock.json');
   assertVersionAtLeast(lock.packages['node_modules/axios'].version, '1.18.1');
   assertVersionAtLeast(lock.packages['node_modules/form-data'].version, '4.0.6');
-  assertVersionAtLeast(lock.packages['node_modules/react-router-dom'].version, '7.18.1');
-  assertVersionAtLeast(lock.packages['node_modules/react-router'].version, '7.18.1');
+  // SEC-2026-002 已修复：react-router-dom 包在 v8 移除，react-router 升级至 ≥8.3.0（GHSA-qwww-vcr4-c8h2 缓解）。
+  assertVersionAtLeast(lock.packages['node_modules/react-router'].version, '8.3.0');
 });
 
-test('web development toolchain stays above the remediated Vite floor', () => {
+test('web development toolchain stays above remediated security floors', () => {
   const lock = readLock('apps/web/package-lock.json');
   assertVersionAtLeast(lock.packages['node_modules/vite'].version, '8.1.4');
+  assertVersionAtLeast(lock.packages['node_modules/@babel/core'].version, '7.29.7');
+  assertVersionAtLeast(lock.packages['node_modules/brace-expansion'].version, '5.0.7');
 });
 
 test('server uses the remediated CORS plugin and has no Egg JWT plugin chain', () => {
@@ -64,6 +66,9 @@ test('server runtime dependency tree stays above remediated security floors', ()
   assertVersionAtLeast(lock.packages['node_modules/egg'].version, '3.34.0');
   assertVersionAtLeast(lock.packages['node_modules/egg-scripts'].version, '3.1.0');
   assertVersionAtLeast(lock.packages['node_modules/jsonwebtoken'].version, '9.0.3');
+  // SEC-2026-001 例外已退役（SPEC-038）：serialize-javascript 7.0.7 已修复 GHSA-5c6j-r48x-rmvq，
+  // audit 实测 0 漏洞——契约下限锁死当前已知安全版本，防无例外静默回退。
+  assertVersionAtLeast(lock.packages['node_modules/serialize-javascript'].version, '7.0.7');
 
   const entries = Object.entries(lock.packages);
   const formData = entries.filter(([key]) => key.endsWith('node_modules/form-data'));
@@ -74,22 +79,7 @@ test('server runtime dependency tree stays above remediated security floors', ()
   undici.forEach(([, value]) => assertUndiciVersionSafe(value.version));
 });
 
-test('the initial development exception is exact and time bounded', () => {
+test('the development exceptions are exact and time bounded', () => {
   const document = JSON.parse(readFileSync(path.resolve(projectRoot, 'security/dependency-exceptions.json'), 'utf8'));
-  assert.deepEqual(document.exceptions, [
-    {
-      id: 'SEC-2026-001',
-      workspace: 'server',
-      package: 'serialize-javascript',
-      advisories: ['GHSA-5c6j-r48x-rmvq'],
-      scope: 'development',
-      reason: 'The current Egg test toolchain has no compatible upstream release that removes this advisory without a framework downgrade.',
-      mitigation: 'The package is restricted to local and CI test/build execution; production audit and runtime artifacts omit development dependencies.',
-      owner: 'platform-engineering',
-      approvedBy: 'system-super-admin',
-      createdAt: '2026-07-16',
-      expiresAt: '2026-08-15',
-      trackingRef: 'SEC-SPEC-001/serialize-javascript',
-    },
-  ]);
+  assert.deepEqual(document.exceptions, []);
 });

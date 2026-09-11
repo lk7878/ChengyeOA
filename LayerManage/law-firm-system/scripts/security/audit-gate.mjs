@@ -1,7 +1,19 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { validateBaseline } from './policy.mjs';
+
 const SEVERITIES = ['info', 'low', 'moderate', 'high', 'critical'];
+const GATE_SEVERITIES = ['critical', 'high', 'moderate', 'low'];
+const SCOPES = ['production', 'development'];
+const BASELINE_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'expected-baseline.json');
 
 function fail(message) {
   throw new Error(message);
+}
+
+function isSevere(severity) {
+  return severity === 'moderate' || severity === 'high' || severity === 'critical';
 }
 
 function record(value, label) {
@@ -84,7 +96,7 @@ export function normalizeFindings(reportValue) {
       if (!SEVERITIES.includes(advisory.severity)) {
         fail(`audit advisory for ${name} has invalid severity`);
       }
-      if (advisory.severity !== 'high' && advisory.severity !== 'critical') continue;
+      if (!isSevere(advisory.severity)) continue;
       if (!advisoryId(advisory)
         || !((typeof advisory.name === 'string' && advisory.name.length > 0)
           || (typeof advisory.dependency === 'string' && advisory.dependency.length > 0))) {
@@ -102,8 +114,7 @@ export function normalizeFindings(reportValue) {
       fail(`audit vulnerability ${name} has invalid severity`);
     }
     if (!Array.isArray(vulnerability.via)) fail(`audit vulnerability ${name} has invalid via data`);
-    if ((vulnerability.severity === 'high' || vulnerability.severity === 'critical')
-      && !resolvesSevereAdvisory(name)) {
+    if (isSevere(vulnerability.severity) && !resolvesSevereAdvisory(name)) {
       fail(`severe audit vulnerability ${name} cannot be tied to a concrete advisory`);
     }
   }
@@ -130,7 +141,7 @@ export function normalizeFindings(reportValue) {
           ? advisory.dependency
           : undefined;
       if (!SEVERITIES.includes(advisory.severity)) fail(`audit advisory for ${name} has invalid severity`);
-      if ((advisory.severity === 'high' || advisory.severity === 'critical') && (!id || !packageName)) {
+      if (isSevere(advisory.severity) && (!id || !packageName)) {
         fail(`severe audit vulnerability ${name} cannot be tied to a concrete advisory`);
       }
       if (!id || !packageName) continue;
@@ -142,14 +153,15 @@ export function normalizeFindings(reportValue) {
   Object.keys(report.vulnerabilities).sort().forEach(visit);
   const result = [...findings.values()].sort((left, right) => findingKey(left).localeCompare(findingKey(right)));
   const counts = report.metadata.vulnerabilities;
-  if (counts.high + counts.critical > 0 && !result.some(item => item.severity === 'high' || item.severity === 'critical')) {
+  if (counts.high + counts.critical + counts.moderate > 0 && !result.some(item => isSevere(item.severity))) {
     fail('severe audit metadata cannot be tied to a concrete advisory');
   }
   return result;
 }
 
 function hasException(finding, workspace, exceptions) {
-  return exceptions.some(exception => exception.workspace === workspace
+  return exceptions.some(exception => (exception.status === undefined || exception.status === 'approved')
+    && exception.workspace === workspace
     && exception.scope === 'development'
     && exception.package === finding.package
     && exception.advisories.includes(finding.advisory));
@@ -175,7 +187,39 @@ function summarize(findings, scope) {
   return counts;
 }
 
-export function evaluateWorkspace({ workspace, productionReport, fullReport, policy, exceptions }) {
+function loadBaseline() {
+  let source;
+  try {
+    source = readFileSync(BASELINE_PATH, 'utf8');
+  } catch {
+    fail(`expected audit baseline is missing: ${BASELINE_PATH}`);
+  }
+  let value;
+  try {
+    value = JSON.parse(source);
+  } catch {
+    fail('expected audit baseline is not valid JSON');
+  }
+  return validateBaseline(value);
+}
+
+function baselineExceeded(findings, workspace, baseline, exceptions) {
+  const workspaceBaseline = baseline[workspace];
+  const exempted = finding => finding.scope === 'development' && hasException(finding, workspace, exceptions);
+  const excess = [];
+  for (const scope of SCOPES) {
+    for (const severity of GATE_SEVERITIES) {
+      const expected = workspaceBaseline[scope][severity];
+      const overBaseline = findings.filter(
+        finding => finding.scope === scope && finding.severity === severity && !exempted(finding),
+      );
+      if (overBaseline.length > expected) excess.push(...overBaseline.slice(expected));
+    }
+  }
+  return excess;
+}
+
+export function evaluateWorkspace({ workspace, productionReport, fullReport, policy, exceptions, baseline }) {
   if (!policy.workspaces.some(item => item.name === workspace)) fail(`unsupported workspace: ${workspace}`);
   const production = normalizeFindings(productionReport)
     .map(finding => ({ ...finding, scope: 'production' }));
@@ -185,15 +229,18 @@ export function evaluateWorkspace({ workspace, productionReport, fullReport, pol
     .map(finding => ({ ...finding, scope: 'development' }));
   const findings = [...production, ...development];
   const blockers = findings.filter(finding => gateBlocks(finding, workspace, policy, exceptions));
+  const baselineDocument = baseline === undefined ? loadBaseline() : validateBaseline(baseline);
+  const baselineExcess = baselineExceeded(findings, workspace, baselineDocument, exceptions);
 
   return {
     workspace,
-    passed: blockers.length === 0,
+    passed: blockers.length === 0 && baselineExcess.length === 0,
     counts: {
       production: summarize(findings, 'production'),
       development: summarize(findings, 'development'),
     },
     findings,
     blockers,
+    baselineExcess,
   };
 }

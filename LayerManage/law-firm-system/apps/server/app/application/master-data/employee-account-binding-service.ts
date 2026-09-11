@@ -1,4 +1,6 @@
 import { Prisma, PrismaClient } from '@prisma/client';
+import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
+import { DataScopeService } from '../authorization/data-scope-service';
 import { MasterDataError } from '../../domain/master-data/master-data-errors';
 import {
   assertExactKeys,
@@ -6,7 +8,11 @@ import {
   normalizeVersion,
 } from '../../domain/master-data/master-data-validation';
 import { writeMasterDataAudit } from './master-data-audit';
-import { EMPLOYEE_DETAIL_INCLUDE, projectEmployeeDetail } from './employee-projection';
+import {
+  EMPLOYEE_DETAIL_INCLUDE,
+  projectAuthorizedEmployeeDetail,
+  projectEmployeeDetail,
+} from './employee-projection';
 import { AuditActor, EmployeeDetail } from './master-data-types';
 
 interface BindAccountInput {
@@ -19,18 +25,25 @@ interface UnbindAccountInput {
 }
 
 export class EmployeeAccountBindingService {
+  private readonly authorization: AuthorizationService;
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly actor: AuditActor,
-  ) {}
+    private readonly authorizationContext: AuthorizationContext,
+  ) {
+    this.authorization = new AuthorizationService(new DataScopeService(prisma));
+  }
 
   async bind(employeeId: string, input: BindAccountInput): Promise<EmployeeDetail> {
+    this.authorization.requireAction(this.authorizationContext, 'employee.account_binding.manage');
     assertExactKeys(input, ['userId', 'employeeVersion']);
     const userId = normalizeRequiredText(input.userId, 1, 100);
     const employeeVersion = normalizeVersion(input.employeeVersion);
+    await this.requireEmployeeTarget(employeeId);
 
     try {
-      return await this.prisma.$transaction(async tx => {
+      const detail = await this.prisma.$transaction(async tx => {
         const employee = await lockEmployee(tx, employeeId);
         if (employee.version !== employeeVersion) versionConflict();
 
@@ -50,6 +63,7 @@ export class EmployeeAccountBindingService {
         });
         return loadEmployeeDetail(tx, employeeId);
       });
+      return this.project(detail, 'EMPLOYEE_ACCOUNT_BIND');
     } catch (error) {
       mapBindingConstraint(error);
       throw error;
@@ -57,10 +71,12 @@ export class EmployeeAccountBindingService {
   }
 
   async unbind(employeeId: string, input: UnbindAccountInput): Promise<EmployeeDetail> {
+    this.authorization.requireAction(this.authorizationContext, 'employee.account_binding.manage');
     assertExactKeys(input, ['employeeVersion']);
     const employeeVersion = normalizeVersion(input.employeeVersion);
+    await this.requireEmployeeTarget(employeeId);
 
-    return this.prisma.$transaction(async tx => {
+    const detail = await this.prisma.$transaction(async tx => {
       const employee = await lockEmployee(tx, employeeId);
       if (employee.version !== employeeVersion) versionConflict();
 
@@ -81,13 +97,31 @@ export class EmployeeAccountBindingService {
       });
       return loadEmployeeDetail(tx, employeeId);
     });
+    return this.project(detail, 'EMPLOYEE_ACCOUNT_UNBIND');
+  }
+
+  private async requireEmployeeTarget(employeeId: string): Promise<void> {
+    const where = await this.authorization.buildEmployeeTargetWhere(
+      this.authorizationContext,
+      'employee_account_binding',
+      'employee.account_binding.manage',
+    );
+    const employee = await this.prisma.employee.findFirst({
+      where: { AND: [where, { id: employeeId }] },
+      select: { id: true },
+    });
+    if (!employee) throw new MasterDataError('RESOURCE_NOT_FOUND_OR_FORBIDDEN', 404);
+  }
+
+  private project(detail: EmployeeDetail, purpose: string): Promise<EmployeeDetail> {
+    return projectAuthorizedEmployeeDetail(this.prisma, this.authorizationContext, detail, purpose);
   }
 }
 
 async function lockEmployee(tx: Prisma.TransactionClient, employeeId: string) {
   await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "employee" WHERE "id" = ${employeeId} FOR UPDATE`);
   const employee = await tx.employee.findUnique({ where: { id: employeeId } });
-  if (!employee) throw new MasterDataError('EMPLOYEE_NOT_FOUND', 404);
+  if (!employee || employee.deletedAt) throw new MasterDataError('EMPLOYEE_NOT_FOUND', 404);
   return employee;
 }
 
@@ -118,7 +152,7 @@ async function loadEmployeeDetail(
     where: { id: employeeId },
     include: EMPLOYEE_DETAIL_INCLUDE,
   });
-  if (!employee) throw new MasterDataError('EMPLOYEE_NOT_FOUND', 404);
+  if (!employee || employee.deletedAt) throw new MasterDataError('EMPLOYEE_NOT_FOUND', 404);
   return projectEmployeeDetail(employee);
 }
 

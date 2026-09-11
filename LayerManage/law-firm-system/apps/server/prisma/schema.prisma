@@ -10,26 +10,34 @@ datasource db {
 // ==================== 组织架构模块 ====================
 
 model Organization {
-  id        String   @id @default(uuid())
-  code      String   @unique
-  name      String
-  type      String // FIRM | HQ_CENTER | DEPARTMENT | BRANCH | GROUP
-  parentId  String?
-  path      String   @unique
-  level     Int      @default(0)
-  sort      Int      @default(0)
-  status    String   @default("ENABLED") // ENABLED | DISABLED
-  version   Int      @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  inventoryMovements InventoryMovement[]
+  id                 String              @id @default(uuid())
+  code               String              @unique
+  name               String
+  type               String // FIRM | HQ_CENTER | DEPARTMENT | BRANCH | GROUP
+  parentId           String?
+  managerEmployeeId  String?
+  path               String              @unique
+  level              Int                 @default(0)
+  sort               Int                 @unique @default(dbgenerated("next_organization_sort()"))
+  status             String              @default("ENABLED") // ENABLED | DISABLED
+  version            Int                 @default(1)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
-  parent             Organization?      @relation("OrgHierarchy", fields: [parentId], references: [id])
-  children           Organization[]     @relation("OrgHierarchy")
-  positions          Position[]
-  assignments        EmployeeAssignment[]
-  professionalTeams  ProfessionalTeam[]
-  systemInitialization SystemInitialization? @relation("RootOrganization")
+  parent                Organization?         @relation("OrgHierarchy", fields: [parentId], references: [id])
+  children              Organization[]        @relation("OrgHierarchy")
+  manager               Employee?             @relation("OrganizationManager", fields: [managerEmployeeId], references: [id], onDelete: Restrict)
+  positions             Position[]
+  assignments           EmployeeAssignment[]
+  professionalTeams     ProfessionalTeam[]
+  dataScopes            DataScope[]
+  dataScopeTargets      DataScopeTarget[]
+  systemInitialization  SystemInitialization? @relation("RootOrganization")
+  eventLogsOrganization EventLog[]            @relation("EventOrganization")
+  eventLogsBranch       EventLog[]            @relation("EventBranch")
 
+  @@index([managerEmployeeId])
   @@map("organization")
 }
 
@@ -46,7 +54,7 @@ model Position {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id])
+  organization Organization         @relation(fields: [organizationId], references: [id])
   assignments  EmployeeAssignment[]
 
   @@unique([organizationId, code])
@@ -57,44 +65,52 @@ model Position {
 // ==================== 人事/员工模块 ====================
 
 model Employee {
-  id                     String    @id @default(uuid())
-  employeeNo             String    @unique
+  inventoryReceipts      InventoryMovement[]
+  id                     String              @id @default(uuid())
+  employeeNo             String // Unique among non-LEAVED employees; partial index in migration.
   name                   String
-  idCard                 String?   @unique
-  licenseNo              String?   @unique
+  idCard                 String?             @unique
+  licenseNo              String?             @unique
   phone                  String
   email                  String?
   type                   String // PARTNER | SENIOR_LAWYER | JUNIOR_LAWYER | ASSISTANT | SALES | ADMIN | HR | FINANCE | OPERATOR
-  professionalDirections String[]  @default([])
-  status                 String    @default("PROBATION") // PROBATION | FORMAL | LEAVED
+  professionalDirections String[]            @default([])
+  status                 String              @default("PROBATION") // PROBATION | FORMAL | LEAVED
   entryDate              DateTime
   formalDate             DateTime?
   leaveDate              DateTime?
-  version                Int       @default(1)
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime?
+  version                Int                 @default(1)
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
 
-  user         User?
-  leads        Lead[]        @relation("LeadAssignee")
-  cases        Case[]        @relation("CaseLawyer")
-  performance  Performance[]
-  assignments  EmployeeAssignment[]
-  professionalTeams ProfessionalTeamMember[]
+  user                 User?
+  managedOrganizations Organization[]           @relation("OrganizationManager")
+  leads                Lead[]                   @relation("LeadAssignee")
+  cases                Case[]                   @relation("CaseLawyer")
+  performance          Performance[]
+  assignments          EmployeeAssignment[]
+  professionalTeams    ProfessionalTeamMember[]
+  dataScopeTargets     DataScopeTarget[]
+  reportingLines       EmployeeReportingLine[]  @relation("ReportingLineEmployee")
+  directReports        EmployeeReportingLine[]  @relation("ReportingLineManager")
+  negotiations         Negotiation[]
 
+  @@index([employeeNo])
   @@map("employee")
 }
 
 model EmployeeAssignment {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   employeeId     String
   organizationId String
   positionId     String
   assignmentType String
   startedAt      DateTime
   endedAt        DateTime?
-  version        Int      @default(1)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
@@ -120,6 +136,9 @@ model ProfessionalTeam {
 
   homeOrganization Organization             @relation(fields: [homeOrganizationId], references: [id], onDelete: Restrict)
   members          ProfessionalTeamMember[]
+  dataScopes       DataScope[]
+  dataScopeTargets DataScopeTarget[]
+  eventLogs        EventLog[]
 
   @@index([homeOrganizationId, status])
   @@index([categoryCode, status])
@@ -127,15 +146,15 @@ model ProfessionalTeam {
 }
 
 model ProfessionalTeamMember {
-  id                 String   @id @default(uuid())
+  id                 String    @id @default(uuid())
   professionalTeamId String
   employeeId         String
   memberRole         String
   startedAt          DateTime
   endedAt            DateTime?
-  version            Int      @default(1)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  version            Int       @default(1)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   professionalTeam ProfessionalTeam @relation(fields: [professionalTeamId], references: [id], onDelete: Restrict)
   employee         Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
@@ -162,12 +181,123 @@ model User {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  employee  Employee?  @relation(fields: [employeeId], references: [id])
-  userRoles UserRole[]
-  loginLogs LoginLog[]
-  systemInitialization SystemInitialization? @relation("FirstSuperAdmin")
+  employee                 Employee?              @relation(fields: [employeeId], references: [id])
+  userRoles                UserRole[]             @relation("AssignedUserRoles")
+  roleGrantsGiven          UserRole[]             @relation("RoleGrantedBy")
+  roleGrantsRevoked        UserRole[]             @relation("RoleRevokedBy")
+  permissionGrants         UserPermissionGrant[]  @relation("PermissionGrantUser")
+  permissionGrantsGiven    UserPermissionGrant[]  @relation("PermissionGrantedBy")
+  permissionGrantsRevoked  UserPermissionGrant[]  @relation("PermissionRevokedBy")
+  loginLogs                LoginLog[]
+  systemInitialization     SystemInitialization?  @relation("FirstSuperAdmin")
+  adminOperationsRequested AdminOperation[]       @relation("AdminOperationRequester")
+  adminOperationReviews    AdminOperationReview[] @relation("AdminOperationReviewer")
+  mfaFactors               MfaFactor[]
+  authChallenges           AuthChallenge[]
+  authSessions             AuthSession[]
+  stepUpGrants             StepUpGrant[]
+  eventLogsOperated        EventLog[]             @relation("EventOperator")
 
   @@map("user")
+}
+
+model MfaFactor {
+  id                  String    @id @default(uuid())
+  userId              String
+  type                String    @default("TOTP")
+  encryptedSecret     String
+  secretIv            String
+  secretAuthTag       String
+  keyVersion          Int       @default(1)
+  verifiedAt          DateTime? @db.Timestamptz(3)
+  lastAcceptedCounter BigInt?
+  disabledAt          DateTime? @db.Timestamptz(3)
+  createdAt           DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @db.Timestamptz(3)
+
+  user          User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  recoveryCodes MfaRecoveryCode[]
+
+  @@index([userId, verifiedAt, disabledAt])
+  @@map("mfa_factor")
+}
+
+model MfaRecoveryCode {
+  id        String    @id @default(uuid())
+  factorId  String
+  codeHash  String    @unique
+  usedAt    DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  factor MfaFactor @relation(fields: [factorId], references: [id], onDelete: Restrict)
+
+  @@index([factorId, usedAt])
+  @@map("mfa_recovery_code")
+}
+
+model AuthChallenge {
+  id             String    @id @default(uuid())
+  userId         String
+  type           String
+  tokenHash      String    @unique
+  failedAttempts Int       @default(0)
+  maxAttempts    Int       @default(5)
+  expiresAt      DateTime  @db.Timestamptz(3)
+  consumedAt     DateTime? @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, type, createdAt])
+  @@index([expiresAt, consumedAt])
+  @@map("auth_challenge")
+}
+
+model AuthSession {
+  id                       String    @id @default(uuid())
+  userId                   String
+  credentialVersion        Int
+  assuranceLevel           String
+  refreshTokenHash         String    @unique
+  previousRefreshTokenHash String?   @unique
+  previousRefreshRotatedAt DateTime? @db.Timestamptz(3)
+  refreshGeneration        Int       @default(1)
+  createdAt                DateTime  @default(now()) @db.Timestamptz(3)
+  lastSeenAt               DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt                DateTime  @db.Timestamptz(3)
+  revokedAt                DateTime? @db.Timestamptz(3)
+  revokedReason            String?
+  userAgentHash            String?
+  ipPrefix                 String?
+  stepUpFailedAttempts     Int       @default(0)
+  stepUpBlockedUntil       DateTime? @db.Timestamptz(3)
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  stepUpGrants StepUpGrant[]
+
+  @@index([userId, expiresAt])
+  @@index([revokedAt, expiresAt])
+  @@map("auth_session")
+}
+
+model StepUpGrant {
+  id           String    @id @default(uuid())
+  sessionId    String
+  userId       String
+  purpose      String
+  targetDigest String
+  tokenHash    String    @unique
+  expiresAt    DateTime  @db.Timestamptz(3)
+  consumedAt   DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  session AuthSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([sessionId, expiresAt])
+  @@index([userId, createdAt])
+  @@index([expiresAt, consumedAt])
+  @@map("step_up_grant")
 }
 
 model Role {
@@ -177,25 +307,114 @@ model Role {
   type        String // SYSTEM | BUSINESS
   description String?
   status      String   @default("ENABLED")
+  version     Int      @default(1)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  userRoles   UserRole[]
-  permissions RolePermission[]
+  userRoles        UserRole[]
+  permissions      RolePermission[]
+  dataScopes       RoleDataScope[]
+  fieldPermissions FieldPermission[]
 
   @@map("role")
 }
 
 model UserRole {
-  id     String @id @default(uuid())
-  userId String
-  roleId String
+  id              String    @id @default(uuid())
+  userId          String
+  roleId          String
+  source          String    @default("PERMANENT")
+  validFrom       DateTime  @default(now()) @db.Timestamptz(3)
+  validUntil      DateTime? @db.Timestamptz(3)
+  reason          String?
+  grantedByUserId String?
+  revokedAt       DateTime? @db.Timestamptz(3)
+  revokedByUserId String?
+  revokeReason    String?
+  version         Int       @default(1)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user      User  @relation("AssignedUserRoles", fields: [userId], references: [id], onDelete: Restrict)
+  role      Role  @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  grantedBy User? @relation("RoleGrantedBy", fields: [grantedByUserId], references: [id], onDelete: Restrict)
+  revokedBy User? @relation("RoleRevokedBy", fields: [revokedByUserId], references: [id], onDelete: Restrict)
 
-  @@unique([userId, roleId])
+  @@index([userId, validFrom, validUntil])
+  @@index([roleId, validFrom, validUntil])
   @@map("user_role")
+}
+
+model AdminOperation {
+  id                    String    @id @default(uuid())
+  operationNo           String    @unique
+  operationType         String
+  riskLevel             String
+  reviewMode            String
+  status                String
+  requesterUserId       String
+  targetType            String
+  targetId              String
+  reason                String
+  payloadSnapshot       Json
+  payloadHash           String
+  expectedTargetVersion Int
+  idempotencyKey        String
+  secondConfirmationAt  DateTime? @db.Timestamptz(3)
+  relatedOperationId    String?
+  version               Int       @default(1)
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+
+  requester         User                      @relation("AdminOperationRequester", fields: [requesterUserId], references: [id], onDelete: Restrict)
+  relatedOperation  AdminOperation?           @relation("RelatedAdminOperation", fields: [relatedOperationId], references: [id], onDelete: Restrict)
+  relatedOperations AdminOperation[]          @relation("RelatedAdminOperation")
+  reviews           AdminOperationReview[]
+  executions        AdminOperationExecution[]
+
+  @@unique([requesterUserId, idempotencyKey])
+  @@index([requesterUserId, createdAt])
+  @@index([status, createdAt])
+  @@index([operationType, createdAt])
+  @@index([targetType, targetId])
+  @@map("admin_operation")
+}
+
+model AdminOperationReview {
+  id               String   @id @default(uuid())
+  operationId      String
+  reviewerUserId   String
+  decision         String
+  comment          String?
+  operationVersion Int
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+
+  operation AdminOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  reviewer  User           @relation("AdminOperationReviewer", fields: [reviewerUserId], references: [id], onDelete: Restrict)
+
+  @@index([operationId, createdAt])
+  @@index([reviewerUserId, createdAt])
+  @@map("admin_operation_review")
+}
+
+model AdminOperationExecution {
+  id             String    @id @default(uuid())
+  operationId    String
+  attemptNo      Int
+  executorType   String
+  status         String
+  beforeSnapshot Json?
+  afterSnapshot  Json?
+  resultCode     String?
+  errorMessage   String?
+  startedAt      DateTime  @default(now()) @db.Timestamptz(3)
+  finishedAt     DateTime? @db.Timestamptz(3)
+
+  operation AdminOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
+
+  @@unique([operationId, attemptNo])
+  @@index([status, startedAt])
+  @@map("admin_operation_execution")
 }
 
 model Permission {
@@ -203,15 +422,21 @@ model Permission {
   code      String   @unique
   name      String
   parentId  String?
-  type      String // MENU | BUTTON | API
+  type      String // MENU | ACTION | SPECIAL
+  resource  String
+  action    String
+  riskLevel String
   path      String?
   sort      Int      @default(0)
   status    String   @default("ENABLED")
+  version   Int      @default(1)
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  parent   Permission?      @relation("PermHierarchy", fields: [parentId], references: [id])
-  children Permission[]     @relation("PermHierarchy")
-  roles    RolePermission[]
+  parent     Permission?           @relation("PermHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children   Permission[]          @relation("PermHierarchy")
+  roles      RolePermission[]
+  userGrants UserPermissionGrant[]
 
   @@map("permission")
 }
@@ -221,11 +446,123 @@ model RolePermission {
   roleId       String
   permissionId String
 
-  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
 
   @@unique([roleId, permissionId])
   @@map("role_permission")
+}
+
+model DataScope {
+  id                 String   @id @default(uuid())
+  name               String
+  scopeType          String
+  includeDescendants Boolean  @default(false)
+  organizationId     String?
+  professionalTeamId String?
+  status             String   @default("ENABLED")
+  version            Int      @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  organization     Organization?         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  professionalTeam ProfessionalTeam?     @relation(fields: [professionalTeamId], references: [id], onDelete: Restrict)
+  targets          DataScopeTarget[]
+  roleBindings     RoleDataScope[]
+  userGrants       UserPermissionGrant[]
+
+  @@index([scopeType, status])
+  @@map("data_scope")
+}
+
+model DataScopeTarget {
+  id                 String  @id @default(uuid())
+  dataScopeId        String
+  organizationId     String?
+  professionalTeamId String?
+  employeeId         String?
+
+  dataScope        DataScope         @relation(fields: [dataScopeId], references: [id], onDelete: Restrict)
+  organization     Organization?     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  professionalTeam ProfessionalTeam? @relation(fields: [professionalTeamId], references: [id], onDelete: Restrict)
+  employee         Employee?         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([dataScopeId])
+  @@map("data_scope_target")
+}
+
+model RoleDataScope {
+  id          String @id @default(uuid())
+  roleId      String
+  resource    String
+  dataScopeId String
+
+  role      Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  dataScope DataScope @relation(fields: [dataScopeId], references: [id], onDelete: Restrict)
+
+  @@unique([roleId, resource, dataScopeId])
+  @@index([roleId, resource])
+  @@map("role_data_scope")
+}
+
+model FieldPermission {
+  id        String  @id @default(uuid())
+  roleId    String
+  resource  String
+  fieldCode String
+  readLevel String
+  canWrite  Boolean @default(false)
+  canExport Boolean @default(false)
+  version   Int     @default(1)
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([roleId, resource, fieldCode])
+  @@map("field_permission")
+}
+
+model UserPermissionGrant {
+  id              String    @id @default(uuid())
+  userId          String
+  permissionId    String
+  dataScopeId     String
+  validFrom       DateTime  @db.Timestamptz(3)
+  validUntil      DateTime  @db.Timestamptz(3)
+  reason          String
+  grantedByUserId String
+  revokedAt       DateTime? @db.Timestamptz(3)
+  revokedByUserId String?
+  revokeReason    String?
+  version         Int       @default(1)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+
+  user       User       @relation("PermissionGrantUser", fields: [userId], references: [id], onDelete: Restrict)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+  dataScope  DataScope  @relation(fields: [dataScopeId], references: [id], onDelete: Restrict)
+  grantedBy  User       @relation("PermissionGrantedBy", fields: [grantedByUserId], references: [id], onDelete: Restrict)
+  revokedBy  User?      @relation("PermissionRevokedBy", fields: [revokedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([userId, validFrom, validUntil])
+  @@map("user_permission_grant")
+}
+
+model EmployeeReportingLine {
+  id                String    @id @default(uuid())
+  employeeId        String
+  managerEmployeeId String
+  startedAt         DateTime  @db.Timestamptz(3)
+  endedAt           DateTime? @db.Timestamptz(3)
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
+
+  employee Employee @relation("ReportingLineEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  manager  Employee @relation("ReportingLineManager", fields: [managerEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, endedAt])
+  @@index([managerEmployeeId, endedAt])
+  @@map("employee_reporting_line")
 }
 
 model LoginLog {
@@ -259,6 +596,7 @@ model SystemInitialization {
 
 model Channel {
   id          String   @id @default(uuid())
+  code        String   @unique
   name        String
   type        String // SEARCH | SHORT_VIDEO | LIVE | INFO_FLOW | WECHAT | REFERRAL | NATURAL | OFFLINE | OTHER
   accountInfo String?
@@ -267,7 +605,9 @@ model Channel {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  leads Lead[]
+  leads       Lead[]
+  campaigns   Campaign[]
+  costEntries CostEntry[]
 
   @@map("channel")
 }
@@ -275,29 +615,53 @@ model Channel {
 // ==================== 线索/销转模块 ====================
 
 model Lead {
-  id             String   @id @default(uuid())
-  name           String
-  phone          String
-  wechat         String?
-  channelId      String?
-  sourceDetail   String? // 具体来源，如"百度推广-关键词XX"
-  intentionLevel Int      @default(3) // 1-5星
-  status         String   @default("NEW") // NEW | CONTACTED | SCREENED | INVITED | VISITED | NEGOTIATING | QUOTED | SIGNED | LOST
-  assignedTo     String? // 负责人ID
-  isValid        Boolean  @default(true)
-  invalidReason  String?
-  tags           String? // JSON数组，客户标签
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                   String    @id @default(uuid())
+  leadNo               String    @unique
+  name                 String
+  phone                String
+  phoneHash            String
+  wechat               String?
+  wechatHash           String?
+  channelId            String?
+  sourceDetail         String? // 具体来源，如"百度推广-关键词XX"
+  sourceType           String    @default("MANUAL") // MANUAL | CAMPAIGN | REFERRAL | NATURAL | OFFLINE
+  campaignId           String?
+  referralCustomerId   String?
+  intentionLevel       Int       @default(3) // 1-5星
+  status               String    @default("NEW") // NEW | ASSIGNED | CONTACTED | SCREENED | INVITED | VISITED | CONVERTED | LOST | NURTURE
+  branchId             String?
+  professionalTeamId   String?
+  assignedTo           String? // 负责人ID
+  poolStatus           String    @default("PUBLIC") // PUBLIC | PRIVATE | RECYCLED
+  firstResponseSeconds Int?
+  assignedAt           DateTime?
+  isValid              Boolean   @default(true)
+  invalidReason        String?
+  tags                 String? // JSON数组，客户标签
+  createdBy            String
+  updatedBy            String?
+  version              Int       @default(1)
+  deletedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  channel       Channel?     @relation(fields: [channelId], references: [id])
-  assignee      Employee?    @relation("LeadAssignee", fields: [assignedTo], references: [id])
-  followRecords LeadFollow[]
-  customer      Customer?
+  channel          Channel?         @relation(fields: [channelId], references: [id])
+  campaign         Campaign?        @relation(fields: [campaignId], references: [id])
+  assignee         Employee?        @relation("LeadAssignee", fields: [assignedTo], references: [id])
+  referralCustomer Customer?        @relation("LeadReferralCustomer", fields: [referralCustomerId], references: [id])
+  followRecords    LeadFollow[]
+  customer         Customer?        @relation("CustomerSourceLead")
+  poolRecords      LeadPoolRecord[]
+  appointments     Appointment[]
 
   @@index([status])
   @@index([assignedTo])
   @@index([channelId])
+  @@index([phoneHash])
+  @@index([poolStatus])
+  @@index([campaignId])
+  @@index([branchId])
+  @@index([professionalTeamId])
   @@map("lead")
 }
 
@@ -309,6 +673,7 @@ model LeadFollow {
   nextPlan  String? // 下次计划
   nextTime  DateTime? // 下次跟进时间
   createdBy String // 跟进人
+  updatedBy String? // 更新人
   createdAt DateTime  @default(now())
 
   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
@@ -320,83 +685,410 @@ model LeadFollow {
 // ==================== 客户模块 ====================
 
 model Customer {
+  id           String    @id @default(uuid())
+  customerNo   String    @unique
+  name         String
+  phone        String
+  phoneHash    String
+  wechat       String?
+  email        String?
+  address      String?
+  status       String    @default("POTENTIAL") // POTENTIAL | INTENT | SIGNED | INACTIVE
+  customerType String    @default("INDIVIDUAL") // INDIVIDUAL | ENTERPRISE
+  sourceLeadId String?   @unique // 关联线索
+  tags         String? // JSON数组
+  remark       String?
+  createdBy    String
+  updatedBy    String?
+  version      Int       @default(1)
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sourceLead          Lead?                @relation("CustomerSourceLead", fields: [sourceLeadId], references: [id])
+  referrals           Lead[]               @relation("LeadReferralCustomer")
+  contacts            Contact[]
+  contracts           Contract[]
+  cases               Case[]
+  payments            Payment[]
+  negotiations        Negotiation[]
+  analysisEngagements AnalysisEngagement[]
+  invoiceRequests     InvoiceRequest[]
+  refundRequests      RefundRequest[]
+
+  @@index([status])
+  @@index([phoneHash])
+  @@map("customer")
+}
+
+// ==================== 投放/线索池/邀约/联系人模块 ====================
+
+model Campaign {
   id        String   @id @default(uuid())
+  code      String   @unique
   name      String
-  phone     String
-  wechat    String?
-  idCard    String?  @unique
-  email     String?
-  address   String?
-  status    String   @default("POTENTIAL") // POTENTIAL | INTENT | SIGNED | INACTIVE
-  leadId    String?  @unique // 关联线索
-  tags      String? // JSON数组
-  remark    String?
+  channelId String?
+  status    String   @default("ENABLED") // ENABLED | DISABLED
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lead      Lead?      @relation(fields: [leadId], references: [id])
-  contracts Contract[]
-  cases     Case[]
-  payments  Payment[]
+  channel Channel? @relation(fields: [channelId], references: [id])
+  leads   Lead[]
 
+  @@map("campaign")
+}
+
+model LeadPoolRecord {
+  id             String   @id @default(uuid())
+  leadId         String
+  action         String // CLAIM | ASSIGN | REASSIGN | RECYCLE
+  fromEmployeeId String?
+  toEmployeeId   String?
+  reason         String?
+  operatedBy     String
+  createdAt      DateTime @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, createdAt])
+  @@map("lead_pool_record")
+}
+
+model Appointment {
+  id                   String   @id @default(uuid())
+  appointmentNo        String   @unique
+  leadId               String
+  scheduledAt          DateTime
+  channel              String // ONSITE | ONLINE
+  negotiatorEmployeeId String?
+  status               String   @default("PENDING") // PENDING|CONFIRMED|VISITED|NOSHOW|CANCELLED|RESCHEDULED
+  rescheduledFromId    String?
+  remark               String?
+  createdBy            String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  lead            Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  rescheduledFrom Appointment?  @relation("AppointmentReschedule", fields: [rescheduledFromId], references: [id])
+  rescheduledTo   Appointment[] @relation("AppointmentReschedule")
+
+  @@index([leadId, scheduledAt])
+  @@index([status, scheduledAt])
+  @@map("appointment")
+}
+
+model Contact {
+  id         String    @id @default(uuid())
+  customerId String
+  name       String
+  phone      String
+  phoneHash  String
+  wechat     String?
+  relation   String?
+  isPrimary  Boolean   @default(false)
+  createdBy  String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, phoneHash])
+  @@index([customerId])
+  @@map("contact")
+}
+
+// ==================== 谈案模块 ====================
+
+model Negotiation {
+  id                   String    @id @default(uuid())
+  negotiationNo        String    @unique
+  customerId           String
+  leadId               String?
+  appointmentId        String?
+  negotiatorEmployeeId String
+  quotedAmount         Decimal?  @db.Decimal(18, 2)
+  customerConcerns     String?
+  competitorInfo       String?
+  status               String    @default("NEGOTIATING") // NEGOTIATING|SIGNED|UNSIGNED
+  unsignedReason       String?
+  signedAt             DateTime?
+  remark               String?
+  branchId             String?
+  professionalTeamId   String?
+  createdBy            String
+  updatedBy            String?
+  version              Int       @default(1)
+  deletedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  customer   Customer   @relation(fields: [customerId], references: [id])
+  negotiator Employee   @relation(fields: [negotiatorEmployeeId], references: [id])
+  contracts  Contract[]
+
+  @@index([customerId])
   @@index([status])
-  @@map("customer")
+  @@index([negotiatorEmployeeId])
+  @@index([branchId, createdAt])
+  @@map("negotiation")
 }
 
 // ==================== 合同模块 ====================
 
-model Contract {
-  id           String    @id @default(uuid())
-  contractNo   String    @unique
-  title        String
-  type         String // CONSULTING | RETAINER | LITIGATION | ARBITRATION | MEDIATION | OTHER
-  customerId   String
-  amount       Decimal   @default(0) @db.Decimal(18, 2) // 合同金额
-  paidAmount   Decimal   @default(0) @db.Decimal(18, 2) // 已付款
-  status       String    @default("DRAFT") // DRAFT | PENDING | APPROVED | SIGNED | EXECUTING | COMPLETED | TERMINATED | CANCELLED
-  signDate     DateTime?
-  startDate    DateTime?
-  endDate      DateTime?
-  paymentTerms String? // 付款条件，JSON
-  terms        String? // 特殊条款
+model ContractTemplate {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  contractType String // FIRST_SIGN|FORMAL|SUPPLEMENT|RISK_NOTICE
+  name         String
+  content      String
+  version      Int      @default(1)
+  enabled      Boolean  @default(true)
   createdBy    String
-  approvedBy   String?
-  approvedAt   DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  updatedBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  customer Customer  @relation(fields: [customerId], references: [id])
-  payments Payment[]
-  case     Case?
+  @@map("contract_template")
+}
+
+model ContractNumberSequence {
+  id         String @id @default(uuid())
+  scopeKey   String @unique // {contractType}|{branchCode}|{teamCode}|{yyyy}
+  lastSerial Int    @default(0)
+
+  @@map("contract_number_sequence")
+}
+
+model Contract {
+  id                   String    @id @default(uuid())
+  contractNo           String    @unique
+  contractType         String // FIRST_SIGN|FORMAL|SUPPLEMENT|RISK_NOTICE
+  title                String
+  customerId           String
+  sourceType           String    @default("CUSTOMER") // CUSTOMER|NEGOTIATION|ANALYSIS|CASE
+  sourceId             String?
+  negotiationId        String?
+  parentContractId     String?
+  templateCode         String?
+  templateVersion      Int?
+  branchId             String?
+  professionalTeamId   String?
+  amount               Decimal   @default(0) @db.Decimal(18, 2)
+  receivedAmount       Decimal   @default(0) @db.Decimal(18, 2)
+  status               String    @default("DRAFT") // DRAFT|PENDING_APPROVAL|PENDING_SIGN|SIGNED|EFFECTIVE|TERMINATED|VOID
+  submittedBy          String?
+  submittedAt          DateTime?
+  approvedBy           String?
+  approvedAt           DateTime?
+  approvalComment      String?
+  signDate             DateTime?
+  esignLinkId          String?
+  esignSerialNo        String?
+  esignStatus          String?
+  esignCallbackPayload Json?
+  effectiveDate        DateTime?
+  terminatedAt         DateTime?
+  terminateReason      String?
+  voidedAt             DateTime?
+  voidReason           String?
+  startDate            DateTime?
+  endDate              DateTime?
+  paymentTerms         String?
+  terms                String?
+  createdBy            String
+  updatedBy            String?
+  version              Int       @default(1)
+  deletedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  customer           Customer            @relation(fields: [customerId], references: [id])
+  negotiation        Negotiation?        @relation(fields: [negotiationId], references: [id])
+  parentContract     Contract?           @relation("ContractSupplement", fields: [parentContractId], references: [id])
+  supplements        Contract[]          @relation("ContractSupplement")
+  paymentPlans       PaymentPlan[]
+  payments           Payment[]
+  case               Case?
+  analysisEngagement AnalysisEngagement?
+  invoiceRequests    InvoiceRequest[]
+  refundRequests     RefundRequest[]
 
   @@index([status])
   @@index([customerId])
+  @@index([contractType, status])
+  @@index([branchId, createdAt])
+  @@index([professionalTeamId])
   @@map("contract")
+}
+
+model PaymentPlan {
+  id             String   @id @default(uuid())
+  planNo         String   @unique
+  contractId     String
+  period         Int
+  dueDate        DateTime
+  amount         Decimal  @db.Decimal(18, 2)
+  receivedAmount Decimal  @default(0) @db.Decimal(18, 2)
+  status         String   @default("PENDING") // PENDING|PARTIAL|RECEIVED|CANCELLED|OVERDUE
+  version        Int      @default(1)
+  createdBy      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  contract       Contract        @relation(fields: [contractId], references: [id])
+  payments       Payment[]
+  refundRequests RefundRequest[]
+
+  @@index([contractId, period])
+  @@index([status, dueDate])
+  @@map("payment_plan")
+}
+
+model AnalysisEngagement {
+  id           String   @id @default(uuid())
+  engagementNo String   @unique
+  customerId   String
+  contractId   String   @unique
+  status       String   @default("PENDING") // PENDING|IN_PROGRESS|COMPLETED
+  createdBy    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  contract Contract @relation(fields: [contractId], references: [id])
+
+  @@index([customerId])
+  @@map("analysis_engagement")
 }
 
 // ==================== 财务/收款模块 ====================
 
 model Payment {
-  id             String    @id @default(uuid())
-  contractId     String?
-  customerId     String
-  amount         Decimal   @default(0) @db.Decimal(18, 2) // 应收金额
-  receivedAmount Decimal   @default(0) @db.Decimal(18, 2) // 已收金额
-  status         String    @default("PENDING") // PENDING | RECEIVED | OVERDUE | REFUNDED
-  dueDate        DateTime? // 应收日期
-  receivedDate   DateTime? // 实收日期
-  paymentMethod  String? // 收款方式
-  paymentAccount String? // 收款账户
-  remark         String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id            String    @id @default(uuid())
+  paymentNo     String    @unique
+  contractId    String
+  paymentPlanId String?
+  customerId    String
+  amount        Decimal   @db.Decimal(18, 2)
+  method        String?
+  account       String?
+  paidAt        DateTime?
+  status        String    @default("PENDING") // PENDING|CONFIRMED|REFUNDED|VOIDED
+  confirmedBy   String?
+  confirmedAt   DateTime?
+  voidedBy      String?
+  voidedAt      DateTime?
+  voidReason    String?
+  remark        String?
+  createdBy     String
+  updatedBy     String?
+  version       Int       @default(1)
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  contract Contract? @relation(fields: [contractId], references: [id])
-  customer Customer  @relation(fields: [customerId], references: [id])
+  contract       Contract        @relation(fields: [contractId], references: [id])
+  paymentPlan    PaymentPlan?    @relation(fields: [paymentPlanId], references: [id])
+  customer       Customer        @relation(fields: [customerId], references: [id])
+  refundRequests RefundRequest[]
 
-  @@index([status])
   @@index([contractId])
+  @@index([paymentPlanId])
+  @@index([status])
+  @@index([customerId])
   @@map("payment")
+}
+
+// ==================== 财务运营模块（SPEC-011 FIN-02~04） ====================
+
+model InvoiceRequest {
+  id              String    @id @default(uuid())
+  requestNo       String    @unique
+  contractId      String
+  customerId      String
+  amount          Decimal   @db.Decimal(18, 2)
+  reason          String?
+  status          String    @default("PENDING") // PENDING|APPROVED|REJECTED|COMPLETED
+  approvedBy      String?
+  approvedAt      DateTime?
+  approvalComment String?
+  invoiceNo       String?
+  completedBy     String?
+  completedAt     DateTime?
+  createdBy       String
+  updatedBy       String?
+  version         Int       @default(1)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  contract Contract @relation(fields: [contractId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([contractId])
+  @@index([customerId])
+  @@index([status])
+  @@map("invoice_request")
+}
+
+model RefundRequest {
+  id              String    @id @default(uuid())
+  requestNo       String    @unique
+  type            String // REFUND|WAIVER
+  contractId      String
+  customerId      String
+  paymentId       String?
+  planId          String?
+  amount          Decimal   @db.Decimal(18, 2)
+  reason          String
+  status          String    @default("PENDING") // PENDING|APPROVED|REJECTED|EXECUTED
+  approvedBy      String?
+  approvedAt      DateTime?
+  approvalComment String?
+  executedBy      String?
+  executedAt      DateTime?
+  createdBy       String
+  updatedBy       String?
+  version         Int       @default(1)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  contract Contract     @relation(fields: [contractId], references: [id])
+  customer Customer     @relation(fields: [customerId], references: [id])
+  payment  Payment?     @relation(fields: [paymentId], references: [id])
+  plan     PaymentPlan? @relation(fields: [planId], references: [id])
+
+  @@index([contractId])
+  @@index([paymentId])
+  @@index([planId])
+  @@index([status])
+  @@map("refund_request")
+}
+
+model CostEntry {
+  sourceApprovalId String?           @unique
+  sourceApproval   ApprovalInstance? @relation(fields: [sourceApprovalId], references: [id], onDelete: Restrict)
+  id               String            @id @default(uuid())
+  category         String // CHANNEL|EVIDENCE|CASE_HANDLING|LABOR|OFFICE
+  amount           Decimal           @db.Decimal(18, 2)
+  occurredAt       DateTime
+  note             String?
+  channelId        String?
+  caseId           String?
+  createdBy        String
+  updatedBy        String?
+  version          Int               @default(1)
+  deletedAt        DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  channel Channel? @relation(fields: [channelId], references: [id])
+  case    Case?    @relation(fields: [caseId], references: [id])
+
+  @@index([category])
+  @@index([channelId])
+  @@index([caseId])
+  @@map("cost_entry")
 }
 
 // ==================== 案件模块 ====================
@@ -407,7 +1099,7 @@ model Case {
   title        String
   customerId   String
   contractId   String?   @unique
-  lawyerId     String // 主办律师
+  lawyerId     String? // 主办律师
   teamIds      String? // 协办团队，JSON数组
   caseType     String // 案由/案件类型
   status       String    @default("PENDING") // PENDING | ACCEPTED | PROCESSING | CLOSED | ARCHIVED
@@ -418,18 +1110,38 @@ model Case {
   satisfaction Int? // 满意度 1-5
   isReferrable Boolean   @default(false) // 是否可转介绍
   closedAt     DateTime?
+  version      Int       @default(1) // SPEC-035 乐观锁（updateCase updateMany {id, version}）
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   customer       Customer        @relation(fields: [customerId], references: [id])
   contract       Contract?       @relation(fields: [contractId], references: [id])
-  lawyer         Employee        @relation("CaseLawyer", fields: [lawyerId], references: [id])
+  lawyer         Employee?       @relation("CaseLawyer", fields: [lawyerId], references: [id])
   tasks          CaseTask[]
   communications Communication[]
+  costEntries    CostEntry[]
+  files          CaseFile[]
 
   @@index([status])
   @@index([lawyerId])
   @@map("case")
+}
+
+// SPEC-042：案件文件/证据台账——base64 上传落盘，落盘用 UUID 文件名防路径穿越，fileName 仅存元数据。
+model CaseFile {
+  id         String   @id @default(uuid())
+  caseId     String
+  fileName   String // 原始文件名（元数据，落盘用 UUID）
+  fileType   String // MIME 类型
+  filePath   String // 相对存储路径 var/storage/case-files/<uuid>
+  fileSize   Int // 字节数
+  uploadedBy String
+  createdAt  DateTime @default(now())
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@map("case_file")
 }
 
 model CaseTask {
@@ -468,17 +1180,25 @@ model Communication {
 // ==================== 绩效模块 ====================
 
 model Performance {
-  id         String   @id @default(uuid())
-  employeeId String
-  period     String // 考核周期，如"2026-04"
-  type       String // MONTHLY | QUARTERLY | YEARLY
-  kpiData    String // KPI数据，JSON
-  score      Decimal? @db.Decimal(18, 2) // 绩效分数
-  bonus      Decimal? @db.Decimal(18, 2) // 奖金
-  remark     String?
-  status     String   @default("PENDING") // PENDING | CONFIRMED
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id             String    @id @default(uuid())
+  employeeId     String
+  period         String // 考核周期，如"2026-04"
+  type           String // MONTHLY | QUARTERLY | YEARLY
+  kpiData        String // KPI数据，JSON
+  score          Decimal?  @db.Decimal(18, 2) // 绩效分数
+  bonus          Decimal?  @db.Decimal(18, 2) // 奖金
+  remark         String?
+  status         String    @default("PENDING") // PENDING | SELF_REVIEWED | MANAGER_REVIEWED | CONFIRMED
+  // SPEC-043：绩效考核流程字段——目标设定/自评/主管评。
+  goal           String?
+  selfScore      Int?
+  selfComment    String?
+  managerScore   Int?
+  managerComment String?
+  reviewerId     String? // 主管评人
+  reviewedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   employee Employee @relation(fields: [employeeId], references: [id])
 
@@ -486,37 +1206,220 @@ model Performance {
   @@map("performance")
 }
 
-// ==================== 审批/流程模块 ====================
+// ==================== 审批中心（SPEC-013） ====================
 
-model Approval {
+model ApprovalDefinition {
+  syncRule     ApprovalSyncRule?
+  ownerUserId  String? // null = 公共类型；个人类型仅所有者可申请
+  id           String            @id @default(uuid())
+  code         String            @unique
+  name         String
+  businessType String // EXPENSE|CONTRACT_CHANGE|SEAL|LEAVE|TRANSFER
+  formSchema   Json // 表单字段+校验规格
+  approverRule Json // {type:'USER',userIds:[...]} | {type:'ROLE',roleCodes:[...]}
+  nodeSchema   Json? // 多级节点链；缺省=顶层 approverRule 单节点
+  version      Int               @default(1)
+  status       String            @default("ACTIVE") // ACTIVE|DISABLED
+  createdBy    String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  instances ApprovalInstance[]
+
+  @@map("approval_definition")
+}
+
+model ApprovalInstance {
+  syncRecord        ApprovalSyncRecord?
+  payrollBatch      PayrollBatch?
+  costEntry         CostEntry?
+  formSnapshot      Json? // 类型名称、字段标签快照，供归档
+  requestKey        String?              @unique
+  requestHash       String?
+  attachments       ApprovalAttachment[]
+  id                String               @id @default(uuid())
+  definitionId      String
+  definitionVersion Int
+  businessType      String // EXPENSE|CONTRACT_CHANGE|SEAL|LEAVE|TRANSFER
+  title             String
+  content           Json // 表单值快照
+  currentNode       Int                  @default(0) // 当前活动节点下标
+  applicantId       String
+  status            String               @default("PENDING") // PENDING|APPROVED|REJECTED|WITHDRAWN
+  decidedBy         String?
+  decidedAt         DateTime?
+  version           Int                  @default(1)
+  createdBy         String
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  definition ApprovalDefinition @relation(fields: [definitionId], references: [id])
+  tasks      ApprovalTask[]
+
+  @@index([applicantId])
+  @@index([businessType, status])
+  @@map("approval_instance")
+}
+
+model ApprovalTask {
   id          String    @id @default(uuid())
-  type        String // REFUND | EXPENSE | CONTRACT_CHANGE | SEAL | LEAVE | TRANSFER | OTHER
-  title       String
-  applicantId String
-  content     String // 申请内容，JSON
-  status      String    @default("PENDING") // PENDING | APPROVED | REJECTED
-  approverId  String?
-  approvedAt  DateTime?
+  instanceId  String
+  nodeName    String    @default("审批")
+  assigneeId  String
+  status      String    @default("PENDING") // PENDING|APPROVED|REJECTED|CANCELLED
   remark      String?
+  processedBy String?
+  processedAt DateTime?
+  version     Int       @default(1)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  @@index([status])
-  @@map("approval")
+  instance ApprovalInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@index([assigneeId, status])
+  @@map("approval_task")
+}
+
+model CallbackAction {
+  id          String   @id @default(uuid())
+  instanceId  String
+  action      String // APPROVE|REJECT
+  callbackKey String   @unique
+  status      String   @default("RESPONDED")
+  result      Json
+  createdAt   DateTime @default(now())
+
+  @@index([instanceId])
+  @@map("callback_action")
+}
+
+// ==================== 可靠事件中心 ====================
+
+model EventLog {
+  id             String    @id @default(uuid())
+  eventType      String
+  eventVersion   Int
+  sourceModule   String
+  objectType     String
+  objectId       String
+  orderingKey    String
+  operatorUserId String?
+  organizationId String?
+  branchId       String?
+  teamId         String?
+  payload        Json
+  traceId        String
+  occurredAt     DateTime  @db.Timestamptz(3)
+  dispatchedAt   DateTime? @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+
+  operator     User?             @relation("EventOperator", fields: [operatorUserId], references: [id], onDelete: Restrict)
+  organization Organization?     @relation("EventOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Organization?     @relation("EventBranch", fields: [branchId], references: [id], onDelete: Restrict)
+  team         ProfessionalTeam? @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  deliveries   EventDelivery[]
+
+  @@index([dispatchedAt, createdAt])
+  @@index([eventType, eventVersion, createdAt])
+  @@index([objectType, objectId, occurredAt])
+  @@index([traceId])
+  @@map("event_log")
+}
+
+model EventSubscription {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  eventType    String
+  eventVersion Int
+  handlerCode  String
+  status       String   @default("ENABLED")
+  filterJson   Json?
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  deliveries EventDelivery[]
+
+  @@index([status, eventType, eventVersion])
+  @@map("event_subscription")
+}
+
+model EventDelivery {
+  id                 String    @id @default(uuid())
+  eventId            String
+  subscriptionId     String
+  handlerCode        String
+  orderingKey        String
+  status             String    @default("PENDING")
+  attemptCount       Int       @default(0)
+  manualRetryCount   Int       @default(0)
+  nextAttemptAt      DateTime? @db.Timestamptz(3)
+  lockedBy           String?
+  lockedUntil        DateTime? @db.Timestamptz(3)
+  lastErrorCode      String?
+  lastErrorReference String?
+  version            Int       @default(0)
+  startedAt          DateTime? @db.Timestamptz(3)
+  completedAt        DateTime? @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+
+  event        EventLog          @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  subscription EventSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  handlerLogs  EventHandlerLog[]
+
+  @@unique([eventId, handlerCode], map: "event_delivery_event_handler_key")
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([handlerCode, orderingKey, status, createdAt])
+  @@map("event_delivery")
+}
+
+model EventHandlerLog {
+  id             String   @id @default(uuid())
+  deliveryId     String
+  attemptNumber  Int
+  workerId       String
+  outcome        String
+  errorCode      String?
+  errorReference String?
+  durationMs     Int
+  startedAt      DateTime @db.Timestamptz(3)
+  completedAt    DateTime @db.Timestamptz(3)
+
+  delivery EventDelivery @relation(fields: [deliveryId], references: [id], onDelete: Restrict)
+
+  @@unique([deliveryId, attemptNumber], map: "event_handler_log_delivery_attempt_key")
+  @@index([outcome, completedAt])
+  @@map("event_handler_log")
 }
 
 // ==================== 通知/提醒模块 ====================
 
+model EventWorkerRuntimeStatus {
+  slot                 String    @id
+  configuredEnabled    Boolean
+  state                String
+  processStartedAt     DateTime  @db.Timestamptz(3)
+  lastHeartbeatAt      DateTime? @db.Timestamptz(3)
+  lastSuccessfulTickAt DateTime? @db.Timestamptz(3)
+  lastStoppedAt        DateTime? @db.Timestamptz(3)
+  version              Int       @default(1)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@map("event_worker_runtime_status")
+}
+
 model Notification {
-  id          String   @id @default(uuid())
-  userId      String
-  type        String // SYSTEM | TASK | REMINDER | APPROVAL
-  title       String
-  content     String
-  isRead      Boolean  @default(false)
-  relatedId   String? // 关联的业务ID
-  relatedType String? // 关联的业务类型
-  createdAt   DateTime @default(now())
+  id               String   @id @default(uuid())
+  userId           String
+  type             String // SYSTEM | TASK | REMINDER | APPROVAL
+  title            String
+  content          String
+  isRead           Boolean  @default(false)
+  relatedId        String? // 关联的业务ID
+  relatedType      String? // 关联的业务类型
+  deduplicationKey String?  @unique
+  routeUrl         String?
+  createdAt        DateTime @default(now())
 
   @@index([userId, isRead])
   @@map("notification")
@@ -537,4 +1440,142 @@ model OperationLog {
 
   @@index([targetType, targetId])
   @@map("operation_log")
+}
+
+// SPEC-APPR-20260911：材料在绑定审批后不可变；原件与编辑副本分别保存。
+model ApprovalAttachment {
+  payrollBatches PayrollBatch[]
+  id             String               @id @default(uuid())
+  ownerUserId    String
+  instanceId     String?
+  fileName       String
+  mimeType       String
+  fileSize       Int
+  sha256         String
+  bytes          Bytes
+  sourceId       String?
+  source         ApprovalAttachment?  @relation("AttachmentOriginal", fields: [sourceId], references: [id], onDelete: Restrict)
+  revisions      ApprovalAttachment[] @relation("AttachmentOriginal")
+  createdAt      DateTime             @default(now())
+  instance       ApprovalInstance?    @relation(fields: [instanceId], references: [id], onDelete: Restrict)
+
+  @@index([instanceId])
+  @@index([ownerUserId, createdAt])
+  @@map("approval_attachment")
+}
+
+model ApprovalSyncRule {
+  definitionId String             @id
+  target       String
+  definition   ApprovalDefinition @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+  updatedAt    DateTime           @updatedAt
+
+  @@map("approval_sync_rule")
+}
+
+model ApprovalSyncRecord {
+  instanceId String           @id
+  target     String
+  status     String
+  targetId   String?
+  reason     String?
+  attempts   Int              @default(0)
+  instance   ApprovalInstance @relation(fields: [instanceId], references: [id], onDelete: Restrict)
+  updatedAt  DateTime         @updatedAt
+
+  @@index([target, status])
+  @@map("approval_sync_record")
+}
+
+model PayrollBatch {
+  id           String             @id @default(uuid())
+  ownerUserId  String
+  title        String
+  period       String
+  attachmentId String
+  attachment   ApprovalAttachment @relation(fields: [attachmentId], references: [id], onDelete: Restrict)
+  instanceId   String?            @unique
+  instance     ApprovalInstance?  @relation(fields: [instanceId], references: [id], onDelete: Restrict)
+  version      Int                @default(1)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([ownerUserId, createdAt])
+  @@map("payroll_batch")
+}
+
+model InventoryItem {
+  id            String               @id @default(uuid())
+  code          String               @unique
+  name          String
+  kind          String
+  category      String
+  unit          String
+  specification String?
+  location      String?
+  stock         Decimal              @default(0) @db.Decimal(18, 3)
+  minimumStock  Decimal              @default(0) @db.Decimal(18, 3)
+  status        String               @default("ENABLED")
+  version       Int                  @default(1)
+  createdBy     String
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  movements     InventoryMovement[]
+  stocktakes    InventoryStocktake[]
+
+  @@index([kind, status])
+  @@map("inventory_item")
+}
+
+model InventoryMovement {
+  id                String        @id @default(uuid())
+  documentNo        String        @unique
+  requestKey        String        @unique
+  requestHash       String
+  itemId            String
+  item              InventoryItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  action            String
+  itemKind          String
+  itemName          String
+  itemSpecification String?
+  unit              String
+  quantity          Decimal       @db.Decimal(18, 3)
+  beforeStock       Decimal       @db.Decimal(18, 3)
+  afterStock        Decimal       @db.Decimal(18, 3)
+  employeeId        String?
+  employee          Employee?     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  employeeName      String?
+  organizationId    String?
+  organization      Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organizationPath  String?
+  source            String?
+  reason            String?
+  occurredAt        DateTime
+  createdBy         String
+  createdAt         DateTime      @default(now())
+
+  @@index([itemId, occurredAt])
+  @@index([action, itemKind, occurredAt])
+  @@map("inventory_movement")
+}
+
+model InventoryStocktake {
+  id          String        @id @default(uuid())
+  documentNo  String        @unique
+  requestKey  String        @unique
+  requestHash String
+  itemId      String
+  item        InventoryItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  itemName    String
+  unit        String
+  bookStock   Decimal       @db.Decimal(18, 3)
+  actualStock Decimal       @db.Decimal(18, 3)
+  difference  Decimal       @db.Decimal(18, 3)
+  reason      String?
+  occurredAt  DateTime
+  createdBy   String
+  createdAt   DateTime      @default(now())
+
+  @@index([itemId, occurredAt])
+  @@map("inventory_stocktake")
 }

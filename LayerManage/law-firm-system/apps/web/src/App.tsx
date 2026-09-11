@@ -1,43 +1,69 @@
+import ChineseConfig from './components/ChineseConfig';
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router';
+import { Spin } from 'antd';
 import { useAuthStore } from './stores/authStore';
-import { usePasswordChangeStore } from './stores/passwordChangeStore';
+import { useChallengeStore } from './features/auth/challengeStore';
+import type { PermissionCode } from './features/authorization/types';
+import PermissionRoute from './features/authorization/PermissionRoute';
 import MainLayout from './components/Layout';
 import Login from './pages/Login';
 import PasswordChange from './pages/PasswordChange';
 import Dashboard from './pages/Dashboard';
-import CustomerPage from './pages/Customer';
-import ContractPage from './pages/Contract';
+import LeadListPage from './pages/leads/LeadListPage';
+import LeadDetailPage from './pages/leads/LeadDetailPage';
+import PublicPoolPage from './pages/leads/PublicPoolPage';
+import VisitCalendarPage from './pages/leads/VisitCalendarPage';
+import CustomerListPage from './pages/customers/CustomerListPage';
+import CustomerDetailPage from './pages/customers/CustomerDetailPage';
+import NegotiationListPage from './pages/negotiations/NegotiationListPage';
+import ContractListPage from './pages/contracts/ContractListPage';
+import ContractDetailPage from './pages/contracts/ContractDetailPage';
+import ContractCreatePage from './pages/contracts/ContractCreatePage';
+import FinanceWorkspace from './pages/finance/FinanceWorkspace';
+import ApprovalLedger from './pages/approvals/ApprovalLedger';
+
+
+import CostListPage from './pages/costs/CostListPage';
+import AnomalyListPage from './pages/anomalies/AnomalyListPage';
 import CasePage from './pages/Case';
-import PaymentPage from './pages/Payment';
 import EmployeePage from './pages/Employee';
 import UserPage from './pages/User';
-import RolePage from './pages/Role';
+import SecurityRolePage from './pages/SecurityRole';
+import SecurityUserPage from './pages/SecurityUser';
+import PermissionTracePage from './pages/PermissionTrace';
+import MyAccessPage from './pages/MyAccess';
+import AdminGovernancePage from './pages/AdminGovernance';
+import EventOperationsPage from './pages/EventOperations';
+import SecuritySettingsPage from './pages/SecuritySettings';
 import OrganizationPage from './pages/Organization';
 import PositionPage from './pages/Position';
 import ProfessionalTeamPage from './pages/ProfessionalTeam';
 import ChannelPage from './pages/Channel';
-import LeadPage from './pages/Lead';
-import ApprovalPage from './pages/Approval';
+import ApprovalCenterPage from './pages/approvals/ApprovalCenterPage';
 import NotificationPage from './pages/Notification';
 import PerformancePage from './pages/Performance';
-import SuperAdminRoute from './features/master-data/SuperAdminRoute';
+import InventoryPage from './pages/Inventory';
 
-// 路由守卫组件
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated } = useAuthStore();
+  const isAuthenticated = useAuthStore(state => state.isAuthenticated);
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+};
+
+const LoginRoute: React.FC = () => {
+  const isAuthenticated = useAuthStore(state => state.isAuthenticated);
+  return isAuthenticated ? <Navigate to="/" replace /> : <Login />;
 };
 
 const PasswordChangeRoute: React.FC = () => {
   const navigate = useNavigate();
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const token = usePasswordChangeStore((state) => state.token);
-  const expiresAt = usePasswordChangeStore((state) => state.expiresAt);
-  const clear = usePasswordChangeStore((state) => state.clear);
-  // Route admission must reject expiry before protected UI can render.
+  const isAuthenticated = useAuthStore(state => state.isAuthenticated);
+  const kind = useChallengeStore(state => state.kind);
+  const token = useChallengeStore(state => state.token);
+  const expiresAt = useChallengeStore(state => state.expiresAt);
+  const clear = useChallengeStore(state => state.clear);
   // eslint-disable-next-line react-hooks/purity
-  const valid = Boolean(token && expiresAt && expiresAt > Date.now());
+  const valid = Boolean(kind === 'PASSWORD_CHANGE' && token && expiresAt && expiresAt > Date.now());
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -53,49 +79,86 @@ const PasswordChangeRoute: React.FC = () => {
   return <PasswordChange />;
 };
 
-// 包装布局的组件
 const WithLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <PrivateRoute>
-    <MainLayout>{children}</MainLayout>
-  </PrivateRoute>
+  <PrivateRoute><MainLayout>{children}</MainLayout></PrivateRoute>
 );
 
-// 占位页面组件 - 保留用于未来扩展
-const PlaceholderPage: React.FC<{ title: string }> = ({ title }) => (
-  <div style={{ textAlign: 'center', padding: '100px 0' }}>
-    <h2>{title}</h2>
-    <p style={{ color: '#999' }}>页面开发中...</p>
-  </div>
+const AuthorizedPage: React.FC<{
+  permission: PermissionCode;
+  children: React.ReactNode;
+}> = ({ permission, children }) => (
+  <WithLayout><PermissionRoute permission={permission}>{children}</PermissionRoute></WithLayout>
 );
-void PlaceholderPage;
 
 function App() {
   return (
-    <BrowserRouter>
+    <ChineseConfig><BrowserRouter>
+      <SessionBootstrap />
+    </BrowserRouter></ChineseConfig>
+  );
+}
+
+function SessionBootstrap() {
+  const bootstrapStatus = useAuthStore(state => state.bootstrapStatus);
+  const bootstrap = useAuthStore(state => state.bootstrap);
+
+  useEffect(() => {
+    if (bootstrapStatus === 'idle') void bootstrap();
+  }, [bootstrap, bootstrapStatus]);
+
+  if (bootstrapStatus !== 'ready') {
+    return (
+      <div aria-label="正在恢复会话" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  return (
       <Routes>
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={<LoginRoute />} />
         <Route path="/password-change" element={<PasswordChangeRoute />} />
         <Route path="/" element={<WithLayout><Dashboard /></WithLayout>} />
-        <Route path="/leads" element={<WithLayout><LeadPage /></WithLayout>} />
-        <Route path="/customers" element={<WithLayout><CustomerPage /></WithLayout>} />
-        <Route path="/contracts" element={<WithLayout><ContractPage /></WithLayout>} />
+        <Route path="/leads" element={<AuthorizedPage permission="menu.lead_crm"><LeadListPage /></AuthorizedPage>} />
+        <Route path="/leads/pool" element={<AuthorizedPage permission="menu.lead_crm"><PublicPoolPage /></AuthorizedPage>} />
+        <Route path="/leads/calendar" element={<AuthorizedPage permission="menu.lead_crm"><VisitCalendarPage /></AuthorizedPage>} />
+        <Route path="/leads/:id" element={<AuthorizedPage permission="menu.lead_crm"><LeadDetailPage /></AuthorizedPage>} />
+        <Route path="/customers" element={<AuthorizedPage permission="menu.customer"><CustomerListPage /></AuthorizedPage>} />
+        <Route path="/customers/:id" element={<AuthorizedPage permission="menu.customer"><CustomerDetailPage /></AuthorizedPage>} />
+        <Route path="/negotiations" element={<AuthorizedPage permission="menu.contract"><NegotiationListPage /></AuthorizedPage>} />
+        <Route path="/contracts" element={<AuthorizedPage permission="menu.contract"><ContractListPage /></AuthorizedPage>} />
+        <Route path="/contracts/new" element={<AuthorizedPage permission="menu.contract"><ContractCreatePage /></AuthorizedPage>} />
+        <Route path="/contracts/:id" element={<AuthorizedPage permission="menu.contract"><ContractDetailPage /></AuthorizedPage>} />
         <Route path="/cases" element={<WithLayout><CasePage /></WithLayout>} />
-        <Route path="/payments" element={<WithLayout><PaymentPage /></WithLayout>} />
+        <Route path="/payments" element={<AuthorizedPage permission="menu.payment"><FinanceWorkspace /></AuthorizedPage>} />
+        <Route path="/invoices" element={<AuthorizedPage permission="menu.invoice"><FinanceWorkspace /></AuthorizedPage>} />
+        <Route path="/refunds" element={<AuthorizedPage permission="menu.refund"><FinanceWorkspace /></AuthorizedPage>} />
+        <Route path="/costs" element={<AuthorizedPage permission="menu.cost"><CostListPage /></AuthorizedPage>} />
+        <Route path="/anomalies" element={<AuthorizedPage permission="menu.anomaly"><AnomalyListPage /></AuthorizedPage>} />
         <Route path="/organizations" element={<Navigate to="/org/tree" replace />} />
         <Route path="/employees" element={<Navigate to="/org/employees" replace />} />
-        <Route path="/org/tree" element={<WithLayout><SuperAdminRoute><OrganizationPage /></SuperAdminRoute></WithLayout>} />
-        <Route path="/org/positions" element={<WithLayout><SuperAdminRoute><PositionPage /></SuperAdminRoute></WithLayout>} />
-        <Route path="/org/employees" element={<WithLayout><SuperAdminRoute><EmployeePage /></SuperAdminRoute></WithLayout>} />
-        <Route path="/org/professional-teams" element={<WithLayout><SuperAdminRoute><ProfessionalTeamPage /></SuperAdminRoute></WithLayout>} />
-        <Route path="/users" element={<WithLayout><UserPage /></WithLayout>} />
-        <Route path="/roles" element={<WithLayout><RolePage /></WithLayout>} />
+        <Route path="/org/tree" element={<AuthorizedPage permission="organization.read"><OrganizationPage /></AuthorizedPage>} />
+        <Route path="/org/positions" element={<AuthorizedPage permission="position.read"><PositionPage /></AuthorizedPage>} />
+        <Route path="/org/employees" element={<AuthorizedPage permission="employee.read"><EmployeePage /></AuthorizedPage>} />
+        <Route path="/org/professional-teams" element={<AuthorizedPage permission="professional_team.read"><ProfessionalTeamPage /></AuthorizedPage>} />
+        <Route path="/users" element={<AuthorizedPage permission="user.read"><UserPage /></AuthorizedPage>} />
+        <Route path="/roles" element={<Navigate to="/security/roles" replace />} />
+        <Route path="/security/roles" element={<AuthorizedPage permission="role.read"><SecurityRolePage /></AuthorizedPage>} />
+        <Route path="/security/users" element={<AuthorizedPage permission="user.read"><SecurityUserPage /></AuthorizedPage>} />
+        <Route path="/security/trace" element={<AuthorizedPage permission="permission.trace.any"><PermissionTracePage /></AuthorizedPage>} />
+        <Route path="/security/my-access" element={<AuthorizedPage permission="permission.trace.self"><MyAccessPage /></AuthorizedPage>} />
+        <Route path="/security/admin-governance" element={<AuthorizedPage permission="governance.catalog.read"><AdminGovernancePage /></AuthorizedPage>} />
+        <Route path="/security/event-operations" element={<AuthorizedPage permission="event.delivery.read"><EventOperationsPage /></AuthorizedPage>} />
+        <Route path="/security/account" element={<WithLayout><SecuritySettingsPage /></WithLayout>} />
         <Route path="/channels" element={<WithLayout><ChannelPage /></WithLayout>} />
-        <Route path="/approvals" element={<WithLayout><ApprovalPage /></WithLayout>} />
+        <Route path="/approval-ledger" element={<AuthorizedPage permission="approval.read"><ApprovalLedger /></AuthorizedPage>} />
+        <Route path="/inventory/*" element={<AuthorizedPage permission="menu.inventory"><InventoryPage /></AuthorizedPage>} />
+        <Route path="/finance" element={<WithLayout><FinanceWorkspace /></WithLayout>} />
+        <Route path="/approvals" element={<AuthorizedPage permission="approval.read"><ApprovalCenterPage /></AuthorizedPage>} />
         <Route path="/notifications" element={<WithLayout><NotificationPage /></WithLayout>} />
         <Route path="/performances" element={<WithLayout><PerformancePage /></WithLayout>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
   );
 }
 

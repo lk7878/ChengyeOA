@@ -1,77 +1,122 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { authApi } from '@/api/auth';
+import { runtimeSession } from '@/features/auth/runtime-session';
+import type { AuthenticatedData } from '@/features/auth/types';
+import { authorizationApi, isAuthorizationSummaryExpired } from '@/features/authorization/api';
+import type { AuthorizationSummary, PermissionCode } from '@/features/authorization/types';
 
 export interface UserInfo {
   id: string;
   username: string;
   name: string;
-  roles: string[];
-  permissions: string[];
+  roles?: string[];
+  permissions?: string[];
 }
+
+type AuthorizationStatus = 'idle' | 'loading' | 'ready' | 'error';
+type BootstrapStatus = 'idle' | 'loading' | 'ready';
+let authorizationRequest: Promise<void> | null = null;
+let bootstrapRequest: Promise<void> | null = null;
 
 interface AuthState {
-  token: string | null;
-  refreshToken: string | null;
   userInfo: UserInfo | null;
   isAuthenticated: boolean;
-  
-  // Actions
-  setToken: (token: string, refreshToken: string) => void;
+  bootstrapStatus: BootstrapStatus;
+  authorization: AuthorizationSummary | null;
+  authorizationStatus: AuthorizationStatus;
+  setAuthenticated: (data: AuthenticatedData) => void;
   setUserInfo: (userInfo: UserInfo) => void;
+  bootstrap: () => Promise<void>;
   clearSession: () => void;
   logout: () => void;
-  hasPermission: (permission: string) => boolean;
-  hasAnyPermission: (permissions: string[]) => boolean;
-  hasRole: (role: string) => boolean;
+  ensureAuthorization: (force?: boolean) => Promise<void>;
+  hasPermission: (permission: PermissionCode) => boolean;
+  hasAnyPermission: (permissions: PermissionCode[]) => boolean;
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
-      token: null,
-      refreshToken: null,
+export const useAuthStore = create<AuthState>()((set, get) => ({
+  userInfo: null,
+  isAuthenticated: false,
+  bootstrapStatus: 'idle',
+  authorization: null,
+  authorizationStatus: 'idle',
+
+  setAuthenticated: data => {
+    runtimeSession.setAuthenticated(data);
+    set({
+      userInfo: data.user,
+      isAuthenticated: true,
+      bootstrapStatus: 'ready',
+      authorization: null,
+      authorizationStatus: 'idle',
+    });
+  },
+
+  setUserInfo: userInfo => set({ userInfo }),
+
+  bootstrap: async () => {
+    if (get().bootstrapStatus === 'ready') return;
+    if (bootstrapRequest) return bootstrapRequest;
+    set({ bootstrapStatus: 'loading' });
+    bootstrapRequest = runtimeSession.refreshOnce()
+      .then(() => authApi.me())
+      .then(response => {
+        set({ userInfo: response.data, isAuthenticated: true, bootstrapStatus: 'ready' });
+      })
+      .catch(() => {
+        runtimeSession.clear();
+        set({ userInfo: null, isAuthenticated: false, bootstrapStatus: 'ready' });
+      })
+      .finally(() => { bootstrapRequest = null; });
+    return bootstrapRequest;
+  },
+
+  clearSession: () => {
+    runtimeSession.clear();
+    authorizationRequest = null;
+    set({
       userInfo: null,
       isAuthenticated: false,
+      bootstrapStatus: 'ready',
+      authorization: null,
+      authorizationStatus: 'idle',
+    });
+  },
 
-      setToken: (token: string, refreshToken: string) => {
-        localStorage.setItem('law_firm_token', token);
-        localStorage.setItem('law_firm_refresh_token', refreshToken);
-        set({ token, refreshToken, isAuthenticated: true });
-      },
+  logout: () => {
+    get().clearSession();
+    window.location.href = '/login';
+  },
 
-      setUserInfo: (userInfo: UserInfo) => {
-        set({ userInfo });
-      },
-
-      clearSession: () => {
-        localStorage.removeItem('law_firm_token');
-        localStorage.removeItem('law_firm_refresh_token');
-        set({ token: null, refreshToken: null, userInfo: null, isAuthenticated: false });
-        localStorage.removeItem('auth-storage');
-      },
-
-      logout: () => {
-        get().clearSession();
-        window.location.href = '/login';
-      },
-
-      hasPermission: (permission: string) => {
-        const { userInfo } = get();
-        if (!userInfo) return false;
-        return userInfo.permissions.includes(permission) || userInfo.roles.includes('admin');
-      },
-
-      hasAnyPermission: (permissions: string[]) => {
-        const { userInfo } = get();
-        if (!userInfo) return false;
-        return permissions.some(p => userInfo.permissions.includes(p)) || userInfo.roles.includes('admin');
-      },
-
-      hasRole: (role: string) => get().userInfo?.roles.includes(role) === true,
-    }),
-    {
-      name: 'auth-storage',
-      partialize: (state) => ({ token: state.token, refreshToken: state.refreshToken, userInfo: state.userInfo, isAuthenticated: state.isAuthenticated }),
+  ensureAuthorization: async (force = false) => {
+    if (!get().isAuthenticated) return;
+    const current = get().authorization;
+    if (!force && !isAuthorizationSummaryExpired(current)) {
+      if (get().authorizationStatus !== 'ready') set({ authorizationStatus: 'ready' });
+      return;
     }
-  )
-);
+    if (authorizationRequest) return authorizationRequest;
+    set({ authorizationStatus: 'loading' });
+    const requestPromise: Promise<void> = authorizationApi.me()
+      .then(authorization => { set({ authorization, authorizationStatus: 'ready' }); })
+      .catch(error => {
+        set({ authorization: null, authorizationStatus: 'error' });
+        throw error;
+      })
+      .finally(() => { authorizationRequest = null; });
+    authorizationRequest = requestPromise;
+    return requestPromise;
+  },
+
+  hasPermission: permission => {
+    const { authorization } = get();
+    return !isAuthorizationSummaryExpired(authorization)
+      && authorization!.permissions.includes(permission);
+  },
+
+  hasAnyPermission: permissions => {
+    const { authorization } = get();
+    return !isAuthorizationSummaryExpired(authorization)
+      && permissions.some(permission => authorization!.permissions.includes(permission));
+  },
+}));

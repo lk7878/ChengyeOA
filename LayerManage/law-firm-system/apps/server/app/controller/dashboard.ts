@@ -1,5 +1,8 @@
 import { Controller } from 'egg';
 
+// 原型驾驶舱随 SPEC-010 支付模型重建做语义适配
+// （RECEIVED→CONFIRMED、receivedAmount→amount、receivedDate→confirmedAt、
+//   Payment.dueDate→PaymentPlan.dueDate）；MOD-012 SPEC 将正式重建。
 export default class DashboardController extends Controller {
   /**
    * 核心指标
@@ -20,8 +23,8 @@ export default class DashboardController extends Controller {
       ctx.prisma.contract.count(),
       ctx.prisma.case.count(),
       ctx.prisma.payment.aggregate({
-        where: { status: 'RECEIVED' },
-        _sum: { receivedAmount: true },
+        where: { status: 'CONFIRMED' },
+        _sum: { amount: true },
       }),
       ctx.prisma.employee.count({ where: { status: 'FORMAL' } }),
     ]);
@@ -39,10 +42,10 @@ export default class DashboardController extends Controller {
       ctx.prisma.contract.count({ where: { createdAt: { gte: monthStart } } }),
       ctx.prisma.payment.aggregate({
         where: {
-          status: 'RECEIVED',
-          receivedDate: { gte: monthStart },
+          status: 'CONFIRMED',
+          confirmedAt: { gte: monthStart },
         },
-        _sum: { receivedAmount: true },
+        _sum: { amount: true },
       }),
     ]);
 
@@ -55,13 +58,13 @@ export default class DashboardController extends Controller {
           customerCount,
           contractCount,
           caseCount,
-          totalRevenue: paymentTotal._sum.receivedAmount || 0,
+          totalRevenue: paymentTotal._sum.amount || 0,
           employeeCount,
         },
         monthly: {
           newLeads: monthLeads,
           newContracts: monthContracts,
-          monthRevenue: monthPayments._sum.receivedAmount || 0,
+          monthRevenue: monthPayments._sum.amount || 0,
         },
       },
     };
@@ -153,19 +156,19 @@ export default class DashboardController extends Controller {
     ] = await Promise.all([
       ctx.prisma.payment.aggregate({
         where: {
-          status: 'RECEIVED',
-          receivedDate: { gte: yearStart },
+          status: 'CONFIRMED',
+          confirmedAt: { gte: yearStart },
         },
-        _sum: { receivedAmount: true },
+        _sum: { amount: true },
       }),
       ctx.prisma.contract.aggregate({
         where: { createdAt: { gte: yearStart } },
         _sum: { amount: true },
       }),
       ctx.prisma.payment.count({ where: { status: 'PENDING' } }),
-      ctx.prisma.payment.count({
+      ctx.prisma.paymentPlan.count({
         where: {
-          status: 'PENDING',
+          status: { in: ['PENDING', 'PARTIAL'] },
           dueDate: { lt: now },
         },
       }),
@@ -175,16 +178,16 @@ export default class DashboardController extends Controller {
     const monthlyData = await ctx.prisma.payment.groupBy({
       by: ['status'],
       where: {
-        receivedDate: { gte: yearStart },
+        confirmedAt: { gte: yearStart },
       },
-      _sum: { receivedAmount: true },
+      _sum: { amount: true },
     });
 
     ctx.body = {
       code: 200,
       message: 'success',
       data: {
-        yearRevenue: yearRevenue._sum.receivedAmount || 0,
+        yearRevenue: yearRevenue._sum.amount || 0,
         yearContractValue: yearContracts._sum.amount || 0,
         pendingCount: pendingPayments,
         overdueCount: overduePayments,
@@ -257,14 +260,13 @@ export default class DashboardController extends Controller {
           dueDate: { lt: now },
         },
       }),
-      ctx.prisma.payment.findMany({
+      ctx.prisma.paymentPlan.findMany({
         where: {
-          status: 'PENDING',
+          status: { in: ['PENDING', 'PARTIAL'] },
           dueDate: { lt: now },
         },
         include: {
-          customer: true,
-          contract: true,
+          contract: { include: { customer: true } },
         },
         take: 10,
       }),

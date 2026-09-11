@@ -7,6 +7,9 @@ interface PackageManifest {
   pkg?: { assets?: unknown };
 }
 
+const CANONICAL_PRISMA_MODEL_COUNT = 61;
+const CANONICAL_PRISMA_MIGRATION_COUNT = 34;
+
 function packageManifest(filePath: string): PackageManifest {
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as PackageManifest;
 }
@@ -74,11 +77,20 @@ export function checkBaselineContract(projectRoot: string): string[] {
   } else {
     const canonicalSchema = fs.readFileSync(canonicalSchemaPath, 'utf8');
     const modelCount = [...canonicalSchema.matchAll(/^model\s+\w+\s+\{/gm)].length;
-    if (modelCount !== 26) issues.push(`canonical Prisma model count is ${modelCount}; expected 26`);
+    if (modelCount !== CANONICAL_PRISMA_MODEL_COUNT) {
+      issues.push(`canonical Prisma model count is ${modelCount}; expected ${CANONICAL_PRISMA_MODEL_COUNT}`);
+    }
     const employee = canonicalSchema.match(/model Employee\s+\{[\s\S]*?^\}/m)?.[0] ?? '';
     if (/^\s*(?:orgId|positionId)\s+/m.test(employee)) {
       issues.push('Employee retains direct organization ownership fields');
     }
+  }
+  const migrationsRoot = path.join(serverRoot, 'prisma', 'migrations');
+  const migrationCount = fs.existsSync(migrationsRoot)
+    ? fs.readdirSync(migrationsRoot, { withFileTypes: true }).filter(entry => entry.isDirectory()).length
+    : 0;
+  if (migrationCount !== CANONICAL_PRISMA_MIGRATION_COUNT) {
+    issues.push(`canonical Prisma migration count is ${migrationCount}; expected ${CANONICAL_PRISMA_MIGRATION_COUNT}`);
   }
   if (hasGenericSeedScript(serverRoot)) issues.push('generic seed script exists');
   if (fs.existsSync(path.join(serverRoot, 'scripts', 'build-dist.js'))) issues.push('SQLite distribution builder exists');

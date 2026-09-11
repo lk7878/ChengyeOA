@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validateExceptions, validatePolicy } from './policy.mjs';
+import { validateBaseline, validateExceptions, validatePolicy } from './policy.mjs';
 
 function validPolicy() {
   return {
@@ -10,7 +10,7 @@ function validPolicy() {
       { name: 'web', path: 'apps/web' },
     ],
     gates: {
-      production: { critical: 'block', high: 'block', moderate: 'report', low: 'report' },
+      production: { critical: 'block', high: 'block', moderate: 'block', low: 'report' },
       development: { critical: 'block', high: 'exception', moderate: 'report', low: 'report' },
     },
     maxDevelopmentExceptionDays: 30,
@@ -93,6 +93,48 @@ test('requires independent approval and valid ISO calendar dates', () => {
   assert.throws(() => validateExceptions(document(validException({ expiresAt: '16-08-2026' })), policy, now), /valid ISO/i);
 });
 
+test('accepts and validates exception approval status', () => {
+  const policy = validatePolicy(validPolicy());
+  const document = exception => ({ schemaVersion: 1, exceptions: [exception] });
+  const now = new Date('2026-07-16T00:00:00Z');
+
+  const approved = validateExceptions(document(validException({ status: 'approved' })), policy, now);
+  assert.equal(approved[0].status, 'approved');
+  const pending = validateExceptions(document(validException({ status: 'pending_review' })), policy, now);
+  assert.equal(pending[0].status, 'pending_review');
+  const legacy = validateExceptions(document(validException()), policy, now);
+  assert.equal('status' in legacy[0], false);
+  assert.throws(
+    () => validateExceptions(document(validException({ status: 'archived' })), policy, now),
+    /must be 'pending_review' or 'approved'/,
+  );
+});
+
+test('validates exception review metadata', () => {
+  const policy = validatePolicy(validPolicy());
+  const document = exception => ({ schemaVersion: 1, exceptions: [exception] });
+  const now = new Date('2026-07-16T00:00:00Z');
+
+  const approved = validateExceptions(
+    document(validException({ status: 'approved', reviewedAt: '2026-07-17', reviewedBy: 'platform-reviewer' })),
+    policy,
+    now,
+  );
+  assert.equal(approved[0].reviewedAt, '2026-07-17');
+  assert.equal(approved[0].reviewedBy, 'platform-reviewer');
+  const legacy = validateExceptions(document(validException()), policy, now);
+  assert.equal('reviewedAt' in legacy[0], false);
+  assert.equal('reviewedBy' in legacy[0], false);
+  assert.throws(
+    () => validateExceptions(document(validException({ reviewedAt: '2026-13-99' })), policy, now),
+    /valid ISO/,
+  );
+  assert.throws(
+    () => validateExceptions(document(validException({ reviewedBy: '  ' })), policy, now),
+    /non-empty/,
+  );
+});
+
 test('rejects expired, reversed, and overlong exception periods', () => {
   const policy = validatePolicy(validPolicy());
   const document = exception => ({ schemaVersion: 1, exceptions: [exception] });
@@ -131,4 +173,61 @@ test('rejects duplicate identifiers and duplicate advisory entries', () => {
     schemaVersion: 1,
     exceptions: [validException({ advisories: ['GHSA-5c6j-r48x-rmvq', 'GHSA-5c6j-r48x-rmvq'] })],
   }, policy, now), /duplicate advisory/i);
+});
+
+test('requires production moderate to block like high and critical', () => {
+  const policy = validPolicy();
+  policy.gates.production = { critical: 'block', high: 'block', moderate: 'report', low: 'report' };
+  assert.throws(() => validatePolicy(policy), /production gate\.moderate must be block/);
+});
+
+function validBaseline() {
+  return {
+    server: {
+      production: { critical: 0, high: 0, moderate: 0, low: 0 },
+      development: { critical: 0, high: 0, moderate: 0, low: 0 },
+    },
+    web: {
+      production: { critical: 0, high: 0, moderate: 0, low: 0 },
+      development: { critical: 0, high: 0, moderate: 0, low: 0 },
+    },
+  };
+}
+
+test('accepts a complete all-zero expected baseline', () => {
+  assert.deepEqual(validateBaseline(validBaseline()), validBaseline());
+});
+
+test('rejects incomplete, unknown, or non-numeric baseline fields', () => {
+  const baseline = validBaseline();
+  assert.throws(() => validateBaseline({ server: baseline.server }), /expected audit baseline/);
+  assert.throws(() => validateBaseline({
+    ...baseline,
+    server: { production: baseline.server.production },
+  }), /baseline workspace server/);
+  assert.throws(() => validateBaseline({
+    ...baseline,
+    server: {
+      ...baseline.server,
+      production: { critical: 0, high: 0, moderate: 0 },
+    },
+  }), /baseline server\.production/);
+  assert.throws(() => validateBaseline({
+    ...baseline,
+    server: { ...baseline.server, extra: { critical: 0, high: 0, moderate: 0, low: 0 } },
+  }), /unknown field/i);
+  assert.throws(() => validateBaseline({
+    ...baseline,
+    server: {
+      ...baseline.server,
+      production: { ...baseline.server.production, moderate: -1 },
+    },
+  }), /non-negative integer/);
+  assert.throws(() => validateBaseline({
+    ...baseline,
+    web: {
+      ...baseline.web,
+      development: { ...baseline.web.development, high: 'zero' },
+    },
+  }), /non-negative integer/);
 });

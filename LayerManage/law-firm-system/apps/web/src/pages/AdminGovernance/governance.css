@@ -1,0 +1,22 @@
+.governance-page { width: 100%; min-width: 0; }
+.governance-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.governance-heading h1 { margin: 0; font-size: 24px; line-height: 1.35; letter-spacing: 0; }
+.governance-heading p { margin: 6px 0 0; color: rgba(0, 0, 0, .55); }
+.governance-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.governance-toolbar > .ant-select { width: 190px; }
+.governance-operation-meta { margin: -10px 0 18px; }
+.governance-full-width { width: 100%; }
+.governance-json { max-height: 240px; margin: 0; padding: 8px; overflow: auto; border-radius: 6px; background: #f5f5f5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.governance-link-button, .governance-primary-button { min-height: 32px; padding: 4px 15px; border-radius: 6px; cursor: pointer; }
+.governance-link-button { border: 1px solid #d9d9d9; background: #fff; }
+.governance-primary-button { border: 1px solid #1677ff; background: #1677ff; color: #fff; }
+.governance-link-button:disabled, .governance-primary-button:disabled { cursor: not-allowed; opacity: .55; }
+
+@media (max-width: 900px) {
+  .governance-page .ant-table-wrapper { max-width: 100%; overflow: hidden; }
+  .governance-toolbar > .ant-select, .governance-toolbar > .ant-picker { flex: 1 1 180px; width: auto; }
+}
+@media (max-width: 600px) {
+  .governance-heading { align-items: stretch; flex-direction: column; }
+  .governance-drawer .ant-drawer-content-wrapper { width: 100% !important; max-width: 100%; }
+}

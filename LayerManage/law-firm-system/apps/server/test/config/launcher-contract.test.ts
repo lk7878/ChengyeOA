@@ -38,6 +38,20 @@ test('pkg launcher does not forward its baked Node option to Egg workers', () =>
   assert.ok(entrySource.indexOf(stripOption) < entrySource.indexOf("require('egg')"));
 });
 
+test('portable launcher routes events:check to the compiled command under production validation', () => {
+  const entrySource = launchers[0];
+
+  assert.match(entrySource, /async function runCheck\(argv\)/);
+  assert.match(entrySource, /require\(['"]\.\/dist\/scripts\/events\/check-events['"]\)/);
+  assert.match(entrySource, /return checkEventsMain\(argv, process\.env\)/);
+  assert.match(entrySource, /routePortableCommand\(argv,\s*\{[\s\S]*runCheck/);
+  assert.match(entrySource, /module\.exports\s*=\s*\{[^}]*runCheck/);
+  assert.ok(
+    entrySource.indexOf("process.env.NODE_ENV = 'production'", entrySource.indexOf('async function runCheck(argv)'))
+      < entrySource.indexOf("require('./dist/scripts/events/check-events')"),
+  );
+});
+
 test('packaging cannot create SQLite or implicit bootstrap data', () => {
   const packageSource = [
     fs.readFileSync(path.resolve('scripts/build-pkg.js'), 'utf8'),
@@ -51,4 +65,19 @@ test('packaging cannot create SQLite or implicit bootstrap data', () => {
   assert.equal(fs.existsSync(path.resolve('scripts/build-package.js')), false);
   assert.doesNotMatch(packageSource, /ensureDatabase|\$executeRawUnsafe|law_firm\.db|file:|admin\s*\/\s*123456/i);
   assert.doesNotMatch(packageSource, /organization\.create|user\.create|role\.create|Run seed|绉嶅瓙鏁版嵁/i);
+});
+
+test('server has no legacy SQLite migration runtime or dependency', () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+
+  assert.equal(fs.existsSync(path.resolve('scripts/migration')), false);
+  assert.equal(packageJson.scripts['migration:inventory'], undefined);
+  assert.equal(packageJson.scripts['migration:diff'], undefined);
+  assert.equal(packageJson.dependencies?.['better-sqlite3'], undefined);
+  assert.equal(packageJson.devDependencies?.['better-sqlite3'], undefined);
+  assert.equal(packageJson.devDependencies?.['@types/better-sqlite3'], undefined);
 });

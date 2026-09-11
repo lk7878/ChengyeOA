@@ -1,9 +1,13 @@
 import request from '@/api/request';
 import type { ApiResponse } from '@/types';
-import type { AssignmentType, CreateEmployeeInput, CreateOrganizationInput, CreatePositionInput, CreateProfessionalTeamInput, EmployeeDetail, EmployeeListQuery, EmployeePage, MasterDataStatus, OrganizationDetail, OrganizationNode, Position, ProfessionalTeamDetail, ProfessionalTeamListQuery, ProfessionalTeamPage, TeamMemberRole, UpdateEmployeeInput, UpdateOrganizationInput, UpdatePositionInput, UpdateProfessionalTeamInput, VersionedMutation } from './types';
+import type { OrganizationManager, AssignmentType, CreateEmployeeInput, CreateOrganizationInput, CreatePositionInput, CreateProfessionalTeamInput, EmployeeDetail, EmployeeListQuery, EmployeePage, MasterDataStatus, OrganizationDetail, OrganizationNode, Position, ProfessionalTeamDetail, ProfessionalTeamListQuery, ProfessionalTeamPage, TeamMemberRole, UpdateEmployeeInput, UpdateOrganizationInput, UpdatePositionInput, UpdateProfessionalTeamInput, VersionedMutation } from './types';
 
 export const masterDataApi = {
   organizations: {
+    options: (status?: MasterDataStatus) => request.get<ApiResponse<OrganizationNode[]>>('/v1/organizations/options', { params: { status } }),
+    managerOptions: (keyword?: string) => request.get<ApiResponse<OrganizationManager[]>>('/v1/organizations/manager-options', { params: { keyword } }),
+    copy: (id: string, data: CreateOrganizationInput & { sourceVersion: number }) => request.post<ApiResponse<OrganizationNode>>(`/v1/organizations/${id}/copy`, data),
+    remove: (id: string, data: VersionedMutation) => request.delete<ApiResponse<null>>(`/v1/organizations/${id}`, { data }),
     tree: (status?: MasterDataStatus) => request.get<ApiResponse<OrganizationNode[]>>('/v1/organizations/tree', { params: { status } }),
     detail: (id: string) => request.get<ApiResponse<OrganizationDetail>>(`/v1/organizations/${id}`),
     create: (data: CreateOrganizationInput) => request.post<ApiResponse<OrganizationDetail>>('/v1/organizations', data),
@@ -13,6 +17,7 @@ export const masterDataApi = {
     enable: (id: string, data: VersionedMutation) => request.post<ApiResponse<OrganizationDetail>>(`/v1/organizations/${id}/enable`, data),
   },
   positions: {
+    remove: (id: string, data: VersionedMutation) => request.delete<ApiResponse<null>>(`/v1/positions/${id}`, { data }),
     list: (params?: { organizationId?: string; status?: MasterDataStatus; keyword?: string }) => request.get<ApiResponse<Position[]>>('/v1/positions', { params }),
     detail: (id: string) => request.get<ApiResponse<Position>>(`/v1/positions/${id}`),
     create: (data: CreatePositionInput) => request.post<ApiResponse<Position>>('/v1/positions', data),
@@ -21,6 +26,7 @@ export const masterDataApi = {
     enable: (id: string, data: VersionedMutation) => request.post<ApiResponse<Position>>(`/v1/positions/${id}/enable`, data),
   },
   employees: {
+    remove: (id: string, data: VersionedMutation & { confirmed: true }) => request.delete<ApiResponse<null>>(`/v1/employees/${id}`, { data }),
     list: (params?: EmployeeListQuery) => request.get<ApiResponse<EmployeePage>>('/v1/employees', { params }),
     detail: (id: string) => request.get<ApiResponse<EmployeeDetail>>(`/v1/employees/${id}`),
     create: (data: CreateEmployeeInput) => request.post<ApiResponse<EmployeeDetail>>('/v1/employees', data),
@@ -32,6 +38,7 @@ export const masterDataApi = {
     endAssignment: (id: string, assignmentId: string, data: VersionedMutation) => request.post<ApiResponse<EmployeeDetail>>(`/v1/employees/${id}/assignments/${assignmentId}/end`, data),
     bindAccount: (id: string, data: { userId: string; employeeVersion: number }) => request.put<ApiResponse<EmployeeDetail>>(`/v1/employees/${id}/account-binding`, data),
     unbindAccount: (id: string, data: VersionedMutation) => request.delete<ApiResponse<EmployeeDetail>>(`/v1/employees/${id}/account-binding`, { data }),
+    viewSensitive: (id: string, fieldCodes: string[], purpose: string) => request.post<ApiResponse<Record<string, string | null>>>('/v1/authorization/sensitive-view', { resource: 'employee', resourceId: id, fieldCodes, purpose }),
   },
   professionalTeams: {
     list: (params?: ProfessionalTeamListQuery) => request.get<ApiResponse<ProfessionalTeamPage>>('/v1/professional-teams', { params }),

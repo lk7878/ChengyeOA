@@ -8,6 +8,7 @@ const WORKSPACE_PATHS = new Map([
 ]);
 const WORKSPACES = new Set(WORKSPACE_PATHS.keys());
 const SEVERITIES = ['critical', 'high', 'moderate', 'low'];
+const BASELINE_SCOPES = ['production', 'development'];
 const EXCEPTION_FIELDS = [
   'id',
   'workspace',
@@ -78,6 +79,25 @@ function validateGate(value, label, expected) {
   return gate;
 }
 
+export function validateBaseline(value) {
+  const baseline = record(value, 'expected audit baseline');
+  exactKeys(baseline, [...WORKSPACES], 'expected audit baseline');
+  for (const workspace of WORKSPACES) {
+    const workspaceBaseline = record(baseline[workspace], `baseline workspace ${workspace}`);
+    exactKeys(workspaceBaseline, BASELINE_SCOPES, `baseline workspace ${workspace}`);
+    for (const scope of BASELINE_SCOPES) {
+      const counts = record(workspaceBaseline[scope], `baseline ${workspace}.${scope}`);
+      exactKeys(counts, SEVERITIES, `baseline ${workspace}.${scope}`);
+      for (const severity of SEVERITIES) {
+        if (!Number.isInteger(counts[severity]) || counts[severity] < 0) {
+          fail(`baseline ${workspace}.${scope}.${severity} must be a non-negative integer`);
+        }
+      }
+    }
+  }
+  return baseline;
+}
+
 export function validatePolicy(value) {
   const policy = record(value, 'dependency policy');
   exactKeys(policy, [
@@ -110,7 +130,7 @@ export function validatePolicy(value) {
   const gates = record(policy.gates, 'dependency policy gates');
   exactKeys(gates, ['production', 'development'], 'dependency policy gates');
   validateGate(gates.production, 'production gate', {
-    critical: 'block', high: 'block', moderate: 'report', low: 'report',
+    critical: 'block', high: 'block', moderate: 'block', low: 'report',
   });
   validateGate(gates.development, 'development gate', {
     critical: 'block', high: 'exception', moderate: 'report', low: 'report',
@@ -135,7 +155,16 @@ export function validateExceptions(value, policy, now = new Date()) {
 
   for (const [index, item] of document.exceptions.entries()) {
     const exception = record(item, `exception ${index}`);
-    exactKeys(exception, EXCEPTION_FIELDS, `exception ${index}`);
+    const unknown = Object.keys(exception)
+      .filter(key => !EXCEPTION_FIELDS.includes(key) && !['status', 'reviewedAt', 'reviewedBy'].includes(key));
+    if (unknown.length > 0) fail(`exception ${index} contains unknown field: ${unknown[0]}`);
+    const missing = EXCEPTION_FIELDS.filter(key => !Object.hasOwn(exception, key));
+    if (missing.length > 0) fail(`exception ${index} is missing field: ${missing[0]}`);
+    if (exception.status !== undefined && !['pending_review', 'approved'].includes(exception.status)) {
+      fail(`exception ${index}.status must be 'pending_review' or 'approved'`);
+    }
+    if (exception.reviewedAt !== undefined) isoDate(exception.reviewedAt, `exception ${index}.reviewedAt`);
+    if (exception.reviewedBy !== undefined) nonEmptyString(exception.reviewedBy, `exception ${index}.reviewedBy`);
     for (const field of EXCEPTION_FIELDS.filter(field => field !== 'advisories')) {
       nonEmptyString(exception[field], `exception ${index}.${field}`);
     }
@@ -174,9 +203,14 @@ export function validateExceptions(value, policy, now = new Date()) {
 
 export function loadSecurityConfiguration(projectRoot, now = new Date()) {
   const read = name => JSON.parse(readFileSync(path.resolve(projectRoot, 'security', name), 'utf8'));
+  const baselineSource = readFileSync(
+    path.resolve(projectRoot, 'scripts/security/expected-baseline.json'),
+    'utf8',
+  );
   const policy = validatePolicy(read('dependency-policy.json'));
   return {
     policy,
     exceptions: validateExceptions(read('dependency-exceptions.json'), policy, now),
+    baseline: validateBaseline(JSON.parse(baselineSource)),
   };
 }

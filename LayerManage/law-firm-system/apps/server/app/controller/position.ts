@@ -1,9 +1,9 @@
 import { Controller } from 'egg';
 import {
   CreatePositionInput,
-  PositionService,
   UpdatePositionInput,
 } from '../application/master-data/position-service';
+import { positionService } from '../application/master-data/master-data-factory';
 import {
   assertExactKeys,
   normalizeAllowedValue,
@@ -18,7 +18,7 @@ import {
 export default class PositionController extends Controller {
   async index() {
     const { organizationId, status, keyword } = this.ctx.query;
-    this.respond(await this.positionService().list({
+    this.respond(await positionService(this.ctx).list({
       organizationId: organizationId === undefined ? undefined : normalizeRequiredText(organizationId, 1, 100),
       status: status === undefined ? undefined : normalizeAllowedValue(status, ['ENABLED', 'DISABLED'] as const),
       keyword: keyword === undefined ? undefined : normalizeRequiredText(keyword, 1, 100),
@@ -26,30 +26,28 @@ export default class PositionController extends Controller {
   }
 
   async show() {
-    this.respond(await this.positionService().detail(this.ctx.params.id));
+    this.respond(await positionService(this.ctx).detail(this.ctx.params.id));
   }
 
   async create() {
-    this.respond(await this.positionService().create(parseCreate(this.ctx.request.body)));
+    this.respond(await positionService(this.ctx).create(parseCreate(this.ctx.request.body)));
   }
 
   async update() {
-    this.respond(await this.positionService().update(this.ctx.params.id, parseUpdate(this.ctx.request.body)));
+    this.respond(await positionService(this.ctx).update(this.ctx.params.id, parseUpdate(this.ctx.request.body)));
   }
 
   async disable() {
-    this.respond(await this.positionService().disable(this.ctx.params.id, parseVersionCommand(this.ctx.request.body)));
+    this.respond(await positionService(this.ctx).disable(this.ctx.params.id, parseVersionCommand(this.ctx.request.body)));
   }
 
   async enable() {
-    this.respond(await this.positionService().enable(this.ctx.params.id, parseVersionCommand(this.ctx.request.body)));
+    this.respond(await positionService(this.ctx).enable(this.ctx.params.id, parseVersionCommand(this.ctx.request.body)));
   }
 
-  private positionService(): PositionService {
-    return new PositionService(this.ctx.prisma, {
-      actorUserId: this.ctx.state.user.userId,
-      ip: this.ctx.ip,
-    });
+  async destroy() {
+    await positionService(this.ctx).remove(this.ctx.params.id, parseVersionCommand(this.ctx.request.body));
+    this.respond(null);
   }
 
   private respond(data: unknown): void {

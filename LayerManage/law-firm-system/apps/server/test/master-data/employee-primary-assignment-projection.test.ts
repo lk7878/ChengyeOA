@@ -7,6 +7,11 @@ test('projects canonical primary assignment and removes legacy ownership fields'
     id: 'employee-1',
     employeeNo: 'EMP-001',
     name: 'Employee',
+    idCard: '500000199001010000',
+    phone: '13800000000',
+    email: 'employee@example.com',
+    licenseNo: 'LICENSE-001',
+    professionalDirections: 'Commercial litigation',
     orgId: 'legacy-org',
     positionId: 'legacy-position',
     assignments: [{
@@ -26,6 +31,11 @@ test('projects canonical primary assignment and removes legacy ownership fields'
   assert.equal('orgId' in projected, false);
   assert.equal('positionId' in projected, false);
   assert.equal('assignments' in projected, false);
+  assert.equal('idCard' in projected, false);
+  assert.equal('phone' in projected, false);
+  assert.equal('email' in projected, false);
+  assert.equal('licenseNo' in projected, false);
+  assert.equal('professionalDirections' in projected, false);
   assert.deepEqual(projected.primaryAssignment, {
     id: 'assignment-1',
     employeeId: 'employee-1',

@@ -20,7 +20,7 @@ export default class ProfessionalTeamController extends Controller {
       page: parseQueryInteger(query.page, 1),
       pageSize: parseQueryInteger(query.pageSize, 10),
       keyword: query.keyword === undefined ? undefined : normalizeRequiredText(query.keyword, 1, 100),
-      categoryCode: query.categoryCode === undefined ? undefined : normalizeStableCode(query.categoryCode),
+      categoryCode: query.categoryCode === undefined ? undefined : normalizeRequiredText(query.categoryCode, 1, 100),
       homeOrganizationId: query.homeOrganizationId === undefined
         ? undefined
         : normalizeRequiredText(query.homeOrganizationId, 1, 100),
@@ -40,7 +40,7 @@ export default class ProfessionalTeamController extends Controller {
     this.respond(await professionalTeamService(this.ctx).create({
       code: normalizeStableCode(input.code),
       name: normalizeName(input.name),
-      categoryCode: normalizeStableCode(input.categoryCode),
+      categoryCode: normalizeRequiredText(input.categoryCode, 1, 100),
       homeOrganizationId: normalizeRequiredText(input.homeOrganizationId, 1, 100),
       description: input.description === undefined ? undefined : normalizeOptionalText(input.description, 2000),
     }));
@@ -51,7 +51,7 @@ export default class ProfessionalTeamController extends Controller {
     assertExactKeys(input, ['name', 'categoryCode', 'homeOrganizationId', 'description', 'version']);
     this.respond(await professionalTeamService(this.ctx).update(this.ctx.params.id, {
       name: input.name === undefined ? undefined : normalizeName(input.name),
-      categoryCode: input.categoryCode === undefined ? undefined : normalizeStableCode(input.categoryCode),
+      categoryCode: input.categoryCode === undefined ? undefined : normalizeRequiredText(input.categoryCode, 1, 100),
       homeOrganizationId: input.homeOrganizationId === undefined
         ? undefined
         : normalizeRequiredText(input.homeOrganizationId, 1, 100),

@@ -1,0 +1,34 @@
+import { test, expect } from '@playwright/test';
+test.use({ channel: 'msedge', viewport: { width: 1300, height: 1000 } });
+
+test('real columns resize, persist, reset and preserve fixed columns, sorting, selection and pagination', async ({ page }) => {
+  await page.goto('http://localhost:3000/e2e/table-resize.html');
+  const handle = page.getByRole('separator', { name: '岗位名称列宽', exact: true });
+  const header = handle.locator('xpath=ancestor::th');
+  const before = (await header.boundingBox())!.width;
+  const box = (await handle.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down(); await page.mouse.move(box.x + box.width / 2 + 100, box.y + box.height / 2, { steps: 8 }); await page.mouse.up();
+  await expect.poll(async () => Math.round((await header.boundingBox())!.width)).toBe(Math.round(before + 100));
+  await page.reload();
+  await expect.poll(async () => Math.round((await header.boundingBox())!.width)).toBe(Math.round(before + 100));
+  await handle.dblclick();
+  await expect.poll(async () => Math.round((await header.boundingBox())!.width)).toBe(Math.round(before));
+  await expect(page.getByText('岗位编号 001', { exact: true })).toBeVisible();
+  await expect(page.getByText('部门岗位 001', { exact: true })).toBeVisible();
+  const fixed = page.getByRole('separator', { name: '名称列宽', exact: true });
+  await fixed.focus(); await page.keyboard.press('ArrowRight');
+  await expect(page.getByText('已选 0 项；表格变化 0 次')).toBeVisible();
+  await page.getByRole('checkbox').nth(1).check();
+  await expect(page.getByText('已选 1 项；表格变化 0 次')).toBeVisible();
+  await page.getByTitle('2', { exact: true }).click();
+  await expect(page.getByText('助理', { exact: true })).toBeVisible();
+  const content = page.locator('.ant-table-content').last();
+  await content.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+  await expect(page.getByRole('button', { name: '查看', exact: true })).toBeInViewport();
+  await expect(page.getByRole('separator', { name: '操作列宽', exact: true }).last()).toBeInViewport();
+  const fixedHeader = fixed.locator('xpath=ancestor::th');
+  await fixedHeader.click({ position: { x: 25, y: 25 } });
+  await expect(page.getByText('已选 1 项；表格变化 2 次')).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('resized-position-table.png'), fullPage: true });
+});

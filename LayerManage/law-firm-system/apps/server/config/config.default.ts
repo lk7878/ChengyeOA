@@ -1,6 +1,12 @@
 import { Context, EggAppConfig, EggAppInfo, PowerPartial } from 'egg';
 import * as dotenv from 'dotenv';
-import { loadEnvironment } from './env';
+import {
+  ApprovalTimeoutEnvironment,
+  EventObservabilityEnvironment,
+  EventWorkerEnvironment,
+  LeadRecycleEnvironment,
+  loadEnvironment,
+} from './env';
 import { resolveCorsOrigin } from './cors';
 import { resolveRunDirectory, resolveStaticDirectory } from './static-path';
 
@@ -9,8 +15,21 @@ dotenv.config();
 const env = loadEnvironment(process.env);
 
 export type DefaultConfig = PowerPartial<EggAppConfig>;
-type JwtConfig = { secret: string; expiresIn: string; refreshExpiresIn: string };
-type ConfigWithJwt = DefaultConfig & { jwt: JwtConfig };
+type JwtConfig = { secret: string };
+type IdentitySecurityConfig = {
+  mfaEncryptionKeys: ReadonlyMap<number, Buffer>;
+  trustedOrigins: string[];
+  production: boolean;
+  localPasswordLogin: boolean;
+};
+type ConfigWithJwt = DefaultConfig & {
+  jwt: JwtConfig;
+  identitySecurity: IdentitySecurityConfig;
+  eventWorker: EventWorkerEnvironment;
+  eventObservability: EventObservabilityEnvironment;
+  leadRecycle: LeadRecycleEnvironment;
+  approvalTimeout: ApprovalTimeoutEnvironment;
+};
 
 export default (appInfo: EggAppInfo) => {
   const config = {} as ConfigWithJwt;
@@ -19,7 +38,7 @@ export default (appInfo: EggAppInfo) => {
   config.keys = env.appKeys.join(',');
 
   // 中间件配置
-  config.middleware = ['errorHandler', 'auth', 'masterDataAccess'];
+  config.middleware = ['errorHandler', 'csrf', 'auth', 'authorizationContext', 'administratorMfaGuard'];
 
   // 安全配置
   config.security = {
@@ -38,9 +57,19 @@ export default (appInfo: EggAppInfo) => {
   // JWT 配置
   config.jwt = {
     secret: env.jwtSecret,
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-    refreshExpiresIn: '30d',
   };
+
+  config.identitySecurity = {
+    mfaEncryptionKeys: env.mfaEncryptionKeys,
+    trustedOrigins: env.trustedOrigins,
+    production: env.production,
+    localPasswordLogin: env.localPasswordLogin,
+  };
+
+  config.eventWorker = env.eventWorker;
+  config.eventObservability = env.eventObservability;
+  config.leadRecycle = env.leadRecycle;
+  config.approvalTimeout = env.approvalTimeout;
 
   // 日志配置
   config.logger = {
@@ -49,6 +78,8 @@ export default (appInfo: EggAppInfo) => {
   };
 
   config.rundir = resolveRunDirectory(appInfo.baseDir);
+
+  config.multipart = { mode: 'stream', fileSize: '10mb', files: 1, whitelist: ['.png', '.jpg', '.jpeg', '.webp', '.pdf', '.xlsx', '.docx'] };
 
   // bodyParser 配置
   config.bodyParser = {

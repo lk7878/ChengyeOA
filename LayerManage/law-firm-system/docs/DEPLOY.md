@@ -30,4 +30,14 @@ Use the protected `db:reset:test` command only for test databases. Use the backu
 
 Run `npm.cmd run build:zip` to rebuild that tree and create `apps/dist/installer/LawFirmSystem-Portable-1.0.0.zip`. Run `npm.cmd run build:installer` with Inno Setup 6 `iscc` on `PATH` to rebuild the same tree and create the installer. Both distribution commands reject incomplete runtime trees before consuming them.
 
-Configure `DATABASE_URL`, `JWT_SECRET`, and `APP_KEYS` in the launch environment. Start the portable or installed application with `law-firm-system.exe`.
+Configure `DATABASE_URL`, `JWT_SECRET`, `APP_KEYS`, `CORS_ALLOWED_ORIGINS`, and `MFA_ENCRYPTION_KEY_V1` in the launch environment. `MFA_ENCRYPTION_KEY_V1` must be canonical Base64 for exactly 32 random bytes and must be restored with the database that contains its encrypted factors. Start the portable or installed application with `law-firm-system.exe`.
+
+Identity-security releases require synchronized server/web deployment and invalidation of legacy sessions. Follow `../../../docs/superpowers/runbooks/identity-security-mfa-step-up.md` for the key lifecycle, two-super-admin enrollment, governed/CLI reset, key-loss response, and rollback.
+
+## Event Worker Canary
+
+Event-center releases use an additive migration and start with `EVENT_WORKER_ENABLED=false`. Run the source `events:check -- --mode=preflight` command before and after one controlled `events:drain`; the second drain must claim no work. The portable equivalents are `law-firm-system.exe events:check --mode=preflight` and `law-firm-system.exe events:drain`.
+
+Enable one Worker instance, restart it through the normal deployment mechanism, and observe `events:check -- --mode=canary` for the complete configured window (15 minutes by default). `READY` permits completion, `DEGRADED` extends observation and requires investigation, and `BLOCKED` requires immediate rollback. Rollback sets `EVENT_WORKER_ENABLED=false`, confirms `DISABLED` and no new claims, and preserves all event, delivery, HandlerLog, notification idempotency, and audit evidence.
+
+The guarded local rehearsal is `npm.cmd --prefix apps/server run rehearse:event-observability`. It additionally requires the exact resettable localhost test target, the reset guard, and the dedicated event-observability rehearsal guard. It rejects target aliases and URL differences before connecting, performs only dependency injection for the availability drill, and always cleans its fixture in `finally`. Do not use it against a production database. Full operating steps and source/portable commands are in `../../../docs/superpowers/runbooks/reliable-event-center-outbox.md`.

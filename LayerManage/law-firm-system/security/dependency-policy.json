@@ -14,7 +14,7 @@
     "production": {
       "critical": "block",
       "high": "block",
-      "moderate": "report",
+      "moderate": "block",
       "low": "report"
     },
     "development": {

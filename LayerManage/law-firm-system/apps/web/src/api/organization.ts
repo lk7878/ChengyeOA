@@ -1,6 +1,7 @@
 import request from './request';
 export { masterDataApi } from '@/features/master-data/api';
-import type { ApiResponse, PaginatedData, Employee, Organization, Position, Channel, Approval, Notification, Performance } from '@/types';
+import type { ApiResponse, PaginatedData, Employee, Organization, Position, Channel, Notification, Performance, PerformanceBusinessMetrics } from '@/types';
+import type { PagedResult } from './types';
 
 type QueryParams = Record<string, unknown>;
 
@@ -16,7 +17,7 @@ export const employeeApi = {
 
 export const organizationApi = {
   list: () => request.get<ApiResponse<Organization[]>>('/v1/organizations'),
-  tree: () => request.get<ApiResponse<Organization[]>>('/v1/organizations/tree'),
+  tree: () => request.get<ApiResponse<Organization[]>>('/v1/organizations/options'),
   detail: (id: string) => request.get<ApiResponse<Organization>>(`/v1/organizations/${id}`),
   create: (data: Partial<Organization>) => request.post<ApiResponse<Organization>>('/v1/organizations', data),
   update: (id: string, data: Partial<Organization>) => request.put<ApiResponse<Organization>>(`/v1/organizations/${id}`, data),
@@ -40,13 +41,6 @@ export const channelApi = {
   statistics: (id: string) => request.get<ApiResponse<unknown>>(`/v1/channels/${id}/statistics`),
 };
 
-export const approvalApi = {
-  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Approval>>>('/v1/approvals', { params }),
-  detail: (id: string) => request.get<ApiResponse<Approval>>(`/v1/approvals/${id}`),
-  create: (data: Partial<Approval>) => request.post<ApiResponse<Approval>>('/v1/approvals', data),
-  process: (id: string, data: { status: string; remark?: string }) => request.post<ApiResponse<Approval>>(`/v1/approvals/${id}/process`, data),
-};
-
 export const notificationApi = {
   list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Notification>>>('/v1/notifications', { params }),
   read: (id: string) => request.patch<ApiResponse<Notification>>(`/v1/notifications/${id}/read`),
@@ -55,10 +49,20 @@ export const notificationApi = {
 };
 
 export const performanceApi = {
-  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Performance>>>('/v1/performances', { params }),
+  list: (params?: QueryParams) => request.get<ApiResponse<PagedResult<Performance>>>('/v1/performances', { params }),
   detail: (id: string) => request.get<ApiResponse<Performance>>(`/v1/performances/${id}`),
   create: (data: Partial<Performance>) => request.post<ApiResponse<Performance>>('/v1/performances', data),
   confirm: (id: string) => request.post<ApiResponse<Performance>>(`/v1/performances/${id}/confirm`),
+  // SPEC-043：绩效考核流程——目标设定/自评（performance.update）、主管评（performance.confirm）。
+  setGoal: (id: string, data: { goal: string }) =>
+    request.post<ApiResponse<Performance>>(`/v1/performances/${id}/set-goal`, data),
+  selfReview: (id: string, data: { selfScore: number; selfComment?: string }) =>
+    request.post<ApiResponse<Performance>>(`/v1/performances/${id}/self-review`, data),
+  managerReview: (id: string, data: { managerScore: number; managerComment?: string }) =>
+    request.post<ApiResponse<Performance>>(`/v1/performances/${id}/manager-review`, data),
+  // SPEC-044：绩效业务指标（该员工考核周期案件办结数/回款额）。
+  metrics: (id: string) =>
+    request.get<ApiResponse<PerformanceBusinessMetrics>>(`/v1/performances/${id}/metrics`),
 };
 
-export default { employeeApi, organizationApi, positionApi, channelApi, approvalApi, notificationApi, performanceApi };
+export default { employeeApi, organizationApi, positionApi, channelApi, notificationApi, performanceApi };

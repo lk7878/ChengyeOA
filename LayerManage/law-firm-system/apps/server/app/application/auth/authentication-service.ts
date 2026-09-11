@@ -2,8 +2,11 @@ import { PrismaClient } from '@prisma/client';
 import { PasswordHasher } from '../../domain/security/password-hasher';
 import { normalizeUsername, validatePassword } from '../../domain/security/password-policy';
 import { SecurityError } from '../../domain/security/security-errors';
-import { AuthTokenClaims, JwtTokenService, TokenType } from '../../domain/security/token-service';
+import { AssuranceLevel } from '../../domain/security/token-service';
 import { AuditWriter, writeAuditLog } from '../system/audit-writer';
+import { AuthChallengeService } from './auth-challenge-service';
+import { MfaCredential, MfaService } from './mfa-service';
+import { ActiveSessionClaims, SessionService } from './session-service';
 
 const DUMMY_PASSWORD_HASH = 'chengye$bcrypt-sha256$v1$$2a$12$qOeCc6HkVowb3pPphggWdeP1K0WB6I8VddCxCKgOspC5YUTOXmvR.';
 const LOCK_THRESHOLD = 5;
@@ -17,64 +20,55 @@ export interface AuthenticatedUser {
   permissions: string[];
 }
 
+export interface AuthenticatedResult {
+  mode: 'AUTHENTICATED';
+  token: string;
+  refreshToken: string;
+  csrfToken: string;
+  expiresIn: 900;
+  user: AuthenticatedUser;
+  recoveryCodes?: string[];
+}
+
 export type LoginResult =
-  | { mode: 'PASSWORD_CHANGE_REQUIRED'; passwordChangeToken: string; expiresIn: 300 }
-  | {
-    mode: 'AUTHENTICATED';
-    token: string;
-    refreshToken: string;
-    expiresIn: 604800;
-    user: AuthenticatedUser;
-  };
+  | { mode: 'PASSWORD_CHANGE_REQUIRED'; challengeToken: string; expiresIn: 300 }
+  | { mode: 'MFA_ENROLLMENT_REQUIRED'; challengeToken: string; expiresIn: 600 }
+  | { mode: 'MFA_CHALLENGE_REQUIRED'; challengeToken: string; expiresIn: 300 }
+  | AuthenticatedResult;
 
 export interface RequestMetadata {
   ip?: string;
   userAgent?: string;
 }
 
+type IdentityUser = Awaited<ReturnType<AuthenticationService['loadIdentityUser']>>;
+
 export class AuthenticationService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly hasher: PasswordHasher,
-    private readonly tokens: JwtTokenService,
+    private readonly challenges: AuthChallengeService,
+    private readonly mfa: MfaService,
+    private readonly sessions: SessionService,
     private readonly auditWriter: AuditWriter = writeAuditLog,
     private readonly clock: () => Date = () => new Date(),
+    private readonly localPasswordLogin = false,
   ) {}
 
   async login(username: string, password: string, metadata: RequestMetadata): Promise<LoginResult> {
     const usernameSnapshot = typeof username === 'string' ? normalizeUsername(username) : '';
     const passwordValue = typeof password === 'string' ? password : '';
-    const user = usernameSnapshot
-      ? await this.prisma.user.findUnique({
-        where: { username: usernameSnapshot },
-        include: {
-          userRoles: {
-            include: {
-              role: {
-                include: { permissions: { include: { permission: true } } },
-              },
-            },
-          },
-        },
-      })
-      : null;
+    const user = usernameSnapshot ? await this.loadIdentityUserByUsername(usernameSnapshot) : null;
 
     if (!user) {
       await this.hasher.compare(passwordValue, DUMMY_PASSWORD_HASH);
       await this.prisma.loginLog.create({
-        data: {
-          usernameSnapshot,
-          outcome: 'FAILURE',
-          reasonCode: 'UNKNOWN_USER',
-          ip: metadata.ip,
-          userAgent: metadata.userAgent,
-        },
+        data: { usernameSnapshot, outcome: 'FAILURE', reasonCode: 'UNKNOWN_USER', ...metadata },
       });
       throw authenticationFailed();
     }
 
-    const passwordMatches = await this.hasher.compare(passwordValue, user.password);
-    if (!passwordMatches) {
+    if (!await this.hasher.compare(passwordValue, user.password)) {
       await this.recordWrongPassword(user.id, usernameSnapshot, metadata);
       throw authenticationFailed();
     }
@@ -89,25 +83,18 @@ export class AuthenticationService {
         mustChangePassword: boolean;
       }>>`
         SELECT "id", "password", "status", "lockedUntil", "credentialVersion", "mustChangePassword"
-        FROM "user"
-        WHERE "id" = ${user.id}
-        FOR UPDATE
+        FROM "user" WHERE "id" = ${user.id} FOR UPDATE
       `;
       if (!current) {
         await tx.loginLog.create({
-          data: {
-            usernameSnapshot,
-            outcome: 'FAILURE',
-            reasonCode: 'UNKNOWN_USER',
-            ip: metadata.ip,
-            userAgent: metadata.userAgent,
-          },
+          data: { usernameSnapshot, outcome: 'FAILURE', reasonCode: 'UNKNOWN_USER', ...metadata },
         });
         return null;
       }
       const decisionTime = this.clock();
       const locked = isLocked(current.lockedUntil, decisionTime);
-      const credentialChanged = current.credentialVersion !== user.credentialVersion || current.password !== user.password;
+      const credentialChanged = current.credentialVersion !== user.credentialVersion
+        || current.password !== user.password;
       if (current.status !== 'ENABLED' || locked || credentialChanged) {
         await tx.loginLog.create({
           data: {
@@ -119,110 +106,96 @@ export class AuthenticationService {
               : current.status !== 'ENABLED'
                 ? 'USER_DISABLED'
                 : 'CREDENTIAL_CHANGED',
-            ip: metadata.ip,
-            userAgent: metadata.userAgent,
+            ...metadata,
           },
         });
         return null;
       }
       await tx.user.update({
         where: { id: current.id },
-        data: { lastLoginAt: decisionTime, failedLoginCount: 0, lockedUntil: null },
+        data: { failedLoginCount: 0, lockedUntil: null },
       });
-      await tx.loginLog.create({
-        data: {
-          user: { connect: { id: current.id } },
-          usernameSnapshot,
-          outcome: 'SUCCESS',
-          reasonCode: null,
-          ip: metadata.ip,
-          userAgent: metadata.userAgent,
-        },
-      });
-      return {
-        credentialVersion: current.credentialVersion,
-        mustChangePassword: current.mustChangePassword,
-      };
+      return { userId: current.id, mustChangePassword: current.mustChangePassword };
     });
-    if (!loginState) {
-      throw authenticationFailed();
-    }
+    if (!loginState) throw authenticationFailed();
 
     if (loginState.mustChangePassword) {
-      return {
-        mode: 'PASSWORD_CHANGE_REQUIRED',
-        passwordChangeToken: this.tokens.signPasswordChange(user.id, loginState.credentialVersion),
-        expiresIn: 300,
-      };
+      const challenge = await this.challenges.issue(loginState.userId, 'PASSWORD_CHANGE');
+      return { mode: 'PASSWORD_CHANGE_REQUIRED', challengeToken: challenge.token, expiresIn: 300 };
     }
+    return this.nextAuthenticationState(loginState.userId, metadata);
+  }
 
+  async beginMfaEnrollment(challengeToken: string) {
+    return this.mfa.beginEnrollment(challengeToken);
+  }
+
+  async confirmMfaEnrollment(
+    challengeToken: string,
+    code: string,
+    metadata: RequestMetadata,
+  ): Promise<AuthenticatedResult> {
+    const identity = await this.mfa.confirmEnrollment(challengeToken, code);
+    return this.completeAuthentication(identity.userId, 'MFA', metadata, identity.recoveryCodes);
+  }
+
+  async verifyMfa(
+    challengeToken: string,
+    credential: MfaCredential,
+    metadata: RequestMetadata,
+  ): Promise<AuthenticatedResult> {
+    const identity = await this.mfa.verifyLogin(challengeToken, credential);
+    return this.completeAuthentication(identity.userId, 'MFA', metadata);
+  }
+
+  async refresh(refreshToken: string, metadata: RequestMetadata) {
+    const credentials = await this.sessions.rotateRefresh(refreshToken, metadata);
     return {
-      mode: 'AUTHENTICATED',
-      token: this.tokens.signAccess(user.id, loginState.credentialVersion),
-      refreshToken: this.tokens.signRefresh(user.id, loginState.credentialVersion),
-      expiresIn: 604800,
-      user: authenticatedUser(user),
+      token: credentials.accessToken,
+      refreshToken: credentials.refreshToken,
+      csrfToken: credentials.csrfToken,
+      expiresIn: credentials.expiresIn,
     };
   }
 
-  async refresh(refreshToken: string): Promise<{ token: string; expiresIn: 604800 }> {
-    const claims = await this.authenticate(refreshToken, ['refresh']);
-    return { token: this.tokens.signAccess(claims.userId, claims.credentialVersion), expiresIn: 604800 };
+  async authenticate(token: string): Promise<ActiveSessionClaims> {
+    return this.sessions.authenticateAccess(token);
   }
 
-  async authenticate(token: string, allowedTypes: readonly TokenType[]): Promise<AuthTokenClaims> {
-    const claims = this.tokens.verify(typeof token === 'string' ? token : '', allowedTypes);
-    const user = await this.prisma.user.findUnique({
-      where: { id: claims.userId },
-      select: { status: true, lockedUntil: true, credentialVersion: true, mustChangePassword: true },
-    });
-    if (
-      !user
-      || user.status !== 'ENABLED'
-      || isLocked(user.lockedUntil, this.clock())
-      || user.credentialVersion !== claims.credentialVersion
-      || (user.mustChangePassword && claims.tokenType !== 'password_change')
-    ) {
-      throw authenticationFailed();
-    }
-    return claims;
-  }
-
-  async forcePasswordChange(token: string, password: string, confirmation: string): Promise<void> {
-    const claims = await this.authenticate(token, ['password_change']);
+  async forcePasswordChange(
+    challengeToken: string,
+    password: string,
+    confirmation: string,
+    metadata: RequestMetadata = {},
+  ): Promise<LoginResult> {
     if (typeof password !== 'string' || typeof confirmation !== 'string' || password !== confirmation) {
       throw new SecurityError('PASSWORD_INVALID');
     }
-
-    const user = await this.prisma.user.findUnique({ where: { id: claims.userId } });
-    if (!user || !user.mustChangePassword) {
-      throw authenticationFailed();
-    }
-    validatePassword(password, user.username);
-    if (await this.hasher.compare(password, user.password)) {
-      throw new SecurityError('PASSWORD_REUSED');
-    }
+    const userId = await this.challenges.getActiveUserId(challengeToken, 'PASSWORD_CHANGE');
+    const snapshot = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!snapshot?.mustChangePassword) throw authenticationFailed();
+    validatePassword(password, snapshot.username);
+    if (await this.hasher.compare(password, snapshot.password)) throw new SecurityError('PASSWORD_REUSED');
     const passwordHash = await this.hasher.hash(password);
 
-    await this.prisma.$transaction(async tx => {
+    await this.challenges.consume(challengeToken, 'PASSWORD_CHANGE', async (tx, lockedUserId) => {
       const [current] = await tx.$queryRaw<Array<{
         id: string;
+        password: string;
         status: string;
         lockedUntil: Date | null;
         credentialVersion: number;
         mustChangePassword: boolean;
       }>>`
-        SELECT "id", "status", "lockedUntil", "credentialVersion", "mustChangePassword"
-        FROM "user"
-        WHERE "id" = ${claims.userId}
-        FOR UPDATE
+        SELECT "id", "password", "status", "lockedUntil", "credentialVersion", "mustChangePassword"
+        FROM "user" WHERE "id" = ${lockedUserId} FOR UPDATE
       `;
       const changedAt = this.clock();
       if (
         !current
+        || current.password !== snapshot.password
         || current.status !== 'ENABLED'
         || isLocked(current.lockedUntil, changedAt)
-        || current.credentialVersion !== claims.credentialVersion
         || !current.mustChangePassword
       ) {
         throw authenticationFailed();
@@ -238,12 +211,92 @@ export class AuthenticationService {
           lockedUntil: null,
         },
       });
+      await tx.authSession.updateMany({
+        where: { userId: current.id, revokedAt: null },
+        data: { revokedAt: changedAt, revokedReason: 'PASSWORD_CHANGED' },
+      });
       await this.auditWriter(tx, {
         userId: current.id,
         action: 'FORCED_PASSWORD_CHANGE',
         targetType: 'USER',
         targetId: current.id,
       });
+    });
+    return this.nextAuthenticationState(userId, metadata);
+  }
+
+  private async nextAuthenticationState(
+    userId: string,
+    metadata: RequestMetadata,
+  ): Promise<LoginResult> {
+    const [user, factor] = await Promise.all([
+      this.loadIdentityUser(userId),
+      this.prisma.mfaFactor.findFirst({
+        where: { userId, verifiedAt: { not: null }, disabledAt: null },
+        select: { id: true },
+      }),
+    ]);
+    if (!user) throw authenticationFailed();
+    if (this.localPasswordLogin) return this.completeAuthentication(userId, 'PASSWORD', metadata);
+    if (factor) {
+      const challenge = await this.challenges.issue(userId, 'MFA_VERIFY');
+      return { mode: 'MFA_CHALLENGE_REQUIRED', challengeToken: challenge.token, expiresIn: 300 };
+    }
+    if (isAdministrator(user, this.clock())) {
+      const challenge = await this.challenges.issue(userId, 'MFA_ENROLLMENT');
+      return { mode: 'MFA_ENROLLMENT_REQUIRED', challengeToken: challenge.token, expiresIn: 600 };
+    }
+    return this.completeAuthentication(userId, 'PASSWORD', metadata);
+  }
+
+  private async completeAuthentication(
+    userId: string,
+    assuranceLevel: AssuranceLevel,
+    metadata: RequestMetadata,
+    recoveryCodes?: string[],
+  ): Promise<AuthenticatedResult> {
+    const user = await this.loadIdentityUser(userId);
+    if (!user) throw authenticationFailed();
+    const completedAt = this.clock();
+    const credentials = await this.sessions.create(
+      userId,
+      assuranceLevel,
+      metadata,
+      async tx => {
+        await tx.user.update({ where: { id: userId }, data: { lastLoginAt: completedAt } });
+        await tx.loginLog.create({
+          data: {
+            user: { connect: { id: userId } },
+            usernameSnapshot: user.username,
+            outcome: 'SUCCESS',
+            reasonCode: null,
+            ...metadata,
+          },
+        });
+      },
+    );
+    return {
+      mode: 'AUTHENTICATED',
+      token: credentials.accessToken,
+      refreshToken: credentials.refreshToken,
+      csrfToken: credentials.csrfToken,
+      expiresIn: credentials.expiresIn,
+      user: authenticatedUser(user, completedAt),
+      ...(recoveryCodes ? { recoveryCodes } : {}),
+    };
+  }
+
+  private async loadIdentityUserByUsername(username: string) {
+    return this.prisma.user.findUnique({
+      where: { username },
+      include: identityInclude,
+    });
+  }
+
+  private async loadIdentityUser(userId: string) {
+    return this.prisma.user.findUnique({
+      where: { id: userId },
+      include: identityInclude,
     });
   }
 
@@ -259,19 +312,11 @@ export class AuthenticationService {
         lockedUntil: Date | null;
       }>>`
         SELECT "status", "failedLoginCount", "lockedUntil"
-        FROM "user"
-        WHERE "id" = ${userId}
-        FOR UPDATE
+        FROM "user" WHERE "id" = ${userId} FOR UPDATE
       `;
       if (!current) {
         await tx.loginLog.create({
-          data: {
-            usernameSnapshot,
-            outcome: 'FAILURE',
-            reasonCode: 'UNKNOWN_USER',
-            ip: metadata.ip,
-            userAgent: metadata.userAgent,
-          },
+          data: { usernameSnapshot, outcome: 'FAILURE', reasonCode: 'UNKNOWN_USER', ...metadata },
         });
         return;
       }
@@ -284,22 +329,18 @@ export class AuthenticationService {
             usernameSnapshot,
             outcome: lockedAtDecision ? 'LOCKED' : 'FAILURE',
             reasonCode: lockedAtDecision ? 'ACCOUNT_LOCKED' : 'USER_DISABLED',
-            ip: metadata.ip,
-            userAgent: metadata.userAgent,
+            ...metadata,
           },
         });
         return;
       }
-
       const failedLoginCount = current.failedLoginCount + 1;
       const locked = failedLoginCount >= LOCK_THRESHOLD;
       await tx.user.update({
         where: { id: userId },
         data: {
           failedLoginCount,
-          lockedUntil: locked
-            ? new Date(decisionTime.getTime() + LOCK_DURATION_MS)
-            : current.lockedUntil,
+          lockedUntil: locked ? new Date(decisionTime.getTime() + LOCK_DURATION_MS) : current.lockedUntil,
         },
       });
       await tx.loginLog.create({
@@ -308,13 +349,20 @@ export class AuthenticationService {
           usernameSnapshot,
           outcome: locked ? 'LOCKED' : 'FAILURE',
           reasonCode: 'INVALID_PASSWORD',
-          ip: metadata.ip,
-          userAgent: metadata.userAgent,
+          ...metadata,
         },
       });
     });
   }
 }
+
+const identityInclude = {
+  userRoles: {
+    include: {
+      role: { include: { permissions: { include: { permission: true } } } },
+    },
+  },
+} as const;
 
 function isLocked(lockedUntil: Date | null, now: Date): boolean {
   return lockedUntil !== null && lockedUntil.getTime() > now.getTime();
@@ -324,15 +372,25 @@ function authenticationFailed(): SecurityError {
   return new SecurityError('AUTHENTICATION_FAILED', 401);
 }
 
-function authenticatedUser(user: {
-  id: string;
-  username: string;
-  userRoles: Array<{
-    role: { name: string; permissions: Array<{ permission: { code: string } }> };
-  }>;
-}): AuthenticatedUser {
-  const roles = user.userRoles.map(userRole => userRole.role.name);
-  const permissions = Array.from(new Set(user.userRoles.flatMap(
+function activeRoleAssignments(user: NonNullable<IdentityUser>, now: Date) {
+  return user.userRoles.filter(userRole => (
+    userRole.role.status === 'ENABLED'
+    && !userRole.revokedAt
+    && userRole.validFrom.getTime() <= now.getTime()
+    && (!userRole.validUntil || userRole.validUntil.getTime() > now.getTime())
+  ));
+}
+
+function isAdministrator(user: NonNullable<IdentityUser>, now: Date): boolean {
+  return activeRoleAssignments(user, now).some(
+    userRole => userRole.role.code === 'SYSTEM_SUPER_ADMIN' || userRole.role.code === 'SYSTEM_ADMIN',
+  );
+}
+
+function authenticatedUser(user: NonNullable<IdentityUser>, now: Date): AuthenticatedUser {
+  const assignments = activeRoleAssignments(user, now);
+  const roles = assignments.map(userRole => userRole.role.name);
+  const permissions = Array.from(new Set(assignments.flatMap(
     userRole => userRole.role.permissions.map(rolePermission => rolePermission.permission.code),
   )));
   return { id: user.id, username: user.username, name: user.username, roles, permissions };

@@ -5,61 +5,55 @@ import { JwtTokenService } from '../../app/domain/security/token-service';
 
 const secret = '01234567890123456789012345678901';
 
-test('binds each token to type, user and credential version', () => {
+test('binds a 15-minute access token to user, session, credential version, and assurance level', () => {
   const tokens = new JwtTokenService(secret);
-  const token = tokens.signPasswordChange('user-1', 3);
-  const claims = tokens.verify(token, ['password_change']);
+  const token = tokens.signSessionAccess('user-1', 'session-1', 3, 'MFA');
+  const claims = tokens.verifySessionAccess(token);
+  const decoded = jwt.decode(token) as jwt.JwtPayload;
 
   assert.equal(claims.userId, 'user-1');
+  assert.equal(claims.sessionId, 'session-1');
   assert.equal(claims.credentialVersion, 3);
-  assert.equal(claims.tokenType, 'password_change');
-  assert.throws(() => tokens.verify(token, ['access']), /TOKEN_TYPE_INVALID/);
+  assert.equal(claims.assuranceLevel, 'MFA');
+  assert.equal(claims.tokenType, 'access');
+  assert.equal(decoded.exp! - decoded.iat!, 900);
 });
 
-test('signs access and refresh tokens with their required types', () => {
-  const tokens = new JwtTokenService(secret);
-
-  assert.equal(tokens.verify(tokens.signAccess('user-1', 3), ['access']).tokenType, 'access');
-  assert.equal(tokens.verify(tokens.signRefresh('user-1', 3), ['refresh']).tokenType, 'refresh');
+test('does not expose legacy refresh, password-change, or sessionless access signers', () => {
+  const tokens = new JwtTokenService(secret) as unknown as Record<string, unknown>;
+  assert.equal('signRefresh' in tokens, false);
+  assert.equal('signPasswordChange' in tokens, false);
+  assert.equal('signAccess' in tokens, false);
 });
 
-test('rejects invalid signatures and tokens missing required claims', () => {
+test('rejects invalid signatures and access tokens missing any required session claim', () => {
   const tokens = new JwtTokenService(secret);
-  const missingCredentialVersion = jwt.sign({ userId: 'user-1', tokenType: 'access' }, secret);
-
-  assert.throws(() => tokens.verify('not-a-token', ['access']), /TOKEN_INVALID/);
-  assert.throws(() => tokens.verify(missingCredentialVersion, ['access']), /TOKEN_INVALID/);
-});
-
-test('rejects tokens signed with an unexpected algorithm', () => {
-  const tokens = new JwtTokenService(secret);
-  const hs512Token = jwt.sign(
-    { userId: 'user-1', tokenType: 'access', credentialVersion: 3 },
+  const missingSession = jwt.sign(
+    { userId: 'user-1', tokenType: 'access', credentialVersion: 3, assuranceLevel: 'MFA' },
     secret,
-    { algorithm: 'HS512', expiresIn: '1h' },
+    { algorithm: 'HS256', expiresIn: '15m' },
+  );
+  const wrongType = jwt.sign(
+    { userId: 'user-1', sessionId: 'session-1', tokenType: 'refresh', credentialVersion: 3, assuranceLevel: 'MFA' },
+    secret,
+    { algorithm: 'HS256', expiresIn: '15m' },
   );
 
-  assert.throws(() => tokens.verify(hs512Token, ['access']), /TOKEN_INVALID/);
+  assert.throws(() => tokens.verifySessionAccess('not-a-token'), /TOKEN_INVALID/);
+  assert.throws(() => tokens.verifySessionAccess(missingSession), /TOKEN_INVALID/);
+  assert.throws(() => tokens.verifySessionAccess(wrongType), /TOKEN_INVALID/);
 });
 
-test('rejects correctly signed tokens without an expiration claim', () => {
+test('rejects unexpected algorithms, missing expiry, and expired access tokens', () => {
   const tokens = new JwtTokenService(secret);
-  const tokenWithoutExpiry = jwt.sign(
-    { userId: 'user-1', tokenType: 'access', credentialVersion: 3 },
-    secret,
-    { algorithm: 'HS256' },
-  );
+  const payload = {
+    userId: 'user-1', sessionId: 'session-1', tokenType: 'access', credentialVersion: 3, assuranceLevel: 'MFA',
+  };
+  const hs512 = jwt.sign(payload, secret, { algorithm: 'HS512', expiresIn: '15m' });
+  const noExpiry = jwt.sign(payload, secret, { algorithm: 'HS256' });
+  const expired = jwt.sign(payload, secret, { algorithm: 'HS256', expiresIn: -1 });
 
-  assert.throws(() => tokens.verify(tokenWithoutExpiry, ['access']), /TOKEN_INVALID/);
-});
-
-test('rejects expired tokens signed with the expected algorithm', () => {
-  const tokens = new JwtTokenService(secret);
-  const expiredToken = jwt.sign(
-    { userId: 'user-1', tokenType: 'access', credentialVersion: 3 },
-    secret,
-    { algorithm: 'HS256', expiresIn: -1 },
-  );
-
-  assert.throws(() => tokens.verify(expiredToken, ['access']), /TOKEN_INVALID/);
+  assert.throws(() => tokens.verifySessionAccess(hs512), /TOKEN_INVALID/);
+  assert.throws(() => tokens.verifySessionAccess(noExpiry), /TOKEN_INVALID/);
+  assert.throws(() => tokens.verifySessionAccess(expired), /TOKEN_INVALID/);
 });

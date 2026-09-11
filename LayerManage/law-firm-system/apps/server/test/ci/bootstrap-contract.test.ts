@@ -16,6 +16,7 @@ const validRootScripts = {
   'db:deploy': 'npm --prefix apps/server run db:deploy',
   'system:bootstrap': 'npm --prefix apps/server run system:bootstrap',
   'super-admin:recover': 'npm --prefix apps/server run super-admin:recover',
+  'super-admin:add-second': 'npm --prefix apps/server run super-admin:add-second',
   'check:bootstrap': 'npm --prefix apps/server run check:bootstrap',
   verify: 'npm run lint && npm run typecheck && npm run test && npm --prefix apps/server run check:baseline && npm run check:bootstrap && npm run build && npm run security:policy:validate',
 };
@@ -23,8 +24,22 @@ const validRootScripts = {
 const validServerScripts = {
   'system:bootstrap': 'tsx scripts/system/bootstrap-system.ts',
   'super-admin:recover': 'tsx scripts/system/recover-super-admin.ts',
+  'super-admin:add-second': 'tsx scripts/system/add-second-super-admin.ts',
   'check:bootstrap': 'tsx scripts/ci/check-bootstrap-contract.ts',
 };
+
+const validBootstrapRolesSource = [
+  'export const roleSeeds = [',
+  "  { name: '系统管理员', code: 'SYSTEM_ADMIN', type: 'SYSTEM', status: 'ENABLED' },",
+  "  { name: '系统超级管理员', code: 'SYSTEM_SUPER_ADMIN', type: 'SYSTEM', status: 'ENABLED' },",
+  "  { name: '人事管理', code: 'HR', type: 'BUSINESS', status: 'ENABLED' },",
+  "  { name: '印章管理员', code: 'SEAL_ADMIN', type: 'BUSINESS', status: 'ENABLED' },",
+  "  { name: '财务', code: 'FINANCE', type: 'BUSINESS', status: 'ENABLED' },",
+  "  { name: '合伙人', code: 'PARTNER', type: 'BUSINESS', status: 'ENABLED' },",
+  "  { name: '主管', code: 'MANAGER', type: 'BUSINESS', status: 'ENABLED' },",
+  '];',
+  "const approvalReviewerCodes = ['approval.read', 'approval.process'];",
+].join('\n');
 
 interface ProjectFixture {
   projectRoot: string;
@@ -52,7 +67,9 @@ function createProjectFixture(): ProjectFixture {
   write('apps/server/config/config.default.ts', 'export default {};\n');
   write('apps/server/scripts/system/bootstrap-system.ts', 'runInteractiveBootstrap();\n');
   write('apps/server/scripts/system/recover-super-admin.ts', 'runInteractiveRecovery();\n');
+  write('apps/server/scripts/system/add-second-super-admin.ts', 'runInteractiveSecondSeatRecovery();\n');
   write('apps/server/scripts/system/system-cli.ts', 'export function hiddenPrompt() {}\n');
+  write('apps/server/app/application/system/system-bootstrap-service.ts', validBootstrapRolesSource);
 
   return { projectRoot: fixtureRoot, serverRoot, write };
 }
@@ -84,6 +101,45 @@ test('bootstrap creates the expanded root identity from one explicit UUID', () =
   assert.match(bootstrapServiceSource, /level:\s*0/);
 });
 
+test('bootstrap source provisions the two system and five business role codes', () => {
+  for (const code of ['SYSTEM_ADMIN', 'SYSTEM_SUPER_ADMIN', 'HR', 'SEAL_ADMIN', 'FINANCE', 'PARTNER', 'MANAGER']) {
+    assert.match(bootstrapServiceSource, new RegExp(`code:\\s*['"]${code}['"]`));
+  }
+});
+
+test('bootstrap must provision the five business roles', () => {
+  assertOnlyIssue(
+    fixture => fixture.write(
+      'apps/server/app/application/system/system-bootstrap-service.ts',
+      validBootstrapRolesSource.replace("code: 'HR'", "code: 'HR_UNUSED'"),
+    ),
+    'bootstrap must provision role HR',
+  );
+});
+
+test('bootstrap business roles must use type BUSINESS', () => {
+  assertOnlyIssue(
+    fixture => fixture.write(
+      'apps/server/app/application/system/system-bootstrap-service.ts',
+      validBootstrapRolesSource.replace(
+        "name: '财务', code: 'FINANCE', type: 'BUSINESS'",
+        "name: '财务', code: 'FINANCE', type: 'SYSTEM'",
+      ),
+    ),
+    'bootstrap role FINANCE must have type BUSINESS',
+  );
+});
+
+test('bootstrap must grant approval reviewer permissions', () => {
+  assertOnlyIssue(
+    fixture => fixture.write(
+      'apps/server/app/application/system/system-bootstrap-service.ts',
+      validBootstrapRolesSource.replace("'approval.process'", "'approval.assignee'"),
+    ),
+    'bootstrap must grant approval reviewer permission approval.process',
+  );
+});
+
 test('a complete fixture satisfies the bootstrap contract', () => {
   withFixture(fixture => {
     assert.deepEqual(checkBootstrapContract(fixture.projectRoot), []);
@@ -100,6 +156,12 @@ test('requires the exact root recovery command', () => {
   assertOnlyIssue(fixture => fixture.write('package.json', JSON.stringify({
     scripts: { ...validRootScripts, 'super-admin:recover': 'node recover.js' },
   })), 'root recovery command is missing or changed');
+});
+
+test('requires the exact root second-super-admin command', () => {
+  assertOnlyIssue(fixture => fixture.write('package.json', JSON.stringify({
+    scripts: { ...validRootScripts, 'super-admin:add-second': 'node add-second.js' },
+  })), 'root second-super-admin command is missing or changed');
 });
 
 test('requires the exact root bootstrap checker command', () => {
@@ -145,6 +207,19 @@ test('requires the exact server recovery command', () => {
   assertOnlyIssue(fixture => fixture.write('apps/server/package.json', JSON.stringify({
     scripts: { ...validServerScripts, 'super-admin:recover': 'tsx scripts/system/another-recovery.ts' },
   })), 'server recovery command is missing or changed');
+});
+
+test('requires the exact server second-super-admin command', () => {
+  assertOnlyIssue(fixture => fixture.write('apps/server/package.json', JSON.stringify({
+    scripts: { ...validServerScripts, 'super-admin:add-second': 'tsx scripts/system/other-second.ts' },
+  })), 'server second-super-admin command is missing or changed');
+});
+
+test('requires the second-super-admin CLI source', () => {
+  assertOnlyIssue(
+    fixture => fs.rmSync(path.join(fixture.serverRoot, 'scripts', 'system', 'add-second-super-admin.ts')),
+    'second-super-admin CLI source is missing',
+  );
 });
 
 test('requires the exact server bootstrap checker command', () => {
@@ -212,6 +287,16 @@ test('rejects an HTTP recovery route', () => {
     "router.post('/api/v1/auth/password/forced-change', controller.auth.forcedChange);",
     "router.patch('/admin/recover', controller.admin.recover);",
   ].join('\n')), 'HTTP bootstrap or recovery route exists');
+});
+
+test('accepts the authenticated MFA recovery-code management route', () => {
+  withFixture(fixture => {
+    fixture.write('apps/server/app/router.ts', [
+      "router.post('/api/v1/auth/password/forced-change', controller.auth.forcedChange);",
+      "router.post('/api/v1/auth/mfa/recovery-codes', controller.auth.regenerateRecoveryCodes);",
+    ].join('\n'));
+    assert.deepEqual(checkBootstrapContract(fixture.projectRoot), []);
+  });
 });
 
 test('rejects a multiline HTTP bootstrap route', () => {
@@ -518,10 +603,12 @@ test('missing manifests fail safely with deterministic issues', () => {
       'server package manifest is missing',
       'root bootstrap command is missing or changed',
       'root recovery command is missing or changed',
+      'root second-super-admin command is missing or changed',
       'root bootstrap checker command is missing or changed',
       'root verify must run check:baseline before check:bootstrap',
       'server bootstrap command is missing or changed',
       'server recovery command is missing or changed',
+      'server second-super-admin command is missing or changed',
       'server bootstrap checker command is missing or changed',
     ]);
   });
@@ -537,10 +624,12 @@ test('malformed manifests fail safely with deterministic useful issues', () => {
       'server package manifest must contain a JSON object',
       'root bootstrap command is missing or changed',
       'root recovery command is missing or changed',
+      'root second-super-admin command is missing or changed',
       'root bootstrap checker command is missing or changed',
       'root verify must run check:baseline before check:bootstrap',
       'server bootstrap command is missing or changed',
       'server recovery command is missing or changed',
+      'server second-super-admin command is missing or changed',
       'server bootstrap checker command is missing or changed',
     ]);
   });
@@ -549,10 +638,12 @@ test('malformed manifests fail safely with deterministic useful issues', () => {
 const consumedScripts = [
   { manifest: 'package.json', scope: 'root', name: 'system:bootstrap', issue: 'root bootstrap command is missing or changed' },
   { manifest: 'package.json', scope: 'root', name: 'super-admin:recover', issue: 'root recovery command is missing or changed' },
+  { manifest: 'package.json', scope: 'root', name: 'super-admin:add-second', issue: 'root second-super-admin command is missing or changed' },
   { manifest: 'package.json', scope: 'root', name: 'check:bootstrap', issue: 'root bootstrap checker command is missing or changed' },
   { manifest: 'package.json', scope: 'root', name: 'verify', issue: 'root verify must run check:baseline before check:bootstrap' },
   { manifest: 'apps/server/package.json', scope: 'server', name: 'system:bootstrap', issue: 'server bootstrap command is missing or changed' },
   { manifest: 'apps/server/package.json', scope: 'server', name: 'super-admin:recover', issue: 'server recovery command is missing or changed' },
+  { manifest: 'apps/server/package.json', scope: 'server', name: 'super-admin:add-second', issue: 'server second-super-admin command is missing or changed' },
   { manifest: 'apps/server/package.json', scope: 'server', name: 'check:bootstrap', issue: 'server bootstrap checker command is missing or changed' },
 ] as const;
 

@@ -1,5 +1,7 @@
 # SPEC-004 RBAC, Data Scope, and Sensitive Permissions Implementation Plan
 
+> **Execution status (2026-07-19):** All local implementation, migration, test, security, browser, documentation, and empty-database gates are complete. Git commit steps were dispositioned as not applicable under the project owner's standing instruction to perform no Git operations during local development. See `docs/superpowers/reports/spec-004-closeout.md` for exact evidence.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this Plan task-by-task. Use a subagent only when a later review identifies a genuinely independent task whose isolation saves time. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the temporary super-admin-only master-data gate with a real-time, explainable authorization platform covering action permissions, data scopes, field security, temporary grants, reporting lines, and the current organization/personnel UI.
@@ -118,7 +120,7 @@ apps/web/src/pages/
 - Produces: final authorization Prisma models, `PermissionCode`, `ResourceCode`, `FieldCode`, `PERMISSION_CATALOG`, and the expanded migration state.
 - Consumed by: every later task.
 
-- [ ] **Step 1: Write failing schema, migration, and catalog tests**
+- [x] **Step 1: Write failing schema, migration, and catalog tests**
 
 Add exact assertions:
 
@@ -146,7 +148,7 @@ test('catalog contains unique immutable codes and only approved types', () => {
 });
 ```
 
-- [ ] **Step 2: Run focused tests and confirm RED**
+- [x] **Step 2: Run focused tests and confirm RED**
 
 ```powershell
 Push-Location apps/server
@@ -157,7 +159,7 @@ try {
 
 Expected: imports/models/migration missing and model count remains 26.
 
-- [ ] **Step 3: Define exact authorization value types and catalog**
+- [x] **Step 3: Define exact authorization value types and catalog**
 
 ```ts
 export type PermissionType = 'MENU' | 'ACTION' | 'SPECIAL';
@@ -191,7 +193,7 @@ export type PermissionCode = typeof PERMISSION_CODES[number];
 
 Build `PERMISSION_CATALOG` from explicit entries whose IDs are semantic stable strings such as `permission:organization.read`. Define type, resource, action, display name, risk level, and status for every code above. Mark all nine future business codes `SPECIAL`; do not add route mappings for them.
 
-- [ ] **Step 4: Add the expanded Prisma models**
+- [x] **Step 4: Add the expanded Prisma models**
 
 Add `version` to Role and Permission, add `resource`, `action`, `riskLevel`, and `updatedAt` to Permission, replace the prototype UserRole shape with the exact history-preserving grant model below, and add the six new models with inverse relations on User, Role, Permission, Organization, Employee, and ProfessionalTeam:
 
@@ -321,7 +323,7 @@ model EmployeeReportingLine {
 }
 ```
 
-- [ ] **Step 5: Write the expand SQL**
+- [x] **Step 5: Write the expand SQL**
 
 The migration must:
 
@@ -335,7 +337,7 @@ The migration must:
 8. insert every `PERMISSION_CATALOG` entry with semantic ID and `ON CONFLICT (code) DO UPDATE` limited to code-owned metadata;
 9. create no RolePermission rows and no business roles/scopes/grants.
 
-- [ ] **Step 6: Reset, generate, and verify GREEN**
+- [x] **Step 6: Reset, generate, and verify GREEN**
 
 ```powershell
 npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd run db:reset:test
@@ -347,7 +349,7 @@ try { npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd exec -- tsx --test --test
 
 Expected: migration applies, model count is 32, catalog is exact, bootstrap still creates only the root, protected role, user, link, initialization, and audit.
 
-- [ ] **Step 7: Commit locally**
+- [x] **Step 7: Commit locally** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 ```powershell
 git add LayerManage/law-firm-system/apps/server/prisma LayerManage/law-firm-system/apps/server/app/domain/authorization LayerManage/law-firm-system/apps/server/test
@@ -371,7 +373,7 @@ git commit -m "feat(db): expand SPEC-004 authorization schema"
 - Produces: `AuthorizationError`, strict DTO parsers, scope-shape validation, field catalog/masking, and `writeAuthorizationAudit()`.
 - Consumed by: Tasks 3-16.
 
-- [ ] **Step 1: Write failing domain tests**
+- [x] **Step 1: Write failing domain tests**
 
 Cover exact codes, 10-500 character grant reasons, 10-200 character L4 purposes, 90-day role limits, 30-day special-grant limits, strict unknown-key rejection, scope target rules, and deterministic masks:
 
@@ -383,11 +385,11 @@ assert.throws(() => parseAccessPurpose('short'), hasCode('ACCESS_PURPOSE_REQUIRE
 assert.throws(() => validateScope({ scopeType: 'SELF', organizationId: 'org' }), hasCode('AUTHORIZATION_INPUT_INVALID'));
 ```
 
-- [ ] **Step 2: Run tests and confirm RED**
+- [x] **Step 2: Run tests and confirm RED**
 
 Run the four new test files. Expected: imports fail.
 
-- [ ] **Step 3: Implement stable errors and strict validation**
+- [x] **Step 3: Implement stable errors and strict validation**
 
 ```ts
 export class AuthorizationError extends Error {
@@ -407,11 +409,11 @@ export const AUTHORIZATION_CODES = {
 
 Use exact-key parsers. Never pass raw parser values or Prisma errors into the public message.
 
-- [ ] **Step 4: Implement scope and field policy**
+- [x] **Step 4: Implement scope and field policy**
 
 Define `validateScopeShape()`, `combineGrantRecordSets()` semantics, `FIELD_CATALOG`, and maskers. The catalog must classify every current field from Spec section 8.3 and mark password/security internals `FORBIDDEN`. Unknown employee identity fields default L3; unknown customer/case/contract/file/AI fields default L3 when later registered.
 
-- [ ] **Step 5: Implement sanitized audit**
+- [x] **Step 5: Implement sanitized audit**
 
 ```ts
 export async function writeAuthorizationAudit(
@@ -432,7 +434,7 @@ export async function writeAuthorizationAudit(
 
 The allowlist contains IDs, codes, state, version, timestamps, scope type, field codes, counts, and explicit grant reason/purpose only. It excludes names and all business field values.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Run the four tests plus server lint/typecheck. Commit:
 
@@ -461,19 +463,19 @@ Stage newly created files explicitly before the commit.
 - Produces: one `AuthorizationContext` per request, `requireAction()`, and route middleware `requirePermission(code)`.
 - Consumed by: all protected routes and services.
 
-- [ ] **Step 1: Write failing context tests**
+- [x] **Step 1: Write failing context tests**
 
 Test enabled/disabled account and role, not-started/expired/revoked grants, direct special grants, duplicate permission deduplication, no employee binding, and super-admin implicit grants. Freeze evaluation time at `2026-07-18T12:00:00Z`.
 
-- [ ] **Step 2: Write failing middleware tests**
+- [x] **Step 2: Write failing middleware tests**
 
 Prove public routes are untouched, missing token remains 401, authenticated users without an action receive `PERMISSION_DENIED`, enabled grants reach the controller, and the request builds the context exactly once.
 
-- [ ] **Step 3: Run tests and confirm RED**
+- [x] **Step 3: Run tests and confirm RED**
 
 Expected: modules and middleware missing.
 
-- [ ] **Step 4: Implement bounded context loading**
+- [x] **Step 4: Implement bounded context loading**
 
 Load user state, employee binding, active UserRole relations with role permissions/scopes/field rules, and active UserPermissionGrant relations. Filter validity with the injected `evaluatedAt`; do not use cached login permissions. Normalize into:
 
@@ -490,7 +492,7 @@ export interface EffectiveGrant {
 
 Keep the loader query count bounded by nested Prisma includes, not one query per role.
 
-- [ ] **Step 5: Implement action guard and middleware order**
+- [x] **Step 5: Implement action guard and middleware order**
 
 `authorizationContext` runs after `auth` for access-token routes and skips health/login/refresh/forced-change. `requirePermission(code)` reads the existing context and calls `requireAction`; it never trusts request bodies or `auth/me` state.
 
@@ -502,7 +504,7 @@ config.middleware = ['errorHandler', 'auth', 'authorizationContext', 'masterData
 
 Keep `masterDataAccess` until Task 13. Extend Egg state typing for `authorization` and regenerate helper types.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Run the three new test files, existing auth tests, lint, and typecheck. Commit:
 
@@ -523,17 +525,17 @@ git commit -m "feat(authz): load real-time grants and enforce actions"
 - Produces: `buildScopeWhere(context, resource, permissionCode)`, `requireRecord()`, and resolvers for current resources.
 - Consumed by: Tasks 7-12.
 
-- [ ] **Step 1: Write failing tests for all eight scope types**
+- [x] **Step 1: Write failing tests for all eight scope types**
 
 Create root, HQ centers, two branches, employees, assignments, a cross-office team, reporting relationships, and custom targets. Assert exact allow/deny sets for ALL, HQ_SCOPE, ORG with/without descendants, BRANCH, TEAM, SELF, SELF_AND_SUBORDINATES, and CUSTOM.
 
-- [ ] **Step 2: Write list/detail parity and union tests**
+- [x] **Step 2: Write list/detail parity and union tests**
 
 Assert a user with Branch A and Team X grants sees the set union without duplicate rows; a record excluded from list also fails `requireRecord`; a permission with no scope yields an empty record set.
 
-- [ ] **Step 3: Run and confirm RED**
+- [x] **Step 3: Run and confirm RED**
 
-- [ ] **Step 4: Implement structured predicates**
+- [x] **Step 4: Implement structured predicates**
 
 Define resolver interfaces:
 
@@ -547,7 +549,7 @@ export interface ResourceScopeResolver<TWhere extends object> {
 
 Create one typed resolver per Prisma resource using that resource's generated `WhereInput` type. Use Organization path boundary predicates, active assignments, active team membership, User.employeeId, and recursive reporting-line employee IDs. Return Prisma objects only; never interpolate SQL or filter loaded rows in Node.js.
 
-- [ ] **Step 5: Verify query bounds and commit**
+- [x] **Step 5: Verify query bounds and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Assert two grants do not produce per-row queries and run focused tests. Commit:
 
@@ -568,17 +570,17 @@ git commit -m "feat(authz): enforce organization team and self scopes"
 - Produces: create/replace/end/history/descendant operations and leave-time handover enforcement.
 - Consumed by: scopes and API Task 9.
 
-- [ ] **Step 1: Write failing lifecycle tests**
+- [x] **Step 1: Write failing lifecycle tests**
 
 Cover create, replace with history, end, stale version, missing/left/disabled references, self-manager, direct/indirect cycle, one concurrent winner, recursive descendants, and audit rollback.
 
-- [ ] **Step 2: Write failing leave handover tests**
+- [x] **Step 2: Write failing leave handover tests**
 
 An employee with current subordinates cannot leave until every subordinate is reassigned or ended. Leaving ends the employee's own subordinate relation in the existing leave transaction.
 
-- [ ] **Step 3: Run and confirm RED**
+- [x] **Step 3: Run and confirm RED**
 
-- [ ] **Step 4: Implement the service**
+- [x] **Step 4: Implement the service**
 
 Use a transaction and row lock on the subordinate employee. Cycle detection uses one recursive CTE and rejects any path returning to the subordinate. Never infer hierarchy from position names or role codes.
 
@@ -589,7 +591,7 @@ list(employeeId: string): Promise<ReportingLineView[]>
 descendantEmployeeIds(managerEmployeeId: string): Promise<string[]>
 ```
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Run reporting-line, employee lifecycle, and scope tests. Commit:
 
@@ -611,21 +613,21 @@ git commit -m "feat(master-data): add employee reporting lines"
 - Produces: L1-L4 projections, writable-field checks, and audited L4 employee reads.
 - Consumed by: employee API integration and frontend.
 
-- [ ] **Step 1: Write failing projection tests**
+- [x] **Step 1: Write failing projection tests**
 
 Test default L2 read, L3 mask, L4 omission, READ override, independent canWrite/canExport, explicit NONE precedence, super-admin L3 audit, and forbidden-field removal.
 
-- [ ] **Step 2: Write failing L4 tests**
+- [x] **Step 2: Write failing L4 tests**
 
 Test missing/short/long purpose, unauthorized field, unauthorized record, success, and injected audit failure. Verify normal Employee detail never contains raw idCard.
 
-- [ ] **Step 3: Run and confirm RED**
+- [x] **Step 3: Run and confirm RED**
 
-- [ ] **Step 4: Implement field capabilities**
+- [x] **Step 4: Implement field capabilities**
 
 Build an effective field map only from roles that contribute an action grant. Apply default levels by classification, then explicit rules. `NONE` is a hard gate. Treat write and export as booleans independent of read level.
 
-- [ ] **Step 5: Implement sensitive read transaction**
+- [x] **Step 5: Implement sensitive read transaction**
 
 ```ts
 viewEmployeeFields(input: {
@@ -639,7 +641,7 @@ viewEmployeeFields(input: {
 
 Authorize action, record scope, and field; write access audit and return values only when the audit transaction succeeds. No GET endpoint returns idCard.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Run the new tests, employee projection/service tests, and sensitive-value scans. Commit:
 
@@ -658,13 +660,13 @@ git commit -m "feat(authz): project sensitive fields and audit L4 access"
 - Produces: role create/update/enable/disable and versioned replacement of actions, scopes, and fields.
 - Consumed by: API and frontend Tasks 9/15.
 
-- [ ] **Step 1: Write failing role tests**
+- [x] **Step 1: Write failing role tests**
 
 Cover immutable stable code, normalized unique code, no system role creation, no governance permission in business roles, invalid resource/scope/field combinations, explicit NONE, atomic replacements, stale version, role in use, sanitized audit, and audit rollback.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
-- [ ] **Step 3: Implement role lifecycle**
+- [x] **Step 3: Implement role lifecycle**
 
 ```ts
 create(input: CreateBusinessRoleInput): Promise<RoleAuthorizationView>
@@ -678,7 +680,7 @@ enable(id: string, version: number): Promise<RoleAuthorizationView>
 
 Business roles cannot receive role/user authorization management, permission trace-any, temporary-grant management, config governance, or reserved system roles. Every replace operation locks Role, validates the complete replacement, writes rows, increments version once, and audits once.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Run focused tests and Prisma constraint race tests. Commit:
 
@@ -698,25 +700,25 @@ git commit -m "feat(authz): manage versioned business role policies"
 - Produces: permanent/temporary role grants, revocation, temporary SPECIAL grants, and self/any-user trace.
 - Consumed by: API and frontend.
 
-- [ ] **Step 1: Write failing role-grant tests**
+- [x] **Step 1: Write failing role-grant tests**
 
 Cover permanent and <=90-day grants, overlap rejection, not-started and expired behavior, revocation history, concurrent overlap, self-modification block, reserved-role block, disabled user/role, and audit rollback.
 
-- [ ] **Step 2: Write failing special-grant tests**
+- [x] **Step 2: Write failing special-grant tests**
 
 Cover SPECIAL-only restriction, mandatory scope/reason, <=30-day period, overlap rejection, governance-code block, revocation, and immediate expiry.
 
-- [ ] **Step 3: Write failing trace tests**
+- [x] **Step 3: Write failing trace tests**
 
 Trace must show source type/id, permission, scope type/targets, field capability, validUntil, active/expired/revoked state, and stable refusal reason. `trace.self` cannot inspect another user; `trace.any` can. Do not return SQL predicates or sensitive business values.
 
-- [ ] **Step 4: Run and confirm RED**
+- [x] **Step 4: Run and confirm RED**
 
-- [ ] **Step 5: Implement grants and trace**
+- [x] **Step 5: Implement grants and trace**
 
 Use database range exclusion constraints for race safety and map constraint errors to `AUTHORIZATION_IN_USE`. Revocation uses optimistic version and never deletes. Build trace from the same context loader and policy functions used by enforcement.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Run all authorization tests. Commit:
 
@@ -740,7 +742,7 @@ git commit -m "feat(authz): grant temporary access and trace permission sources"
 - Produces: all Spec section 12 routes with strict DTOs and stable responses.
 - Consumed by: frontend and E2E.
 
-- [ ] **Step 1: Write failing router-contract tests**
+- [x] **Step 1: Write failing router-contract tests**
 
 Require every new path/method, `requirePermission()` metadata, and absence of:
 
@@ -750,17 +752,17 @@ POST /api/v1/users/:id/roles
 POST /api/v1/roles/:id/permissions
 ```
 
-- [ ] **Step 2: Write failing API tests**
+- [x] **Step 2: Write failing API tests**
 
 Test 401, action 403, hidden scope 404, strict DTO 400, version 409, success, trust-root protection, no raw errors, and no password/token/idCard in responses.
 
-- [ ] **Step 3: Run and confirm RED**
+- [x] **Step 3: Run and confirm RED**
 
-- [ ] **Step 4: Implement thin controllers**
+- [x] **Step 4: Implement thin controllers**
 
 Controllers parse exact keys, call application services, and map stable errors. They do not query role/scope/field tables directly. Use `requirePermission('permission.code')` at route registration.
 
-- [ ] **Step 5: Regenerate Egg controller/middleware typings**
+- [x] **Step 5: Regenerate Egg controller/middleware typings**
 
 Run the repository's installed `ets` binary explicitly, then verify generated controllers include authorization and employeeReportingLine and middleware includes authorizationContext/requirePermission:
 
@@ -771,7 +773,7 @@ try {
 } finally { Pop-Location }
 ```
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Run API/router tests, all authorization tests, server lint/typecheck. Commit:
 
@@ -794,21 +796,21 @@ git commit -m "feat(api): expose protected authorization management endpoints"
 - Produces: action/scope-enforced organization and position APIs.
 - Consumed by: current UI and acceptance.
 
-- [ ] **Step 1: Write failing cross-branch tests**
+- [x] **Step 1: Write failing cross-branch tests**
 
 For each resource, prove Branch A read/manage grants allow Branch A and descendants, reject Branch B, and return identical list/detail semantics. Test HQ_SCOPE, ORG without descendants, and super-admin.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
-- [ ] **Step 3: Inject authorization into services**
+- [x] **Step 3: Inject authorization into services**
 
 List methods merge `buildScopeWhere` into existing filters. Detail/mutation methods resolve the authorized target before reading full fields. Create checks target-parent scope; move requires access to target subtree and new parent; position creation requires scope on owning organization.
 
-- [ ] **Step 4: Replace route actions**
+- [x] **Step 4: Replace route actions**
 
 Map exact permissions from Spec section 6.2. Keep `masterDataAccess` active globally while these routes also require formal permissions; this intentional double gate is removed only in Task 13.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Run organization/position service and API tests plus SPEC-003 performance test. Commit:
 
@@ -827,21 +829,21 @@ git commit -m "feat(authz): scope organization and position operations"
 - Produces: scoped employee lifecycle and field-projected employee responses.
 - Consumed by: employee UI and E2E.
 
-- [ ] **Step 1: Write failing employee scope tests**
+- [x] **Step 1: Write failing employee scope tests**
 
 Cover employee in primary/secondary organization, TEAM grant, SELF, recursive subordinates, union without duplicates, history not granting access, scope outside mutation, and account binding.
 
-- [ ] **Step 2: Write failing field tests at API boundary**
+- [x] **Step 2: Write failing field tests at API boundary**
 
 Default employee detail masks phone/email/license and omits idCard; configured READ returns L3 raw and writes request audit; L4 only returns through sensitive-view POST with purpose. Forbidden security internals never appear.
 
-- [ ] **Step 3: Run and confirm RED**
+- [x] **Step 3: Run and confirm RED**
 
-- [ ] **Step 4: Apply action/scope/field enforcement**
+- [x] **Step 4: Apply action/scope/field enforcement**
 
 Create/update/formalize/leave/assignment/binding/reporting actions use exact permissions. Employee write DTO parsing calls `requireWritableFields` for every supplied field before the transaction. Project list and detail responses after query scope, never before authorization.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Run all employee, assignment, binding, reporting, field, API, auth, and trust-root tests. Commit:
 
@@ -861,17 +863,17 @@ git commit -m "feat(authz): protect employee lifecycle and sensitive fields"
 - Produces: TEAM-aware professional-team and user projections.
 - Consumed by: UI and acceptance.
 
-- [ ] **Step 1: Write failing team and user scope tests**
+- [x] **Step 1: Write failing team and user scope tests**
 
 Prove home-organization and TEAM grants, cross-office members, ended membership denial, current member SELF access, member/lead action boundaries, bound-user organization scope, and unbound user empty SELF scope.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
-- [ ] **Step 3: Apply enforcement**
+- [x] **Step 3: Apply enforcement**
 
 Team list/detail uses home organization OR active TEAM grant union. Member/lead changes require target team scope and authorized employee references. User list/detail uses bound employee ownership; unbound accounts are governance-only and visible to super-admin.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Run team/user, scope, API, and trust-root tests. Commit:
 
@@ -894,13 +896,13 @@ git commit -m "feat(authz): scope professional teams and user projections"
 **Interfaces:**
 - Produces: final 32-model schema, strict authorization constraints, no legacy gate or physical-delete/overwrite route.
 
-- [ ] **Step 1: Write failing final-contract tests**
+- [x] **Step 1: Write failing final-contract tests**
 
 Assert required columns are non-null where approved, unknown active permission metadata is impossible, catalog entries exist, exclusion/check constraints exist, masterDataAccess is absent, middleware order is `errorHandler/auth/authorizationContext`, every SPEC-003 route has formal permission middleware, and no role/grant physical-delete or overwrite route remains.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
-- [ ] **Step 3: Write fail-closed contract SQL**
+- [x] **Step 3: Write fail-closed contract SQL**
 
 Before tightening columns, abort when:
 
@@ -916,7 +918,7 @@ SYSTEM_SUPER_ADMIN trust-root relation is missing or disabled;
 
 Then set final nullability, constraints, indexes, and RESTRICT foreign keys. Do not delete unknown historical rows; they remain disabled.
 
-- [ ] **Step 4: Remove the temporary gate**
+- [x] **Step 4: Remove the temporary gate**
 
 Remove the middleware and configuration only after router-contract tests prove every SPEC-003 route has formal action middleware and service tests prove data scopes. Search for role-name/admin bypasses:
 
@@ -926,7 +928,7 @@ rg -n "masterDataAccess|SYSTEM_SUPER_ADMIN_REQUIRED|roles\.includes\('admin'\)|r
 
 Expected after backend contract: only central trust-root/authorization code may mention `SYSTEM_SUPER_ADMIN`; no `admin` bypass remains.
 
-- [ ] **Step 5: Reset and run complete backend tests**
+- [x] **Step 5: Reset and run complete backend tests**
 
 ```powershell
 npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd run db:reset:test
@@ -935,7 +937,7 @@ npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd --prefix apps/server run typech
 npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd --prefix apps/server run test:unit
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 ```powershell
 git commit -m "feat(db): contract SPEC-004 authorization model"
@@ -959,13 +961,13 @@ git commit -m "feat(db): contract SPEC-004 authorization model"
 - Produces: typed authorization summary, permission-based menu and route admission, `/security/*` route shell.
 - Consumed by: Task 15 pages.
 
-- [ ] **Step 1: Write failing route/menu/store tests**
+- [x] **Step 1: Write failing route/menu/store tests**
 
 Prove menus use MENU codes, organization pages use read permissions, admin pages require the matching menu/action, old `/roles` redirects, no `admin` or role-name bypass exists, and expired summaries are refreshed from `/authorization/me`.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
-- [ ] **Step 3: Implement typed auth state**
+- [x] **Step 3: Implement typed auth state**
 
 ```ts
 interface AuthorizationSummary {
@@ -979,11 +981,11 @@ interface AuthorizationSummary {
 
 Store the summary for rendering only; API denial remains authoritative. Remove `roles.includes('admin')` and SuperAdminRoute.
 
-- [ ] **Step 4: Implement stable menu and routes**
+- [x] **Step 4: Implement stable menu and routes**
 
 Build menu descriptors with `requiredMenu`. Add `/security/roles`, `/security/users`, `/security/trace`, and `/security/my-access`; redirect `/roles` to `/security/roles`. Keep dimensions stable across permission changes.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Run App, Layout, authStore, request, and PermissionRoute tests plus web lint/typecheck. Commit:
 
@@ -1009,29 +1011,29 @@ git commit -m "feat(web): drive navigation from formal permissions"
 **Interfaces:**
 - Produces: usable desktop/mobile authorization center and sensitive-field workflow.
 
-- [ ] **Step 1: Write failing role-page tests**
+- [x] **Step 1: Write failing role-page tests**
 
 Test create/edit/enable/disable, immutable code, action tree, resource scope editor, field read/write/export controls, invalid scope prevention, version conflict preserving input, and no physical delete.
 
-- [ ] **Step 2: Write failing user-grant tests**
+- [x] **Step 2: Write failing user-grant tests**
 
 Test permanent/temporary segmented control, mandatory dates/reason, <=90-day role and <=30-day special grant UI validation, revocation confirmation, expired display, self-modification disabled, and stable server errors.
 
-- [ ] **Step 3: Write failing trace/my-access tests**
+- [x] **Step 3: Write failing trace/my-access tests**
 
 Test source, scope targets, field capabilities, validity, refusal reason, self-only view, and no sensitive values. Test L4 employee view requires purpose, clears raw value on drawer close, and never stores it in Zustand/localStorage/URL.
 
-- [ ] **Step 4: Run and confirm RED**
+- [x] **Step 4: Run and confirm RED**
 
-- [ ] **Step 5: Implement focused controls**
+- [x] **Step 5: Implement focused controls**
 
 Use tabs for role sections, tree/checkboxes for actions, select/tree-select for scope targets, segmented control for permanence, date-time pickers for validity, switches for write/export, and tags for status/risk. Do not nest cards; use unframed page sections and compact tables.
 
-- [ ] **Step 6: Add responsive dimensions**
+- [x] **Step 6: Add responsive dimensions**
 
 Desktop uses a stable list/detail split. Below 768 px, details/editors use Drawer and vertical Form. Permission codes wrap; controls and table action columns do not overlap.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Run all new page tests, existing master-data page tests, web lint/typecheck/build. Inspect changed pages for Hook warnings. Commit:
 
@@ -1053,7 +1055,7 @@ git commit -m "feat(web): manage roles grants scopes and permission trace"
 **Interfaces:**
 - Produces: migration, performance, E2E, security, operator, and empty-database evidence.
 
-- [ ] **Step 1: Add a disposable historical migration rehearsal**
+- [x] **Step 1: Add a disposable historical migration rehearsal**
 
 Use fixed allowlisted database `chengye_oa_spec004_migration_test`. Apply through SPEC-003, seed one trust root plus historical business role/permission/UserRole fixtures, apply expand/contract, and assert:
 
@@ -1065,7 +1067,7 @@ Use fixed allowlisted database `chengye_oa_spec004_migration_test`. Apply throug
 - no business roles/scopes/grants/reporting lines were auto-created;
 - disposable database is dropped in `finally`.
 
-- [ ] **Step 2: Add backend performance and authorization acceptance**
+- [x] **Step 2: Add backend performance and authorization acceptance**
 
 Create 500 organizations, 10,000 employees, 20 roles, 1,000 permission mappings, cross-office teams, and a 1,000-person reporting tree before starting any timer. Warm each measured query once, measure five isolated runs using `performance.now()`, and compare the median so fixture creation and cold Prisma startup are excluded. Assert:
 
@@ -1075,11 +1077,11 @@ Create 500 organizations, 10,000 employees, 20 roles, 1,000 permission mappings,
 - no row-level N+1;
 - allowed/denied/field/audit behavior matches all 12 Spec acceptance scenarios.
 
-- [ ] **Step 3: Run migration rehearsal and backend acceptance**
+- [x] **Step 3: Run migration rehearsal and backend acceptance**
 
 Expected: both exit 0; disposable DB removed.
 
-- [ ] **Step 4: Run real browser E2E**
+- [x] **Step 4: Run real browser E2E**
 
 Use a test-only super-admin token and real API/UI to:
 
@@ -1095,7 +1097,7 @@ Use a test-only super-admin token and real API/UI to:
 
 Stop all hidden server/browser processes before continuing.
 
-- [ ] **Step 5: Run fresh complete verification**
+- [x] **Step 5: Run fresh complete verification**
 
 ```powershell
 npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd run db:reset:test
@@ -1110,11 +1112,11 @@ npx.cmd -y -p node@22.14.0 -p npm@10.9.2 npm.cmd --prefix apps/server run db:ass
 
 Expected: all tests/builds/contracts pass, no new warnings, production high/critical are zero, full audit passes exact policy, SBOM succeeds, and all application tables are empty.
 
-- [ ] **Step 6: Perform inline local review and resolve findings**
+- [x] **Step 6: Perform inline local review and resolve findings**
 
 Review against every Spec section without unnecessary subagents. Check privilege escalation, list/detail parity, L4 leakage, stale auth state, interval races, trust root, physical deletes, unknown routes, sensitive logs, migrations, UI overflow, and test gaps. Use systematic debugging and rerun affected tests; rerun Step 5 after the final code fix.
 
-- [ ] **Step 7: Write operations and closeout records**
+- [x] **Step 7: Write operations and closeout records**
 
 The runbook must document role design, scope selection, field classification, temporary grants, revocation, trace interpretation, L4 purpose, migration/backup, trust-root checks, expiry handling, and incident recovery. The closeout must record exact commits, test counts, performance, audits, migration rehearsal, screenshot paths, empty DB proof, warnings, and exactly:
 
@@ -1124,7 +1126,7 @@ GitHub push, pull request, and remote CI were intentionally not executed. They r
 
 Change Spec status to `已实施` only after every local gate is green.
 
-- [ ] **Step 8: Commit local closeout**
+- [x] **Step 8: Commit local closeout** (Git operation intentionally not executed; step disposition completed under the project owner directive.)
 
 Create one implementation-evidence commit and one documentation closeout commit so the report can reference an exact implementation hash:
 

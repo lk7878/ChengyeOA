@@ -1,4 +1,7 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { AuthorizationContext } from '../authorization/authorization-service';
+import { FieldProjectionService } from '../authorization/field-projection-service';
+import { writeAuthorizationAudit } from '../authorization/authorization-audit';
 import { MasterDataError } from '../../domain/master-data/master-data-errors';
 import {
   AssignmentType,
@@ -37,6 +40,11 @@ interface PrimaryAssignmentRecord {
 }
 
 interface EmployeeWithPrimaryAssignment {
+  idCard?: unknown;
+  phone?: unknown;
+  email?: unknown;
+  licenseNo?: unknown;
+  professionalDirections?: unknown;
   orgId?: unknown;
   positionId?: unknown;
   organization?: unknown;
@@ -46,7 +54,8 @@ interface EmployeeWithPrimaryAssignment {
 
 export function projectEmployeeWithPrimaryAssignment<T extends EmployeeWithPrimaryAssignment>(
   employee: T,
-): Omit<T, 'orgId' | 'positionId' | 'organization' | 'position' | 'assignments'> & {
+): Omit<T, 'orgId' | 'positionId' | 'organization' | 'position' | 'assignments' | 'idCard'
+  | 'phone' | 'email' | 'licenseNo' | 'professionalDirections'> & {
   primaryAssignment: PrimaryAssignmentRecord | null;
 } {
   const { assignments, ...projected } = employee;
@@ -55,9 +64,15 @@ export function projectEmployeeWithPrimaryAssignment<T extends EmployeeWithPrima
   delete projected.positionId;
   delete projected.organization;
   delete projected.position;
+  delete projected.idCard;
+  delete projected.phone;
+  delete projected.email;
+  delete projected.licenseNo;
+  delete projected.professionalDirections;
   return { ...projected, primaryAssignment } as Omit<
     T,
-    'orgId' | 'positionId' | 'organization' | 'position' | 'assignments'
+    'orgId' | 'positionId' | 'organization' | 'position' | 'assignments' | 'idCard'
+      | 'phone' | 'email' | 'licenseNo' | 'professionalDirections'
   > & { primaryAssignment: PrimaryAssignmentRecord | null };
 }
 
@@ -77,7 +92,6 @@ export function projectEmployeeDetail(employee: EmployeeDetailRecord): EmployeeD
     primaryAssignment: primaryAssignment(employee.status as EmployeeStatus, assignments),
     phone: employee.phone,
     email: employee.email,
-    idCard: employee.idCard,
     licenseNo: employee.licenseNo,
     professionalDirections: employee.professionalDirections,
     formalDate: employee.formalDate,
@@ -86,6 +100,43 @@ export function projectEmployeeDetail(employee: EmployeeDetailRecord): EmployeeD
     professionalTeams: employee.professionalTeams.map(projectTeamMember),
     account: employee.user,
   };
+}
+
+export async function projectAuthorizedEmployeeDetail(
+  prisma: PrismaClient,
+  context: AuthorizationContext,
+  employee: EmployeeDetail,
+  purpose: string,
+): Promise<EmployeeDetail> {
+  const fields = {
+    phone: employee.phone,
+    email: employee.email,
+    licenseNo: employee.licenseNo,
+    professionalDirections: employee.professionalDirections,
+  };
+  const [projected] = await new FieldProjectionService().projectRecords({
+    context,
+    resource: 'employee',
+    permissionCode: 'employee.read',
+    records: [fields],
+    purpose,
+  }, summary => prisma.$transaction(tx => writeAuthorizationAudit(tx, {
+    actorUserId: summary.actorUserId,
+    action: 'READ_L3_FIELDS',
+    targetType: 'EMPLOYEE',
+    targetId: employee.id,
+    changes: {
+      fieldCodes: summary.fieldCodes,
+      resultCount: summary.resultCount,
+      purpose: summary.purpose,
+    },
+  })));
+  const output = { ...employee };
+  delete output.phone;
+  delete output.email;
+  delete output.licenseNo;
+  delete output.professionalDirections;
+  return Object.assign(output, projected);
 }
 
 export function primaryAssignment(

@@ -36,3 +36,14 @@ test('pkg includes the Nano ID non-secure runtime closure as raw assets', () => 
   ]);
   assert.equal(scripts.some(script => script.startsWith('node_modules/nanoid/')), false);
 });
+
+test('pkg includes the compiled drain command closure as raw assets', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {
+    pkg?: { assets?: string[] };
+  };
+  const assets = manifest.pkg?.assets ?? [];
+
+  assert.ok(assets.includes('dist/scripts/events/drain-events.js'));
+  assert.ok(assets.includes('dist/scripts/system/migration-status.js'));
+  assert.ok(assets.includes('scripts/lib/portable-command.js'));
+});

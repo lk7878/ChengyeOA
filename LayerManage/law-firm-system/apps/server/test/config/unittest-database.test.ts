@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { Prisma } from '@prisma/client';
 import unittestConfig, { selectTestDatabaseUrl } from '../../config/config.unittest';
+import { EVENT_SUBSCRIPTION_CATALOG } from '../../app/domain/events/event-subscription-catalog';
 import {
   assertTestDatabaseUrl,
   clearTestApplicationData,
@@ -50,12 +52,26 @@ test('guards test Prisma helpers and truncates every application table', async (
 
   const originalTestUrl = process.env.DATABASE_URL_TEST;
   const statements: string[] = [];
+  const catalogWrites: unknown[] = [];
+  const subscriptionWrites: unknown[] = [];
   try {
     process.env.DATABASE_URL_TEST = testDatabaseUrl;
     await clearTestApplicationData({
       async $executeRawUnsafe(statement: string) {
         statements.push(statement);
         return 0;
+      },
+      permission: {
+        async createMany(input: unknown) {
+          catalogWrites.push(input);
+          return { count: 122 };
+        },
+      },
+      eventSubscription: {
+        async createMany(input: unknown) {
+          subscriptionWrites.push(input);
+          return { count: EVENT_SUBSCRIPTION_CATALOG.length };
+        },
       },
     } as never);
   } finally {
@@ -66,4 +82,11 @@ test('guards test Prisma helpers and truncates every application table', async (
   assert.match(statements[0], /^TRUNCATE TABLE /);
   assert.match(statements[0], /"system_initialization"/);
   assert.match(statements[0], / CASCADE$/);
+  assert.equal(catalogWrites.length, 1);
+  assert.equal((catalogWrites[0] as { data: unknown[] }).data.length, 135);
+  assert.equal(subscriptionWrites.length, 1);
+  assert.deepEqual((subscriptionWrites[0] as { data: unknown[] }).data, EVENT_SUBSCRIPTION_CATALOG.map(item => ({
+    ...item,
+    filterJson: Prisma.DbNull,
+  })));
 });

@@ -1,0 +1,22 @@
+.permission-route-state {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+}
+
+.auth-page { width: 100%; min-width: 0; }
+.auth-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.auth-page-header h2, .auth-trace-result h3 { margin: 0 0 8px; }
+.auth-page-header p, .auth-form-note { margin: 0; color: #5f6b7a; }
+.auth-editor-section, .auth-trace-result { display: grid; gap: 16px; }
+.auth-scope-row { display: grid; grid-template-columns: minmax(120px, 180px) minmax(260px, 1fr); align-items: center; gap: 12px; }
+.auth-section-actions, .auth-trace-form, .auth-self-filter { margin-bottom: 16px; }
+.auth-self-filter { display: grid; grid-template-columns: 120px minmax(220px, 420px); align-items: center; gap: 12px; }
+.auth-trace-result code, .auth-page code { overflow-wrap: anywhere; }
+
+@media (max-width: 767px) {
+  .auth-page-header { flex-direction: column; }
+  .auth-page-header > :last-child, .auth-page-header .ant-input-search { width: 100%; }
+  .auth-scope-row, .auth-self-filter { grid-template-columns: 1fr; }
+  .auth-trace-form .ant-form-item, .auth-trace-form .ant-select, .auth-trace-form .ant-btn { width: 100%; }
+}

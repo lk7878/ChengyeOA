@@ -1,0 +1,56 @@
+.main-sidebar .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.main-sidebar-title {
+  flex: 0 0 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 18px;
+  font-weight: bold;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.main-sidebar-menu {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #52687c #001529;
+}
+
+.main-sidebar-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.main-sidebar-menu::-webkit-scrollbar-track {
+  background: #001529;
+}
+
+.main-sidebar-menu::-webkit-scrollbar-thumb {
+  background: #52687c;
+  border-radius: 3px;
+}
+
+.main-sidebar-menu::-webkit-scrollbar-thumb:hover {
+  background: #8194a5;
+}
+
+.main-sidebar-credit {
+  flex: 0 0 auto;
+  padding: 12px 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: #a6b5c3;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+  white-space: nowrap;
+}

@@ -5,13 +5,12 @@ import { PrismaClient } from '@prisma/client';
 import mm from 'egg-mock';
 import { SystemBootstrapService } from '../../app/application/system/system-bootstrap-service';
 import { BcryptPasswordHasher } from '../../app/domain/security/password-hasher';
-import { JwtTokenService } from '../../app/domain/security/token-service';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
+import { createApiSession } from '../helpers/auth-session';
 
 process.env.EGG_TYPESCRIPT = 'true';
 
 const app = mm.app();
-const jwtSecret = '01234567890123456789012345678901';
 const hasher = new BcryptPasswordHasher(4);
 let prisma: PrismaClient;
 let bearer: string;
@@ -104,12 +103,44 @@ async function bootstrapAuthenticatedTrustRoot(): Promise<void> {
   rootOrganizationId = initialization.rootOrganizationId;
   superAdminUserId = initialization.superAdminUserId;
   superAdminRoleId = role.id;
-  bearer = `Bearer ${new JwtTokenService(jwtSecret).signAccess(user.id, user.credentialVersion)}`;
+  bearer = `Bearer ${(await createApiSession(prisma, user.id, 'MFA')).token}`;
+}
+
+async function createReservedAdministrator(roleCode: 'SYSTEM_ADMIN' | 'SYSTEM_SUPER_ADMIN'): Promise<{
+  userId: string;
+  authorization: string;
+}> {
+  const user = await prisma.user.create({
+    data: {
+      username: `${roleCode.toLowerCase()}.${randomUUID()}`,
+      password: 'unused-test-password-hash',
+      status: 'ENABLED',
+      mustChangePassword: false,
+    },
+  });
+  const role = await prisma.role.findUniqueOrThrow({ where: { code: roleCode } });
+  await prisma.userRole.create({
+    data: {
+      userId: user.id,
+      roleId: role.id,
+      source: 'PERMANENT',
+      validFrom: new Date(Date.now() - 60_000),
+    },
+  });
+  return {
+    userId: user.id,
+    authorization: `Bearer ${(await createApiSession(prisma, user.id, 'MFA')).token}`,
+  };
 }
 
 function assertTrustRootProtected(response: { body: Record<string, unknown> }): void {
   assert.equal(response.body.code, 409);
   assert.equal(response.body.message, 'TRUST_ROOT_PROTECTED');
+}
+
+function assertPrivilegeEscalationBlocked(response: { body: Record<string, unknown> }): void {
+  assert.equal(response.body.code, 403);
+  assert.equal(response.body.message, 'PRIVILEGE_ESCALATION_BLOCKED');
 }
 
 function assertNoPasswordProperty(value: unknown): void {
@@ -172,26 +203,72 @@ test('cannot delete the current first super-admin', async () => {
   assert.ok(await prisma.user.findUnique({ where: { id: superAdminUserId } }));
 });
 
-test('cannot replace roles of the current first super-admin', async () => {
-  const response = await app.httpRequest()
-    .post(`/api/v1/users/${superAdminUserId}/roles`)
-    .set('Authorization', bearer)
-    .send({ roleIds: [] })
-    .expect(409);
+for (const roleCode of ['SYSTEM_ADMIN', 'SYSTEM_SUPER_ADMIN'] as const) {
+  test(`legacy user mutation routes cannot update or delete another active ${roleCode}`, async () => {
+    const target = await createReservedAdministrator(roleCode);
 
-  assertTrustRootProtected(response);
+    const update = await app.httpRequest()
+      .put(`/api/v1/users/${target.userId}`)
+      .set('Authorization', bearer)
+      .send({ status: 'DISABLED' })
+      .expect(409);
+    assertTrustRootProtected(update);
+
+    const deletion = await app.httpRequest()
+      .delete(`/api/v1/users/${target.userId}`)
+      .set('Authorization', bearer)
+      .expect(409);
+    assertTrustRootProtected(deletion);
+    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: target.userId } })).status, 'ENABLED');
+  });
+}
+
+test('/authorization/me exposes the fail-closed SYSTEM_ADMIN summary', async () => {
+  const administrator = await createReservedAdministrator('SYSTEM_ADMIN');
+
+  const response = await app.httpRequest()
+    .get('/api/v1/authorization/me')
+    .set('Authorization', administrator.authorization)
+    .expect(200);
+
+  assert.equal(response.body.data.isSystemAdmin, true);
+  assert.equal(response.body.data.isSystemSuperAdmin, false);
+  assert.equal(response.body.data.permissionCodes.includes('menu.admin_governance'), true);
+  assert.equal(response.body.data.permissionCodes.includes('governance.review'), false);
+});
+
+test('cannot grant a role to the current first super-admin through self-modification', async () => {
+  const businessRole = await prisma.role.create({
+    data: { name: 'Self grant blocked', code: 'SELF_GRANT_BLOCKED', type: 'BUSINESS' },
+  });
+  const response = await app.httpRequest()
+    .post(`/api/v1/users/${superAdminUserId}/role-grants`)
+    .set('Authorization', bearer)
+    .send({
+      roleId: businessRole.id,
+      source: 'PERMANENT',
+      validFrom: new Date().toISOString(),
+      validUntil: null,
+      reason: null,
+    })
+    .expect(403);
+
+  assertPrivilegeEscalationBlocked(response);
   assert.equal(await prisma.userRole.count({ where: { userId: superAdminUserId, roleId: superAdminRoleId } }), 1);
+  assert.equal(await prisma.userRole.count({ where: { userId: superAdminUserId, roleId: businessRole.id } }), 0);
 });
 
 for (const mutation of [
-  { name: 'rename', body: { name: 'Changed system role' } },
-  { name: 'disable', body: { status: 'DISABLED' } },
-  { name: 'update', body: { description: 'Changed description' } },
+  { name: 'rename', path: '', body: { name: 'Changed system role', version: 1 } },
+  { name: 'disable', path: '/disable', body: { version: 1 } },
+  { name: 'update', path: '', body: { description: 'Changed description', version: 1 } },
 ]) {
   test(`cannot ${mutation.name} the SYSTEM_SUPER_ADMIN role`, async () => {
     const before = await prisma.role.findUniqueOrThrow({ where: { id: superAdminRoleId } });
-    const response = await app.httpRequest()
-      .put(`/api/v1/roles/${superAdminRoleId}`)
+    const request = mutation.path
+      ? app.httpRequest().post(`/api/v1/roles/${superAdminRoleId}${mutation.path}`)
+      : app.httpRequest().patch(`/api/v1/roles/${superAdminRoleId}`);
+    const response = await request
       .set('Authorization', bearer)
       .send(mutation.body)
       .expect(409);
@@ -201,24 +278,20 @@ for (const mutation of [
   });
 }
 
-test('cannot delete the SYSTEM_SUPER_ADMIN role', async () => {
-  const response = await app.httpRequest()
+test('exposes no physical delete endpoint for the SYSTEM_SUPER_ADMIN role', async () => {
+  await app.httpRequest()
     .delete(`/api/v1/roles/${superAdminRoleId}`)
     .set('Authorization', bearer)
-    .expect(409);
+    .expect(404);
 
-  assertTrustRootProtected(response);
   assert.ok(await prisma.role.findUnique({ where: { id: superAdminRoleId } }));
 });
 
 test('cannot replace permissions of the SYSTEM_SUPER_ADMIN role', async () => {
-  const permission = await prisma.permission.create({
-    data: { code: 'SYSTEM_TEST', name: 'System test', type: 'API' },
-  });
   const response = await app.httpRequest()
-    .post(`/api/v1/roles/${superAdminRoleId}/permissions`)
+    .put(`/api/v1/roles/${superAdminRoleId}/permissions`)
     .set('Authorization', bearer)
-    .send({ permissionIds: [permission.id] })
+    .send({ permissionCodes: ['employee.read'], version: 1 })
     .expect(409);
 
   assertTrustRootProtected(response);
@@ -229,24 +302,30 @@ test('cannot recreate the protected role through role creation', async () => {
   const response = await app.httpRequest()
     .post('/api/v1/roles')
     .set('Authorization', bearer)
-    .send({ name: 'Another system super admin', code: ' system_super_admin ', type: 'BUSINESS' })
+    .send({ name: 'Another system super admin', code: ' system_super_admin ' })
     .expect(409);
 
   assertTrustRootProtected(response);
   assert.equal(await prisma.role.count({ where: { code: 'SYSTEM_SUPER_ADMIN' } }), 1);
 });
 
-test('cannot assign SYSTEM_SUPER_ADMIN through the mutable user-role endpoint', async () => {
+test('cannot grant SYSTEM_SUPER_ADMIN through the role-grant endpoint', async () => {
   const user = await prisma.user.create({
     data: { username: 'business.user', password: 'not-used-by-this-test', mustChangePassword: true },
   });
   const response = await app.httpRequest()
-    .post(`/api/v1/users/${user.id}/roles`)
+    .post(`/api/v1/users/${user.id}/role-grants`)
     .set('Authorization', bearer)
-    .send({ roleIds: [superAdminRoleId] })
-    .expect(409);
+    .send({
+      roleId: superAdminRoleId,
+      source: 'PERMANENT',
+      validFrom: new Date().toISOString(),
+      validUntil: null,
+      reason: null,
+    })
+    .expect(403);
 
-  assertTrustRootProtected(response);
+  assertPrivilegeEscalationBlocked(response);
   assert.equal(await prisma.userRole.count({ where: { userId: user.id } }), 0);
 });
 
@@ -302,14 +381,27 @@ test('user endpoints use safe projections and creation applies shared credential
     .expect(200);
 
   assert.equal(created.body.data.username, 'business.admin');
-  assert.equal(created.body.data.mustChangePassword, true);
+  assert.equal('mustChangePassword' in created.body.data, false);
+  assert.equal('passwordChangedAt' in created.body.data, false);
   const userId = created.body.data.id as string;
+  const roleGrant = await app.httpRequest()
+    .post(`/api/v1/users/${userId}/role-grants`)
+    .set('Authorization', bearer)
+    .send({
+      roleId: role.id,
+      source: 'PERMANENT',
+      validFrom: new Date().toISOString(),
+      validUntil: null,
+      reason: null,
+    })
+    .expect(200);
   const responses = [
     created,
     await app.httpRequest().get('/api/v1/users').set('Authorization', bearer).expect(200),
     await app.httpRequest().get(`/api/v1/users/${userId}`).set('Authorization', bearer).expect(200),
+    roleGrant,
+    await app.httpRequest().get(`/api/v1/users/${userId}/authorization`).set('Authorization', bearer).expect(200),
     await app.httpRequest().put(`/api/v1/users/${userId}`).set('Authorization', bearer).send({ status: 'DISABLED' }).expect(200),
-    await app.httpRequest().post(`/api/v1/users/${userId}/roles`).set('Authorization', bearer).send({ roleIds: [role.id] }).expect(200),
     await app.httpRequest().get(`/api/v1/roles/${role.id}`).set('Authorization', bearer).expect(200),
   ];
   for (const response of responses) {
@@ -343,27 +435,41 @@ test('business roles require normalized immutable codes and remain mutable other
   const created = await app.httpRequest()
     .post('/api/v1/roles')
     .set('Authorization', bearer)
-    .send({ name: 'Business lawyer', code: ' business_lawyer ', type: 'SYSTEM' })
+    .send({ name: 'Business lawyer', code: ' business_lawyer ' })
     .expect(200);
   assert.equal(created.body.data.code, 'BUSINESS_LAWYER');
   assert.equal(created.body.data.type, 'BUSINESS');
 
   const roleId = created.body.data.id as string;
   const updated = await app.httpRequest()
-    .put(`/api/v1/roles/${roleId}`)
+    .patch(`/api/v1/roles/${roleId}`)
     .set('Authorization', bearer)
-    .send({ name: 'Senior business lawyer', code: 'CHANGED_CODE', status: 'DISABLED' })
+    .send({ name: 'Senior business lawyer', version: 1 })
     .expect(200);
   assert.equal(updated.body.data.name, 'Senior business lawyer');
-  assert.equal(updated.body.data.status, 'DISABLED');
+  assert.equal(updated.body.data.status, 'ENABLED');
   assert.equal(updated.body.data.code, 'BUSINESS_LAWYER');
+
+  const disabled = await app.httpRequest()
+    .post(`/api/v1/roles/${roleId}/disable`)
+    .set('Authorization', bearer)
+    .send({ version: 2 })
+    .expect(200);
+  assert.equal(disabled.body.data.status, 'DISABLED');
+
+  const immutable = await app.httpRequest()
+    .patch(`/api/v1/roles/${roleId}`)
+    .set('Authorization', bearer)
+    .send({ code: 'CHANGED_CODE', version: 3 })
+    .expect(400);
+  assert.equal(immutable.body.message, 'AUTHORIZATION_INPUT_INVALID');
 
   const invalid = await app.httpRequest()
     .post('/api/v1/roles')
     .set('Authorization', bearer)
     .send({ name: 'Invalid role', code: 'bad-code' })
     .expect(400);
-  assert.equal(invalid.body.message, 'ROLE_CODE_INVALID');
+  assert.equal(invalid.body.message, 'AUTHORIZATION_INPUT_INVALID');
 });
 
 test('employee list and detail use safe canonical employee projections', async () => {
@@ -504,7 +610,7 @@ test('sequential duplicate role creation identifies both name and code conflicts
       .set('Authorization', bearer)
       .send(body)
       .expect(409);
-    assert.equal(conflict.body.message, '角色名称或代码已存在');
+    assert.equal(conflict.body.message, 'AUTHORIZATION_IN_USE');
   }
 });
 
@@ -529,7 +635,7 @@ for (const duplicateField of ['name', 'code'] as const) {
       assert.deepEqual(responses.map(response => response.status).sort(), [200, 409]);
       const conflict = responses.find(response => response.status === 409);
       assert.ok(conflict);
-      assert.equal(conflict.body.message, '角色名称或代码已存在');
+      assert.equal(conflict.body.message, 'AUTHORIZATION_IN_USE');
       assert.equal(JSON.stringify(conflict.body).includes('Prisma'), false);
       assert.equal(await prisma.role.count({
         where: duplicateField === 'name'

@@ -3,9 +3,9 @@ id: MOD-005
 title: 客户主数据模块
 source: PRD §8.5
 status: draft
-implements: SPEC-009（设计已批准，待实施；覆盖 CUS-01~02，CUS-03~05 下推）
+implements: SPEC-009（已验收 2026-07-30；覆盖 CUS-01~02，CUS-03~05 下推）
 design_refs: [docs/专项设计/页面与接口清单.md]
-last_updated: 2026-07-28
+last_updated: 2026-07-30
 ---
 
 # MOD-005 客户主数据模块
@@ -17,11 +17,11 @@ last_updated: 2026-07-28
 ## 2. 功能清单
 | 编号 | 功能 | 需求 | 现状 |
 |---|---|---|---|
-| CUS-01 | 客户档案 | 支持客户基础信息、客户来源、标签、风险提示 | 待补SPEC |
-| CUS-02 | 联系人 | 支持一客户多联系人、关系、联系电话、微信 | 待补SPEC |
-| CUS-03 | 转介绍关系 | 记录转介绍人、被介绍客户、转介绍成交情况 | 待补SPEC |
-| CUS-04 | 去重合并 | 支持重复客户提示和合并审批 | 待补SPEC |
-| CUS-05 | 客户全景 | 展示线索、跟进、合同、收款、案件、满意度、复盘、转介绍 | 待补SPEC |
+| CUS-01 | 客户档案 | 支持客户基础信息、客户来源、标签、风险提示 | ✅（SPEC-009 验收） |
+| CUS-02 | 联系人 | 支持一客户多联系人、关系、联系电话、微信 | ✅（SPEC-009 验收 + C1 增量 GET 列表端点） |
+| CUS-03 | 转介绍关系 | 记录转介绍人、被介绍客户、转介绍成交情况 | 待补SPEC（下推） |
+| CUS-04 | 去重合并 | 支持重复客户提示和合并审批 | 待补SPEC（权限码 customer.merge 已注册占位） |
+| CUS-05 | 客户全景 | 展示线索、跟进、合同、收款、案件、满意度、复盘、转介绍 | 待补SPEC（依赖合同/案件对象） |
 
 ## 3. 业务规则
 
@@ -47,9 +47,9 @@ SPEC-009 计划 +Contact，见 FTN-001。
 - 接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。（源自 §14.1.2）
 
 ## 7. 追溯
-- 专项设计: docs/专项设计/页面与接口清单.md
-- 落地 SPEC: SPEC-009（CUS-01~02；CUS-03~05 下推至后续 SPEC）
-- 主要代码: apps/server/app/controller/customer.ts、model Customer（原型代码，未 SPEC 验证）
-- 测试: 无
+- 专项设计: docs/专项设计/页面与接口清单.md；docs/superpowers/specs/2026-07-28-lead-crm-customer-master-data-design.md（SPEC-009 设计，已批准）
+- 落地 SPEC: SPEC-009（CUS-01~02，2026-07-30 本地验收，终审 READY；CUS-03~05 下推至后续 SPEC）
+- 主要代码: apps/server/app/application/crm/customer-service.ts、apps/server/app/controller/customer.ts、model Customer/Contact
+- 测试: apps/server/test/crm/customer-service.test.ts、apps/server/test/app/customer-api.test.ts
 
 <!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->

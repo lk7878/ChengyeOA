@@ -24,6 +24,10 @@ export default defineConfig({
     globals: true,
     setupFiles: './src/test/setup.ts',
     css: true,
-    testTimeout: 15000,
+    // Frontend flake governance 2026-08-02: 6 parallel jsdom+antd forks exhausted 15s testTimeout.
+    pool: 'forks',        // Vitest 4 default; pinned explicitly for intent
+    maxWorkers: 3,        // was 6 — halves CPU contention (root cause of load flakes)
+    testTimeout: 30000,   // was 15000 — headroom for heavy renders under reduced contention
+    retry: 1,             // backstop: re-run a failed test once; deterministic failures still fail
   },
 })

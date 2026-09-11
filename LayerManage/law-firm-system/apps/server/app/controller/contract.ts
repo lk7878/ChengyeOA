@@ -1,389 +1,149 @@
-import { Prisma } from '@prisma/client';
+// SPEC-010 Task 10: contract HTTP 控制器（整体替代 SPEC-001 原型——原型控制器随 Task 1 移除）。
+// 薄控制器纪律（仿 SPEC-009 T10 lead.ts/customer.ts）：传输层解析（query 数字/键名白名单）
+// → 调 Task 7-9 冻结服务 → 包络响应；状态机/政策门禁/范围/同事务事件全部在服务层。
+// 合同无 update 路由（路由表无 PATCH /contracts/:id——创建后仅经动作路由流转，设计如此）；
+// 显式组织锚伪造在服务层 4a 探针 400（Task 7 裁决 4），控制器透传不新增校验。
+// plans 子资源走 ReceivableService.listPlans（payment.read，Task 9 冻结方法），路径挂合同下。
+
 import { Controller } from 'egg';
 
+import { contractService, receivableService } from '../application/contract/contract-factory';
+import {
+  ApproveContractInput,
+  ContractListQuery,
+  CreateContractInput,
+  EffectContractInput,
+  RejectContractInput,
+  SignContractInput,
+  TerminateContractInput,
+  VoidContractInput,
+} from '../application/contract/contract-types';
+import { ContractStatus, ContractType } from '../domain/contract/contract-policy';
+import { MasterDataError } from '../domain/master-data/master-data-errors';
+import { assertExactKeys } from '../domain/master-data/master-data-validation';
+
+const CREATE_BODY_KEYS = [
+  'contractType', 'title', 'customerId', 'sourceType', 'sourceId', 'negotiationId',
+  'parentContractId', 'templateCode', 'amount', 'paymentTerms', 'startDate', 'endDate',
+  'terms', 'branchId', 'professionalTeamId',
+] as const;
+const APPROVE_BODY_KEYS = ['comment'] as const;
+const REJECT_BODY_KEYS = ['comment'] as const;
+const SIGN_BODY_KEYS = ['signDate', 'esignLinkId', 'esignSerialNo', 'esignStatus'] as const;
+const EFFECT_BODY_KEYS = ['effectiveDate', 'idempotencyKey'] as const;
+const TERMINATE_BODY_KEYS = ['reason'] as const;
+const VOID_BODY_KEYS = ['reason'] as const;
+
 export default class ContractController extends Controller {
-  /**
-   * 合同列表
-   */
-  async index() {
-    const { ctx } = this;
-    const { page = 1, pageSize = 10, keyword, status, type, customerId } = ctx.query;
-
-    const where: Prisma.ContractWhereInput = {};
-    if (keyword) {
-      where.OR = [
-        { title: { contains: keyword } },
-        { contractNo: { contains: keyword } },
-      ];
-    }
-    if (status) where.status = status;
-    if (type) where.type = type;
-    if (customerId) where.customerId = customerId;
-
-    const total = await ctx.prisma.contract.count({ where });
-    const list = await ctx.prisma.contract.findMany({
-      where,
-      skip: (Number(page) - 1) * Number(pageSize),
-      take: Number(pageSize),
-      include: {
-        customer: true,
-        payments: true,
-        case: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: {
-        list,
-        pagination: {
-          page: Number(page),
-          pageSize: Number(pageSize),
-          total,
-          totalPages: Math.ceil(total / Number(pageSize)),
-        },
-      },
-    };
-  }
-
-  /**
-   * 合同详情
-   */
-  async show() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const contract = await ctx.prisma.contract.findUnique({
-      where: { id },
-      include: {
-        customer: true,
-        payments: {
-          orderBy: { createdAt: 'desc' },
-        },
-        case: {
-          include: {
-            lawyer: true,
-            tasks: true,
-          },
-        },
-      },
-    });
-
-    if (!contract) {
-      ctx.throw(404, '合同不存在');
-    }
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: contract,
-    };
-  }
-
-  /**
-   * 创建合同
-   */
+  /** POST /api/v1/contracts（contract.create）：四来源创建，初始 DRAFT。 */
   async create() {
-    const { ctx } = this;
-    const { contractNo, title, type, customerId, amount, paymentTerms, terms, startDate, endDate } = ctx.request.body;
-
-    if (!contractNo || !title || !type || !customerId) {
-      ctx.throw(400, '缺少必填字段');
-    }
-
-    // 检查合同编号是否已存在
-    const existing = await ctx.prisma.contract.findUnique({
-      where: { contractNo },
-    });
-    if (existing) {
-      ctx.throw(409, '合同编号已存在');
-    }
-
-    const contract = await ctx.prisma.contract.create({
-      data: {
-        contractNo,
-        title,
-        type,
-        customerId,
-        amount: amount ? Number(amount) : 0,
-        paymentTerms,
-        terms,
-        startDate: startDate ? new Date(startDate) : null,
-        endDate: endDate ? new Date(endDate) : null,
-        createdBy: ctx.state.user.userId,
-      },
-      include: {
-        customer: true,
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '创建成功',
-      data: contract,
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, CREATE_BODY_KEYS);
+    this.respond(await contractService(this.ctx).createContract(body as unknown as CreateContractInput));
   }
 
-  /**
-   * 更新合同
-   */
-  async update() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { title, amount, paymentTerms, terms, startDate, endDate } = ctx.request.body;
-
-    const contract = await ctx.prisma.contract.findUnique({
-      where: { id },
-    });
-    if (!contract) {
-      ctx.throw(404, '合同不存在');
-    }
-
-    // 只有草稿状态可以编辑
-    if (contract.status !== 'DRAFT') {
-      ctx.throw(400, '只有草稿状态的合同可以编辑');
-    }
-
-    const updateData: Prisma.ContractUncheckedUpdateInput = {};
-    if (title) updateData.title = title;
-    if (amount !== undefined) updateData.amount = Number(amount);
-    if (paymentTerms !== undefined) updateData.paymentTerms = paymentTerms;
-    if (terms !== undefined) updateData.terms = terms;
-    if (startDate !== undefined) updateData.startDate = startDate ? new Date(startDate) : null;
-    if (endDate !== undefined) updateData.endDate = endDate ? new Date(endDate) : null;
-
-    const updated = await ctx.prisma.contract.update({
-      where: { id },
-      data: updateData,
-      include: {
-        customer: true,
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '更新成功',
-      data: updated,
-    };
+  /** GET /api/v1/contracts（contract.read）：范围列表 + status/contractType/customerId/keyword 过滤。 */
+  async index() {
+    this.respond(await contractService(this.ctx).listContracts(parseContractListQuery(this.ctx.query)));
   }
 
-  /**
-   * 删除合同
-   */
-  async destroy() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const contract = await ctx.prisma.contract.findUnique({
-      where: { id },
-      include: { payments: true, case: true },
-    });
-    if (!contract) {
-      ctx.throw(404, '合同不存在');
-    }
-
-    if (contract.payments.length > 0) {
-      ctx.throw(400, '该合同有收款记录，无法删除');
-    }
-    if (contract.case) {
-      ctx.throw(400, '该合同已关联案件，无法删除');
-    }
-
-    await ctx.prisma.contract.delete({
-      where: { id },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '删除成功',
-      data: null,
-    };
+  /** GET /api/v1/contracts/:id（contract.read）：详情，不存在/越权统一 404。 */
+  async show() {
+    this.respond(await contractService(this.ctx).getContract(this.ctx.params.id));
   }
 
-  /**
-   * 提交审批
-   */
+  /** POST /api/v1/contracts/:id/submit（contract.submit）：DRAFT→政策分流。 */
   async submit() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const contract = await ctx.prisma.contract.findUnique({
-      where: { id },
-    });
-    if (!contract) {
-      ctx.throw(404, '合同不存在');
-    }
-
-    if (contract.status !== 'DRAFT') {
-      ctx.throw(400, '只有草稿状态的合同可以提交审批');
-    }
-
-    const updated = await ctx.prisma.contract.update({
-      where: { id },
-      data: { status: 'PENDING' },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '提交审批成功',
-      data: updated,
-    };
+    this.respond(await contractService(this.ctx).submitContract(this.ctx.params.id));
   }
 
-  /**
-   * 审批通过
-   */
+  /** POST /api/v1/contracts/:id/approve（contract.approve）：PENDING_APPROVAL→PENDING_SIGN。 */
   async approve() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const contract = await ctx.prisma.contract.findUnique({
-      where: { id },
-    });
-    if (!contract) {
-      ctx.throw(404, '合同不存在');
-    }
-
-    if (contract.status !== 'PENDING') {
-      ctx.throw(400, '只有待审批状态的合同可以审批');
-    }
-
-    const updated = await ctx.prisma.contract.update({
-      where: { id },
-      data: {
-        status: 'APPROVED',
-        approvedBy: ctx.state.user.userId,
-        approvedAt: new Date(),
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '审批通过',
-      data: updated,
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, APPROVE_BODY_KEYS);
+    this.respond(await contractService(this.ctx).approveContract(
+      this.ctx.params.id,
+      body as unknown as ApproveContractInput,
+    ));
   }
 
-  /**
-   * 签署合同
-   */
+  /** POST /api/v1/contracts/:id/reject（contract.approve）：PENDING_APPROVAL→DRAFT，comment 必填。 */
+  async reject() {
+    const body = this.ctx.request.body;
+    assertExactKeys(body, REJECT_BODY_KEYS);
+    this.respond(await contractService(this.ctx).rejectContract(
+      this.ctx.params.id,
+      body as unknown as RejectContractInput,
+    ));
+  }
+
+  /** POST /api/v1/contracts/:id/sign（contract.sign）：PENDING_SIGN→SIGNED。 */
   async sign() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { signDate } = ctx.request.body;
-
-    const contract = await ctx.prisma.contract.findUnique({
-      where: { id },
-    });
-    if (!contract) {
-      ctx.throw(404, '合同不存在');
-    }
-
-    if (contract.status !== 'APPROVED') {
-      ctx.throw(400, '只有已审批的合同可以签署');
-    }
-
-    const updated = await ctx.prisma.contract.update({
-      where: { id },
-      data: {
-        status: 'SIGNED',
-        signDate: signDate ? new Date(signDate) : new Date(),
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '签署成功',
-      data: updated,
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, SIGN_BODY_KEYS);
+    this.respond(await contractService(this.ctx).signContract(
+      this.ctx.params.id,
+      body as unknown as SignContractInput,
+    ));
   }
 
-  /**
-   * 终止合同
-   */
+  /** POST /api/v1/contracts/:id/effect（contract.effect）：SIGNED→EFFECTIVE + 生效事务矩阵。 */
+  async effect() {
+    const body = this.ctx.request.body;
+    assertExactKeys(body, EFFECT_BODY_KEYS);
+    this.respond(await contractService(this.ctx).effectContract(
+      this.ctx.params.id,
+      body as unknown as EffectContractInput,
+    ));
+  }
+
+  /** POST /api/v1/contracts/:id/terminate（contract.terminate）：EFFECTIVE→TERMINATED，reason 必填。 */
   async terminate() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { reason } = ctx.request.body;
-
-    const contract = await ctx.prisma.contract.findUnique({
-      where: { id },
-      include: { case: true },
-    });
-    if (!contract) {
-      ctx.throw(404, '合同不存在');
-    }
-
-    if (contract.case && contract.case.status !== 'CLOSED') {
-      ctx.throw(400, '该合同有关联未结案案件，请先结案');
-    }
-
-    const updated = await ctx.prisma.contract.update({
-      where: { id },
-      data: {
-        status: 'TERMINATED',
-        terms: reason ? `${contract.terms || ''}\n[终止原因: ${reason}]` : contract.terms,
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '合同已终止',
-      data: updated,
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, TERMINATE_BODY_KEYS);
+    this.respond(await contractService(this.ctx).terminateContract(
+      this.ctx.params.id,
+      body as unknown as TerminateContractInput,
+    ));
   }
 
-  /**
-   * 合同台账
-   */
-  async ledger() {
-    const { ctx } = this;
-    const { status, year } = ctx.query;
-
-    const where: Prisma.ContractWhereInput = {};
-    if (status) where.status = status;
-    if (year) {
-      where.createdAt = {
-        gte: new Date(`${year}-01-01`),
-        lt: new Date(`${Number(year) + 1}-01-01`),
-      };
-    }
-
-    const contracts = await ctx.prisma.contract.findMany({
-      where,
-      include: {
-        customer: true,
-        payments: true,
-        case: {
-          include: {
-            lawyer: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    // 统计
-    const stats = {
-      total: contracts.length,
-      totalAmount: contracts.reduce((sum, c) => sum + Number(c.amount), 0),
-      totalPaid: contracts.reduce((sum, c) => sum + Number(c.paidAmount), 0),
-      byStatus: {} as Record<string, number>,
-    };
-
-    contracts.forEach(c => {
-      stats.byStatus[c.status] = (stats.byStatus[c.status] || 0) + 1;
-    });
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: {
-        list: contracts,
-        stats,
-      },
-    };
+  /** POST /api/v1/contracts/:id/void（contract.void）：DRAFT|PENDING_APPROVAL|PENDING_SIGN→VOID，reason 必填。 */
+  async void() {
+    const body = this.ctx.request.body;
+    assertExactKeys(body, VOID_BODY_KEYS);
+    this.respond(await contractService(this.ctx).voidContract(
+      this.ctx.params.id,
+      body as unknown as VoidContractInput,
+    ));
   }
+
+  /** GET /api/v1/contracts/:id/plans（payment.read）：应收计划（ReceivableService.listPlans）。 */
+  async plans() {
+    this.respond(await receivableService(this.ctx).listPlans(this.ctx.params.id));
+  }
+
+  private respond(data: unknown): void {
+    this.ctx.body = { code: 200, message: 'success', data };
+  }
+}
+
+function parseContractListQuery(input: unknown): ContractListQuery {
+  assertExactKeys(input, ['page', 'pageSize', 'status', 'contractType', 'customerId', 'keyword', 'caseNo']);
+  const query: ContractListQuery = {};
+  if (input.page !== undefined) query.page = parseQueryInteger(input.page);
+  if (input.pageSize !== undefined) query.pageSize = parseQueryInteger(input.pageSize);
+  if (input.status !== undefined) query.status = input.status as ContractStatus;
+  if (input.contractType !== undefined) query.contractType = input.contractType as ContractType;
+  if (input.customerId !== undefined) query.customerId = input.customerId as string;
+  if (input.keyword !== undefined) query.keyword = input.keyword as string;
+  if (input.caseNo !== undefined) query.caseNo = input.caseNo as string;
+  return query;
+}
+
+/** query 数字解析：非法形态 400（与 lead/customer 控制器同一纪律）。 */
+function parseQueryInteger(value: unknown): number {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
+    throw new MasterDataError('VALIDATION_FAILED', 400);
+  }
+  return Number(value);
 }

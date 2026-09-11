@@ -1,6 +1,18 @@
 import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
 
+const NOTIFICATION_SAFE_SELECT = {
+  id: true,
+  type: true,
+  title: true,
+  content: true,
+  isRead: true,
+  relatedId: true,
+  relatedType: true,
+  routeUrl: true,
+  createdAt: true,
+} as const;
+
 export default class NotificationController extends Controller {
   async index() {
     const { ctx } = this;
@@ -15,6 +27,7 @@ export default class NotificationController extends Controller {
     const total = await ctx.prisma.notification.count({ where });
     const list = await ctx.prisma.notification.findMany({
       where,
+      select: NOTIFICATION_SAFE_SELECT,
       skip: (Number(page) - 1) * Number(pageSize),
       take: Number(pageSize),
       orderBy: { createdAt: 'desc' },
@@ -40,17 +53,18 @@ export default class NotificationController extends Controller {
     const { id } = ctx.params;
     const userId = ctx.state.user.userId;
 
-    const notification = await ctx.prisma.notification.findFirst({
-      where: { id, userId },
+    const updated = await ctx.prisma.$transaction(async tx => {
+      const result = await tx.notification.updateMany({
+        where: { id, userId },
+        data: { isRead: true },
+      });
+      if (result.count !== 1) return null;
+      return tx.notification.findUnique({
+        where: { id },
+        select: NOTIFICATION_SAFE_SELECT,
+      });
     });
-    if (!notification) {
-      ctx.throw(404, '通知不存在');
-    }
-
-    const updated = await ctx.prisma.notification.update({
-      where: { id },
-      data: { isRead: true },
-    });
+    if (!updated) ctx.throw(404, '通知不存在');
 
     ctx.body = {
       code: 200,

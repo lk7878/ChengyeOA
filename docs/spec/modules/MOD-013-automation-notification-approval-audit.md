@@ -5,7 +5,7 @@ source: PRD §8.13
 status: draft
 implements: SPEC-007（审批/通知/outbox 部分；自动化规则引擎未覆盖）
 design_refs: [docs/专项设计/审计日志与自动化规则设计.md, docs/专项设计/审批实例任务与消息回调设计.md]
-last_updated: 2026-07-28
+last_updated: 2026-09-11
 ---
 
 # MOD-013 自动化、通知、审批与审计模块
@@ -44,6 +44,9 @@ last_updated: 2026-07-28
 | 编号 | 功能 | 需求 | 现状 |
 |---|---|---|---|
 | APPR-01 | 审批实例 | 审批发起、流转、回调、幂等提交 | 已实现 |
+| APPR-02 | 自定义审批类型 | 申请人创建个人类型、复用已有表单及审批流程；管理员管理公共类型 | 已实现 |
+| APPR-03 | 审批附件 | 凭证上传、授权读取、提交冻结、保留原件、图片/PDF 预览、Office 基本编辑导出 | 已实现 |
+| APPR-04 | 审批材料归档 | 导出打印申请内容、材料清单和审批记录，提供线下签字归档栏 | 已实现 |
 | NOTI-01 | 通知投递 | 通知生成、订阅、投递、失败重试、人工处理 | 已实现 |
 | OUTBOX-01 | 事件日志 | 事件生成、投递结果可查、关键状态可审计还原 | 已实现 |
 
@@ -104,9 +107,14 @@ last_updated: 2026-07-28
 - 幂等验收：重复提交合同生效、重复确认收款、重复处理审批任务时，系统应通过幂等机制避免重复生成应收、案件、通知或统计。（源自 §14.2.9）
 
 ## 7. 追溯
+- 增量规格：[SPEC-APPR-20260911](../../superpowers/specs/2026-09-11-approval-materials.md)（已实现，见规格中的格式及编辑边界）。
 - 专项设计: docs/专项设计/审计日志与自动化规则设计.md、docs/专项设计/审批实例任务与消息回调设计.md
 - 落地 SPEC: SPEC-007（审批/通知/outbox 部分；自动化规则引擎未覆盖）
 - 主要代码: apps/server/app/controller/approval.ts、apps/server/app/controller/notification.ts，model Approval/Notification/OperationLog/EventLog
 - 测试: 无（自动化规则引擎待立项；审批/通知相关测试随 SPEC-007 落地）
 
 <!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->
+
+### 2026-09-11 财务、审批与工资表联动
+
+本模块增量契约及验证参见 [SPEC-FIN-APPR-PAYROLL-20260911](../../superpowers/specs/2026-09-11-finance-approval-payroll.md) 和 [实施记录](../../superpowers/plans/2026-09-11-finance-approval-payroll.md)。团队分类支持中文；财务按案件编号关联；最终通过审批幂等写入对应业务台账；工资文件按版本保存并提交审批，权限和历史保留见增量契约。

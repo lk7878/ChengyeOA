@@ -1,0 +1,313 @@
+// SPEC-033 Task 2: case-service —— 案件生命周期（create/update/list/get/close）。
+// 形态镜像 finance/cost-service：3 参构造 (prisma, actor, authorizationContext)；
+// requireAction 每公开方法第一行；assertExactKeys 入参白名单；同事务 OperationLog 审计。
+// 案件为业务资源（可转介绍 isReferrable），仅权限门控（case.* 码）不做行级 scope。
+
+import { buildContractScopeWhere } from '../contract/contract-scope';
+import { Prisma, PrismaClient } from '@prisma/client';
+
+import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
+import { DataScopeService } from '../authorization/data-scope-service';
+import { AuditActor } from '../master-data/master-data-types';
+import { makeBusinessNo } from '../crm/business-no';
+import { CASE_ERROR_CODES, CaseError } from '../../domain/case/case-errors';
+import { MasterDataError } from '../../domain/master-data/master-data-errors';
+import {
+  assertExactKeys,
+  normalizeAllowedValue,
+  normalizeOptionalText,
+  normalizeRequiredText,
+} from '../../domain/master-data/master-data-validation';
+import {
+  CASE_PRIORITIES,
+  CASE_STATUSES,
+  CaseListQuery,
+  CaseView,
+  CloseCaseInput,
+  CreateCaseInput,
+  PagedResult,
+  UpdateCaseInput,
+  projectCase,
+} from './case-types';
+
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 100;
+
+export class CaseService {
+  private readonly authorization: AuthorizationService;
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly actor: AuditActor,
+    private readonly authorizationContext: AuthorizationContext,
+  ) {
+    this.authorization = new AuthorizationService(new DataScopeService(prisma));
+  }
+
+  async bindFinanceContract(caseId: string, input: { contractId: string; version: number }) {
+    this.authorization.requireAction(this.authorizationContext, 'case.update');
+    this.authorization.requireAction(this.authorizationContext, 'contract.read');
+    assertExactKeys(input, ['contractId', 'version']);
+    const contractId = normalizeRequiredText(input.contractId, 1, 100), version = normalizeVersion(input.version);
+    const scope = await buildContractScopeWhere(this.prisma, this.authorization, this.authorizationContext, 'contract.read');
+    return this.prisma.$transaction(async tx => {
+      // Contract first: same lock order as receivable commands that create cases.
+      await tx.$queryRaw`SELECT id FROM contract WHERE id = ${contractId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${caseId} FOR UPDATE`;
+      const row = await tx.case.findUnique({ where: { id: caseId } });
+      const contract = await tx.contract.findFirst({ where: { AND: [scope, { id: contractId, deletedAt: null }] } });
+      if (!row || !contract || row.customerId !== contract.customerId) throw new MasterDataError('VALIDATION_FAILED', 400);
+      if (row.version !== version) throw new MasterDataError('VERSION_CONFLICT', 409);
+      if (row.contractId && row.contractId !== contractId) throw new MasterDataError('MASTER_DATA_IN_USE', 409);
+      if (await tx.case.findFirst({ where: { contractId, id: { not: caseId } } })) throw new MasterDataError('MASTER_DATA_IN_USE', 409);
+      const updated = await tx.case.update({ where: { id: caseId }, data: { contractId, version: { increment: 1 } } });
+      await tx.operationLog.create({ data: { userId: this.actor.actorUserId, action: 'CASE_BIND_FINANCE', targetType: 'CASE', targetId: caseId, newValues: JSON.stringify({ contractId }), ip: this.actor.ip } });
+      return projectCase(updated);
+    });
+  }
+
+  /** 新建案件：case.create → 校验（title/caseType 必填、customerId/lawyerId 存在）→ caseNo=CA 随机码 → status PENDING + 审计。 */
+  async createCase(input: CreateCaseInput): Promise<CaseView> {
+    this.authorization.requireAction(this.authorizationContext, 'case.create');
+    assertExactKeys(input, ['title', 'customerId', 'contractId', 'lawyerId', 'teamIds', 'caseType', 'priority', 'fee', 'description']);
+    const title = normalizeRequiredText(input.title, 1, 100);
+    const customerId = normalizeRequiredText(input.customerId, 1, 100);
+    const caseType = normalizeRequiredText(input.caseType, 1, 100);
+    const priority = input.priority === undefined ? 'NORMAL' : normalizeAllowedValue(input.priority, CASE_PRIORITIES);
+    const description = normalizeOptionalText(input.description, 1000);
+    const contractId = normalizeOptionalText(input.contractId, 100);
+    const lawyerId = normalizeOptionalText(input.lawyerId, 100);
+    const teamIds = input.teamIds === undefined ? null : JSON.stringify(normalizeStringArray(input.teamIds, 50, 100));
+    const fee = input.fee === undefined ? null : normalizeCaseFee(input.fee);
+
+    const customer = await this.prisma.customer.findFirst({ where: { id: customerId, deletedAt: null } });
+    if (!customer) throw new MasterDataError('VALIDATION_FAILED', 400);
+    if (contractId !== null) {
+      const contract = await this.prisma.contract.findFirst({ where: { id: contractId, deletedAt: null } });
+      if (!contract || contract.customerId !== customerId) throw new MasterDataError('VALIDATION_FAILED', 400);
+    }
+    if (lawyerId !== null) {
+      const lawyer = await this.prisma.employee.findFirst({ where: { id: lawyerId } });
+      if (!lawyer) throw new MasterDataError('VALIDATION_FAILED', 400);
+    }
+
+    const caseNo = makeBusinessNo('CA');
+    return this.prisma.$transaction(async tx => {
+      const created = await tx.case.create({
+        data: {
+          caseNo,
+          title,
+          customerId,
+          contractId,
+          lawyerId,
+          teamIds,
+          caseType,
+          status: 'PENDING',
+          priority,
+          description,
+          fee: fee ?? undefined,
+        },
+      });
+      await tx.operationLog.create({
+        data: {
+          userId: this.actor.actorUserId,
+          action: 'CASE_CREATE',
+          targetType: 'CASE',
+          targetId: created.id,
+          newValues: JSON.stringify({ caseId: created.id, caseNo, title, caseType, customerId }),
+          ip: this.actor.ip,
+        },
+      });
+      return projectCase(created);
+    });
+  }
+
+  /** 更新案件：case.update → 白名单 + 乐观锁（updateMany {id, version} → VERSION_CONFLICT 409）+ 审计。 */
+  async updateCase(caseId: string, input: UpdateCaseInput): Promise<CaseView> {
+    this.authorization.requireAction(this.authorizationContext, 'case.update');
+    const id = normalizeRequiredText(caseId, 1, 100);
+    assertExactKeys(input, ['title', 'lawyerId', 'teamIds', 'caseType', 'priority', 'description', 'result', 'satisfaction', 'isReferrable', 'version']);
+    const title = input.title === undefined ? undefined : normalizeRequiredText(input.title, 1, 100);
+    const caseType = input.caseType === undefined ? undefined : normalizeRequiredText(input.caseType, 1, 100);
+    const priority = input.priority === undefined ? undefined : normalizeAllowedValue(input.priority, CASE_PRIORITIES);
+    const description = input.description === undefined ? undefined : normalizeOptionalText(input.description, 1000);
+    const result = input.result === undefined ? undefined : normalizeOptionalText(input.result, 1000);
+    const satisfaction = input.satisfaction === undefined ? undefined : normalizeSatisfaction(input.satisfaction);
+    const isReferrable = input.isReferrable;
+    const lawyerId = input.lawyerId === undefined ? undefined : normalizeOptionalText(input.lawyerId, 100);
+    const teamIds = input.teamIds === undefined ? undefined : JSON.stringify(normalizeStringArray(input.teamIds, 50, 100));
+    const version = normalizeVersion(input.version);
+
+    // SPEC-035：Case 乐观锁——先读现状（存在/终态判），再 updateMany {id, version} 守卫并发编辑。
+    const existing = await this.prisma.case.findFirst({ where: { id } });
+    if (!existing) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
+    if (existing.status === 'CLOSED' || existing.status === 'ARCHIVED') {
+      throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
+    }
+    if (lawyerId !== undefined && lawyerId !== null) {
+      const lawyer = await this.prisma.employee.findFirst({ where: { id: lawyerId } });
+      if (!lawyer) throw new MasterDataError('VALIDATION_FAILED', 400);
+    }
+
+    const data: Prisma.CaseUncheckedUpdateManyInput = {};
+    if (title !== undefined) data.title = title;
+    if (caseType !== undefined) data.caseType = caseType;
+    if (priority !== undefined) data.priority = priority;
+    if (description !== undefined) data.description = description;
+    if (result !== undefined) data.result = result;
+    if (satisfaction !== undefined) data.satisfaction = satisfaction;
+    if (isReferrable !== undefined) data.isReferrable = isReferrable;
+    if (lawyerId !== undefined) data.lawyerId = lawyerId;
+    if (teamIds !== undefined) data.teamIds = teamIds;
+    data.version = version + 1;
+
+    return this.prisma.$transaction(async tx => {
+      const flipped = await tx.case.updateMany({
+        where: { id, version, status: { notIn: ['CLOSED', 'ARCHIVED'] } },
+        data,
+      });
+      if (flipped.count === 0) {
+        const current = await tx.case.findUnique({ where: { id } });
+        if (!current) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
+        if (current.status === 'CLOSED' || current.status === 'ARCHIVED') {
+          throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
+        }
+        throw new CaseError(CASE_ERROR_CODES.CASE_VERSION_CONFLICT, 409, 'case version conflict');
+      }
+      const row = await tx.case.findUniqueOrThrow({ where: { id } });
+      await tx.operationLog.create({
+        data: {
+          userId: this.actor.actorUserId,
+          action: 'CASE_UPDATE',
+          targetType: 'CASE',
+          targetId: row.id,
+          newValues: JSON.stringify({ caseId: row.id, caseNo: row.caseNo, version: row.version }),
+          ip: this.actor.ip,
+        },
+      });
+      return projectCase(row);
+    });
+  }
+
+  /** 案件列表：case.read → 过滤（keyword/status/lawyerId/priority/customerId）+ 分页 createdAt DESC。 */
+  async listCases(query: CaseListQuery): Promise<PagedResult<CaseView>> {
+    this.authorization.requireAction(this.authorizationContext, 'case.read');
+    // assertExactKeys 收窄入参为 Record<string, unknown>——先捕获分页字段保类型。
+    const rawPage = query.page;
+    const rawPageSize = query.pageSize;
+    assertExactKeys(query, ['page', 'pageSize', 'keyword', 'status', 'lawyerId', 'priority', 'customerId']);
+    const page = rawPage === undefined ? 1 : rawPage;
+    const pageSize = rawPageSize === undefined ? DEFAULT_PAGE_SIZE : rawPageSize;
+    if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
+      throw new MasterDataError('VALIDATION_FAILED', 400);
+    }
+
+    const where: Prisma.CaseWhereInput = {};
+    const keyword = normalizeOptionalText(query.keyword, 100);
+    if (keyword) where.OR = [{ title: { contains: keyword } }, { caseNo: { contains: keyword } }, { caseType: { contains: keyword } }];
+    if (query.status !== undefined) where.status = normalizeAllowedValue(query.status, CASE_STATUSES);
+    if (query.lawyerId !== undefined) where.lawyerId = normalizeRequiredText(query.lawyerId, 1, 100);
+    if (query.priority !== undefined) where.priority = normalizeAllowedValue(query.priority, CASE_PRIORITIES);
+    if (query.customerId !== undefined) where.customerId = normalizeRequiredText(query.customerId, 1, 100);
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.case.count({ where }),
+      this.prisma.case.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+    return { list: rows.map(row => projectCase(row)), page, pageSize, total };
+  }
+
+  /** 案件详情：case.read → 含 tasks + communications + customer/lawyer 投影。 */
+  async getCase(caseId: string): Promise<CaseView> {
+    this.authorization.requireAction(this.authorizationContext, 'case.read');
+    const id = normalizeRequiredText(caseId, 1, 100);
+    const row = await this.prisma.case.findFirst({
+      where: { id },
+      include: {
+        tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
+        communications: { orderBy: [{ createdAt: 'desc' }, { id: 'asc' }] },
+      },
+    });
+    if (!row) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
+    return projectCase(row);
+  }
+
+  /** 结案：case.close → 状态非终态 → CLOSED + closedAt + result/satisfaction + 审计。 */
+  async closeCase(caseId: string, input: CloseCaseInput): Promise<CaseView> {
+    this.authorization.requireAction(this.authorizationContext, 'case.close');
+    const id = normalizeRequiredText(caseId, 1, 100);
+    assertExactKeys(input, ['result', 'satisfaction']);
+    const result = normalizeOptionalText(input.result, 1000);
+    const satisfaction = input.satisfaction === undefined ? undefined : normalizeSatisfaction(input.satisfaction);
+
+    // 状态守卫（Case 无 version 列）：updateMany {id, status notIn 终态} → count=0 → 已结案/不存在 409。
+    return this.prisma.$transaction(async tx => {
+      const flipped = await tx.case.updateMany({
+        where: { id, status: { notIn: ['CLOSED', 'ARCHIVED'] } },
+        data: {
+          status: 'CLOSED',
+          closedAt: new Date(),
+          result: result ?? undefined,
+          satisfaction: satisfaction ?? undefined,
+        },
+      });
+      if (flipped.count === 0) {
+        const existing = await tx.case.findUnique({ where: { id } });
+        if (!existing) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
+        throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
+      }
+      const row = await tx.case.findUniqueOrThrow({ where: { id } });
+      await tx.operationLog.create({
+        data: {
+          userId: this.actor.actorUserId,
+          action: 'CASE_CLOSE',
+          targetType: 'CASE',
+          targetId: row.id,
+          newValues: JSON.stringify({ caseId: row.id, caseNo: row.caseNo, result: result ?? null }),
+          ip: this.actor.ip,
+        },
+      });
+      return projectCase(row);
+    });
+  }
+}
+
+/** 案件费用规范化：非负数字字符串（≤ Decimal(18,2)），非法 → 400。 */
+function normalizeCaseFee(value: string): string {
+  if (typeof value !== 'string' || !/^\d+(\.\d{1,2})?$/.test(value)) {
+    throw new MasterDataError('VALIDATION_FAILED', 400);
+  }
+  if (value.length > 18) {
+    throw new MasterDataError('VALIDATION_FAILED', 400);
+  }
+  return value;
+}
+
+/** teamIds 规范化：非空数组 ≤50，每项 1-100 去重。 */
+function normalizeStringArray(value: unknown, maxItems: number, maxItemLength: number): string[] | null {
+  if (!Array.isArray(value)) throw new MasterDataError('VALIDATION_FAILED', 400);
+  if (value.length > maxItems) throw new MasterDataError('VALIDATION_FAILED', 400);
+  const normalized = value.map(item => normalizeRequiredText(item, 1, maxItemLength));
+  return [...new Set(normalized)];
+}
+
+/** 满意度校验：整数 1-5。 */
+function normalizeSatisfaction(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 5) {
+    throw new MasterDataError('VALIDATION_FAILED', 400);
+  }
+  return value;
+}
+
+/** 乐观锁 version 校验：正整数（≥1），非法 → 400。 */
+function normalizeVersion(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new MasterDataError('VALIDATION_FAILED', 400);
+  }
+  return value;
+}

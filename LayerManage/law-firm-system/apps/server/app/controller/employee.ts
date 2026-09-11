@@ -51,6 +51,14 @@ export default class EmployeeController extends Controller {
     this.respond(await employeeService(this.ctx).leave(this.ctx.params.id, parseLeave(this.ctx.request.body)));
   }
 
+  async destroy() {
+    const input = this.ctx.request.body;
+    assertExactKeys(input, ['version', 'confirmed']);
+    if (input.confirmed !== true) throw new MasterDataError('VALIDATION_FAILED', 400);
+    await employeeService(this.ctx).remove(this.ctx.params.id, { version: normalizeVersion(input.version), confirmed: true });
+    this.respond(null);
+  }
+
   private respond(data: unknown): void {
     this.ctx.body = { code: 200, message: 'success', data };
   }

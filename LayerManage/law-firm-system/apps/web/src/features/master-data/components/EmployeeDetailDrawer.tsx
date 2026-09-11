@@ -1,7 +1,11 @@
-import { Button, Descriptions, Drawer, Popconfirm, Space, Table, Tabs, Tag } from 'antd';
+import Table from '@/components/ResizableTable';
+import { Button, Descriptions, Drawer, Popconfirm, Space, Tabs, Tag } from 'antd';
 import type { EmployeeAssignment, EmployeeDetail } from '../types';
 import AccountBindingPanel from './AccountBindingPanel';
 import type { SelectOption } from './EmployeeForm';
+import SensitiveEmployeeFields from './SensitiveEmployeeFields';
+import { useAuthStore } from '@/stores/authStore';
+import { employeeTypeLabel } from '@/locales/employee-types';
 
 interface Props {
   employee: EmployeeDetail | null;
@@ -28,6 +32,7 @@ const assignmentText = { PRIMARY: '主职', SECONDARY: '兼任', ACTING: '代理
 
 export default function EmployeeDetailDrawer(props: Props) {
   const employee = props.employee;
+  const mayViewL4 = useAuthStore(state => state.hasPermission('employee.high_sensitive.read'));
   return <Drawer title={employee ? `${employee.name} · ${employee.employeeNo}` : '员工详情'} open={props.open} onClose={props.onClose} size="large">
     {employee && <Tabs items={[
       { key: 'profile', label: '基础档案', children: <>
@@ -37,18 +42,18 @@ export default function EmployeeDetailDrawer(props: Props) {
           {employee.status !== 'LEAVED' && <Button danger onClick={props.onLeave}>办理离职</Button>}
         </Space></div>
         <Descriptions column={{ xs: 1, sm: 2 }} items={[
-          { key: 'type', label: '人员类型', children: employee.employeeType }, { key: 'phone', label: '手机号', children: employee.phone },
-          { key: 'email', label: '邮箱', children: employee.email || '-' }, { key: 'license', label: '执业证号', children: employee.licenseNo || '-' },
-          { key: 'idCard', label: '身份证号', children: employee.idCard || '-' }, { key: 'entryDate', label: '入职日期', children: employee.entryDate.slice(0, 10) },
+          { key: 'type', label: '人员类型', children: employeeTypeLabel(employee.employeeType) }, { key: 'phone', label: '手机号', children: employee.phone ?? '无权查看' },
+          { key: 'email', label: '邮箱', children: employee.email === undefined ? '无权查看' : employee.email || '-' }, { key: 'license', label: '执业证号', children: employee.licenseNo === undefined ? '无权查看' : employee.licenseNo || '-' },
+          { key: 'idCard', label: '身份证号', children: <SensitiveEmployeeFields employeeId={employee.id} allowed={mayViewL4} /> }, { key: 'entryDate', label: '入职日期', children: employee.entryDate.slice(0, 10) },
           { key: 'formalDate', label: '转正日期', children: employee.formalDate?.slice(0, 10) || '-' }, { key: 'leaveDate', label: '离职日期', children: employee.leaveDate?.slice(0, 10) || '-' },
-          { key: 'directions', label: '专业方向', children: employee.professionalDirections.join('、') || '-' },
+          { key: 'directions', label: '专业方向', children: employee.professionalDirections === undefined ? '无权查看' : employee.professionalDirections.join('、') || '-' },
         ]} />
       </> },
       { key: 'assignments', label: '任职关系', children: <>
         {employee.status !== 'LEAVED' && <Space wrap className="md-section-actions"><Button type="primary" onClick={props.onTransfer}>调动主职</Button><Button onClick={props.onAddAssignment}>新增兼任</Button></Space>}
         <Table rowKey="id" size="small" pagination={false} dataSource={employee.assignments} columns={[
           { title: '类型', dataIndex: 'assignmentType', render: (value: EmployeeAssignment['assignmentType']) => assignmentText[value] },
-          { title: '组织', dataIndex: 'organizationId', render: (id: string) => props.organizations.get(id) || id },
+          { title: '组织', dataIndex: 'organizationId', width: 300, render: (id: string) => <span title={props.organizations.get(id) || id}>{props.organizations.get(id) || id}</span> },
           { title: '岗位', dataIndex: 'positionId', render: (id: string) => props.positions.get(id) || id },
           { title: '开始日期', dataIndex: 'startedAt', render: (value: string) => value.slice(0, 10) },
           { title: '状态', dataIndex: 'endedAt', render: (value: string | null) => value ? `已结束 ${value.slice(0, 10)}` : '生效中' },

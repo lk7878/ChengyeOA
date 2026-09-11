@@ -1,8 +1,14 @@
 import { Prisma, PrismaClient } from '@prisma/client';
+import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
+import { DataScopeService } from '../authorization/data-scope-service';
 import { MasterDataError } from '../../domain/master-data/master-data-errors';
 import { assertExactKeys, normalizeAllowedValue, normalizeRequiredText, normalizeVersion } from '../../domain/master-data/master-data-validation';
 import { writeMasterDataAudit } from './master-data-audit';
-import { EMPLOYEE_DETAIL_INCLUDE, projectEmployeeDetail } from './employee-projection';
+import {
+  EMPLOYEE_DETAIL_INCLUDE,
+  projectAuthorizedEmployeeDetail,
+  projectEmployeeDetail,
+} from './employee-projection';
 import { AssignmentType, AuditActor, EmployeeDetail } from './master-data-types';
 
 export interface TransferPrimaryInput {
@@ -18,18 +24,28 @@ export interface AddAssignmentInput {
 }
 
 export class EmployeeAssignmentService {
-  constructor(private readonly prisma: PrismaClient, private readonly actor: AuditActor) {}
+  private readonly authorization: AuthorizationService;
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly actor: AuditActor,
+    private readonly authorizationContext: AuthorizationContext,
+  ) {
+    this.authorization = new AuthorizationService(new DataScopeService(prisma));
+  }
 
   async transferPrimary(employeeId: string, input: TransferPrimaryInput): Promise<EmployeeDetail> {
+    this.authorization.requireAction(this.authorizationContext, 'employee.assignment.manage');
     assertExactKeys(input, ['organizationId', 'positionId', 'employeeVersion']);
     const organizationId = normalizeRequiredText(input.organizationId, 1, 100);
     const positionId = normalizeRequiredText(input.positionId, 1, 100);
     const employeeVersion = normalizeVersion(input.employeeVersion);
-    return this.withAssignmentConflictMapping(() => this.prisma.$transaction(async tx => {
+    const organizationScopeWhere = await this.authorizedTargets(employeeId);
+    const detail = await this.withAssignmentConflictMapping(() => this.prisma.$transaction(async tx => {
       const employee = await lockEmployee(tx, employeeId);
       if (employee.version !== employeeVersion) versionConflict();
       assertActiveEmployee(employee.status);
-      await assertEnabledReferences(tx, organizationId, positionId);
+      await assertEnabledReferences(tx, organizationId, positionId, organizationScopeWhere);
       const activePrimary = await tx.employeeAssignment.findMany({
         where: { employeeId, assignmentType: 'PRIMARY', endedAt: null },
       });
@@ -53,17 +69,20 @@ export class EmployeeAssignmentService {
       });
       return loadDetail(tx, employeeId);
     }));
+    return this.project(detail, 'EMPLOYEE_ASSIGNMENT_TRANSFER');
   }
 
   async add(employeeId: string, input: AddAssignmentInput): Promise<EmployeeDetail> {
+    this.authorization.requireAction(this.authorizationContext, 'employee.assignment.manage');
     assertExactKeys(input, ['organizationId', 'positionId', 'assignmentType']);
     const organizationId = normalizeRequiredText(input.organizationId, 1, 100);
     const positionId = normalizeRequiredText(input.positionId, 1, 100);
     const assignmentType = normalizeAllowedValue(input.assignmentType, ['SECONDARY', 'ACTING'] as const);
-    return this.withAssignmentConflictMapping(() => this.prisma.$transaction(async tx => {
+    const organizationScopeWhere = await this.authorizedTargets(employeeId);
+    const detail = await this.withAssignmentConflictMapping(() => this.prisma.$transaction(async tx => {
       const employee = await lockEmployee(tx, employeeId);
       assertActiveEmployee(employee.status);
-      await assertEnabledReferences(tx, organizationId, positionId);
+      await assertEnabledReferences(tx, organizationId, positionId, organizationScopeWhere);
       const created = await tx.employeeAssignment.create({
         data: { employeeId, organizationId, positionId, assignmentType, startedAt: new Date() },
       });
@@ -74,12 +93,23 @@ export class EmployeeAssignmentService {
       });
       return loadDetail(tx, employeeId);
     }));
+    return this.project(detail, 'EMPLOYEE_ASSIGNMENT_ADD');
   }
 
   async end(employeeId: string, assignmentId: string, input: { version: number }): Promise<EmployeeDetail> {
+    this.authorization.requireAction(this.authorizationContext, 'employee.assignment.manage');
     assertExactKeys(input, ['version']);
     const version = normalizeVersion(input.version);
-    return this.prisma.$transaction(async tx => {
+    await Promise.all([
+      this.requireEmployeeTarget(employeeId),
+      this.authorization.requireRecord(
+        this.authorizationContext,
+        'employee_assignment',
+        'employee.assignment.manage',
+        assignmentId,
+      ),
+    ]);
+    const detail = await this.prisma.$transaction(async tx => {
       await lockEmployee(tx, employeeId);
       const assignment = await tx.employeeAssignment.findFirst({ where: { id: assignmentId, employeeId } });
       if (!assignment) throw new MasterDataError('ASSIGNMENT_NOT_FOUND', 404);
@@ -100,6 +130,7 @@ export class EmployeeAssignmentService {
       });
       return loadDetail(tx, employeeId);
     });
+    return this.project(detail, 'EMPLOYEE_ASSIGNMENT_END');
   }
 
   private async withAssignmentConflictMapping<T>(run: () => Promise<T>): Promise<T> {
@@ -108,28 +139,57 @@ export class EmployeeAssignmentService {
       throw error;
     }
   }
+
+  private async authorizedTargets(employeeId: string): Promise<Prisma.OrganizationWhereInput> {
+    await this.requireEmployeeTarget(employeeId);
+    return this.authorization.buildOrganizationTargetWhere(
+      this.authorizationContext,
+      'employee_assignment',
+      'employee.assignment.manage',
+    );
+  }
+
+  private async requireEmployeeTarget(employeeId: string): Promise<void> {
+    const where = await this.authorization.buildEmployeeTargetWhere(
+      this.authorizationContext,
+      'employee_assignment',
+      'employee.assignment.manage',
+    );
+    const employee = await this.prisma.employee.findFirst({ where: { AND: [where, { id: employeeId }] }, select: { id: true } });
+    if (!employee) authorizationHidden();
+  }
+
+  private project(detail: EmployeeDetail, purpose: string): Promise<EmployeeDetail> {
+    return projectAuthorizedEmployeeDetail(this.prisma, this.authorizationContext, detail, purpose);
+  }
 }
 
 async function lockEmployee(tx: Prisma.TransactionClient, employeeId: string) {
   await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "employee" WHERE "id" = ${employeeId} FOR UPDATE`);
   const employee = await tx.employee.findUnique({ where: { id: employeeId } });
-  if (!employee) throw new MasterDataError('EMPLOYEE_NOT_FOUND', 404);
+  if (!employee || employee.deletedAt) throw new MasterDataError('EMPLOYEE_NOT_FOUND', 404);
   return employee;
 }
 
-async function assertEnabledReferences(tx: Prisma.TransactionClient, organizationId: string, positionId: string) {
+async function assertEnabledReferences(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  positionId: string,
+  organizationScopeWhere: Prisma.OrganizationWhereInput,
+) {
+  await tx.$queryRaw`SELECT "id" FROM "position" WHERE "id" = ${positionId} FOR SHARE`;
   const [organization, position] = await Promise.all([
-    tx.organization.findUnique({ where: { id: organizationId } }),
-    tx.position.findUnique({ where: { id: positionId } }),
+    tx.organization.findFirst({ where: { AND: [organizationScopeWhere, { id: organizationId }] } }),
+    tx.position.findFirst({ where: { id: positionId, organization: organizationScopeWhere } }),
   ]);
-  if (!organization || !position) throw new MasterDataError('MASTER_DATA_NOT_FOUND', 404);
+  if (!organization || !position) authorizationHidden();
   if (position.organizationId !== organizationId) throw new MasterDataError('ASSIGNMENT_ORGANIZATION_MISMATCH', 409);
   if (organization.status !== 'ENABLED' || position.status !== 'ENABLED') throw new MasterDataError('MASTER_DATA_IN_USE', 409);
 }
 
 async function loadDetail(tx: Prisma.TransactionClient, employeeId: string): Promise<EmployeeDetail> {
   const employee = await tx.employee.findUnique({ where: { id: employeeId }, include: EMPLOYEE_DETAIL_INCLUDE });
-  if (!employee) throw new MasterDataError('EMPLOYEE_NOT_FOUND', 404);
+  if (!employee || employee.deletedAt) throw new MasterDataError('EMPLOYEE_NOT_FOUND', 404);
   return projectEmployeeDetail(employee);
 }
 
@@ -141,3 +201,4 @@ function assertActiveEmployee(status: string) { if (status === 'LEAVED') throw n
 function versionConflict(): never { throw new MasterDataError('VERSION_CONFLICT', 409); }
 function primaryConflict(): never { throw new MasterDataError('PRIMARY_ASSIGNMENT_CONFLICT', 409); }
 function validationFailed(): never { throw new MasterDataError('VALIDATION_FAILED', 400); }
+function authorizationHidden(): never { throw new MasterDataError('RESOURCE_NOT_FOUND_OR_FORBIDDEN', 404); }

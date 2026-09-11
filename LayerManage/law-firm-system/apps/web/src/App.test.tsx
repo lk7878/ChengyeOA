@@ -1,8 +1,16 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, expect, test } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import App from './App';
 import { useAuthStore } from './stores/authStore';
-import { usePasswordChangeStore } from './stores/passwordChangeStore';
+import { useChallengeStore } from './features/auth/challengeStore';
+import { runtimeSession } from './features/auth/runtime-session';
+import { authApi } from './api/auth';
+
+vi.mock('./pages/SecurityRole', () => ({ default: () => <div>Role page</div> }));
+vi.mock('./pages/AdminGovernance', () => ({ default: () => <div>Administrator governance page</div> }));
+vi.mock('./pages/EventOperations', () => ({ default: () => <div>Event operations page</div> }));
+vi.mock('./pages/SecuritySettings', () => ({ default: () => <div>Account security page</div> }));
+vi.mock('./pages/Dashboard', () => ({ default: () => <div>Dashboard page</div> }));
 
 function observePasswordChangeUi() {
   const exposure = { heading: false, form: false, password: false, confirmation: false };
@@ -28,8 +36,12 @@ function observePasswordChangeUi() {
 }
 
 beforeEach(() => {
-  useAuthStore.setState({ token: null, refreshToken: null, userInfo: null, isAuthenticated: false });
-  usePasswordChangeStore.getState().clear();
+  useAuthStore.setState({
+    userInfo: null, isAuthenticated: false, bootstrapStatus: 'ready',
+    authorization: null, authorizationStatus: 'idle',
+  });
+  useChallengeStore.getState().clear();
+  runtimeSession.clear();
   window.history.pushState({}, '', '/');
 });
 
@@ -48,7 +60,7 @@ test('redirects a direct password-change visit without current in-memory state t
 });
 
 test('allows the password-change route only with a current in-memory token', async () => {
-  usePasswordChangeStore.getState().begin('change-token', 300);
+  useChallengeStore.getState().begin('PASSWORD_CHANGE', 'change-token', 300);
   window.history.pushState({}, '', '/password-change');
   render(<App />);
 
@@ -57,7 +69,7 @@ test('allows the password-change route only with a current in-memory token', asy
 });
 
 test('clears an expired route token and redirects to login', async () => {
-  usePasswordChangeStore.setState({ token: 'expired-token', expiresAt: Date.now() - 1 });
+  useChallengeStore.setState({ kind: 'PASSWORD_CHANGE', token: 'expired-token', expiresAt: Date.now() - 1 });
   window.history.pushState({}, '', '/password-change');
   const stopObserving = observePasswordChangeUi();
   render(<App />);
@@ -68,22 +80,140 @@ test('clears an expired route token and redirects to login', async () => {
   expect(screen.queryByLabelText('确认新密码')).not.toBeInTheDocument();
   expect(document.querySelector('form#password-change')).toBeNull();
   expect(await screen.findByRole('button', { name: /登\s*录/ })).toBeInTheDocument();
-  expect(usePasswordChangeStore.getState()).toMatchObject({ token: null, expiresAt: null });
+  expect(useChallengeStore.getState()).toMatchObject({ token: null, expiresAt: null });
   expect(window.location.pathname).toBe('/login');
 });
 
 test('does not allow an authenticated user to enter password change even with memory state', async () => {
   useAuthStore.setState({
-    token: 'access-token',
-    refreshToken: 'refresh-token',
+    bootstrapStatus: 'ready',
     userInfo: { id: 'user-1', username: 'admin', name: 'Admin', roles: ['admin'], permissions: [] },
     isAuthenticated: true,
   });
-  usePasswordChangeStore.getState().begin('change-token', 300);
+  useChallengeStore.getState().begin('PASSWORD_CHANGE', 'change-token', 300);
   window.history.pushState({}, '', '/password-change');
   render(<App />);
 
   await waitFor(() => expect(window.location.pathname).toBe('/'));
+  expect(await screen.findByText('Dashboard page')).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: '修改初始密码' })).not.toBeInTheDocument();
-  await waitFor(() => expect(usePasswordChangeStore.getState().token).toBeNull());
+  await waitFor(() => expect(useChallengeStore.getState().token).toBeNull());
+});
+
+test('does not admit organization routes from a legacy admin role name', async () => {
+  useAuthStore.setState({
+    bootstrapStatus: 'ready', isAuthenticated: true,
+    userInfo: { id: 'user-1', username: 'admin', name: 'Admin', roles: ['admin'], permissions: [] },
+    authorization: {
+      userId: 'user-1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: false,
+      permissions: [], menus: [], fieldCapabilities: {}, validUntil: null,
+      evaluatedAt: new Date().toISOString(),
+    },
+    authorizationStatus: 'ready',
+  });
+  window.history.pushState({}, '', '/org/tree');
+  render(<App />);
+
+  expect(await screen.findByText('403')).toBeInTheDocument();
+});
+
+test('redirects the legacy roles path to the permission-protected security route', async () => {
+  useAuthStore.setState({
+    bootstrapStatus: 'ready', isAuthenticated: true,
+    userInfo: { id: 'user-1', username: 'role.reader', name: 'Role Reader' },
+    authorization: {
+      userId: 'user-1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: false,
+      permissions: ['role.read'], menus: ['menu.security_roles'], fieldCapabilities: {},
+      validUntil: null, evaluatedAt: new Date().toISOString(),
+    },
+    authorizationStatus: 'ready',
+  });
+  window.history.pushState({}, '', '/roles');
+  render(<App />);
+
+  await waitFor(() => expect(window.location.pathname).toBe('/security/roles'));
+});
+
+test('protects administrator governance with the catalog permission', async () => {
+  useAuthStore.setState({
+    bootstrapStatus: 'ready', isAuthenticated: true,
+    userInfo: { id: 'user-1', username: 'system.admin', name: 'System Admin' },
+    authorization: {
+      userId: 'user-1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: true,
+      permissions: ['governance.catalog.read'], menus: ['menu.admin_governance'], fieldCapabilities: {},
+      validUntil: null, evaluatedAt: new Date().toISOString(),
+    },
+    authorizationStatus: 'ready',
+  });
+  window.history.pushState({}, '', '/security/admin-governance');
+  render(<App />);
+  expect(await screen.findByText('Administrator governance page')).toBeInTheDocument();
+});
+
+test('protects event operations with the delivery read permission', async () => {
+  useAuthStore.setState({
+    bootstrapStatus: 'ready', isAuthenticated: true,
+    userInfo: { id: 'user-1', username: 'event.operator', name: 'Event Operator' },
+    authorization: {
+      userId: 'user-1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: true,
+      permissions: ['event.delivery.read'], menus: ['menu.event_operations'], fieldCapabilities: {},
+      validUntil: null, evaluatedAt: new Date().toISOString(),
+    },
+    authorizationStatus: 'ready',
+  });
+  window.history.pushState({}, '', '/security/event-operations');
+  render(<App />);
+  expect(await screen.findByText('Event operations page')).toBeInTheDocument();
+});
+
+test('denies direct event operations access without the delivery read permission', async () => {
+  useAuthStore.setState({
+    bootstrapStatus: 'ready', isAuthenticated: true,
+    userInfo: { id: 'user-1', username: 'event.viewer', name: 'Event Viewer' },
+    authorization: {
+      userId: 'user-1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: false,
+      permissions: [], menus: ['menu.event_operations'], fieldCapabilities: {},
+      validUntil: null, evaluatedAt: new Date().toISOString(),
+    },
+    authorizationStatus: 'ready',
+  });
+  window.history.pushState({}, '', '/security/event-operations');
+  render(<App />);
+  expect(await screen.findByText('403')).toBeInTheDocument();
+  expect(screen.queryByText('Event operations page')).not.toBeInTheDocument();
+});
+
+test('allows every authenticated user to open account security without a new permission', async () => {
+  useAuthStore.setState({
+    bootstrapStatus: 'ready', isAuthenticated: true,
+    userInfo: { id: 'user-1', username: 'ordinary', name: 'Ordinary User' },
+    authorization: {
+      userId: 'user-1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: false,
+      permissions: [], menus: [], fieldCapabilities: {}, validUntil: null, evaluatedAt: new Date().toISOString(),
+    },
+    authorizationStatus: 'ready',
+  });
+  window.history.pushState({}, '', '/security/account');
+  render(<App />);
+  expect(await screen.findByText('Account security page')).toBeInTheDocument();
+});
+
+test('restores the server session once before rendering protected routes', async () => {
+  const refresh = vi.spyOn(runtimeSession, 'refreshOnce').mockResolvedValueOnce('restored-token');
+  const me = vi.spyOn(authApi, 'me').mockResolvedValueOnce({
+    code: 200,
+    message: 'OK',
+    data: { id: 'restored-user', username: 'restored', name: 'Restored User', roles: [], permissions: [] },
+  });
+  useAuthStore.setState({
+    userInfo: null, isAuthenticated: false, bootstrapStatus: 'idle',
+    authorization: null, authorizationStatus: 'idle',
+  });
+
+  render(<App />);
+  expect(screen.getByLabelText('正在恢复会话')).toBeInTheDocument();
+  await waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(true));
+  expect(refresh).toHaveBeenCalledOnce();
+  expect(me).toHaveBeenCalledOnce();
+  expect(window.location.pathname).toBe('/');
 });

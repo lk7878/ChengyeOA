@@ -1,0 +1,8 @@
+.approval-sheet-scroll { max-height: 52vh; overflow: auto; margin-bottom: 12px; }
+.approval-office table { border-collapse: collapse; width: 100%; }
+.approval-office td, .approval-office th { border: 1px solid #d9d9d9; padding: 6px; min-width: 130px; }
+.approval-office th { background: #f5f5f5; position: sticky; top: 0; z-index: 1; }
+.approval-word-preview { padding: 20px; border: 1px solid #eee; max-height: 55vh; overflow: auto; overflow-wrap: anywhere; }
+.approval-word-preview img { max-width: 100%; height: auto; }
+.approval-file-row { display: flex; gap: 8px; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding: 8px 0; }
+.approval-file-row > span { min-width: 0; overflow-wrap: anywhere; }

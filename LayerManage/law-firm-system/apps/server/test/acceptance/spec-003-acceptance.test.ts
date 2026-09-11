@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 import { Prisma, PrismaClient } from '@prisma/client';
+import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
 import { EmployeeService } from '../../app/application/master-data/employee-service';
 import { OrganizationService } from '../../app/application/master-data/organization-service';
 import { assertTestDatabaseUrl, clearTestApplicationData } from '../helpers/test-database';
@@ -43,7 +44,15 @@ test('loads a 500-node multi-office hierarchy with one bounded query', async () 
 
   queryCount = 0;
   const startedAt = performance.now();
-  const tree = await new OrganizationService(prisma, { actorUserId: 'acceptance' }).tree();
+  const authorization: AuthorizationContext = {
+    userId: 'acceptance', employeeId: null, isSystemAdmin: false, isSystemSuperAdmin: true,
+    grants: [{
+      sourceType: 'SYSTEM_SUPER_ADMIN', sourceId: 'acceptance', permissionCode: 'organization.read',
+      resource: 'organization', scopeIds: ['ALL'], validUntil: null,
+    }],
+    fieldRules: [], permissionCodes: ['organization.read'], evaluatedAt: new Date(),
+  };
+  const tree = await new OrganizationService(prisma, { actorUserId: 'acceptance' }, authorization).tree();
   const elapsedMs = performance.now() - startedAt;
   assert.equal(queryCount, 1);
   assert.equal(countNodes(tree), 500);
@@ -83,7 +92,15 @@ test('keeps employee pagination deterministic with assignments, teams, and accou
     { id: 'lawyer', professionalTeamId: 'cross-office-team', employeeId: 'employee-01', memberRole: 'LAWYER', startedAt: createdAt },
   ] });
 
-  const service = new EmployeeService(prisma, { actorUserId: 'acceptance' });
+  const authorization: AuthorizationContext = {
+    userId: 'acceptance', employeeId: null, isSystemAdmin: false, isSystemSuperAdmin: true,
+    grants: [{
+      sourceType: 'SYSTEM_SUPER_ADMIN', sourceId: 'acceptance', permissionCode: 'employee.read',
+      resource: 'employee', scopeIds: ['ALL'], validUntil: null,
+    }],
+    fieldRules: [], permissionCodes: ['employee.read'], evaluatedAt: new Date(),
+  };
+  const service = new EmployeeService(prisma, { actorUserId: 'acceptance' }, authorization);
   queryCount = 0;
   const startedAt = performance.now();
   const first = await service.list({ page: 1, pageSize: 10 });

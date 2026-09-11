@@ -5,6 +5,10 @@ import test from 'node:test';
 
 const serverRoot = path.resolve(__dirname, '../..');
 const routerSource = fs.readFileSync(path.join(serverRoot, 'app/router.ts'), 'utf8');
+const routerWithoutPermissionMiddleware = routerSource.replace(
+  /,\s*requirePermission\('[^']+'\)/g,
+  '',
+);
 
 const approvedRoutes = [
   "router.get('/api/v1/employees', controller.employee.index)",
@@ -30,13 +34,15 @@ const approvedRoutes = [
 ];
 
 test('registers the complete SPEC-003 employee, assignment, account, and team routes', () => {
-  for (const route of approvedRoutes) assert.ok(routerSource.includes(`${route};`), `missing ${route}`);
+  for (const route of approvedRoutes) {
+    assert.ok(routerWithoutPermissionMiddleware.includes(`${route};`), `missing ${route}`);
+  }
 });
 
-test('removes physical delete and obsolete employee update routes', () => {
-  assert.ok(!routerSource.includes("router.delete('/api/v1/organizations/:id'"));
-  assert.ok(!routerSource.includes("router.delete('/api/v1/positions/:id'"));
-  assert.ok(!routerSource.includes("router.delete('/api/v1/employees/:id'"));
+test('exposes protected versioned deletion and removes obsolete employee update routes', () => {
+  assert.ok(routerSource.includes("router.delete('/api/v1/organizations/:id', requireOrganizationSuperAdmin, requirePermission('organization.update'), controller.organization.destroy)"));
+  assert.ok(routerSource.includes("router.delete('/api/v1/positions/:id', requirePermission('position.update'), controller.position.destroy)"));
+  assert.ok(routerSource.includes("router.delete('/api/v1/employees/:id', requirePermission('employee.leave'), controller.employee.destroy)"));
   assert.ok(!routerSource.includes("router.put('/api/v1/employees/:id'"));
 });
 
@@ -58,6 +64,15 @@ test('removes direct employee organization ownership from downstream controllers
     assert.doesNotMatch(source, /\borgId:\s*true|\bpositionId:\s*true/, filename);
     assert.doesNotMatch(source, /employee:[\s\S]{0,160}\borganization:\s*true/, filename);
     assert.doesNotMatch(source, /employee:[\s\S]{0,160}\bposition:\s*true/, filename);
+  }
+  // Controllers that embed employee projections must route them through the primary-assignment
+  // projector. lead.ts/case.ts/performance.ts embed no employee projection in the controller
+  // (lead: masked in the frozen CRM service layer; case: CaseView exposes only lawyerId;
+  // performance: PerformanceView.employee is projected inside the service layer via
+  // projectEmployeeWithPrimaryAssignment), so they stay under the negative assertions above but
+  // are exempt from the projector reference requirement.
+  for (const filename of ['auth.ts', 'user.ts']) {
+    const source = fs.readFileSync(path.join(serverRoot, 'app/controller', filename), 'utf8');
     assert.match(source, /projectEmployeeWithPrimaryAssignment/, filename);
   }
 });

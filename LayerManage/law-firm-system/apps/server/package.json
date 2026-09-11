@@ -13,7 +13,7 @@
     "debug": "egg-bin debug",
     "test": "npm run lint -- --fix && npm run test-local",
     "test-local": "egg-bin test",
-    "cov": "egg-bin cov",
+    "cov": "c8 --reporter=text-summary --reporter=json-summary --reporter=json --reporter=lcov --reporter=cobertura tsx scripts/ci/run-node-tests-serial.ts",
     "lint": "eslint . --ext .ts",
     "typecheck": "tsc --noEmit",
     "test:focused": "tsx scripts/test/run-focused-tests.ts",
@@ -28,13 +28,21 @@
     "db:studio": "prisma studio",
     "db:reset:test": "tsx scripts/db/reset-test-db.ts",
     "db:assert-empty": "tsx scripts/db/assert-empty-application-tables.ts",
+    "events:drain": "tsx scripts/events/drain-events.ts",
+    "events:check": "tsx scripts/events/check-events.ts",
     "system:bootstrap": "tsx scripts/system/bootstrap-system.ts",
     "super-admin:recover": "tsx scripts/system/recover-super-admin.ts",
+    "super-admin:add-second": "tsx scripts/system/add-second-super-admin.ts",
+    "admin-mfa:reset": "tsx scripts/system/reset-admin-mfa.ts",
+    "rehearse:admin-mfa-reset": "tsx scripts/rehearsal/rehearse-admin-mfa-reset.ts",
+    "rehearse:backup-factor": "tsx scripts/rehearsal/rehearse-backup-factor.ts",
+    "rehearse:event-center": "tsx scripts/rehearsal/rehearse-event-center.ts",
+    "rehearse:event-observability": "tsx scripts/rehearsal/rehearse-event-observability.ts",
     "check:baseline": "tsx scripts/ci/check-baseline-contract.ts",
     "check:bootstrap": "tsx scripts/ci/check-bootstrap-contract.ts",
     "check:gitleaks-semantics": "node scripts/ci/check-gitleaks-semantics.js",
-    "migration:inventory": "tsx scripts/migration/cli.ts inventory",
-    "migration:diff": "tsx scripts/migration/cli.ts diff",
+    "check:spec006-leakage": "tsx scripts/ci/check-spec-006-built-leakage.ts",
+    "check:docs-leakage": "tsx scripts/ci/check-persisted-documentation-leakage.ts",
     "package": "npm run pkg"
   },
   "dependencies": {
@@ -49,12 +57,11 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/bcryptjs": "^2.4.6",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20.12.0",
     "@typescript-eslint/parser": "^8.64.0",
     "@yao-pkg/pkg": "^6.19.0",
-    "better-sqlite3": "^12.11.1",
+    "c8": "^7.14.0",
     "egg-bin": "^5.19.0",
     "egg-mock": "^5.15.2",
     "egg-ts-helper": "^1.30.3",
@@ -68,11 +75,20 @@
     "yaml": "^2.9.0"
   },
   "overrides": {
+    "serialize-javascript": "7.0.7",
+    "brace-expansion@^5.0.5": "5.0.9",
+    "brace-expansion@^2.0.0": "2.1.4",
+    "brace-expansion@<1.1.18": "1.1.18",
+    "uuid@<11.1.1": "11.1.1",
+    "tar@<7.5.21": "7.5.21",
     "urllib@3.27.3": {
-      "undici": "6.27.0"
+      "undici": "6.28.0"
     },
     "urllib-next": {
-      "undici": "6.27.0"
+      "undici": "6.28.0"
+    },
+    "urllib4": {
+      "undici": "7.29.0"
     }
   },
   "pkg": {
@@ -81,8 +97,12 @@
       "dist/config/**/*",
       "dist/public/**/*",
       "dist/prisma/**/*",
+      "dist/scripts/events/drain-events.js",
+      "dist/scripts/events/check-events.js",
+      "dist/scripts/system/migration-status.js",
       "dist/app.js",
       "dist/package.json",
+      "scripts/lib/portable-command.js",
       "node_modules/.prisma/**/*",
       "node_modules/@prisma/engines/**/*",
       "node_modules/@prisma/client/**/*",

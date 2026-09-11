@@ -3,6 +3,10 @@ import { AuditActor } from './master-data-types';
 
 const SAFE_KEYS = new Set([
   'code',
+  'sort',
+  'sourceOrganizationId',
+  'copiedOrganizationCount',
+  'copiedPositionCount',
   'status',
   'version',
   'type',
@@ -10,6 +14,7 @@ const SAFE_KEYS = new Set([
   'organizationId',
   'positionId',
   'employeeId',
+  'managerEmployeeId',
   'professionalTeamId',
   'assignmentType',
   'memberRole',
@@ -17,11 +22,12 @@ const SAFE_KEYS = new Set([
   'endedAt',
   'formalDate',
   'leaveDate',
+  'deletedAt',
 ]);
 
 export interface MasterDataAuditInput extends AuditActor {
   action: string;
-  targetType: 'ORGANIZATION' | 'POSITION' | 'EMPLOYEE' | 'EMPLOYEE_ASSIGNMENT' | 'PROFESSIONAL_TEAM' | 'PROFESSIONAL_TEAM_MEMBER' | 'USER';
+  targetType: 'ORGANIZATION' | 'POSITION' | 'EMPLOYEE' | 'EMPLOYEE_ASSIGNMENT' | 'EMPLOYEE_REPORTING_LINE' | 'PROFESSIONAL_TEAM' | 'PROFESSIONAL_TEAM_MEMBER' | 'USER';
   targetId: string;
   before?: Record<string, unknown>;
   after?: Record<string, unknown>;

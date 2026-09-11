@@ -1,0 +1,70 @@
+// SPEC-010 Task 3: 谈案/合同/收款域稳定错误码与错误载体。
+// 设计 §7 错误码体系：code 为 HTTP 语义稳定字符串码，httpStatus 为对应状态码。
+// 形态逐字仿 domain/crm/lead-errors.ts（CrmError）：个体常量 + 联合类型 + Error 子类。
+// 注：VALIDATION_FAILED 复用 MasterDataError（domain/master-data/master-data-errors.ts），不在本文件重复定义。
+
+export const CONTRACT_NOT_FOUND = 'CONTRACT_NOT_FOUND';
+export const NEGOTIATION_NOT_FOUND = 'NEGOTIATION_NOT_FOUND';
+export const PAYMENT_NOT_FOUND = 'PAYMENT_NOT_FOUND';
+export const CONTRACT_STATE_TRANSITION_INVALID = 'CONTRACT_STATE_TRANSITION_INVALID';
+export const CONTRACT_APPROVAL_PENDING = 'CONTRACT_APPROVAL_PENDING';
+export const CONTRACT_TERMINATE_CONFLICT = 'CONTRACT_TERMINATE_CONFLICT';
+export const RISK_NOTICE_MISSING = 'RISK_NOTICE_MISSING';
+export const PAYMENT_ALREADY_CONFIRMED = 'PAYMENT_ALREADY_CONFIRMED';
+export const PAYMENT_AMOUNT_EXCEEDED = 'PAYMENT_AMOUNT_EXCEEDED';
+export const PAYMENT_STATE_INVALID = 'PAYMENT_STATE_INVALID';
+export const RECEIVABLE_PLAN_MISMATCH = 'RECEIVABLE_PLAN_MISMATCH';
+
+export type ContractErrorCode =
+  | typeof CONTRACT_NOT_FOUND
+  | typeof NEGOTIATION_NOT_FOUND
+  | typeof PAYMENT_NOT_FOUND
+  | typeof CONTRACT_STATE_TRANSITION_INVALID
+  | typeof CONTRACT_APPROVAL_PENDING
+  | typeof CONTRACT_TERMINATE_CONFLICT
+  | typeof RISK_NOTICE_MISSING
+  | typeof PAYMENT_ALREADY_CONFIRMED
+  | typeof PAYMENT_AMOUNT_EXCEEDED
+  | typeof PAYMENT_STATE_INVALID
+  | typeof RECEIVABLE_PLAN_MISMATCH;
+
+/** 聚合对象形态：供 service 层（Task 6-9）以 CONTRACT_ERROR_CODES.X 引用，值与个体常量同一引用。 */
+export const CONTRACT_ERROR_CODES = {
+  CONTRACT_NOT_FOUND,
+  NEGOTIATION_NOT_FOUND,
+  PAYMENT_NOT_FOUND,
+  CONTRACT_STATE_TRANSITION_INVALID,
+  CONTRACT_APPROVAL_PENDING,
+  CONTRACT_TERMINATE_CONFLICT,
+  RISK_NOTICE_MISSING,
+  PAYMENT_ALREADY_CONFIRMED,
+  PAYMENT_AMOUNT_EXCEEDED,
+  PAYMENT_STATE_INVALID,
+  RECEIVABLE_PLAN_MISMATCH,
+} as const;
+
+/** 每个稳定码钉死的 HTTP 状态码：404 未找到 / 409 状态冲突 / 400 校验类。 */
+export const CONTRACT_ERROR_HTTP_STATUS: Readonly<Record<ContractErrorCode, number>> = {
+  [CONTRACT_NOT_FOUND]: 404,
+  [NEGOTIATION_NOT_FOUND]: 404,
+  [PAYMENT_NOT_FOUND]: 404,
+  [CONTRACT_STATE_TRANSITION_INVALID]: 409,
+  [CONTRACT_APPROVAL_PENDING]: 409,
+  [CONTRACT_TERMINATE_CONFLICT]: 409,
+  [RISK_NOTICE_MISSING]: 409,
+  [PAYMENT_ALREADY_CONFIRMED]: 409,
+  [PAYMENT_AMOUNT_EXCEEDED]: 409,
+  [PAYMENT_STATE_INVALID]: 409,
+  [RECEIVABLE_PLAN_MISMATCH]: 400,
+};
+
+export class ContractError extends Error {
+  constructor(
+    public readonly code: ContractErrorCode,
+    public readonly httpStatus: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ContractError';
+  }
+}

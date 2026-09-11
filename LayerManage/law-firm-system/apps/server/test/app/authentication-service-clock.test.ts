@@ -1,18 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PrismaClient } from '@prisma/client';
+import type { AuthChallengeService } from '../../app/application/auth/auth-challenge-service';
 import { AuthenticationService } from '../../app/application/auth/authentication-service';
+import type { MfaService } from '../../app/application/auth/mfa-service';
+import type { SessionCompletion, SessionService } from '../../app/application/auth/session-service';
 import { PasswordHasher } from '../../app/domain/security/password-hasher';
 import { SecurityError } from '../../app/domain/security/security-errors';
-import { JwtTokenService } from '../../app/domain/security/token-service';
 
-const jwtSecret = '01234567890123456789012345678901';
 const decisionTime = new Date('2099-01-02T03:04:05.000Z');
 
 interface HarnessOptions {
   passwordMatches: boolean;
   failedLoginCount: number;
   lockedUntil: Date | null;
+  administrator?: boolean;
+  localPasswordLogin?: boolean;
+  verifiedFactor?: boolean;
+  mustChangePassword?: boolean;
 }
 
 function createHarness(options: HarnessOptions) {
@@ -28,8 +33,11 @@ function createHarness(options: HarnessOptions) {
     lockedUntil: options.lockedUntil,
     failedLoginCount: options.failedLoginCount,
     credentialVersion: 1,
-    mustChangePassword: false,
-    userRoles: [],
+    mustChangePassword: options.mustChangePassword ?? false,
+    userRoles: options.administrator ? [{
+      role: { code: 'SYSTEM_SUPER_ADMIN', name: 'Super Admin', status: 'ENABLED', permissions: [] },
+      revokedAt: null, validFrom: new Date(0), validUntil: null,
+    }] : [],
   };
   const hasher: PasswordHasher = {
     async hash(): Promise<string> {
@@ -63,6 +71,11 @@ function createHarness(options: HarnessOptions) {
         return user;
       },
     },
+    mfaFactor: {
+      async findFirst() {
+        return options.verifiedFactor ? { id: 'factor-1' } : null;
+      },
+    },
     async $transaction<T>(callback: (transaction: typeof tx) => Promise<T>): Promise<T> {
       return callback(tx);
     },
@@ -72,12 +85,37 @@ function createHarness(options: HarnessOptions) {
     clockCalls += 1;
     return new Date(decisionTime);
   };
+  const sessions = {
+    async create(
+      userId: string,
+      _assuranceLevel: string,
+      _metadata: Record<string, unknown>,
+      completion?: SessionCompletion,
+    ) {
+      if (completion) {
+        await completion(tx as unknown as Parameters<SessionCompletion>[0], {
+          id: 'session-1',
+          userId,
+        });
+      }
+      return {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        csrfToken: 'csrf-token',
+        expiresIn: 900 as const,
+        sessionId: 'session-1',
+      };
+    },
+  } as unknown as SessionService;
   const service = new AuthenticationService(
     prisma,
     hasher,
-    new JwtTokenService(jwtSecret),
+    { async issue() { return { token: 'challenge-token' }; } } as unknown as AuthChallengeService,
+    {} as MfaService,
+    sessions,
     undefined,
     clock,
+    options.localPasswordLogin,
   );
 
   return { service, updates, logs, clockCalls: () => clockCalls };
@@ -147,9 +185,44 @@ test('successful login checks expiry and timestamps the reset after row lock acq
   const result = await harness.service.login('root.admin', 'Correct-Horse-92', {});
 
   assert.equal(result.mode, 'AUTHENTICATED');
-  assert.equal(harness.clockCalls(), 1);
+  assert.equal(harness.clockCalls(), 3);
   assert.equal(harness.updates[0].data.failedLoginCount, 0);
   assert.equal(harness.updates[0].data.lockedUntil, null);
-  assert.deepEqual(harness.updates[0].data.lastLoginAt, decisionTime);
+  assert.deepEqual(harness.updates[1].data.lastLoginAt, decisionTime);
   assert.equal(harness.logs[0].data.outcome, 'SUCCESS');
+});
+
+test('administrator MFA stays required by default', async () => {
+  for (const verifiedFactor of [false, true]) {
+    const harness = createHarness({
+      passwordMatches: true, failedLoginCount: 0, lockedUntil: null, administrator: true, verifiedFactor,
+    });
+    const result = await harness.service.login('root.admin', 'Correct-Horse-92', {});
+    assert.equal(result.mode, verifiedFactor ? 'MFA_CHALLENGE_REQUIRED' : 'MFA_ENROLLMENT_REQUIRED');
+  }
+});
+
+test('local password login lets administrators sign in with or without an existing MFA factor', async () => {
+  for (const verifiedFactor of [false, true]) {
+    const harness = createHarness({
+      passwordMatches: true, failedLoginCount: 0, lockedUntil: null,
+      administrator: true, verifiedFactor, localPasswordLogin: true,
+    });
+    assert.equal((await harness.service.login('root.admin', 'Correct-Horse-92', {})).mode, 'AUTHENTICATED');
+    assert.equal(harness.logs[0].data.outcome, 'SUCCESS');
+  }
+});
+
+test('local password login still enforces passwords, account locks and forced password changes', async () => {
+  const base = { failedLoginCount: 0, administrator: true, localPasswordLogin: true };
+  await expectAuthenticationFailure(createHarness({
+    ...base, passwordMatches: false, lockedUntil: null,
+  }).service.login('root.admin', 'wrong', {}));
+  await expectAuthenticationFailure(createHarness({
+    ...base, passwordMatches: true, lockedUntil: new Date(decisionTime.getTime() + 1),
+  }).service.login('root.admin', 'Correct-Horse-92', {}));
+  const result = await createHarness({
+    ...base, passwordMatches: true, lockedUntil: null, mustChangePassword: true,
+  }).service.login('root.admin', 'Correct-Horse-92', {});
+  assert.equal(result.mode, 'PASSWORD_CHANGE_REQUIRED');
 });

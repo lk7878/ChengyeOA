@@ -3,9 +3,9 @@ id: MOD-004
 title: 线索销转模块
 source: PRD §8.4
 status: draft
-implements: SPEC-009（设计已批准，待实施）
+implements: SPEC-009（已验收 2026-07-30；CRM-01~06 + CUS-01~02 落地）；SPEC-010（CRM-07 谈案，设计已批准，待实施）
 design_refs: [docs/专项设计/页面与接口清单.md]
-last_updated: 2026-07-28
+last_updated: 2026-07-30
 ---
 
 # MOD-004 线索销转模块
@@ -17,14 +17,14 @@ last_updated: 2026-07-28
 ## 2. 功能清单
 | 编号 | 功能 | 需求 | 现状 |
 |---|---|---|---|
-| CRM-01 | 线索录入 | 支持手工录入、Excel 导入、外部 API 预留 | 待补SPEC |
-| CRM-02 | 线索去重 | 根据电话、姓名、微信、身份证等规则提示重复 | 待补SPEC |
-| CRM-03 | 公海/私海 | 支持公海领取、私海管理、超时回收 | 待补SPEC |
-| CRM-04 | 线索分配 | 支持自动分配和手动改派 | 待补SPEC |
-| CRM-05 | 客服跟进 | 记录首响、咨询内容、初筛结果、无效原因 | 待补SPEC |
-| CRM-06 | 邀约管理 | 记录邀约计划、到访确认、爽约原因、二次邀约 | 待补SPEC |
-| CRM-07 | 谈案管理 | 记录谈案人、报价、客户关注点、竞争对手、未签原因 | 待补SPEC |
-| CRM-08 | 二次营销池 | 未成交线索进入二次营销池，可重新激活 | 待补SPEC |
+| CRM-01 | 线索录入 | 支持手工录入、Excel 导入、外部 API 预留 | ✅（SPEC-009 验收；Excel 导入/API 预留下推） |
+| CRM-02 | 线索去重 | 根据电话、姓名、微信、身份证等规则提示重复 | ✅（SPEC-009 验收；身份证规则下推） |
+| CRM-03 | 公海/私海 | 支持公海领取、私海管理、超时回收 | ✅（SPEC-009 验收） |
+| CRM-04 | 线索分配 | 支持自动分配和手动改派 | ✅（SPEC-009 验收；自动分配规则引擎下推） |
+| CRM-05 | 客服跟进 | 记录首响、咨询内容、初筛结果、无效原因 | ✅（SPEC-009 验收） |
+| CRM-06 | 邀约管理 | 记录邀约计划、到访确认、爽约原因、二次邀约 | ✅（SPEC-009 验收 + 日历范围查询增量） |
+| CRM-07 | 谈案管理 | 记录谈案人、报价、客户关注点、竞争对手、未签原因 | SPEC-010 立项（设计已批准，待实施） |
+| CRM-08 | 二次营销池 | 未成交线索进入二次营销池，可重新激活 | 占位（SPEC-009 状态机 LOST/NURTURE 保留，激活流转下推） |
 
 ## 3. 业务规则
 
@@ -55,9 +55,9 @@ last_updated: 2026-07-28
 - 状态机验收：公海领取、私海超时回收、跟进流转等允许流转、禁止流转、撤销/异常提示必须可验证。（源自 §14.1.3）
 
 ## 7. 追溯
-- 专项设计: docs/专项设计/页面与接口清单.md
-- 落地 SPEC: SPEC-009（设计已批准，待实施）
-- 主要代码: apps/server/app/controller/lead.ts、model `Lead`/`LeadFollow`
-- 测试: 暂无 lead 相关专项测试
+- 专项设计: docs/专项设计/页面与接口清单.md；docs/superpowers/specs/2026-07-28-lead-crm-customer-master-data-design.md（SPEC-009 设计，已批准）
+- 落地 SPEC: SPEC-009（CRM-01~06，2026-07-30 本地验收，终审 READY）；SPEC-010（CRM-07 谈案，设计已批准，待实施）；CRM-08 二次营销池激活下推
+- 主要代码: apps/server/app/application/crm/（lead-service/lead-assignment-service/lead-follow-service/appointment-service/customer-service）、apps/server/app/controller/{lead,appointment,customer}.ts
+- 测试: apps/server/test/crm/、apps/server/test/app/{lead,appointment,customer}-api.test.ts
 
 <!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->

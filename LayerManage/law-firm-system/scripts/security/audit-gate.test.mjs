@@ -17,12 +17,23 @@ const policy = validatePolicy({
     { name: 'web', path: 'apps/web' },
   ],
   gates: {
-    production: { critical: 'block', high: 'block', moderate: 'report', low: 'report' },
+    production: { critical: 'block', high: 'block', moderate: 'block', low: 'report' },
     development: { critical: 'block', high: 'exception', moderate: 'report', low: 'report' },
   },
   maxDevelopmentExceptionDays: 30,
   outputDirectory: 'var/security',
 });
+
+const zeroBaseline = {
+  server: {
+    production: { critical: 0, high: 0, moderate: 0, low: 0 },
+    development: { critical: 0, high: 0, moderate: 0, low: 0 },
+  },
+  web: {
+    production: { critical: 0, high: 0, moderate: 0, low: 0 },
+    development: { critical: 0, high: 0, moderate: 0, low: 0 },
+  },
+};
 
 function exceptionDocument(advisories = ['GHSA-fx2h-pf6j-xcff']) {
   return {
@@ -90,6 +101,53 @@ test('allows an exact development high exception', () => {
   assert.equal(result.passed, true);
   assert.deepEqual(result.blockers, []);
   assert.equal(result.findings[0].scope, 'development');
+});
+
+test('does not let a pending_review exception exempt the gate', () => {
+  const document = exceptionDocument();
+  document.exceptions[0].status = 'pending_review';
+  const exceptions = validateExceptions(document, policy, new Date('2026-07-16T00:00:00Z'));
+  const result = evaluateWorkspace({
+    workspace: 'web',
+    productionReport: fixture('clean.json'),
+    fullReport: fixture('development-high.json'),
+    policy,
+    exceptions,
+  });
+
+  assert.equal(result.passed, false);
+  assert.deepEqual(result.blockers.map(item => item.advisory), ['GHSA-fx2h-pf6j-xcff']);
+});
+
+test('only an approved exception exempts and a pending one never hides the advisory', () => {
+  const approvedDocument = exceptionDocument();
+  approvedDocument.exceptions[0].status = 'approved';
+  const approved = validateExceptions(approvedDocument, policy, new Date('2026-07-16T00:00:00Z'));
+  const approvedResult = evaluateWorkspace({
+    workspace: 'web',
+    productionReport: fixture('clean.json'),
+    fullReport: fixture('development-high.json'),
+    policy,
+    exceptions: approved,
+  });
+  assert.equal(approvedResult.passed, true);
+
+  const mixedDocument = {
+    schemaVersion: 1,
+    exceptions: [
+      { ...exceptionDocument().exceptions[0], status: 'pending_review' },
+      { ...exceptionDocument().exceptions[0], id: 'SEC-2026-002', status: 'approved' },
+    ],
+  };
+  const mixed = validateExceptions(mixedDocument, policy, new Date('2026-07-16T00:00:00Z'));
+  const mixedResult = evaluateWorkspace({
+    workspace: 'web',
+    productionReport: fixture('clean.json'),
+    fullReport: fixture('development-high.json'),
+    policy,
+    exceptions: mixed,
+  });
+  assert.equal(mixedResult.passed, true);
 });
 
 test('does not let an exception hide a different advisory for the same package', () => {
@@ -171,4 +229,97 @@ test('fails when a vulnerability has an unsupported severity', () => {
   const report = structuredClone(fixture('development-high.json'));
   report.vulnerabilities.broken = { name: 'broken', severity: 'unknown', via: [] };
   assert.throws(() => normalizeFindings(report), /invalid severity/i);
+});
+
+test('includes moderate findings in normalized severe findings', () => {
+  const report = structuredClone(fixture('production-high.json'));
+  report.vulnerabilities.undici.severity = 'moderate';
+  report.vulnerabilities.undici.via[0].severity = 'moderate';
+  report.metadata.vulnerabilities.high = 0;
+  report.metadata.vulnerabilities.moderate = 1;
+  assert.deepEqual(normalizeFindings(report), [{
+    package: 'undici', advisory: 'GHSA-vxpw-j846-p89q', severity: 'moderate',
+  }]);
+});
+
+test('fails when production moderate exceeds an all-zero baseline', () => {
+  const report = structuredClone(fixture('production-high.json'));
+  report.vulnerabilities.undici.severity = 'moderate';
+  report.vulnerabilities.undici.via[0].severity = 'moderate';
+  report.metadata.vulnerabilities.high = 0;
+  report.metadata.vulnerabilities.moderate = 1;
+
+  const result = evaluateWorkspace({
+    workspace: 'server',
+    productionReport: report,
+    fullReport: report,
+    policy,
+    exceptions: [],
+    baseline: zeroBaseline,
+  });
+
+  assert.equal(result.passed, false);
+  assert.ok(result.blockers.some(item => item.severity === 'moderate'));
+  assert.ok(result.baselineExcess.some(item => item.severity === 'moderate'));
+});
+
+test('passes when moderate counts match an all-zero baseline', () => {
+  const result = evaluateWorkspace({
+    workspace: 'server',
+    productionReport: fixture('clean.json'),
+    fullReport: fixture('clean.json'),
+    policy,
+    exceptions: [],
+    baseline: zeroBaseline,
+  });
+
+  assert.equal(result.passed, true);
+  assert.deepEqual(result.baselineExcess, []);
+});
+
+test('exceeding the baseline in development requires an exception', () => {
+  const report = structuredClone(fixture('development-high.json'));
+  report.vulnerabilities.vite.severity = 'moderate';
+  report.vulnerabilities.vite.via[0].severity = 'moderate';
+  report.metadata.vulnerabilities.high = 0;
+  report.metadata.vulnerabilities.moderate = 1;
+  const exceptions = validateExceptions(
+    exceptionDocument(),
+    policy,
+    new Date('2026-07-16T00:00:00Z'),
+  );
+
+  const without = evaluateWorkspace({
+    workspace: 'web',
+    productionReport: fixture('clean.json'),
+    fullReport: report,
+    policy,
+    exceptions: [],
+    baseline: zeroBaseline,
+  });
+  assert.equal(without.passed, false);
+  assert.equal(without.blockers.length, 0);
+  assert.deepEqual(without.baselineExcess.map(item => item.advisory), ['GHSA-fx2h-pf6j-xcff']);
+
+  const withException = evaluateWorkspace({
+    workspace: 'web',
+    productionReport: fixture('clean.json'),
+    fullReport: report,
+    policy,
+    exceptions,
+    baseline: zeroBaseline,
+  });
+  assert.equal(withException.passed, true);
+  assert.deepEqual(withException.baselineExcess, []);
+});
+
+test('fails closed for a malformed injected baseline', () => {
+  assert.throws(() => evaluateWorkspace({
+    workspace: 'server',
+    productionReport: fixture('clean.json'),
+    fullReport: fixture('clean.json'),
+    policy,
+    exceptions: [],
+    baseline: 'not-a-baseline-object',
+  }), /expected audit baseline/);
 });

@@ -1,57 +1,42 @@
-import { Prisma } from '@prisma/client';
 import { Controller } from 'egg';
+import { FIELD_CATALOG } from '../domain/authorization/field-security-policy';
+import { PERMISSION_CATALOG } from '../domain/authorization/permission-catalog';
+import { DataScopeCatalogService } from '../application/authorization/data-scope-catalog-service';
+import { AuthorizationContext } from '../application/authorization/authorization-service';
 
 export default class PermissionController extends Controller {
-  /**
-   * 权限列表
-   */
-  async index() {
-    const { ctx } = this;
-    const { type, status } = ctx.query;
-
-    const where: Prisma.PermissionWhereInput = {};
-    if (type) where.type = type;
-    if (status) where.status = status;
-
-    const list = await ctx.prisma.permission.findMany({
-      where,
-      orderBy: { sort: 'asc' },
-    });
-
-    ctx.body = {
+  async catalog() {
+    this.ctx.body = {
       code: 200,
       message: 'success',
-      data: list,
+      data: PERMISSION_CATALOG.map(permission => ({ ...permission })),
     };
   }
 
-  /**
-   * 权限树
-   */
-  async tree() {
-    const { ctx } = this;
+  async fields() {
+    this.respond(FIELD_CATALOG
+      .filter(field => field.classification !== 'FORBIDDEN')
+      .map(field => ({ ...field })));
+  }
 
-    const permissions = await ctx.prisma.permission.findMany({
-      where: { status: 'ENABLED' },
-      orderBy: { sort: 'asc' },
+  async dataScopes() {
+    this.respond(await this.scopeService().list());
+  }
+
+  async createDataScope() {
+    this.respond(await this.scopeService().create(this.ctx.request.body));
+  }
+
+  private respond(data: unknown): void {
+    this.ctx.body = { code: 200, message: 'success', data };
+  }
+
+  private scopeService(): DataScopeCatalogService {
+    const authorization = this.ctx.state.authorization as AuthorizationContext;
+    return new DataScopeCatalogService(this.ctx.prisma, {
+      userId: authorization.userId,
+      isSystemSuperAdmin: authorization.isSystemSuperAdmin,
+      ip: this.ctx.ip,
     });
-
-    // 构建树形结构
-    const buildTree = (items: Prisma.PermissionGetPayload<Record<never, never>>[], parentId: string | null = null): Prisma.PermissionGetPayload<Record<never, never>>[] => {
-      return items
-        .filter(item => item.parentId === parentId)
-        .map(item => ({
-          ...item,
-          children: buildTree(items, item.id),
-        }));
-    };
-
-    const tree = buildTree(permissions);
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: tree,
-    };
   }
 }

@@ -13,9 +13,13 @@ function delegateName(modelName: string): string {
   return `${modelName.charAt(0).toLowerCase()}${modelName.slice(1)}`;
 }
 
+export const applicationDataModelNames = Prisma.dmmf.datamodel.models
+  .map(model => model.name)
+  .filter(modelName => !['Permission', 'EventSubscription', 'ContractTemplate', 'ApprovalDefinition'].includes(modelName));
+
 export async function applicationTableCounts(
   client: object,
-  modelNames: readonly string[] = Prisma.dmmf.datamodel.models.map(model => model.name),
+  modelNames: readonly string[] = applicationDataModelNames,
 ): Promise<ApplicationTableCount[]> {
   const delegates = client as Record<string, unknown>;
   const counts: ApplicationTableCount[] = [];

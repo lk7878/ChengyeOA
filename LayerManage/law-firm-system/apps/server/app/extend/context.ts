@@ -13,11 +13,7 @@ let prisma: PrismaClient;
 export default {
   get prisma(): PrismaClient {
     if (!prisma) {
-      prisma = new PrismaClient({
-        log: process.env.NODE_ENV === 'development' 
-          ? ['query', 'info', 'warn', 'error']
-          : ['error'],
-      });
+      prisma = new PrismaClient();
     }
     return prisma;
   },

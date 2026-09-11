@@ -1,67 +1,58 @@
 import * as jwt from 'jsonwebtoken';
 import { SecurityError } from './security-errors';
 
-export type TokenType = 'access' | 'refresh' | 'password_change';
+export type AssuranceLevel = 'PASSWORD' | 'MFA';
 
-export interface AuthTokenClaims extends jwt.JwtPayload {
+export interface SessionAccessClaims extends jwt.JwtPayload {
   userId: string;
-  tokenType: TokenType;
+  sessionId: string;
   credentialVersion: number;
+  assuranceLevel: AssuranceLevel;
+  tokenType: 'access';
 }
 
-const TOKEN_TYPES: ReadonlySet<TokenType> = new Set(['access', 'refresh', 'password_change']);
 const JWT_ALGORITHM = 'HS256';
 
 export class JwtTokenService {
   constructor(private readonly secret: string) {}
 
-  signAccess(userId: string, credentialVersion: number): string {
-    return this.sign(userId, credentialVersion, 'access', '7d');
-  }
-
-  signRefresh(userId: string, credentialVersion: number): string {
-    return this.sign(userId, credentialVersion, 'refresh', '30d');
-  }
-
-  signPasswordChange(userId: string, credentialVersion: number): string {
-    return this.sign(userId, credentialVersion, 'password_change', '5m');
-  }
-
-  verify(token: string, allowedTypes: readonly TokenType[]): AuthTokenClaims {
-    try {
-      const claims = jwt.verify(token, this.secret, { algorithms: [JWT_ALGORITHM] });
-      if (!this.hasRequiredClaims(claims)) {
-        throw new SecurityError('TOKEN_INVALID', 401);
-      }
-      if (!allowedTypes.includes(claims.tokenType)) {
-        throw new SecurityError('TOKEN_TYPE_INVALID', 401);
-      }
-      return claims;
-    } catch (error) {
-      if (error instanceof SecurityError) throw error;
-      throw new SecurityError('TOKEN_INVALID', 401);
-    }
-  }
-
-  private sign(
+  signSessionAccess(
     userId: string,
+    sessionId: string,
     credentialVersion: number,
-    tokenType: TokenType,
-    expiresIn: jwt.SignOptions['expiresIn'],
+    assuranceLevel: AssuranceLevel,
   ): string {
     return jwt.sign(
-      { userId, credentialVersion, tokenType },
+      { userId, sessionId, credentialVersion, assuranceLevel, tokenType: 'access' },
       this.secret,
-      { algorithm: JWT_ALGORITHM, expiresIn },
+      { algorithm: JWT_ALGORITHM, expiresIn: '15m' },
     );
   }
 
-  private hasRequiredClaims(claims: string | jwt.JwtPayload): claims is AuthTokenClaims {
-    return typeof claims === 'object'
-      && typeof claims.userId === 'string'
-      && TOKEN_TYPES.has(claims.tokenType as TokenType)
-      && typeof claims.credentialVersion === 'number'
-      && typeof claims.exp === 'number'
-      && Number.isFinite(claims.exp);
+  verifySessionAccess(token: string): SessionAccessClaims {
+    try {
+      const claims = jwt.verify(token, this.secret, { algorithms: [JWT_ALGORITHM] });
+      if (
+        typeof claims !== 'object'
+        || claims.tokenType !== 'access'
+        || typeof claims.userId !== 'string'
+        || typeof claims.sessionId !== 'string'
+        || typeof claims.credentialVersion !== 'number'
+        || !Number.isFinite(claims.credentialVersion)
+        || (claims.assuranceLevel !== 'PASSWORD' && claims.assuranceLevel !== 'MFA')
+        || typeof claims.exp !== 'number'
+        || !Number.isFinite(claims.exp)
+      ) {
+        throw invalidToken();
+      }
+      return claims as SessionAccessClaims;
+    } catch (error) {
+      if (error instanceof SecurityError) throw error;
+      throw invalidToken();
+    }
   }
+}
+
+function invalidToken(): SecurityError {
+  return new SecurityError('TOKEN_INVALID', 401);
 }

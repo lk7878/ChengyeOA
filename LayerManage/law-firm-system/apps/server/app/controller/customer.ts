@@ -1,266 +1,136 @@
-import { Prisma } from '@prisma/client';
+// SPEC-009 Task 10: customer HTTP 控制器（整体替代 SPEC-001 原型）。
+// 薄控制器纪律同 lead.ts：传输层解析（query 数字）→ 调冻结服务 → 包络响应；
+// 联系人的电话重复冲突由服务层抛 MasterDataError('VALIDATION_FAILED', 409)，
+// errorHandler 按实例 status 透传 409（不切换 code 字符串）。
+// 路由面（R-10f + 用户裁决 C1 增量）：CRUD + contacts 查/增/改/删；跨模块只读子资源
+// （/contracts /cases /payments，原型遗留）不在路由表——前端 360 视图归 Task 11 重组。
+// C1 增量：GET /:id/contacts 为用户批准的纯追加（同日历范围查询先例），服务方法
+// listContacts 本就存在（customer.read + 范围 + 脱敏 + L3 审计），此处仅暴露传输层。
+
 import { Controller } from 'egg';
 
+import { customerService, leadService } from '../application/crm/crm-factory';
+import {
+  AddContactInput,
+  CreateCustomerInput,
+  CustomerListQuery,
+  UpdateContactInput,
+  UpdateCustomerInput,
+} from '../application/crm/customer-service';
+import { CustomerStatus } from '../domain/events/event-types';
+import { CreateReferralLeadInput, CustomerType, LeadListQuery } from '../application/crm/lead-types';
+import { MasterDataError } from '../domain/master-data/master-data-errors';
+import { assertExactKeys } from '../domain/master-data/master-data-validation';
+
+const CUSTOMER_BODY_KEYS = [
+  'name', 'phone', 'wechat', 'email', 'address', 'customerType', 'status', 'tags', 'remark',
+] as const;
+const CONTACT_BODY_KEYS = ['name', 'phone', 'wechat', 'relation', 'isPrimary'] as const;
+// SPEC-039：客户域转介绍登记入参白名单（sourceType/referralCustomerId 由服务层强制绑定）。
+const REFERRAL_BODY_KEYS = ['name', 'phone', 'wechat', 'intentionLevel', 'tags'] as const;
+const REFERRAL_LIST_QUERY_KEYS = ['page', 'pageSize'] as const;
+
 export default class CustomerController extends Controller {
-  /**
-   * 客户列表
-   */
-  async index() {
-    const { ctx } = this;
-    const { page = 1, pageSize = 10, keyword, status } = ctx.query;
-
-    const where: Prisma.CustomerWhereInput = {};
-    if (keyword) {
-      where.OR = [
-        { name: { contains: keyword } },
-        { phone: { contains: keyword } },
-        { wechat: { contains: keyword } },
-      ];
-    }
-    if (status) where.status = status;
-
-    const total = await ctx.prisma.customer.count({ where });
-    const list = await ctx.prisma.customer.findMany({
-      where,
-      skip: (Number(page) - 1) * Number(pageSize),
-      take: Number(pageSize),
-      include: {
-        lead: {
-          include: {
-            channel: true,
-          },
-        },
-        _count: {
-          select: { contracts: true, cases: true, payments: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: {
-        list,
-        pagination: {
-          page: Number(page),
-          pageSize: Number(pageSize),
-          total,
-          totalPages: Math.ceil(total / Number(pageSize)),
-        },
-      },
-    };
-  }
-
-  /**
-   * 客户详情
-   */
-  async show() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const customer = await ctx.prisma.customer.findUnique({
-      where: { id },
-      include: {
-        lead: {
-          include: {
-            channel: true,
-            followRecords: true,
-          },
-        },
-        contracts: {
-          orderBy: { createdAt: 'desc' },
-        },
-        cases: {
-          include: {
-            lawyer: true,
-          },
-          orderBy: { createdAt: 'desc' },
-        },
-        payments: {
-          orderBy: { createdAt: 'desc' },
-        },
-      },
-    });
-
-    if (!customer) {
-      ctx.throw(404, '客户不存在');
-    }
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: customer,
-    };
-  }
-
-  /**
-   * 创建客户
-   */
+  /** POST /api/v1/customers（customer.create）：直建客户（sourceLeadId 恒 null）。 */
   async create() {
-    const { ctx } = this;
-    const { name, phone, wechat, idCard, email, address, status = 'POTENTIAL', tags, remark } = ctx.request.body;
-
-    if (!name || !phone) {
-      ctx.throw(400, '姓名和电话不能为空');
-    }
-
-    const customer = await ctx.prisma.customer.create({
-      data: {
-        name,
-        phone,
-        wechat,
-        idCard,
-        email,
-        address,
-        status,
-        tags,
-        remark,
-      },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '创建成功',
-      data: customer,
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, CUSTOMER_BODY_KEYS);
+    this.respond(await customerService(this.ctx).createCustomer(body as unknown as CreateCustomerInput));
   }
 
-  /**
-   * 更新客户
-   */
+  /** GET /api/v1/customers（customer.read）。 */
+  async index() {
+    this.respond(await customerService(this.ctx).listCustomers(parseCustomerListQuery(this.ctx.query)));
+  }
+
+  /** GET /api/v1/customers/:id（customer.read）。 */
+  async show() {
+    this.respond(await customerService(this.ctx).getCustomer(this.ctx.params.id));
+  }
+
+  /** PATCH /api/v1/customers/:id（customer.update）：仅更新提供字段。 */
   async update() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-    const { name, phone, wechat, idCard, email, address, status, tags, remark } = ctx.request.body;
-
-    const customer = await ctx.prisma.customer.findUnique({
-      where: { id },
-    });
-    if (!customer) {
-      ctx.throw(404, '客户不存在');
-    }
-
-    const updateData: Prisma.CustomerUncheckedUpdateInput = {};
-    if (name) updateData.name = name;
-    if (phone) updateData.phone = phone;
-    if (wechat !== undefined) updateData.wechat = wechat;
-    if (idCard !== undefined) updateData.idCard = idCard;
-    if (email !== undefined) updateData.email = email;
-    if (address !== undefined) updateData.address = address;
-    if (status) updateData.status = status;
-    if (tags !== undefined) updateData.tags = tags;
-    if (remark !== undefined) updateData.remark = remark;
-
-    const updated = await ctx.prisma.customer.update({
-      where: { id },
-      data: updateData,
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '更新成功',
-      data: updated,
-    };
+    const body = this.ctx.request.body;
+    assertExactKeys(body, CUSTOMER_BODY_KEYS);
+    this.respond(await customerService(this.ctx).updateCustomer(
+      this.ctx.params.id,
+      body as unknown as UpdateCustomerInput,
+    ));
   }
 
-  /**
-   * 删除客户
-   */
-  async destroy() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const customer = await ctx.prisma.customer.findUnique({
-      where: { id },
-      include: {
-        contracts: true,
-        cases: true,
-      },
-    });
-    if (!customer) {
-      ctx.throw(404, '客户不存在');
-    }
-
-    if (customer.contracts.length > 0) {
-      ctx.throw(400, '该客户有关联合同，无法删除');
-    }
-    if (customer.cases.length > 0) {
-      ctx.throw(400, '该客户有关联案件，无法删除');
-    }
-
-    await ctx.prisma.customer.delete({
-      where: { id },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: '删除成功',
-      data: null,
-    };
+  /** GET /api/v1/customers/:id/contacts（customer.read）：排除软删，createdAt ASC。 */
+  async listContacts() {
+    this.respond(await customerService(this.ctx).listContacts(this.ctx.params.id));
   }
 
-  /**
-   * 客户合同列表
-   */
-  async contracts() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const contracts = await ctx.prisma.contract.findMany({
-      where: { customerId: id },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: contracts,
-    };
+  /** POST /api/v1/customers/:id/contacts（customer.update）：新增联系人。 */
+  async addContact() {
+    const body = this.ctx.request.body;
+    assertExactKeys(body, CONTACT_BODY_KEYS);
+    this.respond(await customerService(this.ctx).addContact(
+      this.ctx.params.id,
+      body as unknown as AddContactInput,
+    ));
   }
 
-  /**
-   * 客户案件列表
-   */
-  async cases() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const cases = await ctx.prisma.case.findMany({
-      where: { customerId: id },
-      include: {
-        lawyer: true,
-        contract: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: cases,
-    };
+  /** PATCH /api/v1/customers/:id/contacts/:contactId（customer.update）。 */
+  async updateContact() {
+    const body = this.ctx.request.body;
+    assertExactKeys(body, CONTACT_BODY_KEYS);
+    this.respond(await customerService(this.ctx).updateContact(
+      this.ctx.params.id,
+      this.ctx.params.contactId,
+      body as unknown as UpdateContactInput,
+    ));
   }
 
-  /**
-   * 客户收款列表
-   */
-  async payments() {
-    const { ctx } = this;
-    const { id } = ctx.params;
-
-    const payments = await ctx.prisma.payment.findMany({
-      where: { customerId: id },
-      include: {
-        contract: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    ctx.body = {
-      code: 200,
-      message: 'success',
-      data: payments,
-    };
+  /** DELETE /api/v1/customers/:id/contacts/:contactId（customer.update）：软删。 */
+  async removeContact() {
+    await customerService(this.ctx).removeContact(this.ctx.params.id, this.ctx.params.contactId);
+    this.respond(null);
   }
+
+  /** POST /api/v1/customers/:id/referrals（lead.create，SPEC-039）：客户详情登记转介绍线索（强制 REFERRAL + 绑定该客户）。 */
+  async createReferral() {
+    const body = this.ctx.request.body;
+    assertExactKeys(body, REFERRAL_BODY_KEYS);
+    this.respond(await leadService(this.ctx).createReferralLead(this.ctx.params.id, body as unknown as CreateReferralLeadInput));
+  }
+
+  /** GET /api/v1/customers/:id/referrals（lead.read，SPEC-039）：客户转介绍线索列表（分页）。 */
+  async listReferrals() {
+    this.respond(await leadService(this.ctx).listReferrals(this.ctx.params.id, parseReferralListQuery(this.ctx.query)));
+  }
+
+  private respond(data: unknown): void {
+    this.ctx.body = { code: 200, message: 'success', data };
+  }
+}
+
+function parseCustomerListQuery(input: unknown): CustomerListQuery {
+  assertExactKeys(input, ['page', 'pageSize', 'status', 'customerType', 'keyword']);
+  const query: CustomerListQuery = {};
+  if (input.page !== undefined) query.page = parseQueryInteger(input.page);
+  if (input.pageSize !== undefined) query.pageSize = parseQueryInteger(input.pageSize);
+  if (input.status !== undefined) query.status = input.status as CustomerStatus;
+  if (input.customerType !== undefined) query.customerType = input.customerType as CustomerType;
+  if (input.keyword !== undefined) query.keyword = input.keyword as string;
+  return query;
+}
+
+/** query 数字解析：非法形态 400（与 lead 控制器同一纪律）。 */
+function parseQueryInteger(value: unknown): number {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
+    throw new MasterDataError('VALIDATION_FAILED', 400);
+  }
+  return Number(value);
+}
+
+/** 转介绍列表查询解析：page/pageSize 透传（服务层数字校验）。 */
+function parseReferralListQuery(input: unknown): LeadListQuery {
+  assertExactKeys(input, REFERRAL_LIST_QUERY_KEYS);
+  const query: LeadListQuery = {};
+  if (input.page !== undefined) query.page = parseQueryInteger(input.page);
+  if (input.pageSize !== undefined) query.pageSize = parseQueryInteger(input.pageSize);
+  return query;
 }

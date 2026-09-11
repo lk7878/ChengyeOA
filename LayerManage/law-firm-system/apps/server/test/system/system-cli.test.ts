@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { Interface as ReadlineInterface } from 'node:readline';
 import { Writable } from 'node:stream';
 import type { PrismaClient } from '@prisma/client';
 import {
@@ -9,6 +10,8 @@ import {
 import {
   bootstrapMain,
   recoveryMain,
+  secondSuperAdminMain,
+  adminMfaResetMain,
   type SystemCliDependencies,
 } from '../../scripts/system/system-cli';
 import {
@@ -33,7 +36,7 @@ function fakeDependencies(
   const recorder: PromptRecorder = { texts: [], secrets: [], closed: false };
   const output: string[] = [];
   const sink = { write: (value: string) => { output.push(value); return true; } };
-  const prisma = { $disconnect: async () => undefined } as unknown as PrismaClient;
+  const prisma = { $disconnect: async (): Promise<void> => undefined } as unknown as PrismaClient;
 
   return {
     recorder,
@@ -55,6 +58,8 @@ function fakeDependencies(
     createPrisma: () => prisma,
     runBootstrap: async () => ({ organizationName: 'Example Firm', username: 'root.admin' }),
     runRecovery: async () => ({ username: 'root.admin' }),
+    runAddSecondSuperAdmin: async () => ({ actorUsername: 'root.admin', targetUsername: 'second.admin' }),
+    runAdminMfaRecovery: async () => ({ username: 'root.admin' }),
     hostname: () => 'test-host',
     randomUUID: () => 'test-reference',
     output,
@@ -195,10 +200,10 @@ test('mutes secret input while preserving prompt ordering, text input, and close
     createInterface: options => {
       readlineOutput = options.output as Writable;
       return {
-        question: (label, callback) => {
+        question: ((label: string, callback: (answer: string) => void): void => {
           readlineOutput?.write(label);
           currentAnswer = callback;
-        },
+        }) as ReadlineInterface['question'],
         close: () => { closeCalls += 1; },
       };
     },
@@ -257,6 +262,59 @@ test('bootstraps with a redacted database target and exact confirmation phrase',
   assert.equal(deps.recorder.closed, true);
 });
 
+test('safe-interactive bootstrap hides every operator input and emits no ordinary command output', async () => {
+  let received: Record<string, unknown> | undefined;
+  const deps = fakeDependencies([
+    'Example Firm',
+    'Root.Admin',
+    'temporary-password',
+    'temporary-password',
+    'INITIALIZE chengye_oa_test',
+  ], {
+    runBootstrap: async (_prisma, input, metadata) => {
+      received = { ...input, ...metadata };
+      return { organizationName: input.organizationName, username: 'root.admin' };
+    },
+  });
+
+  const code = await bootstrapMain(['--safe-interactive'], { DATABASE_URL: databaseUrl }, deps);
+  const transcript = (deps as unknown as { output: string[] }).output.join('');
+
+  assert.equal(code, 0);
+  assert.deepEqual(received, {
+    organizationName: 'Example Firm',
+    username: 'Root.Admin',
+    password: 'temporary-password',
+    databaseName: 'chengye_oa_test',
+    hostname: 'test-host',
+  });
+  assert.deepEqual(deps.recorder.texts, []);
+  assert.deepEqual(deps.recorder.secrets, [
+    '[SAFE_INPUT_ORGANIZATION_NAME] ',
+    '[SAFE_INPUT_SUPER_ADMIN_USERNAME] ',
+    '[SAFE_INPUT_TEMPORARY_PASSWORD] ',
+    '[SAFE_INPUT_TEMPORARY_PASSWORD_CONFIRMATION] ',
+    '[SAFE_INPUT_BOOTSTRAP_CONFIRMATION] ',
+  ]);
+  assert.equal(transcript, '');
+  assert.equal(deps.recorder.closed, true);
+});
+
+test('safe-interactive bootstrap emits no ordinary error output', async () => {
+  const deps = fakeDependencies([], {
+    assertMigrationsReady: async () => { throw new AlreadyInitializedError('must-not-appear'); },
+  });
+
+  const code = await bootstrapMain(['--safe-interactive'], { DATABASE_URL: databaseUrl }, deps);
+  const transcript = (deps as unknown as { output: string[] }).output.join('');
+
+  assert.equal(code, 3);
+  assert.deepEqual(deps.recorder.texts, []);
+  assert.deepEqual(deps.recorder.secrets, []);
+  assert.equal(transcript, '');
+  assert.equal(deps.recorder.closed, true);
+});
+
 test('uses normalized recovery username in the exact confirmation phrase', async () => {
   let received: Record<string, unknown> | undefined;
   const deps = fakeDependencies([
@@ -284,6 +342,87 @@ test('uses normalized recovery username in the exact confirmation phrase', async
     hostname: 'test-host',
   });
   assert.equal(deps.recorder.texts.at(-1), 'Type RECOVER chengye_oa_test root.admin to confirm: ');
+  assert.equal(deps.recorder.closed, true);
+});
+
+test('adds a second super-admin through hidden re-verification and exact confirmation', async () => {
+  let received: Record<string, unknown> | undefined;
+  const deps = fakeDependencies([
+    ' Root.Admin ',
+    'actor-password',
+    ' Second.Admin ',
+    'Approved second-seat recovery ticket 42',
+    'ADD SECOND SUPER ADMIN chengye_oa_test second.admin',
+  ], {
+    runAddSecondSuperAdmin: async (_prisma, input, metadata) => {
+      received = { ...input, ...metadata };
+      return { actorUsername: 'root.admin', targetUsername: 'second.admin' };
+    },
+  });
+
+  const code = await secondSuperAdminMain([], { DATABASE_URL: databaseUrl }, deps);
+  const transcript = (deps as unknown as { output: string[] }).output.join('');
+
+  assert.equal(code, 0);
+  assert.deepEqual(received, {
+    actorUsername: ' Root.Admin ',
+    actorPassword: 'actor-password',
+    targetUsername: ' Second.Admin ',
+    reason: 'Approved second-seat recovery ticket 42',
+    confirmation: 'ADD SECOND SUPER ADMIN chengye_oa_test second.admin',
+    databaseName: 'chengye_oa_test',
+    hostname: 'test-host',
+  });
+  assert.deepEqual(deps.recorder.secrets, ['Current super-admin password: ']);
+  assert.equal(deps.recorder.texts.at(-1), 'Type ADD SECOND SUPER ADMIN chengye_oa_test second.admin to confirm: ');
+  assert.doesNotMatch(transcript, /actor-password|ADD SECOND SUPER ADMIN/);
+  assert.match(transcript, /Second super-admin added for second\.admin\./);
+  assert.equal(deps.recorder.closed, true);
+});
+
+test('rejects non-TTY second-seat recovery before migration checks or connection', async () => {
+  let migrationChecked = false;
+  let connected = false;
+  const deps = fakeDependencies([], {
+    isTty: false,
+    assertMigrationsReady: async () => { migrationChecked = true; },
+    createPrisma: () => { connected = true; throw new Error('must not connect'); },
+  });
+  const code = await secondSuperAdminMain([], { DATABASE_URL: databaseUrl }, deps);
+  assert.equal(code, 2);
+  assert.equal(migrationChecked, false);
+  assert.equal(connected, false);
+  assert.deepEqual(deps.recorder.texts, []);
+});
+
+test('resets administrator MFA through hidden password verification and exact confirmation', async () => {
+  let received: Record<string, unknown> | undefined;
+  const deps = fakeDependencies([
+    ' Root.Admin ',
+    'actor-password',
+    'RESET ADMIN MFA chengye_oa_test root.admin',
+  ], {
+    runAdminMfaRecovery: async (_prisma, input, metadata) => {
+      received = { ...input, ...metadata };
+      return { username: 'root.admin' };
+    },
+  });
+
+  const code = await adminMfaResetMain([], { DATABASE_URL: databaseUrl }, deps);
+  const transcript = (deps as unknown as { output: string[] }).output.join('');
+
+  assert.equal(code, 0);
+  assert.deepEqual(received, {
+    username: ' Root.Admin ',
+    password: 'actor-password',
+    confirmation: 'RESET ADMIN MFA chengye_oa_test root.admin',
+    databaseName: 'chengye_oa_test',
+    hostname: 'test-host',
+  });
+  assert.deepEqual(deps.recorder.secrets, ['Current super-admin password: ']);
+  assert.equal(deps.recorder.texts.at(-1), 'Type RESET ADMIN MFA chengye_oa_test root.admin to confirm: ');
+  assert.doesNotMatch(transcript, /actor-password|RESET ADMIN MFA/);
+  assert.match(transcript, /Administrator MFA reset completed for root\.admin\./);
   assert.equal(deps.recorder.closed, true);
 });
 

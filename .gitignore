@@ -30,3 +30,7 @@
 **/*.zip
 **/*.7z
 **/*.msi
+
+# Local Git metadata backups and private uploaded material
+/.git-migration-owner-backup-*/
+/LayerManage/law-firm-system/apps/server/var/storage/

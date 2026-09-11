@@ -4,7 +4,7 @@ import test from 'node:test';
 import { PrismaClient } from '@prisma/client';
 import { EmployeeAssignmentService } from '../../app/application/master-data/employee-assignment-service';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
-import { hasCode } from './test-helpers';
+import { authorizationContext, hasCode } from './test-helpers';
 
 let prisma: PrismaClient;
 let rootId: string;
@@ -53,7 +53,14 @@ test.beforeEach(async () => {
   rootPositionId = (await position(rootId, 'ROOT_LAWYER')).id;
   branchPositionId = (await position(branchId, 'BRANCH_LAWYER')).id;
   employeeId = (await employeeWithPrimary()).id;
-  service = new EmployeeAssignmentService(prisma, { actorUserId: 'assignment-actor' });
+  service = new EmployeeAssignmentService(
+    prisma,
+    { actorUserId: 'assignment-actor' },
+    authorizationContext({
+      userId: 'assignment-actor', permissionCodes: ['employee.assignment.manage'],
+      resource: 'employee_assignment', superAdmin: true,
+    }),
+  );
 });
 test.after(async () => { await dropAuditTrigger(); await clearTestApplicationData(prisma); await prisma.$disconnect(); });
 
@@ -91,6 +98,45 @@ test('rejects mismatched or disabled references and duplicate active tuples', as
     () => service.add(employeeId, { organizationId: branchId, positionId: branchPositionId, assignmentType: 'ACTING' }),
     hasCode('PRIMARY_ASSIGNMENT_CONFLICT'),
   );
+});
+
+test('rejects assignment changes when the employee is outside the granted branch scope', async () => {
+  const scope = await prisma.dataScope.create({ data: {
+    name: 'Branch A assignments', scopeType: 'BRANCH', organizationId: branchId, includeDescendants: true,
+  } });
+  const scoped = new EmployeeAssignmentService(
+    prisma,
+    { actorUserId: 'assignment-actor' },
+    authorizationContext({
+      userId: 'assignment-actor', permissionCodes: ['employee.assignment.manage'],
+      resource: 'employee_assignment', scopeIds: [scope.id],
+    }),
+  );
+  await assert.rejects(
+    () => scoped.add(employeeId, {
+      organizationId: branchId, positionId: branchPositionId, assignmentType: 'SECONDARY',
+    }),
+    hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'),
+  );
+});
+
+test('field-projects employee details returned by assignment mutations', async () => {
+  const context = authorizationContext({
+    userId: 'assignment-reader', permissionCodes: ['employee.assignment.manage'],
+    resource: 'employee_assignment', scopeIds: ['ALL'], superAdmin: false,
+  });
+  context.permissionCodes.push('employee.read');
+  context.grants.push({
+    sourceType: 'ROLE', sourceId: 'assignment-reader-grant', sourceRoleId: 'assignment-reader-role',
+    permissionCode: 'employee.read', resource: 'employee', scopeIds: ['ALL'], validUntil: null,
+  });
+  const scoped = new EmployeeAssignmentService(
+    prisma, { actorUserId: 'assignment-reader' }, context,
+  );
+  const detail = await scoped.add(employeeId, {
+    organizationId: branchId, positionId: branchPositionId, assignmentType: 'SECONDARY',
+  });
+  assert.equal(detail.phone, '138****0000');
 });
 
 test('ends only active non-primary assignments with a valid version', async () => {

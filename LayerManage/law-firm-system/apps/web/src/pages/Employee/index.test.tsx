@@ -1,24 +1,34 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { masterDataApi } from '@/features/master-data/api';
 import { userApi } from '@/api/user';
+import { useAuthStore } from '@/stores/authStore';
 import type { EmployeeDetail, OrganizationNode, Position } from '@/features/master-data/types';
 import EmployeePage from './index';
 
 vi.mock('@/features/master-data/api', () => ({ masterDataApi: {
-  organizations: { tree: vi.fn() }, positions: { list: vi.fn() },
-  employees: { list: vi.fn(), detail: vi.fn(), create: vi.fn(), update: vi.fn(), formalize: vi.fn(), leave: vi.fn(), transferPrimary: vi.fn(), addAssignment: vi.fn(), endAssignment: vi.fn(), bindAccount: vi.fn(), unbindAccount: vi.fn() },
+  organizations: { options: vi.fn() }, positions: { list: vi.fn() },
+  employees: { list: vi.fn(), detail: vi.fn(), create: vi.fn(), update: vi.fn(), formalize: vi.fn(), leave: vi.fn(), transferPrimary: vi.fn(), addAssignment: vi.fn(), endAssignment: vi.fn(), bindAccount: vi.fn(), unbindAccount: vi.fn(), remove: vi.fn() },
   professionalTeams: { list: vi.fn() },
 } }));
 vi.mock('@/api/user', () => ({ userApi: { list: vi.fn() } }));
 
 const organization: OrganizationNode = { id: 'branch', code: 'BJ', name: '北京分所', type: 'BRANCH', parentId: 'root', path: '/root/branch', level: 1, sort: 0, status: 'ENABLED', version: 1, children: [] };
 const position: Position = { id: 'lawyer', organizationId: 'branch', code: 'LAWYER', name: '律师', categoryCode: 'LAWYER', level: 1, responsibilities: null, status: 'ENABLED', version: 1, activeAssignmentCount: 1 };
-const detail: EmployeeDetail = { id: 'emp-1', employeeNo: 'EMP-001', name: '张律师', employeeType: 'LAWYER', status: 'PROBATION', entryDate: '2026-07-01', activeProfessionalTeamIds: [], version: 2, primaryAssignment: { id: 'assignment-1', employeeId: 'emp-1', organizationId: 'branch', positionId: 'lawyer', assignmentType: 'PRIMARY', startedAt: '2026-07-01', endedAt: null, version: 1 }, phone: '13800000000', email: null, idCard: null, licenseNo: null, professionalDirections: ['CIVIL'], formalDate: null, leaveDate: null, assignments: [], professionalTeams: [], account: null };
+const detail: EmployeeDetail = { id: 'emp-1', employeeNo: 'EMP-001', name: '张律师', employeeType: 'LAWYER', status: 'PROBATION', entryDate: '2026-07-01', activeProfessionalTeamIds: [], version: 2, primaryAssignment: { id: 'assignment-1', employeeId: 'emp-1', organizationId: 'branch', positionId: 'lawyer', assignmentType: 'PRIMARY', startedAt: '2026-07-01', endedAt: null, version: 1 }, phone: '13800000000', email: null, licenseNo: null, professionalDirections: ['CIVIL'], formalDate: null, leaveDate: null, assignments: [], professionalTeams: [], account: null };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(masterDataApi.organizations.tree).mockResolvedValue({ code: 200, message: 'success', data: [organization] });
+  useAuthStore.setState({
+    isAuthenticated: true,
+    authorizationStatus: 'ready',
+    authorization: {
+      userId: 'user-1', employeeId: 'emp-1', isSystemSuperAdmin: false, isSystemAdmin: false,
+      permissions: ['organization.read', 'position.read', 'professional_team.read', 'user.read', 'employee.high_sensitive.read'],
+      menus: [], fieldCapabilities: {}, validUntil: null, evaluatedAt: '2026-07-19T00:00:00.000Z',
+    },
+  });
+  vi.mocked(masterDataApi.organizations.options).mockResolvedValue({ code: 200, message: 'success', data: [organization] });
   vi.mocked(masterDataApi.positions.list).mockResolvedValue({ code: 200, message: 'success', data: [position] });
   vi.mocked(masterDataApi.professionalTeams.list).mockResolvedValue({ code: 200, message: 'success', data: { list: [], pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 } } });
   vi.mocked(masterDataApi.employees.list).mockResolvedValue({ code: 200, message: 'success', data: { list: [detail], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } } });
@@ -27,6 +37,8 @@ beforeEach(() => {
 });
 
 test('filters the employee page and loads organization-driven positions when creating', async () => {
+  const root: OrganizationNode = { ...organization, id: 'root', name: '重庆承业律师事务所', type: 'FIRM', parentId: null, children: [organization] };
+  vi.mocked(masterDataApi.organizations.options).mockResolvedValue({ code: 200, message: 'success', data: [root] });
   render(<EmployeePage />);
   expect(await screen.findByText('张律师')).toBeInTheDocument();
   fireEvent.change(screen.getByPlaceholderText('姓名或工号'), { target: { value: 'EMP-001' } });
@@ -34,7 +46,8 @@ test('filters the employee page and loads organization-driven positions when cre
   await waitFor(() => expect(masterDataApi.employees.list).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: 'EMP-001', page: 1 })));
   fireEvent.click(screen.getByRole('button', { name: /新增员工/ }));
   fireEvent.mouseDown(screen.getByLabelText('主组织'));
-  fireEvent.click((await screen.findAllByText('北京分所')).at(-1)!);
+  fireEvent.change(screen.getByLabelText('主组织'), { target: { value: '北京分所' } });
+  fireEvent.click(await screen.findByText('重庆承业律师事务所/北京分所', { selector: '.ant-select-item-option-content' }));
   await waitFor(() => expect(masterDataApi.positions.list).toHaveBeenCalledWith({ organizationId: 'branch', status: 'ENABLED' }));
   expect(screen.getByLabelText('主岗位')).toBeEnabled();
 });
@@ -50,4 +63,81 @@ test('opens employee details and exposes protected lifecycle commands', async ()
   fireEvent.click(screen.getByRole('button', { name: '办理离职' }));
   expect(screen.getByText('确认交接完成后才能提交离职')).toBeInTheDocument();
   expect(screen.getAllByRole('button', { name: 'OK' }).some(button => button.hasAttribute('disabled'))).toBe(true);
+});
+
+test('keeps scoped employees visible when auxiliary catalogs are forbidden', async () => {
+  const forbidden = { response: { status: 403 } };
+  vi.mocked(masterDataApi.organizations.options).mockRejectedValueOnce(forbidden);
+  vi.mocked(masterDataApi.professionalTeams.list).mockRejectedValueOnce(forbidden);
+  vi.mocked(masterDataApi.positions.list).mockRejectedValue(forbidden);
+  vi.mocked(userApi.list).mockRejectedValueOnce(forbidden);
+
+  render(<EmployeePage />);
+
+  expect(await screen.findByText('张律师')).toBeInTheDocument();
+  expect(screen.queryByText('您没有权限查看人员主数据')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '查看张律师' }));
+  expect(await screen.findByText('张律师 · EMP-001')).toBeInTheDocument();
+});
+
+test('employee list and assignment detail show the full path to the actual primary organization', async () => {
+  const team: OrganizationNode = { ...organization, id: 'team', name: '民商事组', type: 'GROUP', parentId: 'department', children: [] };
+  const department: OrganizationNode = { ...organization, id: 'department', name: '律师部', type: 'DEPARTMENT', parentId: 'root', children: [team] };
+  const root: OrganizationNode = { ...organization, id: 'root', name: '重庆承业律师事务所', type: 'FIRM', parentId: null, children: [department] };
+  const assignment = { ...detail.primaryAssignment!, organizationId: 'department' };
+  const employee = { ...detail, employeeType: 'SENIOR_LAWYER', primaryAssignment: assignment, assignments: [assignment] };
+  vi.mocked(masterDataApi.organizations.options).mockResolvedValue({ code: 200, message: 'success', data: [root] });
+  vi.mocked(masterDataApi.employees.list).mockResolvedValue({ code: 200, message: 'success', data: { list: [employee], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } } });
+  vi.mocked(masterDataApi.employees.detail).mockResolvedValue({ code: 200, message: 'success', data: employee });
+  render(<EmployeePage />);
+  const path = '重庆承业律师事务所/律师部';
+  expect(await screen.findByText(path)).toHaveAttribute('title', path);
+  expect(screen.getByText('资深律师')).toBeInTheDocument();
+  expect(screen.queryByText(`${path}/民商事组`)).not.toBeInTheDocument();
+  expect(screen.queryByText('SENIOR_LAWYER')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '查看张律师' }));
+  const drawer = await screen.findByRole('dialog');
+  expect(within(drawer).getByText('资深律师')).toBeInTheDocument();
+  fireEvent.click(within(drawer).getByRole('tab', { name: '任职关系' }));
+  expect(within(drawer).getByText(path)).toBeInTheDocument();
+});
+
+test('Chinese type selection submits its original code when editing an employee', async () => {
+  vi.mocked(masterDataApi.employees.update).mockResolvedValue({ code: 200, message: 'success', data: detail });
+  render(<EmployeePage />);
+  fireEvent.click(await screen.findByRole('button', { name: '查看张律师' }));
+  fireEvent.click(await screen.findByRole('button', { name: '编辑档案' }));
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: '人员类型' }));
+  fireEvent.click(await screen.findByText('资深律师', { selector: '.ant-select-item-option-content' }));
+  fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+  await waitFor(() => expect(masterDataApi.employees.update).toHaveBeenCalledWith('emp-1', expect.objectContaining({ employeeType: 'SENIOR_LAWYER', version: 2 })));
+});
+
+test('only a super-admin can confirm employee deletion and the interface explains account and history effects', async () => {
+  useAuthStore.setState({ authorization: { ...useAuthStore.getState().authorization!, isSystemSuperAdmin: true } });
+  vi.mocked(masterDataApi.employees.remove).mockResolvedValue({ code: 200, message: 'success', data: null });
+  render(<EmployeePage />);
+  fireEvent.click(await screen.findByRole('button', { name: '删除张律师' }));
+  expect(masterDataApi.employees.remove).not.toHaveBeenCalled();
+  expect(screen.getByText(/绑定账号会停用/)).toHaveTextContent('历史业务记录仍保留并关联原员工');
+  vi.mocked(masterDataApi.employees.list).mockResolvedValue({ code: 200, message: 'success', data: { list: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } } });
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+  await waitFor(() => expect(masterDataApi.employees.remove).toHaveBeenCalledWith('emp-1', { version: 2, confirmed: true }));
+  await waitFor(() => expect(screen.queryByRole('button', { name: '查看张律师' })).not.toBeInTheDocument());
+});
+
+test('ordinary employee-management access does not expose employee deletion', async () => {
+  render(<EmployeePage />);
+  await screen.findByText('张律师');
+  expect(screen.queryByRole('button', { name: '删除张律师' })).not.toBeInTheDocument();
+});
+
+test('blocked deletion retains the employee and displays the Chinese handover reason', async () => {
+  useAuthStore.setState({ authorization: { ...useAuthStore.getState().authorization!, isSystemSuperAdmin: true } });
+  vi.mocked(masterDataApi.employees.remove).mockRejectedValue(new Error('EMPLOYEE_DELETE_IN_USE'));
+  render(<EmployeePage />);
+  fireEvent.click(await screen.findByRole('button', { name: '删除张律师' }));
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+  expect(await screen.findByText(/该员工仍有未结案件/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '查看张律师' })).toBeInTheDocument();
 });

@@ -1,68 +1,32 @@
+// SPEC-010 Task 11 手术：contractApi/paymentApi 段已切除（原型路由随后端 Task 1 根除 404），
+// 新客户端落 @/api/contract、@/api/payment（逐条对齐 Task 10 冻结路由表）。
+// SPEC-033 Task 3：caseApi 对齐重建案件域——list 改 PagedResult（非原型嵌套 pagination）、
+// 移除 delete（后端 destroy 已根除，案件业务不可删）、close 白名单 { result, satisfaction }。
+// SPEC-042 Task 3：+案件文件方法（listFiles/uploadFile/downloadFile/removeFile）。
 import request from './request';
-import type { ApiResponse, PaginatedData, Lead, LeadFollow, Customer, Contract, Payment, Case, CaseTask, Communication, DashboardMetrics, DashboardAlerts } from '@/types';
+import type { ApiResponse, Case, CaseFile, CaseFileDownload, CaseTask, Communication, DashboardMetrics, DashboardAlerts } from '@/types';
+import type { PagedResult } from './types';
 
 type QueryParams = Record<string, unknown>;
 
-export const leadApi = {
-  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Lead>>>('/v1/leads', { params }),
-  detail: (id: string) => request.get<ApiResponse<Lead>>(`/v1/leads/${id}`),
-  create: (data: Partial<Lead>) => request.post<ApiResponse<Lead>>('/v1/leads', data),
-  update: (id: string, data: Partial<Lead>) => request.put<ApiResponse<Lead>>(`/v1/leads/${id}`, data),
-  delete: (id: string) => request.delete<ApiResponse<null>>(`/v1/leads/${id}`),
-  assign: (id: string, employeeId: string) => request.post<ApiResponse<Lead>>(`/v1/leads/${id}/assign`, { employeeId }),
-  follow: (id: string, data: Partial<LeadFollow>) => request.post<ApiResponse<LeadFollow>>(`/v1/leads/${id}/follow`, data),
-  convert: (id: string) => request.post<ApiResponse<{ customer: Customer }>>(`/v1/leads/${id}/convert`),
-  follows: (id: string) => request.get<ApiResponse<LeadFollow[]>>(`/v1/leads/${id}/follows`),
-  recycle: (id: string) => request.post<ApiResponse<Lead>>(`/v1/leads/${id}/recycle`),
-};
-
-export const customerApi = {
-  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Customer>>>('/v1/customers', { params }),
-  detail: (id: string) => request.get<ApiResponse<Customer>>(`/v1/customers/${id}`),
-  create: (data: Partial<Customer>) => request.post<ApiResponse<Customer>>('/v1/customers', data),
-  update: (id: string, data: Partial<Customer>) => request.put<ApiResponse<Customer>>(`/v1/customers/${id}`, data),
-  delete: (id: string) => request.delete<ApiResponse<null>>(`/v1/customers/${id}`),
-  contracts: (id: string) => request.get<ApiResponse<Contract[]>>(`/v1/customers/${id}/contracts`),
-  cases: (id: string) => request.get<ApiResponse<Case[]>>(`/v1/customers/${id}/cases`),
-  payments: (id: string) => request.get<ApiResponse<Payment[]>>(`/v1/customers/${id}/payments`),
-};
-
-export const contractApi = {
-  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Contract>>>('/v1/contracts', { params }),
-  detail: (id: string) => request.get<ApiResponse<Contract>>(`/v1/contracts/${id}`),
-  create: (data: Partial<Contract>) => request.post<ApiResponse<Contract>>('/v1/contracts', data),
-  update: (id: string, data: Partial<Contract>) => request.put<ApiResponse<Contract>>(`/v1/contracts/${id}`, data),
-  delete: (id: string) => request.delete<ApiResponse<null>>(`/v1/contracts/${id}`),
-  submit: (id: string) => request.post<ApiResponse<Contract>>(`/v1/contracts/${id}/submit`),
-  approve: (id: string) => request.post<ApiResponse<Contract>>(`/v1/contracts/${id}/approve`),
-  sign: (id: string, signDate: string) => request.post<ApiResponse<Contract>>(`/v1/contracts/${id}/sign`, { signDate }),
-  terminate: (id: string, reason: string) => request.post<ApiResponse<Contract>>(`/v1/contracts/${id}/terminate`, { reason }),
-  ledger: () => request.get<ApiResponse<unknown>>('/v1/contracts/ledger'),
-};
-
-export const paymentApi = {
-  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Payment>>>('/v1/payments', { params }),
-  detail: (id: string) => request.get<ApiResponse<Payment>>(`/v1/payments/${id}`),
-  create: (data: Partial<Payment>) => request.post<ApiResponse<Payment>>('/v1/payments', data),
-  update: (id: string, data: Partial<Payment>) => request.put<ApiResponse<Payment>>(`/v1/payments/${id}`, data),
-  delete: (id: string) => request.delete<ApiResponse<null>>(`/v1/payments/${id}`),
-  confirm: (id: string, data: { receivedAmount: number; receivedDate: string; paymentMethod?: string }) =>
-    request.post<ApiResponse<Payment>>(`/v1/payments/${id}/confirm`, data),
-  refund: (id: string, data: { refundAmount: number; reason: string }) =>
-    request.post<ApiResponse<Payment>>(`/v1/payments/${id}/refund`, data),
-};
-
 export const caseApi = {
-  list: (params?: QueryParams) => request.get<ApiResponse<PaginatedData<Case>>>('/v1/cases', { params }),
+  list: (params?: QueryParams) => request.get<ApiResponse<PagedResult<Case>>>('/v1/cases', { params }),
   detail: (id: string) => request.get<ApiResponse<Case>>(`/v1/cases/${id}`),
   create: (data: Partial<Case>) => request.post<ApiResponse<Case>>('/v1/cases', data),
   update: (id: string, data: Partial<Case>) => request.put<ApiResponse<Case>>(`/v1/cases/${id}`, data),
-  delete: (id: string) => request.delete<ApiResponse<null>>(`/v1/cases/${id}`),
   createTask: (id: string, data: Partial<CaseTask>) => request.post<ApiResponse<CaseTask>>(`/v1/cases/${id}/tasks`, data),
   updateTask: (id: string, taskId: string, data: Partial<CaseTask>) => request.patch<ApiResponse<CaseTask>>(`/v1/cases/${id}/tasks/${taskId}`, data),
   createCommunication: (id: string, data: Partial<Communication>) => request.post<ApiResponse<Communication>>(`/v1/cases/${id}/communications`, data),
-  close: (id: string, data: { result?: string; satisfaction?: number; isReferrable?: boolean }) =>
+  close: (id: string, data: { result?: string; satisfaction?: number }) =>
     request.post<ApiResponse<Case>>(`/v1/cases/${id}/close`, data),
+  listFiles: (id: string, params?: { page?: number; pageSize?: number }) =>
+    request.get<ApiResponse<PagedResult<CaseFile>>>(`/v1/cases/${id}/files`, { params }),
+  uploadFile: (id: string, data: { fileName: string; fileType: string; base64: string }) =>
+    request.post<ApiResponse<CaseFile>>(`/v1/cases/${id}/files`, data),
+  downloadFile: (fileId: string) =>
+    request.get<ApiResponse<CaseFileDownload>>(`/v1/files/${fileId}/download`),
+  removeFile: (fileId: string) =>
+    request.delete<ApiResponse<CaseFile>>(`/v1/files/${fileId}`),
 };
 
 export const dashboardApi = {
@@ -74,4 +38,4 @@ export const dashboardApi = {
   alerts: () => request.get<ApiResponse<DashboardAlerts>>('/v1/dashboard/alerts'),
 };
 
-export default { leadApi, customerApi, contractApi, paymentApi, caseApi, dashboardApi };
+export default { caseApi, dashboardApi };
