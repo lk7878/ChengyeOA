@@ -1,4 +1,5 @@
 const AUTHENTICATION_PUBLIC_PATHS = new Set([
+  '/api/v1/harness/verify-ticket',
   '/api/health',
   '/api/v1/auth/login',
   '/api/v1/auth/refresh',

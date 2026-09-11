@@ -83,3 +83,7 @@ last_updated: 2026-07-28
 ## SPEC-INVENTORY-20260911
 
 [物品管理规格](../superpowers/specs/2026-09-11-inventory-management.md)与[实施记录](../superpowers/plans/2026-09-11-inventory-management.md)：定制物品/办公用品、库存、领用、盘点、统计和仪表盘。
+
+## SPEC-AI-INTEGRATION-20260912
+
+[知识库与智慧办案规格](../superpowers/specs/2026-09-12-harness-integration.md)及[实施验收](../superpowers/plans/2026-09-12-harness-integration.md)：律师智慧管理系统 V1.1.0，右上知识库、左栏智慧办案、独立本机连接器、个人 Wiki 与法律 Preset。

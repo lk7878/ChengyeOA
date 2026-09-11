@@ -1,8 +1,10 @@
+import { PRODUCT_NAME, PRODUCT_VERSION, PRODUCT_TITLE } from '@/product';
 import React, { useEffect, useState } from 'react';
 import {
   Layout,
   Menu,
   Avatar,
+  Button,
   Badge,
   Dropdown,
   Breadcrumb,
@@ -73,6 +75,7 @@ const baseMenuItems: NavigationItem[] = [
       { key: '/contracts', icon: <FileTextOutlined />, label: '合同管理', requiredMenu: 'menu.contract' },
     ],
   },
+  { key: '/smart-case', icon: <SafetyCertificateOutlined />, label: '智慧办案', requiredMenu: 'menu.smart_case' },
   { key: '/cases', icon: <FileTextOutlined />, label: '案件管理' },
   { key: 'finance', icon: <DollarOutlined />, label: '财务管理', children: [
   { key: '/payments', icon: <DollarOutlined />, label: '收款管理', requiredMenu: 'menu.payment' },
@@ -155,6 +158,8 @@ const routeNameMap: Record<string, string> = {
   '/contracts': '合同管理',
   '/contracts/new': '新建合同',
   '/cases': '案件管理',
+  '/smart-case': '智慧办案',
+  '/knowledge': '个人知识库',
   '/payments': '收款管理',
   '/invoices': '开票管理',
   '/refunds': '退款减免',
@@ -248,7 +253,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           style={{ position: 'fixed', height: '100vh', left: 0, top: 0, zIndex: 100 }}
         >
           <div className="main-sidebar-title" style={{ fontSize: collapsed ? 16 : 18 }}>
-            {collapsed ? '律所' : '律所管理系统'}
+            {collapsed ? <span title={PRODUCT_TITLE}>律智</span> : <span title={PRODUCT_TITLE}>{PRODUCT_NAME}<small className="main-sidebar-version">V{PRODUCT_VERSION}</small></span>}
           </div>
           <nav className="main-sidebar-menu" aria-label="主导航">{menu}</nav>
           <div className="main-sidebar-credit">百佑智业出品</div>
@@ -262,7 +267,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         size="default"
         styles={{ body: { padding: 0, background: '#001529', display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
       >
-        <div className="main-sidebar-title">律所管理系统</div>
+        <div className="main-sidebar-title"><span>{PRODUCT_NAME}<small className="main-sidebar-version">V{PRODUCT_VERSION}</small></span></div>
         <nav className="main-sidebar-menu" aria-label="主导航">{menu}</nav>
         <div className="main-sidebar-credit">百佑智业出品</div>
       </Drawer>
@@ -276,6 +281,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             <Breadcrumb items={breadcrumbItems} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+            {authorization?.menus.includes('menu.knowledge') && <Button type="link" onClick={() => navigate('/knowledge')}>知识库</Button>}
             <Badge count={0} size="small"><BellOutlined style={{ fontSize: 18, cursor: 'pointer' }} /></Badge>
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

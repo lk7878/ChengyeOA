@@ -70,6 +70,7 @@ export const FIELD_CODES = [
 export type FieldCode = typeof FIELD_CODES[number];
 
 export const PERMISSION_CODES = [
+  'menu.knowledge', 'menu.smart_case',
   'menu.inventory', 'inventory.read', 'inventory.manage', 'inventory.inbound', 'inventory.outbound', 'inventory.stocktake', 'inventory.export',
   'menu.organization_personnel',
   'menu.organization',

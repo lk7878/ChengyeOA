@@ -54,3 +54,6 @@
   text-align: center;
   white-space: nowrap;
 }
+
+.main-sidebar-title { text-align: center; padding: 0 6px; }
+.main-sidebar-version { display: block; font-size: 11px; line-height: 16px; font-weight: normal; opacity: .8; }

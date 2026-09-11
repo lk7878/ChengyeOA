@@ -38,3 +38,5 @@ This directory holds the approved engineering decisions and operator records for
 SPEC-001, SPEC-002, SPEC-003, SPEC-004, SPEC-005, and SEC-SPEC-001 local implementation and acceptance are complete. Remote CI execution, including the independent dependency-security job, and Inno Setup installer compilation remain release gates and are not recorded as passed.
 
 Never commit local environment files, database artifacts, backup files, audit exports, logs, or generated distributions.
+
+本机智能化集成：规格 specs/2026-09-12-harness-integration.md；实施验收 plans/2026-09-12-harness-integration.md。正式产品名称与版本：律师智慧管理系统 V1.1.0。

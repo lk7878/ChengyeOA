@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { expect, test } from 'vitest';
 import MainLayout, { buildMenuItems } from './index';
@@ -62,4 +62,19 @@ test('uses the approved Chinese breadcrumb for event operations', () => {
 
 test('hides organization management from ordinary administrators with the menu code', () => {
   expect(keys(buildMenuItems(['menu.organization_personnel', 'menu.organization']))).not.toContain('/org/tree');
+});
+
+
+test('shows smart case navigation only with its menu permission', () => {
+  expect(keys(buildMenuItems(['menu.smart_case']))).toContain('/smart-case');
+  expect(keys(buildMenuItems([]))).not.toContain('/smart-case');
+});
+
+test('renders the specified product version and a permission-controlled knowledge entry', async () => {
+  useAuthStore.setState({ authorization: { userId:'u1', employeeId:null, isSystemSuperAdmin:false, isSystemAdmin:false, permissions:[], menus:['menu.knowledge'], fieldCapabilities:{}, validUntil:null, evaluatedAt:new Date().toISOString() }, authorizationStatus:'ready' });
+  render(<MemoryRouter><MainLayout><div>内容</div></MainLayout></MemoryRouter>);
+  fireEvent.click(screen.getByRole('img',{name:'menu-unfold'}));
+  expect(await screen.findByText('律师智慧管理系统')).toBeInTheDocument();
+  expect(screen.getByText('V1.1.0')).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:/知识库/})).toBeInTheDocument();
 });

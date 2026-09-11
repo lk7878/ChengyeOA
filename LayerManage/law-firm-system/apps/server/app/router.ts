@@ -6,6 +6,9 @@ import { requireAnyPermission } from './middleware/requireAnyPermission';
 export default (app: Application) => {
   const { router, controller } = app;
 
+  router.post('/api/v1/harness/ticket', controller.harness.ticket);
+  router.post('/api/v1/harness/verify-ticket', controller.harness.verify);
+
   // 健康检查
   router.get('/api/health', controller.home.index);
 

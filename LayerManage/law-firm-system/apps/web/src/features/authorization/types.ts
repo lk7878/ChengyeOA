@@ -1,4 +1,5 @@
 export const PERMISSION_CODES = [
+  'menu.knowledge', 'menu.smart_case',
   'menu.inventory', 'inventory.read', 'inventory.manage', 'inventory.inbound', 'inventory.outbound', 'inventory.stocktake', 'inventory.export',
   'menu.organization_personnel', 'menu.organization', 'menu.position', 'menu.employee',
   'menu.professional_team', 'menu.security_my_access', 'menu.security_roles',

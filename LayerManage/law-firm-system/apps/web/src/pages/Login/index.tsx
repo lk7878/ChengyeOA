@@ -1,3 +1,4 @@
+import { PRODUCT_TITLE } from '@/product';
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Alert, Button, Card, Form, Input, message, Spin } from 'antd';
@@ -83,7 +84,7 @@ export default function Login() {
     <div style={pageStyle}>
       <Spin spinning={loading}>
         <Card
-          title={<h2 style={{ textAlign: 'center', margin: 0 }}>律所管理系统</h2>}
+          title={<h2 style={{ textAlign: 'center', margin: 0 }}>{PRODUCT_TITLE}</h2>}
           style={{ width: 'min(400px, calc(100vw - 32px))', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
         >
           {challengeContent ?? (
