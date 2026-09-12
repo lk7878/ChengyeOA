@@ -3,7 +3,7 @@ id: README
 title: 承业OA需求Spec总纲
 type: index
 status: approved
-last_updated: 2026-07-28
+last_updated: 2026-09-13
 ---
 
 # 承业OA需求Spec总纲
@@ -34,6 +34,10 @@ flowchart LR
   L --> M[客户回访/转介绍/品牌素材]
   M --> A
 ```
+
+### 1.1 智能化桌面方案（已确认、待实施）
+
+2026-09-13 确认 [SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md)，目标 V1.3.0。统一桌面客户端连接云端 OA 业务服务，并运行本地原生 Harness；OA 业务云端校验后生效，本地仅保留缓存与草稿；个人办案目录和会话不自动同步；Wiki 在云端由管理员维护，律师及助手只读调用。Wiki OCR 由管理员在云端使用，个人办案识别通过在线视觉模型 API。选定成果经用户确认后可提交至有权限的 OA 案件档案。具体边界、替代关系与待执行验收见该规格，历史版本验收不代表本方案已实现。
 
 ## 2. 组织模型
 

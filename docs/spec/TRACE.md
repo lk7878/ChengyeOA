@@ -4,7 +4,7 @@ title: 模块级追溯矩阵
 type: meta-spec
 status: approved
 created: 2026-07-28
-last_updated: 2026-07-28
+last_updated: 2026-09-13
 ---
 
 # 模块级追溯矩阵（TRACE）
@@ -32,9 +32,9 @@ last_updated: 2026-07-28
 | MOD-005 | 客户主数据 | 页面与接口清单 | SPEC-009(部分,已验收2026-07-30) | ⚠️部分落地 |
 | MOD-006 | 合同财务 | SPEC-010设计(已批准2026-07-30) | SPEC-010(立项,待实施;CON-01~07+FIN-01) | 📋有设计无SPEC |
 | MOD-007 | 专业团队SOP | 三大团队SOP字段清单 | — | ⚠️有代码无SPEC |
-| MOD-008 | 案件交付质控 | 三大团队SOP字段清单 | — | ⚠️有代码无SPEC |
+| MOD-008 | 案件交付质控 | 三大团队SOP字段清单 | 原模块待补；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md) 已批准、未落地 | ⚠️原功能待补；⬜MAT-04B 待开发 |
 | MOD-009 | 满意度转介绍 | — | — | ⬜待开发 |
-| MOD-010 | AI录音文件 | 文件录音AI任务设计 | — | 📋有设计无SPEC |
+| MOD-010 | AI录音文件 | 文件录音AI任务设计 | SPEC-AI-DECOUPLED/AI-UI 历史已实施；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md) 已批准、未落地 | 📋录音专项待开发；⬜AI-08～10 桌面增量待开发 |
 | MOD-011 | 组织人事 | 数据库核心表设计 | SPEC-003(部分) | ⚠️有代码无SPEC |
 | MOD-012 | 驾驶舱 | — | — | ⚠️有代码无SPEC |
 | MOD-013 | 自动化审批审计 | 审计自动化/审批消息回调 | SPEC-007(部分) | ⚠️有代码无SPEC |
@@ -95,3 +95,7 @@ last_updated: 2026-07-28
 ## SPEC-AI-UI-20260912（V1.2.1）
 
 [智慧办案原生 UI 规格](../superpowers/specs/2026-09-12-smart-case-native-ui.md)：右上角单一入口、Harness 原生组件、全局浮动工作台及跨路由会话保留。[实施验收](../superpowers/plans/2026-09-12-smart-case-native-ui.md)。
+
+## SPEC-AI-DESKTOP-20260913（V1.3.0 目标，已批准、待实施）
+
+[统一桌面客户端与本地 Harness](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md)：云端 OA/Wiki、本机原生 Harness、OA 草稿提交与云端校验、个人办案数据不自动同步、Wiki OCR 与个人在线视觉 API 分工、主动提交成果至案件档案。对应 MOD-010 AI-08～10、MOD-008 MAT-04B。替代上述 V1.2.0/V1.2.1 中冲突的浏览器办案与云端办案引擎契约，保留历史验收。此次仅文档确认，未修改运行版本、应用代码或部署；实施验收待后续开展。
