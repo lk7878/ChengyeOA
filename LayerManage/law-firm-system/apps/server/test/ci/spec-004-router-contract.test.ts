@@ -73,8 +73,9 @@ const protectedRoutes = [
 test('registers every SPEC-004 authorization route with explicit permission metadata', () => {
   for (const [method, route, permission] of protectedRoutes) {
     const escapedRoute = route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const organizationGate = route.startsWith('/api/v1/organizations') ? 'requireOrganizationSuperAdmin,\\s*' : '';
     const pattern = new RegExp(
-      `router\\.${method}\\(\\s*['"]${escapedRoute}['"]\\s*,\\s*requirePermission\\(['"]${permission}['"]\\)`,
+      `router\\.${method}\\(\\s*['"]${escapedRoute}['"]\\s*,\\s*${organizationGate}requirePermission\\(['"]${permission}['"]\\)`,
     );
     assert.match(routerSource, pattern, `${method.toUpperCase()} ${route} must require ${permission}`);
   }

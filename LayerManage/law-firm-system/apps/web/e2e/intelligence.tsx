@@ -1,0 +1,9 @@
+import { createRoot } from 'react-dom/client';
+import { MemoryRouter, Routes, Route } from 'react-router';
+import ChineseConfig from '../src/components/ChineseConfig';
+import MainLayout from '../src/components/Layout';
+import IntelligencePage from '../src/pages/Intelligence';
+import { useAuthStore } from '../src/stores/authStore';
+const query = new URLSearchParams(location.search);
+useAuthStore.setState({ userInfo: { id: 'intelligence-browser-test', username: 'test', name: '测试律师' }, authorization: { userId: 'intelligence-browser-test', employeeId: null, isSystemSuperAdmin: query.has('admin'), isSystemAdmin: false, permissions: [], menus: ['menu.knowledge', 'menu.smart_case'], fieldCapabilities: {}, evaluatedAt: new Date().toISOString(), validUntil: null }, authorizationStatus: 'ready' });
+createRoot(document.getElementById('root')!).render(<ChineseConfig><MemoryRouter initialEntries={[query.has('case') ? '/smart-case' : '/knowledge']}><MainLayout><Routes><Route path="/smart-case" element={<IntelligencePage feature="smart-case" />} /><Route path="/knowledge" element={<IntelligencePage feature="knowledge" />} /></Routes></MainLayout></MemoryRouter></ChineseConfig>);

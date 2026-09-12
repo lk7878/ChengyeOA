@@ -7,7 +7,7 @@
     "typescript": true
   },
   "scripts": {
-    "start": "egg-scripts start --daemon --title=law-firm-server",
+    "start": "egg-scripts start dist --daemon --workers=1 --title=law-firm-server",
     "stop": "egg-scripts stop --title=law-firm-server",
     "dev": "egg-bin dev",
     "debug": "egg-bin debug",

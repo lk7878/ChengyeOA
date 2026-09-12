@@ -138,11 +138,6 @@ function assertTrustRootProtected(response: { body: Record<string, unknown> }): 
   assert.equal(response.body.message, 'TRUST_ROOT_PROTECTED');
 }
 
-function assertPrivilegeEscalationBlocked(response: { body: Record<string, unknown> }): void {
-  assert.equal(response.body.code, 403);
-  assert.equal(response.body.message, 'PRIVILEGE_ESCALATION_BLOCKED');
-}
-
 function assertNoPasswordProperty(value: unknown): void {
   if (!value || typeof value !== 'object') return;
   assert.equal(Object.prototype.hasOwnProperty.call(value, 'password'), false);
@@ -253,7 +248,7 @@ test('cannot grant a role to the current first super-admin through self-modifica
     })
     .expect(403);
 
-  assertPrivilegeEscalationBlocked(response);
+  assert.equal(response.body.message, 'PERMISSION_DENIED');
   assert.equal(await prisma.userRole.count({ where: { userId: superAdminUserId, roleId: superAdminRoleId } }), 1);
   assert.equal(await prisma.userRole.count({ where: { userId: superAdminUserId, roleId: businessRole.id } }), 0);
 });
@@ -325,15 +320,17 @@ test('cannot grant SYSTEM_SUPER_ADMIN through the role-grant endpoint', async ()
     })
     .expect(403);
 
-  assertPrivilegeEscalationBlocked(response);
+  assert.equal(response.body.message, 'PERMISSION_DENIED');
   assert.equal(await prisma.userRole.count({ where: { userId: user.id } }), 0);
 });
 
-test('exposes no physical organization delete and protects root disable while allowing rename', async () => {
-  await app.httpRequest()
+test('protects the root from physical deletion and disable while allowing rename', async () => {
+  const deletion = await app.httpRequest()
     .delete(`/api/v1/organizations/${rootOrganizationId}`)
     .set('Authorization', bearer)
-    .expect(404);
+    .send({ version: 1 })
+    .expect(409);
+  assertTrustRootProtected(deletion);
   assert.ok(await prisma.organization.findUnique({ where: { id: rootOrganizationId } }));
 
   const updateResponse = await app.httpRequest()

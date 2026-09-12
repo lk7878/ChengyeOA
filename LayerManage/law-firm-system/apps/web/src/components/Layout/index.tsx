@@ -159,7 +159,7 @@ const routeNameMap: Record<string, string> = {
   '/contracts/new': '新建合同',
   '/cases': '案件管理',
   '/smart-case': '智慧办案',
-  '/knowledge': '个人知识库',
+  '/knowledge': '云端知识库',
   '/payments': '收款管理',
   '/invoices': '开票管理',
   '/refunds': '退款减免',

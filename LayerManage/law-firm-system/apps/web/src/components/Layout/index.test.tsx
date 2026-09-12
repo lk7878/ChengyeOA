@@ -75,6 +75,6 @@ test('renders the specified product version and a permission-controlled knowledg
   render(<MemoryRouter><MainLayout><div>内容</div></MainLayout></MemoryRouter>);
   fireEvent.click(screen.getByRole('img',{name:'menu-unfold'}));
   expect(await screen.findByText('律师智慧管理系统')).toBeInTheDocument();
-  expect(screen.getByText('V1.1.0')).toBeInTheDocument();
+  expect(screen.getByText('V1.2.0')).toBeInTheDocument();
   expect(screen.getByRole('button',{name:/知识库/})).toBeInTheDocument();
 });

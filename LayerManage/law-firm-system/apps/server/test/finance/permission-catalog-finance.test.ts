@@ -93,8 +93,8 @@ test('PERMISSION_CODES registers every SPEC-011 finance permission code', () => 
   }
 });
 
-test('PERMISSION_CODES total is 132 (129 前 SPEC-037 基线 + 3 SPEC-037 performance; refund.approve untouched)', () => {
-  assert.equal(PERMISSION_CODES.length, 135);
+test('PERMISSION_CODES matches the V1.2 catalog baseline (144)', () => {
+  assert.equal(PERMISSION_CODES.length, 144);
   assert.equal(new Set(PERMISSION_CODES).size, PERMISSION_CODES.length);
 });
 

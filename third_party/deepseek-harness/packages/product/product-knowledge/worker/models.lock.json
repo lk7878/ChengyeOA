@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "source": "PaddleX official BOS model host",
+  "models": [
+    { "name": "PP-DocBlockLayout", "bytes": 129924055, "weightsSha256": "0ab733dcabfee41517b68b37fde4c696129b88096a93f8b9d8feaa43c27c8942" },
+    { "name": "PP-DocLayout_plus-L", "bytes": 130391437, "weightsSha256": "24ca3e2e442164505e250deef59f7ee9a54ea12dd32875c9cd6155d959dc97da" },
+    { "name": "PP-FormulaNet_plus-L", "bytes": 731493173, "weightsSha256": "4245c39c181d1d21e472bc85c7434df9b23f177be46552c0542bf153addbc355" },
+    { "name": "PP-LCNet_x1_0_table_cls", "bytes": 6849121, "weightsSha256": "d0224afd9cfddf22da17407c6c78491baaa1f25922fbb312c9b0d2037c802db0" },
+    { "name": "PP-OCRv5_server_det", "bytes": 88336270, "weightsSha256": "183146fe9d9910352f68482f623bcbbb9fa7b9e8fa1463b9ad288cef00524d2d" },
+    { "name": "PP-OCRv5_server_rec", "bytes": 84863666, "weightsSha256": "63853f062a5f4089befc16f565a68277618e0da5cb45468b49d11079de0ada77" },
+    { "name": "RT-DETR-L_wired_table_cell_det", "bytes": 129924066, "weightsSha256": "357321c2845f0a035e8d118622649685a3cdb89d28b09a64e45a5a3df7a9fedc" },
+    { "name": "RT-DETR-L_wireless_table_cell_det", "bytes": 129924069, "weightsSha256": "c0f8c9ea07be8916ece73a8acf807bd21aed3ef11969b319c2dccb2406774c34" },
+    { "name": "SLANet_plus", "bytes": 7984210, "weightsSha256": "012986b0e2bfe90410618bfb4b7cf4fcb6c978caefd84c63c2934f8387b09ab8" },
+    { "name": "SLANeXt_wired", "bytes": 365732881, "weightsSha256": "ff0362a30f707fa7d27d8453c4396b992fca287377a42d01515bca6eeb3908f5" }
+  ]
+}

@@ -1,4 +1,4 @@
-import HarnessPage from './pages/Harness';
+import IntelligencePage from './pages/Intelligence';
 import ChineseConfig from './components/ChineseConfig';
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router';
@@ -153,8 +153,8 @@ function SessionBootstrap() {
         <Route path="/security/account" element={<WithLayout><SecuritySettingsPage /></WithLayout>} />
         <Route path="/channels" element={<WithLayout><ChannelPage /></WithLayout>} />
         <Route path="/approval-ledger" element={<AuthorizedPage permission="approval.read"><ApprovalLedger /></AuthorizedPage>} />
-        <Route path="/knowledge" element={<AuthorizedPage permission="menu.knowledge"><HarnessPage key="knowledge" feature="knowledge" /></AuthorizedPage>} />
-        <Route path="/smart-case" element={<AuthorizedPage permission="menu.smart_case"><HarnessPage key="smart-case" feature="smart-case" /></AuthorizedPage>} />
+        <Route path="/knowledge" element={<AuthorizedPage permission="menu.knowledge"><IntelligencePage key="knowledge" feature="knowledge" /></AuthorizedPage>} />
+        <Route path="/smart-case" element={<AuthorizedPage permission="menu.smart_case"><IntelligencePage key="smart-case" feature="smart-case" /></AuthorizedPage>} />
         <Route path="/inventory/*" element={<AuthorizedPage permission="menu.inventory"><InventoryPage /></AuthorizedPage>} />
         <Route path="/finance" element={<WithLayout><FinanceWorkspace /></WithLayout>} />
         <Route path="/approvals" element={<AuthorizedPage permission="approval.read"><ApprovalCenterPage /></AuthorizedPage>} />

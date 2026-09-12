@@ -13,7 +13,7 @@ test('adds exactly one additive event worker runtime status migration', () => {
   const migrationDirectories = fs.readdirSync(migrationsRoot, { withFileTypes: true })
     .filter(entry => entry.isDirectory());
 
-  assert.equal(migrationDirectories.length, 34);
+  assert.equal(migrationDirectories.length, 42);
   assert.ok(migrationDirectories.some(entry => entry.name === migrationName));
   assert.equal([...sql.matchAll(/CREATE\s+TABLE\b/gi)].length, 1);
   assert.match(sql, /CREATE\s+TABLE\s+"event_worker_runtime_status"/i);

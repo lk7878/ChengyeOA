@@ -37,3 +37,7 @@
 
 # Machine-specific Harness connector settings
 /LayerManage/law-firm-system/integrations/harness/config.local.json
+
+# Generated standalone intelligence browser assets
+/LayerManage/law-firm-system/apps/web/public/intelligence/
+/LayerManage/law-firm-system/var/intelligence*/

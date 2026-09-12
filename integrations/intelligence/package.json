@@ -1,0 +1,29 @@
+{
+  "name": "@chengyeoa/intelligence-adapters",
+  "private": true,
+  "version": "1.2.0",
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/build.mjs --install",
+    "build": "node scripts/build.mjs",
+    "test": "node tests/cloud-knowledge.mjs && node tests/workspace-runtime.mjs",
+    "verify:source": "node scripts/verify-source.mjs",
+    "build:knowledge-view": "node scripts/build-knowledge-view.mjs"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.3.0",
+    "@sqlite.org/sqlite-wasm": "3.53.4-build1",
+    "buffer": "6.0.3",
+    "fflate": "0.8.3",
+    "path-browserify": "1.0.1",
+    "pdfjs-dist": "5.4.296",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
+  }
+}

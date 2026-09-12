@@ -1,0 +1,21 @@
+diff --git a/scripts/gen-cordis-catalog.ts b/scripts/gen-cordis-catalog.ts
+--- a/scripts/gen-cordis-catalog.ts
++++ b/scripts/gen-cordis-catalog.ts
+@@ -297,1 +297,17 @@
++  KnowledgeCompilationValue: 'product-knowledge.md',
++  KnowledgeCompileRequest: 'product-knowledge.md',
++  KnowledgeCompilerSettings: 'product-knowledge.md',
++  KnowledgeCompilerSettingsValue: 'product-knowledge.md',
++  KnowledgeConversationPage: 'product-knowledge.md',
++  KnowledgeConversationRequest: 'product-knowledge.md',
++  KnowledgeEvidenceValue: 'product-knowledge.md',
++  KnowledgeGapReviewRequest: 'product-knowledge.md',
++  KnowledgeModelEvaluationReport: 'product-knowledge.md',
++  KnowledgeQueueRequest: 'product-knowledge.md',
++  KnowledgeQueueValue: 'product-knowledge.md',
++  KnowledgeSaveTopicRequest: 'product-knowledge.md',
++  KnowledgeSemanticIndexRequest: 'product-knowledge.md',
++  KnowledgeSemanticIndexValue: 'product-knowledge.md',
++  KnowledgeTopic: 'product-knowledge.md',
++  KnowledgeTopicRequest: 'product-knowledge.md',
+   KnowledgeAskRequest: 'product-knowledge.md',

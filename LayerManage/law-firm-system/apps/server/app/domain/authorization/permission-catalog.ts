@@ -32,7 +32,7 @@ function permission(
 }
 
 export const PERMISSION_CATALOG = Object.freeze([
-  permission('menu.knowledge', '个人知识库', 'MENU', 'menu', 'view', 'LOW', '/knowledge'),
+  permission('menu.knowledge', '云端知识库', 'MENU', 'menu', 'view', 'LOW', '/knowledge'),
   permission('menu.smart_case', '智慧办案', 'MENU', 'menu', 'view', 'LOW', '/smart-case'),
   permission('menu.inventory', '物品管理', 'MENU', 'menu', 'view', 'LOW', '/inventory'),
   permission('inventory.read', '查看物品及库存台账', 'ACTION', 'inventory', 'read', 'LOW'),

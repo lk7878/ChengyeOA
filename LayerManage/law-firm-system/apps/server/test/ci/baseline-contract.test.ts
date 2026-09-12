@@ -25,7 +25,7 @@ function createProjectFixture() {
     '  id String @id',
     '  assignments EmployeeAssignment[]',
     '}',
-    ...Array.from({ length: 60 }, (_, index) => `model ContractModel${index + 1} { id String @id }`),
+    ...Array.from({ length: 67 }, (_, index) => `model ContractModel${index + 1} { id String @id }`),
   ].join('\n'));
   fs.writeFileSync(path.join(serverRoot, 'server-entry.js'), '');
   fs.writeFileSync(path.join(serverRoot, 'scripts', 'build-pkg.js'), '');
@@ -59,9 +59,9 @@ test('reports a non-canonical model count and direct employee ownership fields',
   ].join('\n'));
 
   assert.deepEqual(checkBaselineContract(fixture.projectRoot), [
-    'canonical Prisma model count is 1; expected 61',
+    'canonical Prisma model count is 1; expected 68',
     'Employee retains direct organization ownership fields',
-    'canonical Prisma migration count is 0; expected 34',
+    'canonical Prisma migration count is 0; expected 42',
   ]);
 });
 
@@ -74,7 +74,7 @@ test('reports a duplicate Prisma schema and root seed command', (t) => {
 
   assert.deepEqual(checkBaselineContract(fixture.projectRoot), [
     'duplicate root Prisma schema exists',
-    'canonical Prisma migration count is 0; expected 34',
+    'canonical Prisma migration count is 0; expected 42',
     'seed command exists',
   ]);
 });
@@ -86,7 +86,7 @@ test('reports generic seed scripts and server db:seed commands', (t) => {
   fs.writeFileSync(path.join(fixture.serverRoot, 'package.json'), JSON.stringify({ scripts: { 'db:seed': 'tsx scripts/seed.ts' } }));
 
   assert.deepEqual(checkBaselineContract(fixture.projectRoot), [
-    'canonical Prisma migration count is 0; expected 34',
+    'canonical Prisma migration count is 0; expected 42',
     'generic seed script exists',
     'db:seed command exists',
   ]);
@@ -105,7 +105,7 @@ test('reports package-level Prisma seed configuration in root and server manifes
   }));
 
   assert.deepEqual(checkBaselineContract(fixture.projectRoot), [
-    'canonical Prisma migration count is 0; expected 34',
+    'canonical Prisma migration count is 0; expected 42',
     'root Prisma seed configuration exists',
     'server Prisma seed configuration exists',
   ]);
@@ -118,7 +118,7 @@ test('reports forbidden database fallback in server configuration', (t) => {
   fs.writeFileSync(path.join(fixture.serverRoot, 'config', 'config.default.ts'), "const databaseUrl = 'file:./law_firm.db';");
 
   assert.deepEqual(checkBaselineContract(fixture.projectRoot), [
-    'canonical Prisma migration count is 0; expected 34',
+    'canonical Prisma migration count is 0; expected 42',
     'forbidden runtime pattern: file:',
     'forbidden runtime pattern: law_firm\\.db',
   ]);
@@ -133,7 +133,7 @@ test('reports active SQLite runtime guidance in API documentation', (t) => {
   ].join('\n'));
 
   assert.deepEqual(checkBaselineContract(fixture.projectRoot), [
-    'canonical Prisma migration count is 0; expected 34',
+    'canonical Prisma migration count is 0; expected 42',
     'active SQLite runtime documentation exists: docs/api-spec.md',
   ]);
 });
@@ -144,7 +144,7 @@ test('reports the correct Chinese seed-data phrase in runtime sources', (t) => {
   fs.writeFileSync(path.join(fixture.serverRoot, 'server-entry.js'), '启动时写入种子数据');
 
   assert.deepEqual(checkBaselineContract(fixture.projectRoot), [
-    'canonical Prisma migration count is 0; expected 34',
+    'canonical Prisma migration count is 0; expected 42',
     'forbidden runtime pattern: 种子数据',
   ]);
 });

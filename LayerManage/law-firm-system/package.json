@@ -6,7 +6,9 @@
   "scripts": {
     "dev:server": "cd apps/server && npm run dev",
     "dev:web": "cd apps/web && npm run dev",
-    "build:web": "cd apps/web && npm run build",
+    "build:intelligence": "node ../../integrations/intelligence/scripts/build.mjs",
+    "setup:intelligence": "node ../../integrations/intelligence/scripts/build.mjs --install",
+    "build:web": "npm run build:intelligence && cd apps/web && npm run build",
     "build:server": "cd apps/server && npm run build",
     "pkg": "npm --prefix apps/server run pkg",
     "package": "npm run pkg",

@@ -87,3 +87,7 @@ last_updated: 2026-07-28
 ## SPEC-AI-INTEGRATION-20260912
 
 [知识库与智慧办案规格](../superpowers/specs/2026-09-12-harness-integration.md)及[实施验收](../superpowers/plans/2026-09-12-harness-integration.md)：律师智慧管理系统 V1.1.0，右上知识库、左栏智慧办案、独立本机连接器、个人 Wiki 与法律 Preset。
+
+## SPEC-AI-DECOUPLED-20260912（替代架构，已实施）
+
+[内置源码与独立模块规格](../superpowers/specs/2026-09-12-harness-decoupled.md)替代 V1.1.0 外部连接器方案；版本 V1.2.0，云端管理员 Wiki、浏览器个人办案工作区、独立 Harness 源码和无新增 HTTP 端口运行。[验收记录](../../integrations/intelligence/VERIFICATION.md)，原历史验收保留。

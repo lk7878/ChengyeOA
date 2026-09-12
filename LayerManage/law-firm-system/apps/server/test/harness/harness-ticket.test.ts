@@ -51,9 +51,8 @@ test('disabled accounts cannot redeem an issued ticket',async()=>{
   await assert.rejects(service.verify({ticket,challenge,feature:'knowledge'}));
 });
 
-test('HTTP endpoints require OA login to issue, and accept only a valid scoped ticket for verification',async()=>{
+test('V1.2 retires connector HTTP endpoints and removes public ticket verification',async()=>{
   await app.httpRequest().post('/api/v1/harness/ticket').send({feature:'knowledge',challenge}).expect(401);
-  const result=await app.httpRequest().post('/api/v1/harness/ticket').set({Authorization:'Bearer '+token}).send({feature:'knowledge',challenge}).expect(200);
-  await app.httpRequest().post('/api/v1/harness/verify-ticket').send({ticket:result.body.data.ticket,feature:'knowledge',challenge}).expect(200);
+  await app.httpRequest().post('/api/v1/harness/ticket').set({Authorization:'Bearer '+token}).send({feature:'knowledge',challenge}).expect(404);
   await app.httpRequest().post('/api/v1/harness/verify-ticket').send({ticket:'invalid',feature:'knowledge',challenge}).expect(401);
 });

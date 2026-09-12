@@ -1,0 +1,16 @@
+- insert:
+    - id: product-knowledge
+      name: '@deepseek-ai/dsh-product-knowledge'
+      config:
+        ocrEnabled: true
+        ocrPythonPath: '../.runtime/paddleocr/Scripts/python.exe'
+        ocrModelCachePath: '../.runtime/paddleocr-models'
+        ocrDevice: cpu
+        ocrTimeoutMs: 300000
+        ocrNativeMinCharsPerPage: 32
+        ocrRenderWidth: 1200
+        ocrMaxPdfPages: 200
+        spreadsheetMaxSheets: 64
+        spreadsheetMaxRows: 100000
+        spreadsheetMaxColumns: 256
+        retrievalMode: lexical

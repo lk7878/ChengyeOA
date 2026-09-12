@@ -1,0 +1,3 @@
+# Application-managed Windows CPU environment for F003.
+paddlepaddle==3.3.1
+paddleocr[doc-parser]==3.7.0

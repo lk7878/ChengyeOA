@@ -180,8 +180,8 @@ test('PERMISSION_CODES registers every SPEC-013 approval permission code', () =>
   }
 });
 
-test('PERMISSION_CODES total is 122 (118 SPEC-011 total + 3 SPEC-013 approval + 1 SPEC-017 approval.manage; refund.approve untouched)', () => {
-  assert.equal(PERMISSION_CODES.length, 135);
+test('PERMISSION_CODES matches the V1.2 catalog baseline (144)', () => {
+  assert.equal(PERMISSION_CODES.length, 144);
   assert.equal(new Set(PERMISSION_CODES).size, PERMISSION_CODES.length);
 });
 

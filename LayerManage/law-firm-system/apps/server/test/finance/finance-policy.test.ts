@@ -60,8 +60,8 @@ test('REFUND_REQUEST_STATUSES exports the refund request status vocabulary in or
   assert.deepEqual([...REFUND_REQUEST_STATUSES], ['PENDING', 'APPROVED', 'REJECTED', 'EXECUTED']);
 });
 
-test('COST_CATEGORIES exports the design §5.3 cost category vocabulary in order', () => {
-  assert.deepEqual([...COST_CATEGORIES], ['CHANNEL', 'EVIDENCE', 'CASE_HANDLING', 'LABOR', 'OFFICE']);
+test('COST_CATEGORIES includes the approved reimbursement synchronization category', () => {
+  assert.deepEqual([...COST_CATEGORIES], ['CHANNEL', 'EVIDENCE', 'CASE_HANDLING', 'LABOR', 'OFFICE', 'REIMBURSEMENT']);
 });
 
 // ===== InvoiceRequest 状态机：合法边 =====
