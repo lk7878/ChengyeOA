@@ -91,3 +91,7 @@ last_updated: 2026-07-28
 ## SPEC-AI-DECOUPLED-20260912（替代架构，已实施）
 
 [内置源码与独立模块规格](../superpowers/specs/2026-09-12-harness-decoupled.md)替代 V1.1.0 外部连接器方案；版本 V1.2.0，云端管理员 Wiki、浏览器个人办案工作区、独立 Harness 源码和无新增 HTTP 端口运行。[验收记录](../../integrations/intelligence/VERIFICATION.md)，原历史验收保留。
+
+## SPEC-AI-UI-20260912（V1.2.1）
+
+[智慧办案原生 UI 规格](../superpowers/specs/2026-09-12-smart-case-native-ui.md)：右上角单一入口、Harness 原生组件、全局浮动工作台及跨路由会话保留。[实施验收](../superpowers/plans/2026-09-12-smart-case-native-ui.md)。

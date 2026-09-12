@@ -40,6 +40,7 @@ import { useLocation, useNavigate, Link } from 'react-router';
 import type { MenuPermissionCode, PermissionCode } from '@/features/authorization/types';
 import { useAuthStore } from '@/stores/authStore';
 import './sidebar.css';
+import { useCaseWindow } from '@/features/intelligence/window-store';
 
 const { Header: AntHeader, Sider, Content } = Layout;
 
@@ -75,7 +76,6 @@ const baseMenuItems: NavigationItem[] = [
       { key: '/contracts', icon: <FileTextOutlined />, label: '合同管理', requiredMenu: 'menu.contract' },
     ],
   },
-  { key: '/smart-case', icon: <SafetyCertificateOutlined />, label: '智慧办案', requiredMenu: 'menu.smart_case' },
   { key: '/cases', icon: <FileTextOutlined />, label: '案件管理' },
   { key: 'finance', icon: <DollarOutlined />, label: '财务管理', children: [
   { key: '/payments', icon: <DollarOutlined />, label: '收款管理', requiredMenu: 'menu.payment' },
@@ -278,10 +278,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               style: { fontSize: 18, cursor: 'pointer' },
               onClick: () => isMobile ? setMobileMenuOpen(true) : setCollapsed(!collapsed),
             })}
-            <Breadcrumb items={breadcrumbItems} />
+            <Breadcrumb items={breadcrumbItems} style={{ display: isMobile ? 'none' : undefined }} />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 20 }}>
             {authorization?.menus.includes('menu.knowledge') && <Button type="link" onClick={() => navigate('/knowledge')}>知识库</Button>}
+            {authorization?.menus.includes('menu.smart_case') && <Button type="link" data-smart-case-launcher onClick={() => useCaseWindow.getState().show()}>智慧办案</Button>}
             <Badge count={0} size="small"><BellOutlined style={{ fontSize: 18, cursor: 'pointer' }} /></Badge>
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

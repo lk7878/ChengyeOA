@@ -1,6 +1,6 @@
 # OA 智能化适配项目
 
-目标版本 V1.2.0，依据 [替代 Spec](../../docs/superpowers/specs/2026-09-12-harness-decoupled.md)。本目录集中维护知识库独立视图、办案接口、无端口运行适配，以及源码/构建检查脚本。上游实现位于 ../../third_party/deepseek-harness，OA 业务代码位于 ../../LayerManage/law-firm-system。三者职责分开，随 OA 一起交付。
+当前版本 V1.2.1，界面增量见 [原生浮动工作台 Spec](../../docs/superpowers/specs/2026-09-12-smart-case-native-ui.md)，数据与运行边界依据 [替代 Spec](../../docs/superpowers/specs/2026-09-12-harness-decoupled.md)。本目录集中维护知识库独立视图、办案接口、无端口运行适配，以及源码/构建检查脚本。上游实现位于 ../../third_party/deepseek-harness，OA 业务代码位于 ../../LayerManage/law-firm-system。三者职责分开，随 OA 一起交付。
 
 OA、Wiki、OCR 均在云端，系统管理员维护和编译 Wiki，律师只查询使用；办案材料和工作成果通过浏览器保存在律师电脑本地，不安装额外服务。V1.1 的连接器 HTTP 入口已停用，历史源码和原个人数据保留，正式产品不再要求本机连接器。此前浏览器 Wiki 验证保留在 probes 中，不进入产品构建。
 
@@ -62,3 +62,11 @@ node integrations/intelligence/tests/browser-ui.mjs
 ```
 
 第一组运行实际原生 Wiki、OPFS、标准 Profile/IPC、会话恢复、脚本化本地 TLS 模型与工具审批回归；需要 Edge（测试脚本可换浏览器渠道）和 OpenSSL。第二组需要 OA Vite 开发服务，复用真实智能服务、隔离测试数据，只替换 OA 登录上下文；真实认证/权限 HTTP 回归在 OA 后端 `test/harness/intelligence-http.test.ts`。不把脚本化模型测试等同于真实法律答案质量验证。
+
+## V1.2.1 原生浮动工作台
+
+OA 右上角“智慧办案”紧邻“知识库”，只向具备 menu.smart_case 的用户显示；OA 左栏不再重复设置入口。旧 /smart-case 链接保留为唤起入口。浮动工作台支持移动、缩放、最小化、最大化，切换 OA 页面不重建会话；最小化后点击右上角入口恢复。明确关闭、退出账号或失去权限时结束连接，已保存材料仍留在 OPFS。
+
+case-view 直接复用快照的 AppFrame、SidebarRoot、ConversationRoot、InputBar、UserMessageNodeView、AssistantMarkdown、ApprovalPanel、QuestionComposer 及其主题和中文词典。NativeComposer 只提供现有 OA 会话与本机草稿的数据接口，保留原生 Lexical 编辑器和中文输入法保护。portal.ts 将原生弹层定向到当前独立 ShadowRoot；构建时将主题 body/:root 选择器映射到 :host，不修改上游源码或向 OA 全局注入样式。
+
+本机材料、知识库引用与备份仍由适配器维护。窄窗口将材料面板呈现为对话框，避免原生布局收起右栏后无法操作。插件运行上下文不显示为律师消息；原生事件记录和模型可见内容未变。界面运行与数据架构的版本独立，本次没有改变服务端 IPC 协议或数据库格式。

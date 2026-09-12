@@ -1,5 +1,9 @@
 # Harness 快照适配记录
 
+## V1.2.1 原生浮动工作台
+
+依据 SPEC-AI-UI-20260912，未修改上游源码。case-view 直接组合原生布局、侧栏、对话、Lexical 输入、Markdown、审批与问题组件；浏览器构建将主题选择器映射到 ShadowRoot，portal.ts 将 body 弹层定位到该根。OA CaseWorkbench 只负责窗口与权限生命周期，个人数据通道继续由 useCaseWorkspace 维护。
+
 初始快照依据 third_party/deepseek-harness.source.json，源项目保持只读。当前导入阶段没有修改快照内源码；OA 专用代码位于 integrations/intelligence。
 
 后续任何上游快照内修订必须记录原文件、原因、Spec、验证与升级处理方式，不把构建产物或个人配置视为源码补丁。

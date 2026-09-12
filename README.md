@@ -1,4 +1,4 @@
-# 律师智慧管理系统 V1.2.0
+# 律师智慧管理系统 V1.2.1
 
 本仓库遵循 Spec 驱动开发，规格索引见 [docs/spec/TRACE.md](docs/spec/TRACE.md)。
 
@@ -9,3 +9,5 @@
 知识库在云端由管理员维护；律师仅通过 Web 使用。办案材料、会话和成果通过浏览器保存在律师电脑，无需安装客户端服务。管理员部署、模型/OCR 配置、备份及迁移说明见 [智能化适配说明](integrations/intelligence/README.md)。
 
 当前智能化规格：[SPEC-AI-DECOUPLED-20260912](docs/superpowers/specs/2026-09-12-harness-decoupled.md)。历史 V1.1 外部连接器方案已被替代，历史代码与个人数据仍保留。
+
+智慧办案从右上角（知识库旁）打开原生浮动工作台，可最小化、最大化并在 OA 页面间保持会话。界面规格见 [SPEC-AI-UI-20260912](docs/superpowers/specs/2026-09-12-smart-case-native-ui.md)。

@@ -13,8 +13,10 @@ type ViewModule = {
   mountKnowledge(container: HTMLElement, service: { call: typeof knowledgeCall }, close: () => void, readOnly: boolean): () => void;
   mountCase(container: HTMLElement, userId: string, adapterApi: typeof api): () => void;
 };
-export default function IntelligencePage({ feature }: { feature: 'knowledge' | 'smart-case' }) {
+export default function IntelligencePage({ feature, embedded = false }: { feature: 'knowledge' | 'smart-case'; embedded?: boolean }) {
   const element = useRef<HTMLDivElement>(null); const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  useEffect(() => { navigateRef.current = navigate; }, [navigate]);
   const userId = useAuthStore(state => state.userInfo?.id);
   const admin = useAuthStore(state => !!(state.authorization?.isSystemAdmin || state.authorization?.isSystemSuperAdmin));
   const [error, setError] = useState(''); const [loading, setLoading] = useState(true);
@@ -27,11 +29,11 @@ export default function IntelligencePage({ feature }: { feature: 'knowledge' | '
       if (disposed || !element.current || !userId) return;
       setError('');
       cleanup = feature === 'knowledge'
-        ? module.mountKnowledge(element.current, { call: knowledgeCall }, () => navigate('/'), !admin)
+        ? module.mountKnowledge(element.current, { call: knowledgeCall }, () => navigateRef.current('/'), !admin)
         : module.mountCase(element.current, userId, api);
       setLoading(false);
     }).catch(() => { if (!disposed) { setLoading(false); setError('智能模块加载失败，请刷新页面；持续失败请联系管理员检查构建和部署'); } });
     return () => { disposed = true; cleanup?.(); };
-  }, [feature, userId, admin, navigate]);
-  return <>{error && <Alert type="error" title={error} />}{loading && <Spin description="加载智能模块…" />}<div ref={element} style={{ minHeight: 680, height: feature === 'knowledge' ? 'calc(100vh - 170px)' : undefined }} /></>;
+  }, [feature, userId, admin]);
+  return <>{error && <Alert type="error" title={error} />}{loading && <Spin description="加载智能模块…" />}<div ref={element} style={{ minHeight: embedded ? 0 : 680, height: embedded ? '100%' : feature === 'knowledge' ? 'calc(100vh - 170px)' : 760 }} /></>;
 }
