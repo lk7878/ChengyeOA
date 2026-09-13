@@ -35,7 +35,7 @@ flowchart LR
   M --> A
 ```
 
-### 1.1 智能化桌面方案（已确认、待实施）
+### 1.1 智能化桌面方案（实施中）
 
 2026-09-13 确认 [SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md)，目标 V1.3.0。统一桌面客户端连接云端 OA 业务服务，并运行本地原生 Harness；OA 业务云端校验后生效，本地仅保留缓存与草稿；个人办案目录和会话不自动同步；Wiki 在云端由管理员维护，律师及助手只读调用。Wiki OCR 由管理员在云端使用，个人办案识别通过在线视觉模型 API。选定成果经用户确认后可提交至有权限的 OA 案件档案。具体边界、替代关系与待执行验收见该规格，历史版本验收不代表本方案已实现。
 
@@ -183,3 +183,5 @@ flowchart TB
 | 实施 | `docs/superpowers/plans/` + 源码 | 实施计划与代码落地、验收 | spec 层只追溯不动已验收的 SPEC 闭环 |
 
 边界纪律（见 [CONVENTIONS.md §6 演进纪律](CONVENTIONS.md#6-演进纪律)）：已完成的工作是事实源，spec 层只追溯不回填 SPEC、不重测；新 SPEC 以 spec 文档为需求输入向前驱动；规范变化只改 CONVENTIONS。
+
+2026-09-13 阶段一更新：统一桌面基础、原生本机目录读写及历史会话恢复已验证；完整 V1.3.0 待后续能力和发布验收。参见 [实施记录](../superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。

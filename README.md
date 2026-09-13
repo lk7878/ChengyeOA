@@ -12,4 +12,6 @@
 
 智慧办案从右上角（知识库旁）打开原生浮动工作台，可最小化、最大化并在 OA 页面间保持会话。界面规格见 [SPEC-AI-UI-20260912](docs/superpowers/specs/2026-09-12-smart-case-native-ui.md)。
 
-下一版本 **V1.3.0** 的方案已确认、尚未实施，见 [统一桌面客户端与本地 Harness 规格](docs/superpowers/specs/2026-09-13-unified-desktop-local-harness.md)：OA 业务云端校验保存、Harness 本地工作目录不自动同步、Wiki 云端管理员维护、个人材料通过在线视觉 API 识别，以及用户主动提交选定成果至案件档案。以上 V1.2.1 描述仅代表当前代码；后续开发遵循新规格。
+下一版本 **V1.3.0** 正在实施，阶段一桌面基础已完成验证，见 [统一桌面客户端与本地 Harness 规格](docs/superpowers/specs/2026-09-13-unified-desktop-local-harness.md)：OA 业务云端校验保存、Harness 本地工作目录不自动同步、Wiki 云端管理员维护、个人材料通过在线视觉 API 识别，以及用户主动提交选定成果至案件档案。以上 V1.2.1 描述仅代表当前代码；后续开发遵循新规格。
+
+统一桌面开发构建的启动方式见 [桌面说明](integrations/intelligence/desktop/README.md)，源码复用与实际验证见 [阶段一记录](docs/superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。尚未交付独立安装器、助手云端 Wiki 查询及主动归档等后续能力。

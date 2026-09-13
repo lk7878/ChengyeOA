@@ -8,7 +8,12 @@
     "build": "node scripts/build.mjs",
     "test": "node tests/cloud-knowledge.mjs && node tests/workspace-runtime.mjs",
     "verify:source": "node scripts/verify-source.mjs",
-    "build:knowledge-view": "node scripts/build-knowledge-view.mjs"
+    "build:knowledge-view": "node scripts/build-knowledge-view.mjs",
+    "desktop:build": "node scripts/desktop.mjs build",
+    "desktop:setup": "node scripts/desktop.mjs setup",
+    "desktop:start": "node scripts/desktop.mjs start",
+    "desktop:test": "node --test desktop/tests/*.test.mjs",
+    "desktop:smoke": "node desktop/tests/smoke.mjs"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

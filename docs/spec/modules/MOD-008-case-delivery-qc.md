@@ -75,3 +75,5 @@ last_updated: 2026-09-13
 ### 2026-09-13 Harness 成果主动归档（已确认、待实施）
 
 MAT-04B 遵循 [SPEC-AI-DESKTOP-20260913 §7](../../superpowers/specs/2026-09-13-unified-desktop-local-harness.md#7-主动提交至案件档案)：仅提交用户确认的文件；服务端校验案件、归档权限及文件完整性；重试幂等、失败保留本地原件、归档不等于审核通过；本地修改或删除不自动影响云端档案。本次仅立项，不宣称已实现。
+
+2026-09-13 阶段进度：已完成统一桌面与本地 Harness 基础验证，见 [阶段一实施记录](../../superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。完整 AI-08 接入验收、AI-09/10 新云端连接及 MAT-04B 归档仍待后续阶段，未标记为整体验收通过。

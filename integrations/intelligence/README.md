@@ -1,10 +1,14 @@
 # OA 智能化适配项目
 
-当前版本 V1.2.1，界面增量见 [原生浮动工作台 Spec](../../docs/superpowers/specs/2026-09-12-smart-case-native-ui.md)，数据与运行边界依据 [替代 Spec](../../docs/superpowers/specs/2026-09-12-harness-decoupled.md)。本目录集中维护知识库独立视图、办案接口、无端口运行适配，以及源码/构建检查脚本。上游实现位于 ../../third_party/deepseek-harness，OA 业务代码位于 ../../LayerManage/law-firm-system。三者职责分开，随 OA 一起交付。
+现有浏览器版本 V1.2.1，界面增量见 [原生浮动工作台 Spec](../../docs/superpowers/specs/2026-09-12-smart-case-native-ui.md)，数据与运行边界依据 [替代 Spec](../../docs/superpowers/specs/2026-09-12-harness-decoupled.md)。本目录集中维护知识库独立视图、办案接口、无端口运行适配，以及源码/构建检查脚本。上游实现位于 ../../third_party/deepseek-harness，OA 业务代码位于 ../../LayerManage/law-firm-system。三者职责分开，随 OA 一起交付。
 
 OA、Wiki、OCR 均在云端，系统管理员维护和编译 Wiki，律师只查询使用；办案材料和工作成果通过浏览器保存在律师电脑本地，不安装额外服务。V1.1 的连接器 HTTP 入口已停用，历史源码和原个人数据保留，正式产品不再要求本机连接器。此前浏览器 Wiki 验证保留在 probes 中，不进入产品构建。
 
 源码来源：third_party/deepseek-harness.source.json。首次快照工具：scripts/import-harness-source.mjs（显式源目录参数，仅用于维护；产品运行无外部源目录参数）。升级禁止覆盖已有快照，先在临时目录导入、比较并记录 PATCHES.md。
+
+## V1.3.0 桌面阶段一
+
+最新部署目标以 [统一桌面 Spec](../../docs/superpowers/specs/2026-09-13-unified-desktop-local-harness.md) 为准。已增加本地原生 Harness 桌面开发构建，OA 右上角入口在桌面客户端中打开本机助手，实际选择本机目录并读写文件。操作与数据边界见 [桌面说明](desktop/README.md)。本页其余运行说明描述仍保留的 V1.2.1 浏览器方案，不能用于推断桌面工作区位置；本阶段不自动迁移旧 OPFS。
 
 ## 安装、构建和启动
 

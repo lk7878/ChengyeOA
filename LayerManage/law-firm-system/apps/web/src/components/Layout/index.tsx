@@ -40,7 +40,7 @@ import { useLocation, useNavigate, Link } from 'react-router';
 import type { MenuPermissionCode, PermissionCode } from '@/features/authorization/types';
 import { useAuthStore } from '@/stores/authStore';
 import './sidebar.css';
-import { useCaseWindow } from '@/features/intelligence/window-store';
+import { openCaseAssistant } from '@/features/intelligence/desktop';
 
 const { Header: AntHeader, Sider, Content } = Layout;
 
@@ -282,7 +282,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 20 }}>
             {authorization?.menus.includes('menu.knowledge') && <Button type="link" onClick={() => navigate('/knowledge')}>知识库</Button>}
-            {authorization?.menus.includes('menu.smart_case') && <Button type="link" data-smart-case-launcher onClick={() => useCaseWindow.getState().show()}>智慧办案</Button>}
+            {authorization?.menus.includes('menu.smart_case') && <Button type="link" data-smart-case-launcher onClick={() => { void openCaseAssistant(); }}>智慧办案</Button>}
             <Badge count={0} size="small"><BellOutlined style={{ fontSize: 18, cursor: 'pointer' }} /></Badge>
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

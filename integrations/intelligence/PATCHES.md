@@ -24,3 +24,7 @@
 | `case-view/` / `cloud-plugin/tools.mjs` | 法律会话、受控 Wiki/本机资料工具、原生询问/逐次文书审批 |
 
 独立 npm 锁文件新增浏览器 SQLite WASM、PDF.js、React 18 与打包依赖；保留上游 pnpm 锁文件。生成的浏览器产物是构建输出，不接受手工维护。升级时先对比来源清单，再执行原生构建及适配器/权限/浏览器回归。
+
+## V1.3.0 阶段一桌面适配
+
+依据 SPEC-AI-DESKTOP-20260913，导入快照无修改。新增 desktop/main.mjs 直接引用上游桌面 Host 管理、生命周期和 Profile 校验源码，显示原生完整 apps/web 构建。独立 product.patch.yml 只关闭本地 Wiki 管理插件，维持管理员云端维护边界。OA preload 仅暴露无参数的 openAssistant，主进程核验窗口和来源；不共享文件/通用 IPC。源码对齐、验证与暂未交付能力见 [阶段一记录](../../docs/superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。

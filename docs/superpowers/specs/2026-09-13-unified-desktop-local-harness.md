@@ -2,7 +2,7 @@
 id: SPEC-AI-DESKTOP-20260913
 title: 统一桌面客户端、云端业务与本地 Harness
 status: approved
-implementation_status: pending
+implementation_status: in_progress
 target_version: 1.3.0
 last_updated: 2026-09-13
 ---
@@ -11,7 +11,7 @@ last_updated: 2026-09-13
 
 ## 1. 确认状态与版本
 
-用户于 2026-09-13 确认本方案，并要求先将边界写入 Spec。本规格已确认、待实施；本次工作仅更新规格、需求追溯和文档导航，并提交本地 Git，不修改应用代码、不安装客户端、不部署服务。
+用户于 2026-09-13 确认本方案，并要求先将边界写入 Spec。首次确认仅更新文档并提交 Git；随后用户授权实施计划和桌面基础验证，现处于实施中。[阶段一记录](../plans/2026-09-13-unified-desktop-local-harness.md)覆盖原生桌面接入、目录读写与会话恢复，完整规格尚未验收。
 
 目标产品名为 **律师智慧管理系统 V1.3.0**，在实现及验收完成后更新运行界面版本。当前已实施版本仍为 V1.2.1，不能因本规格获批而宣称桌面能力已经交付。
 

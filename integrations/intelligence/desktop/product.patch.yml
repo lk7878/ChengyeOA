@@ -1,0 +1,4 @@
+# Preserve the formal Product Profile, but do not offer a second local Wiki.
+# The OA knowledge entry remains cloud-owned; desktop Wiki integration is stage two.
+- id: product-knowledge
+  disabled: true
