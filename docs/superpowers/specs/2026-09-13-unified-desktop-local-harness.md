@@ -121,6 +121,8 @@ last_updated: 2026-09-13
 
 ## 11. 需求追溯
 
+2026-09-13 品牌及 preset 补充：[百佑办案助手与 lawyer 规格](2026-09-13-baiyou-lawyer-preset.md)。本地 Harness 品牌采用“百佑办案助手”，基于标准组合构建唯一可用的 lawyer preset；云端 Wiki 的本地只读快照方案尚待确认离线权限，不视为已启用同步。
+
 - [MOD-010 AI、录音与文件](../../spec/modules/MOD-010-ai-recording-file.md)：统一客户端、本地办案、云端 Wiki 与视觉 API 分工。
 - [MOD-008 案件交付与质控](../../spec/modules/MOD-008-case-delivery-qc.md)：主动成果归档及权限、版本、审核边界。
 - [TRACE](../../spec/TRACE.md)：已批准、待实施，历史验收不视为本规格验收。

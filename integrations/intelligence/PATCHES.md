@@ -31,4 +31,10 @@
 
 ## V1.3.0 阶段二云端 Wiki 与视觉 API
 
+### 百佑品牌与 lawyer 扩展
+
+详见[品牌与 preset 规格](../../docs/superpowers/specs/2026-09-13-baiyou-lawyer-preset.md)。`desktop-plugin/client.jsx` 通过原生 slots 注册侧栏品牌名称、两处 Logo，并维护 favicon；未复制原生 UI 业务实现。`scripts/build-desktop-brand.mjs` 复用上游 `clientBundle`，仅在内存加载 `EmptyHero.tsx` 时替换标题及移除 preview 徽标，匹配不唯一则构建失败；布局模块使用上游 `DSH_CLIENT_TITLE` 编译配置。只更新忽略的客户端构建产物，无导入快照源码补丁。完整上游构建后需要再运行桌面 build。
+
+独立 `desktop-plugin/presets/lawyer` 复制标准组合，只补充 persona 和 preset 元数据；通过 Product patch 的唯一 roots 接入，关闭上游和用户 preset 目录发现。`desktop/lawyer-presets.mjs` 继承原生注册服务，仅固定默认值和兼容旧内置标识的 resolve，不重写原生挂载、权限或历史存储逻辑。只有 lawyer 可选，旧内置会话恢复时统一运行 lawyer。只读 Wiki 工具保持兼容，不启用个人 Wiki 数据库写入和后台快照下载。
+
 导入快照继续无修改。`desktop-plugin/` 通过原生 `tools`、`storageDomain`、`sessions`、`sessionPersistence` 扩展点注册只读 Wiki 工具并持久化根会话身份绑定；通过 CLI 安装普通依赖，不增加或替代正式 Profile 层。`desktop/knowledge-broker.mjs` 使用上游 HostSupervisor 的 `spawnHost` 接口加私有 Node IPC，OA 页面既有认证客户端代发固定只读请求，云端独立路由重验身份和两个模块权限。`knowledge-contract.mjs` 统一操作、参数与结果上限。个人图像直接复用原生 `read_image`、附件和 DeepSeek 适配器，不改 UI、不引入个人 OCR。升级上游时应复核这些扩展点、session.header.parentSession、Profile 和原生图片调用契约，见[阶段二记录](../../docs/superpowers/plans/2026-09-13-desktop-cloud-wiki-vision.md)。

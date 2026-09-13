@@ -1,10 +1,11 @@
 import { build } from 'esbuild';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { dataDirectory, hostEnvironment, readConfig, validateOaUrl } from '../desktop/config.mjs';
+import { buildDesktopBrand } from './build-desktop-brand.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const vendor = resolve(root, '../../third_party/deepseek-harness');
@@ -22,10 +23,16 @@ async function run(executable, args, options = {}) {
 }
 
 if (command === 'build') {
+  await buildDesktopBrand();
   await mkdir(out, { recursive: true });
   await build({ entryPoints: [join(root, 'desktop/main.mjs')], outfile: join(out, 'main.mjs'), bundle: true,
     platform: 'node', target: 'node22', format: 'esm', external: ['electron'] });
-  for (const file of ['preload.cjs', 'product.patch.yml']) await copyFile(join(root, 'desktop', file), join(out, file));
+  await copyFile(join(root, 'desktop/preload.cjs'), join(out, 'preload.cjs'));
+  const patch = await readFile(join(root, 'desktop/product.patch.yml'), 'utf8');
+  await writeFile(join(out, 'product.patch.yml'), patch
+    .replace('__LAWYER_PRESET_ROOT__', JSON.stringify(join(root, 'desktop-plugin/presets').replaceAll('\\', '/')))
+    .replace('__LAWYER_REGISTRY__', JSON.stringify(pathToFileURL(join(root, 'desktop/lawyer-presets.mjs')).href)));
+  await copyFile(join(root, 'desktop-plugin/assets/baiyou-logo.jpg'), join(out, 'baiyou-logo.jpg'));
   await writeFile(join(out, 'package.json'), JSON.stringify({ name: 'chengye-desktop', productName: '律师智慧管理系统', version: '1.3.0-dev.2', private: true, type: 'module', main: 'main.mjs' }, null, 2));
   console.log('桌面构建完成：' + out);
 } else if (command === 'setup') {

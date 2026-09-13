@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +9,7 @@ import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { IntelligenceService } from '../../cloud/service.mjs';
 import { _electron, expect } from '../../../../LayerManage/law-firm-system/apps/web/node_modules/@playwright/test/index.mjs';
+import { scanZstdFrames } from '../../../../third_party/deepseek-harness/packages/session/session-persistence-jsonl/lib/types/zstd.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const vendor = resolve(root, '../../third_party/deepseek-harness');
@@ -127,8 +129,21 @@ try {
   // Reproduce an existing stage-one profile: opening the assistant must install the new plugin itself.
   await run(process.execPath, [join(vendor, 'apps/cli/lib/bin.js'), 'plugin', '--profile', 'product', 'remove', '@chengyeoa/harness-desktop-tools'], { ...env, DSH_HOME: join(home, 'harness') });
   await writeFile(join(home, 'harness/.credentials.yaml'), 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: desktop-fixture\n');
-  await writeFile(join(home, 'harness/settings.yaml'), JSON.stringify({ 'llm-deepseek': { baseURL: `http://127.0.0.1:${model.address().port}`, thinking: 'disabled', reasoningEffort: 'off' }, 'agent-default-model': { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp', reasoningEffort: 'off' } }));
+  await writeFile(join(home, 'harness/settings.yaml'), JSON.stringify({ 'agent-presets': { default: 'standard' }, 'llm-deepseek': { baseURL: `http://127.0.0.1:${model.address().port}`, thinking: 'disabled', reasoningEffort: 'off' }, 'agent-default-model': { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp', reasoningEffort: 'off' } }));
   await launch();
+  await expect(agent.getByText('百佑办案助手', { exact: true })).toBeVisible();
+  await expect(agent.getByText('让法律服务更智能', { exact: true })).toBeVisible();
+  await expect(agent.getByText('探索未至之境', { exact: true })).toHaveCount(0);
+  await expect(agent.getByText('预览版', { exact: true })).toHaveCount(0);
+  await expect(agent).toHaveTitle('百佑办案助手');
+  assert.equal(await agent.getByAltText('百佑智鉴').count(), 2);
+  assert.ok(await agent.getByAltText('百佑智鉴').evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0)));
+  await agent.getByRole('button', { name: '律师办案助手', exact: true }).click();
+  await expect(agent.getByRole('menuitem')).toHaveCount(1);
+  await expect(agent.getByRole('menuitem', { name: /^律师办案助手/ })).toBeVisible();
+  await agent.keyboard.press('Escape');
+  await expect(agent.getByRole('button', { name: '律师办案助手', exact: true })).toBeVisible();
+  await agent.screenshot({ path: join(home, 'baiyou-lawyer.png') });
   assert.ok(JSON.parse(await readFile(join(home, 'harness/profiles/product/package.json'), 'utf8')).dependencies['@chengyeoa/harness-desktop-tools']);
   assert.deepEqual(await oa.evaluate(() => ({ node: typeof window.require, keys: Object.keys(window.chengyeDesktop) })), { node: 'undefined', keys: ['version', 'openAssistant', 'setKnowledgeIdentity', 'replyKnowledge', 'onKnowledgeRequest'] });
   assert.equal(await agent.evaluate(() => typeof window.chengyeDesktop), 'undefined');
@@ -165,6 +180,25 @@ try {
   const stoppedOrigin = new URL(agent.url()).origin;
   await app.close(); app = undefined;
   await assert.rejects(fetch(stoppedOrigin, { signal: AbortSignal.timeout(1500) }), 'quitting must close the native Host listener');
+  // Test-only historical fixture: a prior built-in standard session must still
+  // resume after that preset disappears from the deployment roster.
+  const sessions = join(home, 'harness/sessions');
+  const logs = (await readdir(sessions, { recursive: true })).filter(path => path.endsWith('session.jsonl.zstd'));
+  let legacy = 0;
+  for (const relative of logs) {
+    const path = join(sessions, relative), bytes = await readFile(path);
+    const { frames, tornStart } = scanZstdFrames(bytes);
+    assert.equal(tornStart, undefined);
+    // Native logs keep the header in the first frame and events in later
+    // frames. Preserve all event bytes; a one-shot decode reads only frame 1.
+    const headerEnd = frames[0].end;
+    const header = JSON.parse(zstdDecompressSync(bytes.subarray(0, headerEnd)).toString());
+    if (header.agentPreset !== 'lawyer') continue;
+    header.agentPreset = 'standard';
+    await writeFile(path, Buffer.concat([zstdCompressSync(Buffer.from(JSON.stringify(header) + '\n')), bytes.subarray(headerEnd)]));
+    legacy++;
+  }
+  assert.ok(legacy > 0);
   await launch();
   await agent.getByText('本地办案验证', { exact: true }).first().click();
   await expect(agent.getByText('已读取本地案情并保存办案草稿，请律师复核。', { exact: true })).toBeVisible({ timeout: 30000 });
@@ -182,6 +216,7 @@ try {
   assert.deepEqual(errors, []);
   assert.deepEqual(cloudCalls.map(call => call.method), ['list', 'search', 'read', 'list']);
   assert.ok(requests.some(body => body.tools?.some(tool => tool.function?.name === 'read')));
+  assert.ok(requests.some(body => body.messages.some(message => message.role === 'system' && JSON.stringify(message.content).includes('百佑办案助手'))));
   console.log('PASS: native directory, cloud Wiki IPC/HTTP/service citations, vision image request, read/write, window restore and restart persistence. Artifacts: ' + home);
 } finally {
   if (agent && !agent.isClosed()) {

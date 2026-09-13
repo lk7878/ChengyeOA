@@ -39,6 +39,14 @@ node integrations/intelligence/scripts/desktop.mjs start
 
 ## 云端知识库使用
 
+### 品牌和律师 preset
+
+本地助手名称为“百佑办案助手”，欢迎语为“让法律服务更智能”。Logo 原图、客户端品牌插件和独立 `lawyer` preset 均在 `integrations/intelligence/desktop-plugin/` 维护。部署只提供“律师办案助手”，固定为默认，不提供其他模式或创建新预设的入口。历史 standard/ptc/minimal/cordis 会话继续保留原标识，恢复后由 lawyer 组合承接；个人材料不删除。
+
+`desktop:build` 先构建插件客户端，再使用原生构建配置生成会话和布局模块：对欢迎语作精确匹配转换，并使用原生 `DSH_CLIENT_TITLE` 配置窗口标题。源快照不修改，生成的 `lib/client.js` 不入 Git。重建完整 Harness 后需再执行 `desktop:build`，移动仓库目录后也应先 build 再 setup，以刷新部署 preset 根路径；运行中的客户端需退出并重新启动以应用更新。
+
+律师模式目前使用下述在线只读插件。管理员发布只读快照、自动同步和离线使用仍是待确认方案，未启用后台下载。
+
 在 OA 登录具有“知识库”和“智慧办案”权限的账号。管理员从右上角“知识库”维护并编译资料；本地助手同样只读，即使当前登录者是管理员。可以直接对助手说：“先列出云端知识库，再检索证据核验要求，引用原文与行号。”
 
 `cloud_wiki` 支持 `list`、`documents`、`search`、`read`、`wiki` 和 `compiled`。原文最多一次读取 200 行；列表每页 20 项；管理员编译成果每次读取 5 节，可根据 `nextOffset` 继续。返回来源标识、版本/摘要和可用的行号。`wiki` 是原生确定性投影，`compiled` 是管理员持久化的模型编译成果，未编译返回 `publication: null`；`stale` 表示来源已变化，应让管理员更新，不能冒充最新原文。查询不执行编译、OCR 或写入公共问答记录。

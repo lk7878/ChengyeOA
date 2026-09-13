@@ -74,7 +74,7 @@ async function openAssistant() {
     const ready = await host.start();
     if (lifecycle.isQuitting()) { await host.shutdown(); return; }
     caseWindow = new BrowserWindow({
-      title: '智慧办案 · Harness', width: 1280, height: 840, minWidth: 960, minHeight: 640,
+      title: '百佑办案助手', icon: join(app.getAppPath(), 'baiyou-logo.jpg'), width: 1280, height: 840, minWidth: 960, minHeight: 640,
       show: false, autoHideMenuBar: true,
       webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, partition: 'persist:harness-local' },
     });
