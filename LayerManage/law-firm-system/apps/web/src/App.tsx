@@ -1,4 +1,5 @@
 import IntelligencePage from './pages/Intelligence';
+import DesktopKnowledgeBridge from './features/intelligence/DesktopKnowledgeBridge';
 import SmartCaseLauncher from './pages/Intelligence/SmartCaseLauncher';
 import CaseWorkbench from './components/CaseWorkbench';
 import ChineseConfig from './components/ChineseConfig';
@@ -96,6 +97,7 @@ const AuthorizedPage: React.FC<{
 function App() {
   return (
     <ChineseConfig><BrowserRouter>
+      <DesktopKnowledgeBridge />
       <SessionBootstrap />
     </BrowserRouter></ChineseConfig>
   );

@@ -6,9 +6,11 @@ OA、Wiki、OCR 均在云端，系统管理员维护和编译 Wiki，律师只�
 
 源码来源：third_party/deepseek-harness.source.json。首次快照工具：scripts/import-harness-source.mjs（显式源目录参数，仅用于维护；产品运行无外部源目录参数）。升级禁止覆盖已有快照，先在临时目录导入、比较并记录 PATCHES.md。
 
-## V1.3.0 桌面阶段一
+## V1.3.0 桌面阶段一、二
 
 最新部署目标以 [统一桌面 Spec](../../docs/superpowers/specs/2026-09-13-unified-desktop-local-harness.md) 为准。已增加本地原生 Harness 桌面开发构建，OA 右上角入口在桌面客户端中打开本机助手，实际选择本机目录并读写文件。操作与数据边界见 [桌面说明](desktop/README.md)。本页其余运行说明描述仍保留的 V1.2.1 浏览器方案，不能用于推断桌面工作区位置；本阶段不自动迁移旧 OPFS。
+
+阶段二增加独立 `desktop-plugin/`：通过 OA 原有认证查询同一云端 Wiki，读取原文与管理员编译成果，按根会话绑定账号。个人图片识别沿用本机 Harness 的原生视觉模型配置与附件接口；文件不自动同步 OA。升级旧开发客户端须先退出，再执行 desktop build/setup/start。安装器与成果归档尚未交付。
 
 ## 安装、构建和启动
 

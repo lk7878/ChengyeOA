@@ -1,4 +1,7 @@
 # Preserve the formal Product Profile, but do not offer a second local Wiki.
-# The OA knowledge entry remains cloud-owned; desktop Wiki integration is stage two.
+# All maintenance stays in the OA cloud Wiki; the local tool is read-only.
 - id: product-knowledge
   disabled: true
+- insert:
+    - id: chengye-desktop-knowledge
+      name: '@chengyeoa/harness-desktop-tools'

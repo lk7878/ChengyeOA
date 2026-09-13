@@ -7,6 +7,7 @@ export default (app: Application) => {
   const { router, controller } = app;
 
   router.post('/api/v1/intelligence/knowledge', controller.intelligence.knowledge);
+  router.post('/api/v1/intelligence/desktop-knowledge', controller.intelligence.desktopKnowledge);
   router.post('/api/v1/intelligence/case', controller.intelligence.caseOperation);
   router.post('/api/v1/intelligence/events', controller.intelligence.events);
 

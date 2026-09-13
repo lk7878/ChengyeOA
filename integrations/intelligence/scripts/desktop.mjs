@@ -26,7 +26,7 @@ if (command === 'build') {
   await build({ entryPoints: [join(root, 'desktop/main.mjs')], outfile: join(out, 'main.mjs'), bundle: true,
     platform: 'node', target: 'node22', format: 'esm', external: ['electron'] });
   for (const file of ['preload.cjs', 'product.patch.yml']) await copyFile(join(root, 'desktop', file), join(out, file));
-  await writeFile(join(out, 'package.json'), JSON.stringify({ name: 'chengye-desktop', productName: '律师智慧管理系统', version: '1.3.0-dev.1', private: true, type: 'module', main: 'main.mjs' }, null, 2));
+  await writeFile(join(out, 'package.json'), JSON.stringify({ name: 'chengye-desktop', productName: '律师智慧管理系统', version: '1.3.0-dev.2', private: true, type: 'module', main: 'main.mjs' }, null, 2));
   console.log('桌面构建完成：' + out);
 } else if (command === 'setup') {
   const flag = process.argv.indexOf('--oa-url');
@@ -48,6 +48,7 @@ if (command === 'build') {
   for (const bundle of ['packages/bundle/web-app', 'packages/product/product-bundle']) {
     await run(process.execPath, [cli, 'plugin', '--profile', 'product', 'add', 'link:' + join(vendor, bundle).replaceAll('\\', '/')], { cwd: home, env });
   }
+  await run(process.execPath, [cli, 'plugin', '--profile', 'product', 'add', 'link:' + join(root, 'desktop-plugin').replaceAll('\\', '/')], { cwd: home, env });
   await writeFile(join(home, 'desktop.json'), JSON.stringify({ schema: 1, oaUrl, nodePath: process.execPath, vendorPath: vendor }, null, 2), { mode: 0o600 });
   console.log('桌面开发配置已准备：' + home);
 } else if (command === 'start') {

@@ -100,4 +100,4 @@ OBJECT_STORAGE_SECRET_KEY=
 
 [最新工程规格](../../superpowers/specs/2026-09-13-unified-desktop-local-harness.md)定义 AI-08～10 及数据边界，目标 V1.3.0。既有 AI 供应商章节描述录音专项，不限制个人 Harness 沿用其原生供应商及安全配置能力。个人材料仅在执行明确的模型/视觉任务时发送必要内容，不进入 OA/Wiki 自动同步。主动成果归档见 MOD-008 MAT-04B；本次只批准文档，不计入 implements 或已验收功能。历史实现见 [V1.2.0](../../superpowers/specs/2026-09-12-harness-decoupled.md)及 [V1.2.1](../../superpowers/specs/2026-09-12-smart-case-native-ui.md)。
 
-2026-09-13 阶段进度：已完成统一桌面与本地 Harness 基础验证，见 [阶段一实施记录](../../superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。完整 AI-08 接入验收、AI-09/10 新云端连接及 MAT-04B 归档仍待后续阶段，未标记为整体验收通过。
+2026-09-13 阶段进度：已完成统一桌面与本地 Harness 基础验证，见 [阶段一实施记录](../../superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。[阶段二](../../superpowers/plans/2026-09-13-desktop-cloud-wiki-vision.md)接入 AI-09 云端 Wiki 只读查询和 AI-10 个人原生视觉 API 链路，并验证身份、权限及根会话隔离。真实模型效果、云端 OCR 实际部署、完整 AI-08 安装验收及 MAT-04B 归档仍待后续阶段，未标记为整体验收通过。

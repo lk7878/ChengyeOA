@@ -2,6 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, Tray } f
 import { mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { KnowledgeBroker } from './knowledge-broker.mjs';
 import { dataDirectory, hostEnvironment, isTrustedBridgeCall, navigation, readConfig } from './config.mjs';
 import { createHostSupervisor } from '../../../third_party/deepseek-harness/apps/product-desktop/src/host-supervisor.ts';
 import { createDesktopLifecycle } from '../../../third_party/deepseek-harness/apps/product-desktop/src/window-lifecycle.ts';
@@ -11,7 +13,7 @@ const title = '律师智慧管理系统';
 const home = dataDirectory();
 app.setName(title);
 app.setPath('userData', join(home, 'client'));
-let oaWindow, caseWindow, tray, lifecycle, host, opening, config;
+let oaWindow, caseWindow, tray, lifecycle, host, opening, config, knowledge;
 
 function show(window) {
   if (!window || window.isDestroyed()) return;
@@ -47,10 +49,19 @@ async function openAssistant() {
     const cwd = join(home, 'workspace');
     await mkdir(cwd, { recursive: true });
     if (lifecycle.isQuitting()) return;
+    const args = [join(config.vendorPath, 'apps/cli/lib/bin.js'), '--profile', 'product', '--patch', join(app.getAppPath(), 'product.patch.yml'), '--no-open', '--host', '127.0.0.1', '--port', '0'];
     host = createHostSupervisor({
       command: config.nodePath,
-      args: [join(config.vendorPath, 'apps/cli/lib/bin.js'), '--profile', 'product', '--patch', join(app.getAppPath(), 'product.patch.yml'), '--no-open', '--host', '127.0.0.1', '--port', '0'],
+      args,
       cwd, env, readyTimeoutMs: 60000,
+      spawnHost: () => {
+        const child = spawn(config.nodePath, args, { cwd, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+        const reply = value => { if (child.connected) child.send(value, () => {}); };
+        child.on('message', value => knowledge.request(value, reply, child));
+        child.once('exit', () => knowledge.detach(child));
+        child.once('disconnect', () => knowledge.detach(child));
+        return child;
+      },
       onUnexpectedExit: () => {
         if (!lifecycle.isQuitting()) {
           caseWindow?.destroy(); caseWindow = undefined;
@@ -85,7 +96,7 @@ async function bootstrap() {
   lifecycle = createDesktopLifecycle({
     showWindow: () => show(oaWindow),
     hideWindow: () => oaWindow?.hide(),
-    shutdownHost: async () => { await host?.shutdown(); await opening?.catch(() => {}); await host?.shutdown(); },
+    shutdownHost: async () => { knowledge?.invalidate(); await host?.shutdown(); await opening?.catch(() => {}); await host?.shutdown(); },
     quitApp: () => app.quit(),
     reportShutdownError: () => dialog.showErrorBox('退出异常', '请检查本机 Harness 是否已退出。'),
   });
@@ -95,6 +106,16 @@ async function bootstrap() {
       partition: `persist:oa-${createHash('sha256').update(oaOrigin).digest('hex').slice(0, 16)}` },
   });
   guard(oaWindow, oaOrigin);
+  knowledge = new KnowledgeBroker(oaOrigin, value => {
+    if (!oaWindow.webContents.isDestroyed()) oaWindow.webContents.send('chengye:knowledge-event', value);
+  });
+  oaWindow.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) knowledge.invalidate(); });
+  oaWindow.webContents.on('render-process-gone', () => knowledge.invalidate());
+  for (const [channel, handler] of [['chengye:knowledge-identity', value => knowledge.setIdentity(value)], ['chengye:knowledge-reply', value => knowledge.accept(value)]]) {
+    ipcMain.on(channel, (event, value) => {
+      if (isTrustedBridgeCall(event, oaWindow.webContents, oaOrigin)) handler(value);
+    });
+  }
   oaWindow.once('ready-to-show', () => show(oaWindow));
   oaWindow.on('close', event => lifecycle.handleWindowClose(event));
   ipcMain.handle('chengye:open-assistant', async (event, ...args) => {

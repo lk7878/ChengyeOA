@@ -34,7 +34,7 @@ last_updated: 2026-09-13
 | MOD-007 | 专业团队SOP | 三大团队SOP字段清单 | — | ⚠️有代码无SPEC |
 | MOD-008 | 案件交付质控 | 三大团队SOP字段清单 | 原模块待补；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md) 已批准、未落地 | ⚠️原功能待补；⬜MAT-04B 待开发 |
 | MOD-009 | 满意度转介绍 | — | — | ⬜待开发 |
-| MOD-010 | AI录音文件 | 文件录音AI任务设计 | SPEC-AI-DECOUPLED/AI-UI 历史已实施；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md) 已批准、未落地 | 📋录音专项待开发；AI-08 桌面基础已验证；⬜AI-09～10 待开发 |
+| MOD-010 | AI录音文件 | 文件录音AI任务设计 | SPEC-AI-DECOUPLED/AI-UI 历史已实施；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md) 实施中 | 📋录音专项待开发；AI-08 桌面基础、AI-09 只读查询与 AI-10 视觉链路已验证；完整交付待验收 |
 | MOD-011 | 组织人事 | 数据库核心表设计 | SPEC-003(部分) | ⚠️有代码无SPEC |
 | MOD-012 | 驾驶舱 | — | — | ⚠️有代码无SPEC |
 | MOD-013 | 自动化审批审计 | 审计自动化/审批消息回调 | SPEC-007(部分) | ⚠️有代码无SPEC |
@@ -98,4 +98,4 @@ last_updated: 2026-09-13
 
 ## SPEC-AI-DESKTOP-20260913（V1.3.0 目标，实施中）
 
-[统一桌面客户端与本地 Harness](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md)：云端 OA/Wiki、本机原生 Harness、OA 草稿提交与云端校验、个人办案数据不自动同步、Wiki OCR 与个人在线视觉 API 分工、主动提交成果至案件档案。对应 MOD-010 AI-08～10、MOD-008 MAT-04B。替代上述 V1.2.0/V1.2.1 中冲突的浏览器办案与云端办案引擎契约，保留历史验收。首次提交仅文档确认。随后用户授权阶段一，统一桌面开发构建和本机原生 Harness 目录读写/历史恢复已验证，见 [阶段一记录](../superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。正式运行版本不变；云端接入、归档、草稿同步和安装交付仍待开发，完整 Spec 尚未验收。
+[统一桌面客户端与本地 Harness](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md)：云端 OA/Wiki、本机原生 Harness、OA 草稿提交与云端校验、个人办案数据不自动同步、Wiki OCR 与个人在线视觉 API 分工、主动提交成果至案件档案。对应 MOD-010 AI-08～10、MOD-008 MAT-04B。替代上述 V1.2.0/V1.2.1 中冲突的浏览器办案与云端办案引擎契约，保留历史验收。[阶段一](../superpowers/plans/2026-09-13-unified-desktop-local-harness.md)已验证本机目录与历史恢复；[阶段二](../superpowers/plans/2026-09-13-desktop-cloud-wiki-vision.md)已接入本地助手云端 Wiki 只读查询、账号绑定和原生个人视觉接口。正式运行版本不变；真实模型效果、云端 OCR 部署、归档、草稿同步和安装交付仍待后续验收，完整 Spec 尚未验收。

@@ -28,3 +28,7 @@
 ## V1.3.0 阶段一桌面适配
 
 依据 SPEC-AI-DESKTOP-20260913，导入快照无修改。新增 desktop/main.mjs 直接引用上游桌面 Host 管理、生命周期和 Profile 校验源码，显示原生完整 apps/web 构建。独立 product.patch.yml 只关闭本地 Wiki 管理插件，维持管理员云端维护边界。OA preload 仅暴露无参数的 openAssistant，主进程核验窗口和来源；不共享文件/通用 IPC。源码对齐、验证与暂未交付能力见 [阶段一记录](../../docs/superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。
+
+## V1.3.0 阶段二云端 Wiki 与视觉 API
+
+导入快照继续无修改。`desktop-plugin/` 通过原生 `tools`、`storageDomain`、`sessions`、`sessionPersistence` 扩展点注册只读 Wiki 工具并持久化根会话身份绑定；通过 CLI 安装普通依赖，不增加或替代正式 Profile 层。`desktop/knowledge-broker.mjs` 使用上游 HostSupervisor 的 `spawnHost` 接口加私有 Node IPC，OA 页面既有认证客户端代发固定只读请求，云端独立路由重验身份和两个模块权限。`knowledge-contract.mjs` 统一操作、参数与结果上限。个人图像直接复用原生 `read_image`、附件和 DeepSeek 适配器，不改 UI、不引入个人 OCR。升级上游时应复核这些扩展点、session.header.parentSession、Profile 和原生图片调用契约，见[阶段二记录](../../docs/superpowers/plans/2026-09-13-desktop-cloud-wiki-vision.md)。

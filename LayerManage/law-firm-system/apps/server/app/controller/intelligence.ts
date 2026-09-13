@@ -3,8 +3,11 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { existsSync } from 'node:fs';
 import { AuthorizationService } from '../application/authorization/authorization-service';
+import { AuthorizationContextLoader } from '../application/authorization/authorization-context-loader';
+import { createAuthenticationService } from '../application/auth/authentication-factory';
 
 type Service = {
+  desktopKnowledge(userId: string, body: unknown, options?: unknown): Promise<unknown>;
   knowledge(admin: boolean, method: string, args?: unknown, options?: unknown): Promise<unknown>;
   caseCall(userId: string, clientId: string, method: string, args: unknown, options?: unknown): Promise<unknown>;
   events(userId: string, clientId: string, cursor: number, signal: AbortSignal): Promise<unknown>;
@@ -64,6 +67,20 @@ export default class IntelligenceController extends Controller {
     if (!body || typeof body.method !== 'string') this.ctx.throw(400, '缺少知识库操作');
     const context = this.ctx.state.authorization;
     await this.answer((service, signal, onFrame) => service.knowledge(context.isSystemSuperAdmin || context.isSystemAdmin, body.method, body.args, { signal, onFrame }));
+  }
+  async desktopKnowledge() {
+    this.require('case'); this.require('knowledge');
+    const body = await this.input();
+    await this.answer(async (service, signal) => {
+      const value = await service.desktopKnowledge(this.ctx.state.user.userId, body, { signal });
+      // Long retrievals must not deliver evidence after session/role revocation.
+      const user = await createAuthenticationService(this.ctx).authenticate(this.ctx.get('authorization').split(' ')[1]);
+      const context = await new AuthorizationContextLoader(this.ctx.prisma).load(user.userId);
+      const authorization = new AuthorizationService();
+      authorization.requireAction(context, 'menu.smart_case'); authorization.requireAction(context, 'menu.knowledge');
+      signal.throwIfAborted();
+      return value;
+    });
   }
   async caseOperation() {
     this.require('case'); const body = await this.input();

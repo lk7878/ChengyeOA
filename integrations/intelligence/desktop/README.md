@@ -1,4 +1,4 @@
-# 统一桌面客户端：阶段一开发验证
+# 统一桌面客户端：阶段一、二开发验证
 
 依据 [V1.3.0 Spec](../../../docs/superpowers/specs/2026-09-13-unified-desktop-local-harness.md)。本目录实现可运行的桌面基础；不是完整 V1.3.0 发布版或独立安装包。
 
@@ -6,7 +6,7 @@
 
 统一 Electron 客户端显示 OA 页面，右上角“智慧办案”通过受限桥接打开同一个原生 Harness 窗口。原生界面、Windows 文件夹选择器、Product Profile、工作区、模型配置、文件工具、会话日志和恢复均复用 `third_party/deepseek-harness`。OA 浏览器访问仍沿用 V1.2.1 浮动工作台，保留原 OPFS 数据；桌面客户端使用真实本机目录，两者没有隐式迁移或同步。
 
-桌面主进程直接复用原生 `host-supervisor.ts`、`window-lifecycle.ts`、`product-profile.ts`，通过独立 esbuild 构建，不改导入快照。正式 Product Bundle 继续装载，仅通过 `product.patch.yml` 关闭其本地 Wiki 管理插件，防止出现第二套个人维护知识库；OA 原有云端“知识库”入口保留。新的本地助手查询云端 Wiki 接口在下一阶段接入。
+桌面主进程直接复用原生 `host-supervisor.ts`、`window-lifecycle.ts`、`product-profile.ts`，通过独立 esbuild 构建，不改导入快照。正式 Product Bundle 继续装载，通过 `product.patch.yml` 关闭本地 Wiki 管理插件，并装载独立 `desktop-plugin/` 云端 Wiki 只读工具；OA 原有云端“知识库”入口保留。
 
 ## 开发准备与启动
 
@@ -25,6 +25,8 @@ node integrations/intelligence/scripts/desktop.mjs start
 
 开发构建输出在 `integrations/intelligence/dist/desktop/`，目前依赖本机 Node、完整导入源码的构建产物及依赖。后续需打包运行时与安装器并在干净 Windows 环境验收，不能将本开发目录冒充独立安装包。
 
+从阶段一升级：先从托盘退出客户端，再执行 build、setup 和 start。setup 会增加独立 Wiki 插件依赖，保留个人配置和工作区；后端需要包含新的 `/api/v1/intelligence/desktop-knowledge` 路由，前端需包含相应查询桥。已经运行的旧客户端应重新启动后使用本阶段能力。
+
 ## 使用和数据位置
 
 1. 登录 OA，在右上角点击“智慧办案”。也可通过系统托盘“打开智慧办案”启动本地助手，OA 暂时离线不影响打开本地材料。
@@ -33,15 +35,31 @@ node integrations/intelligence/scripts/desktop.mjs start
 4. 关闭办案窗口将其隐藏，再次点击入口恢复同一窗口与会话；OA 主窗口关闭后保留托盘。托盘“退出客户端”停止本机 Host 后退出。
 5. 重启客户端后从原生侧栏点击历史会话继续使用。文件保留在选定工作区，会话与工作区记录在 `<桌面数据目录>\harness\`，原生客户端状态位于 `client\`。新窗口不保证自动选中上一次会话。
 
-本阶段保持原生标准模式，不新建法律专用工具集合。原生 `workspace-write` 权限允许工作目录及平台临时目录写入，其他路径的写入按原生权限拒绝或审批；这不等同于禁止读取所有工作目录外文件。OA 页面没有 Node、文件、Shell 或通用 IPC 能力；其唯一桥接操作是打开助手，并由主进程校验窗口、主框架和精确来源。模型凭据不由云端环境继承到个人引擎，个人会话遥测上传已关闭。
+保持原生标准模式和界面，增加 `cloud_wiki` 工具。原生 `workspace-write` 权限允许工作目录及平台临时目录写入，其他路径的写入按原生权限拒绝或审批；这不等同于禁止读取所有工作目录外文件。OA 页面没有 Node、文件、Shell 或通用 IPC 能力；桥接仅打开助手、报告当前账号和传递固定 Wiki 查询结果，由主进程校验窗口、主框架和精确来源。OA 令牌与 CSRF 凭据只由 OA 页面认证客户端使用，不传入 Harness、模型、子进程环境或配置文件。个人模型凭据由原生凭据服务管理，个人会话遥测上传已关闭。
+
+## 云端知识库使用
+
+在 OA 登录具有“知识库”和“智慧办案”权限的账号。管理员从右上角“知识库”维护并编译资料；本地助手同样只读，即使当前登录者是管理员。可以直接对助手说：“先列出云端知识库，再检索证据核验要求，引用原文与行号。”
+
+`cloud_wiki` 支持 `list`、`documents`、`search`、`read`、`wiki` 和 `compiled`。原文最多一次读取 200 行；列表每页 20 项；管理员编译成果每次读取 5 节，可根据 `nextOffset` 继续。返回来源标识、版本/摘要和可用的行号。`wiki` 是原生确定性投影，`compiled` 是管理员持久化的模型编译成果，未编译返回 `publication: null`；`stale` 表示来源已变化，应让管理员更新，不能冒充最新原文。查询不执行编译、OCR 或写入公共问答记录。
+
+第一次成功查询把办案根会话绑定 OA 账号和服务器；历史会话、分支和子任务继承绑定。退出登录、账号切换、权限失效、页面离开会取消在途查询；云端在返回前再次检查登录及权限。换账号请新建不继承历史的会话；重新登录原账号可继续。网络失败、超时、越权和查询过大有明确反馈。身份绑定保护云端查询，并非本机多用户文件加密；本机文件仍由 Windows 用户权限管理。
+
+## 个人图片与视觉模型
+
+在 Harness 原生“设置”中配置个人模型服务、API 凭据与模型目录，再在输入框下方的原生模型选择器选择支持图像输入的模型。导入版本已有视觉模型条目 `deepseek-v4-flash-vision-exp`；实际可用性取决于个人服务端和账号权限，也可按原生供应商配置维护模型条目，必须声明图像输入能力。
+
+选择工作目录后，可说：“使用当前视觉模型读取凭证.png，提取日期和金额，保存为凭证核对.md，无法辨认处请标明。”原生 `read_image` 读取 PNG/JPEG/WebP/GIF 并通过附件服务交给当前模型；也可使用原生图像附件入口。原生适配器支持 Files API，服务不支持时按原有行为退回内联图片请求。文件及会话留本机，所选图片和相关上下文会发送到配置的模型 API；不是 OA/Wiki 同步。
+
+不安装个人 OCR、不调用 Wiki 的管理员云端 OCR。非视觉模型、缺失密钥、错误图片及接口失败由原生界面报告。本阶段没有实现整本扫描 PDF 的批量识别；需要先提供页面图片。识别和文书内容由律师复核。
 
 ## 验证与范围
 
 ```powershell
-node --test integrations/intelligence/desktop/tests/policy.test.mjs
+node --test integrations/intelligence/desktop/tests/*.test.mjs
 node integrations/intelligence/desktop/tests/smoke.mjs
 ```
 
-真实桌面烟测需 OA Vite 开发服务位于 `localhost:3000`、PowerShell 7、原生构建和 Electron。使用已有 OA E2E 身份夹具与临时本机 HTTP 脚本模型，不依赖真实账号或外部模型密钥；启动隔离正式 Product Profile。自动化操作由测试实例拥有的 Windows 原生目录对话框，再通过原生 UI 发起读写，验证目录外非临时路径写入被拒绝、关闭窗口恢复、退出后 Host 端口关闭、重启后历史会话与文件仍在。原生目录测试只使用临时测试材料，不扫描用户卷宗。
+真实桌面烟测需 OA Vite 开发服务位于 `localhost:3000`、PowerShell 7、原生构建和 Electron。使用临时 OA E2E 身份与脚本模型、隔离 Wiki SQLite 和正式 Product Profile；OA HTTP 测试路由转交真实 `IntelligenceService`，认证/授权中间件另由后端真实 HTTP 与独立 PostgreSQL 测试覆盖。自动化通过实例拥有的 Windows 原生目录对话框选取测试目录，验证 Wiki 查询引用、原生图像请求、目录写入、边界拒绝、重启恢复、同账号续用与跨账号拒绝。不扫描用户卷宗，也不将脚本识别文本当作真实模型准确率验收。
 
-结果与截图位置见[阶段一实施记录](../../../docs/superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。未完成的后续能力包括：本地助手云端 Wiki 查询、个人视觉 API 专项适配、主动归档、OA 离线草稿同步、旧 OPFS 迁移以及独立安装器。这些仍以完整 Spec 为准。
+结果与截图位置见[阶段一](../../../docs/superpowers/plans/2026-09-13-unified-desktop-local-harness.md)和[阶段二实施记录](../../../docs/superpowers/plans/2026-09-13-desktop-cloud-wiki-vision.md)。主动归档、OA 离线草稿同步、旧 OPFS 迁移以及独立安装器待后续开发；真实个人模型识别效果和云端 OCR 部署验收仍需实际服务配置。完整产品版本继续按 Spec 保持待验收状态。
