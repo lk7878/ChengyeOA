@@ -1,5 +1,7 @@
 # 统一桌面客户端：阶段一、二开发验证
 
+部署与安装交付要求见[生产部署 Spec](../../../docs/superpowers/specs/2026-09-14-production-deployment.md)和[阶段计划](../../../docs/superpowers/plans/2026-09-14-production-deployment.md)。本文命令属于依赖源码的开发运行方式；自动更新、版本兼容协商和无开发环境安装验收仍待实施，不应把现有 build/setup/start 当作生产安装器。
+
 依据 [V1.3.0 Spec](../../../docs/superpowers/specs/2026-09-13-unified-desktop-local-harness.md)。本目录实现可运行的桌面基础；不是完整 V1.3.0 发布版或独立安装包。
 
 ## 本阶段已接入

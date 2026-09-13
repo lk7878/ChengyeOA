@@ -1,5 +1,7 @@
 # OA 智能化适配项目
 
+生产目标与验收入口：[2026-09-14 部署规格](../../docs/superpowers/specs/2026-09-14-production-deployment.md)、[部署计划](../../docs/superpowers/plans/2026-09-14-production-deployment.md)。目前只验证开发版桌面接入、在线 cloud_wiki 和相关回归，完整生产部署与独立安装包尚未完成。下文 V1.2.x 浏览器办案属于保留的历史实现；目标普通浏览器提供 OA/Wiki，完整本机办案使用 Windows客户端，旧入口退役与 OPFS保留须先验收。
+
 现有浏览器版本 V1.2.1，界面增量见 [原生浮动工作台 Spec](../../docs/superpowers/specs/2026-09-12-smart-case-native-ui.md)，数据与运行边界依据 [替代 Spec](../../docs/superpowers/specs/2026-09-12-harness-decoupled.md)。本目录集中维护知识库独立视图、办案接口、无端口运行适配，以及源码/构建检查脚本。上游实现位于 ../../third_party/deepseek-harness，OA 业务代码位于 ../../LayerManage/law-firm-system。三者职责分开，随 OA 一起交付。
 
 OA、Wiki、OCR 均在云端，系统管理员维护和编译 Wiki，律师只查询使用；办案材料和工作成果通过浏览器保存在律师电脑本地，不安装额外服务。V1.1 的连接器 HTTP 入口已停用，历史源码和原个人数据保留，正式产品不再要求本机连接器。此前浏览器 Wiki 验证保留在 probes 中，不进入产品构建。

@@ -4,7 +4,7 @@ title: 统一桌面客户端、云端业务与本地 Harness
 status: approved
 implementation_status: in_progress
 target_version: 1.3.0
-last_updated: 2026-09-13
+last_updated: 2026-09-14
 ---
 
 # 统一桌面客户端、云端业务与本地 Harness
@@ -102,7 +102,9 @@ last_updated: 2026-09-13
 
 本次不做：每位律师一套 OA 后端数据库、个人办案目录云同步/云备份、离线执行审批付款、自动把个人材料编译入公共 Wiki、本机 OCR 环境部署、无条件的全离线模型承诺。
 
-## 10. 后续实施验收条件（均待执行）
+## 10. 目标验收条件（开发验证与生产交付分别记录）
+
+部分开发验证已在阶段记录中完成；生产云环境与无源码安装交付尚未验收。部署细化见[部署规格](2026-09-14-production-deployment.md)和[分阶段计划](../plans/2026-09-14-production-deployment.md)。本表是完整目标，不表示全部尚无代码，也不表示全部已通过。
 
 | 编号 | 必须验证的行为 |
 |---|---|
