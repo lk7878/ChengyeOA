@@ -25,7 +25,7 @@ node integrations/intelligence/scripts/desktop.mjs start
 
 开发构建输出在 `integrations/intelligence/dist/desktop/`，目前依赖本机 Node、完整导入源码的构建产物及依赖。后续需打包运行时与安装器并在干净 Windows 环境验收，不能将本开发目录冒充独立安装包。
 
-从阶段一升级：先从托盘退出客户端，再执行 build、setup 和 start。setup 会增加独立 Wiki 插件依赖，保留个人配置和工作区；后端需要包含新的 `/api/v1/intelligence/desktop-knowledge` 路由，前端需包含相应查询桥。已经运行的旧客户端应重新启动后使用本阶段能力。
+从阶段一升级：先从托盘退出客户端，执行 build 和 start；新版在点击“智慧办案”时会检查并自动补齐缺失或失效的本地 Wiki 插件链接。首次部署仍需 setup；也可手动运行 setup 修复完整开发配置。自动补齐使用本项目随附插件与原生 CLI，保留个人配置和工作区。后端需要包含新的 `/api/v1/intelligence/desktop-knowledge` 路由，前端需包含相应查询桥。已经运行的旧客户端必须重启，才能加载新的主进程和私有 IPC。
 
 ## 使用和数据位置
 

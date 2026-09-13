@@ -124,9 +124,12 @@ async function launch() {
 
 try {
   await run(process.execPath, ['scripts/desktop.mjs', 'setup', '--oa-url', 'http://localhost:3000/e2e/intelligence.html'], env);
+  // Reproduce an existing stage-one profile: opening the assistant must install the new plugin itself.
+  await run(process.execPath, [join(vendor, 'apps/cli/lib/bin.js'), 'plugin', '--profile', 'product', 'remove', '@chengyeoa/harness-desktop-tools'], { ...env, DSH_HOME: join(home, 'harness') });
   await writeFile(join(home, 'harness/.credentials.yaml'), 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: desktop-fixture\n');
   await writeFile(join(home, 'harness/settings.yaml'), JSON.stringify({ 'llm-deepseek': { baseURL: `http://127.0.0.1:${model.address().port}`, thinking: 'disabled', reasoningEffort: 'off' }, 'agent-default-model': { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp', reasoningEffort: 'off' } }));
   await launch();
+  assert.ok(JSON.parse(await readFile(join(home, 'harness/profiles/product/package.json'), 'utf8')).dependencies['@chengyeoa/harness-desktop-tools']);
   assert.deepEqual(await oa.evaluate(() => ({ node: typeof window.require, keys: Object.keys(window.chengyeDesktop) })), { node: 'undefined', keys: ['version', 'openAssistant', 'setKnowledgeIdentity', 'replyKnowledge', 'onKnowledgeRequest'] });
   assert.equal(await agent.evaluate(() => typeof window.chengyeDesktop), 'undefined');
   assert.equal(await oa.getByRole('dialog', { name: '智慧办案浮动工作台' }).count(), 0);

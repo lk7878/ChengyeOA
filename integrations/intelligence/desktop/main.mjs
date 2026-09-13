@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { KnowledgeBroker } from './knowledge-broker.mjs';
+import { ensureDesktopPlugin } from './plugin-install.mjs';
 import { dataDirectory, hostEnvironment, isTrustedBridgeCall, navigation, readConfig } from './config.mjs';
 import { createHostSupervisor } from '../../../third_party/deepseek-harness/apps/product-desktop/src/host-supervisor.ts';
 import { createDesktopLifecycle } from '../../../third_party/deepseek-harness/apps/product-desktop/src/window-lifecycle.ts';
@@ -46,6 +47,7 @@ async function openAssistant() {
   opening = (async () => {
     const env = hostEnvironment(home);
     await validateProductProfile(env.DSH_HOME);
+    await ensureDesktopPlugin({ ...config, home, env, pluginPath: join(app.getAppPath(), '../../desktop-plugin') });
     const cwd = join(home, 'workspace');
     await mkdir(cwd, { recursive: true });
     if (lifecycle.isQuitting()) return;
