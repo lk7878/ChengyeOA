@@ -5,7 +5,7 @@ source: PRD §9
 status: approved
 implements: SPEC-001, SPEC-003
 design_refs: [docs/专项设计/数据库核心表设计草案.md]
-last_updated: 2026-07-28
+last_updated: 2026-09-14
 ---
 
 # FTN-001 数据模型
@@ -116,6 +116,16 @@ erDiagram
 | ApprovalCc | 审批抄送 |
 | Notification | 通知、消息、待办、已办 |
 | AuditLog | 审计日志 |
+
+### 多维协作对象扩展（2026-09-14，待实现）
+
+本节新增需求对象不包含在历史 SPEC-001/003 验收中，工程定义见 [SPEC-COLLAB-20260914](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md) §3/8。工作区与应用拥有独立资源归属；表定义、字段定义、视图定义分别描述表、类型和展示配置。个人偏好属于账号，视图不拥有业务记录副本。
+
+目标新增对象：Workspace、Base、WorkspaceMembership、TableDefinition、FieldDefinition、ViewDefinition、UserViewPreference、Record、BusinessRecordExtension、RecordRelation、RecordRevision、RecordComment。核心业务对象通过适配器引用现有 ID，通用自建表拥有实际记录；字段名称变化不改变标识与关联。
+
+数据不变量：记录必须属于对应表/组织，字段值必须符合生效字段类型，关联必须校验目标归属和权限。总表与个人视图操作同一记录；复制结构不复制数据和授权。表/字段归档保留历史；配置恢复不能恢复已撤销权限。新增元数据、关系、评论、历史和附件引用纳入一致备份恢复。
+
+验收：空白建表无需新增物理模型或应用发版；字段改名后视图和关系不失效；核心表不出现可独立修改的第二份真值；两种数据源都支持同源多视图。
 
 ## 3. 规则与边界
 

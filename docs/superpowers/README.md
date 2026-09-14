@@ -4,6 +4,7 @@ This directory holds the approved engineering decisions and operator records for
 
 | Area | Authoritative record |
 | --- | --- |
+| 飞书式多维协作工作区（规格已建立，待实施） | [SPEC-COLLAB-20260914](specs/2026-09-14-feishu-aligned-collaborative-workspace.md) |
 | 云端服务与 Windows 客户端部署规格（文档已完善，部署待实施） | [SPEC-DEPLOY-20260914](specs/2026-09-14-production-deployment.md) |
 | 部署分阶段计划及验收 | [P0～P3 部署计划](plans/2026-09-14-production-deployment.md) |
 | Implemented baseline | `specs/2026-07-12-engineering-baseline-postgresql-migration-design.md` |

@@ -14,6 +14,7 @@ import MainLayout from './components/Layout';
 import Login from './pages/Login';
 import PasswordChange from './pages/PasswordChange';
 import Dashboard from './pages/Dashboard';
+import WorkspacesPage from './pages/Workspaces';
 import LeadListPage from './pages/leads/LeadListPage';
 import LeadDetailPage from './pages/leads/LeadDetailPage';
 import PublicPoolPage from './pages/leads/PublicPoolPage';
@@ -121,6 +122,7 @@ function SessionBootstrap() {
 
   return (
       <><CaseWorkbench /><Routes>
+        <Route path="/workspaces" element={<PrivateRoute><WorkspacesPage /></PrivateRoute>} />
         <Route path="/login" element={<LoginRoute />} />
         <Route path="/password-change" element={<PasswordChangeRoute />} />
         <Route path="/" element={<WithLayout><Dashboard /></WithLayout>} />

@@ -1,5 +1,7 @@
 # 律师智慧管理系统 V1.2.1
 
+目标产品定位已于 2026-09-14 调整为**参考飞书多维表格设计的律所组织协作 OA**：以可自建的数据表、同源多视图和多人协作为日常工作入口，保留现有业务、权限、审批和智能办案底座。详见[需求总纲](docs/spec/README.md)与[多维协作工作区规格](docs/superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md)。新工作区尚未实施，以下版本说明仍描述既有实现。
+
 本仓库遵循 Spec 驱动开发，规格索引见 [docs/spec/TRACE.md](docs/spec/TRACE.md)。
 
 - `LayerManage/law-firm-system/`：OA 主项目，原有业务、认证、权限与界面。

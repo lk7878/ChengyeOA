@@ -1,4 +1,5 @@
 import { Context } from 'egg';
+import { CollaborationError } from '../application/collaboration/collaboration-policy';
 import { ApprovalError } from '../domain/approval/approval-errors';
 import { CaseError } from '../domain/case/case-errors';
 import { PerformanceError } from '../domain/performance/performance-errors';
@@ -15,6 +16,11 @@ export default () => async (ctx: Context, next: () => Promise<unknown>) => {
     await next();
   } catch (err: unknown) {
     const error: RequestError = err instanceof Error ? err : new Error(String(err));
+    if (error instanceof CollaborationError) {
+      ctx.status = error.status;
+      ctx.body = { code: error.status, message: error.code, errors: error.errors ?? null, timestamp: Date.now() };
+      return;
+    }
     if (error instanceof EventObservabilityUnavailableError) {
       ctx.status = error.httpStatus;
       ctx.body = {

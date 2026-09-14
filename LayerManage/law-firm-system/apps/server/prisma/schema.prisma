@@ -10,6 +10,7 @@ datasource db {
 // ==================== 组织架构模块 ====================
 
 model Organization {
+  collabWorkspaces   CollabWorkspace[]   @relation("CollabOrganization")
   inventoryMovements InventoryMovement[]
   id                 String              @id @default(uuid())
   code               String              @unique
@@ -167,19 +168,20 @@ model ProfessionalTeamMember {
 // ==================== 用户/权限模块 ====================
 
 model User {
-  id                 String    @id @default(uuid())
-  username           String    @unique
+  collabWorkspaces   CollabWorkspace[] @relation("CollabOwner")
+  id                 String            @id @default(uuid())
+  username           String            @unique
   password           String // bcrypt hash
-  status             String    @default("ENABLED") // ENABLED | DISABLED
-  employeeId         String?   @unique
+  status             String            @default("ENABLED") // ENABLED | DISABLED
+  employeeId         String?           @unique
   lastLoginAt        DateTime?
-  mustChangePassword Boolean   @default(false)
-  credentialVersion  Int       @default(1)
+  mustChangePassword Boolean           @default(false)
+  credentialVersion  Int               @default(1)
   passwordChangedAt  DateTime?
-  failedLoginCount   Int       @default(0)
+  failedLoginCount   Int               @default(0)
   lockedUntil        DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
   employee                 Employee?              @relation(fields: [employeeId], references: [id])
   userRoles                UserRole[]             @relation("AssignedUserRoles")
@@ -1580,4 +1582,261 @@ model InventoryStocktake {
 
   @@index([itemId, occurredAt])
   @@map("inventory_stocktake")
+}
+
+// SPEC-COLLAB-20260914: independent collaboration data, never copies core business truth.
+model CollabWorkspace {
+  organization   Organization   @relation("CollabOrganization", fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "collab_workspace_org_fk")
+  owner          User           @relation("CollabOwner", fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "collab_workspace_owner_fk")
+  id             String         @id @default(uuid())
+  organizationId String
+  name           String
+  ownerId        String
+  version        Int            @default(1)
+  createdAt      DateTime       @default(now())
+  bases          CollabBase[]
+  members        CollabMember[]
+
+  @@index([organizationId])
+  @@map("collab_workspace")
+}
+
+model CollabMember {
+  id             String          @id @default(uuid())
+  workspaceId    String
+  principalType  String          @default("USER")
+  principalId    String
+  role           String          @default("READER")
+  canCreate      Boolean         @default(false)
+  rowScope       String          @default("ALL")
+  hiddenFields   String[]        @default([])
+  readonlyFields String[]        @default([])
+  version        Int             @default(1)
+  workspace      CollabWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, principalType, principalId])
+  @@map("collab_member")
+}
+
+model CollabBase {
+  id          String           @id @default(uuid())
+  workspaceId String
+  name        String
+  version     Int              @default(1)
+  workspace   CollabWorkspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tables      CollabTable[]
+  events      CollabEvent[]
+  presence    CollabPresence[]
+
+  @@unique([workspaceId, name])
+  @@map("collab_base")
+}
+
+model CollabTable {
+  id            String         @id @default(uuid())
+  baseId        String
+  name          String
+  source        String         @default("CUSTOM")
+  position      Int            @default(0)
+  schemaVersion Int            @default(1)
+  archived      Boolean        @default(false)
+  createdBy     String
+  createdAt     DateTime       @default(now())
+  base          CollabBase     @relation(fields: [baseId], references: [id], onDelete: Cascade)
+  fields        CollabField[]
+  views         CollabView[]
+  records       CollabRecord[]
+  rules         CollabRule[]
+
+  @@unique([baseId, name])
+  @@map("collab_table")
+}
+
+model CollabField {
+  relations    CollabRelation[]
+  id           String           @id @default(uuid())
+  tableId      String
+  name         String
+  type         String           @default("TEXT")
+  options      Json             @default("{}")
+  required     Boolean          @default(false)
+  defaultValue Json?
+  position     Int              @default(0)
+  archived     Boolean          @default(false)
+  table        CollabTable      @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@unique([tableId, name])
+  @@map("collab_field")
+}
+
+model CollabView {
+  id        String      @id @default(uuid())
+  tableId   String
+  name      String
+  type      String      @default("GRID")
+  ownerId   String
+  shared    Boolean     @default(false)
+  isDefault Boolean     @default(false)
+  position  Int         @default(0)
+  version   Int         @default(1)
+  config    Json        @default("{}")
+  table     CollabTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([tableId, ownerId])
+  @@map("collab_view")
+}
+
+model CollabRecord {
+  outgoingRelations CollabRelation[] @relation("CollabSource")
+  incomingRelations CollabRelation[] @relation("CollabTarget")
+  id                String           @id @default(uuid())
+  tableId           String
+  values            Json             @default("{}")
+  createdBy         String
+  updatedBy         String
+  ownerId           String
+  version           Int              @default(1)
+  archived          Boolean          @default(false)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  table             CollabTable      @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  revisions         CollabRevision[]
+  comments          CollabComment[]
+
+  @@index([values], type: Gin, map: "collab_record_values_gin")
+  @@index([tableId, archived, createdAt, id])
+  @@index([tableId, ownerId])
+  @@map("collab_record")
+}
+
+model CollabRelation {
+  field          CollabField  @relation(fields: [fieldId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "collab_relation_field_fk")
+  source         CollabRecord @relation("CollabSource", fields: [sourceRecordId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "collab_relation_source_fk")
+  target         CollabRecord @relation("CollabTarget", fields: [targetRecordId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "collab_relation_target_fk")
+  id             String       @id @default(uuid())
+  fieldId        String
+  sourceRecordId String
+  targetRecordId String
+
+  @@unique([fieldId, sourceRecordId, targetRecordId])
+  @@index([targetRecordId])
+  @@map("collab_relation")
+}
+
+model CollabRevision {
+  id        String       @id @default(uuid())
+  recordId  String
+  version   Int
+  actorId   String
+  changes   Json
+  createdAt DateTime     @default(now())
+  record    CollabRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@unique([recordId, version])
+  @@map("collab_revision")
+}
+
+model CollabMutation {
+  id          String   @id @default(uuid())
+  actorId     String
+  key         String
+  fingerprint String
+  result      Json
+  createdAt   DateTime @default(now())
+
+  @@unique([actorId, key])
+  @@map("collab_mutation")
+}
+
+model CollabEvent {
+  id        BigInt     @id @default(autoincrement())
+  baseId    String
+  kind      String
+  createdAt DateTime   @default(now())
+  base      CollabBase @relation(fields: [baseId], references: [id], onDelete: Cascade)
+
+  @@index([baseId, id])
+  @@map("collab_event")
+}
+
+model CollabPresence {
+  id           String     @id @default(uuid())
+  baseId       String
+  userId       String
+  connectionId String
+  seenAt       DateTime   @default(now())
+  base         CollabBase @relation(fields: [baseId], references: [id], onDelete: Cascade)
+
+  @@unique([baseId, connectionId])
+  @@index([baseId, seenAt])
+  @@map("collab_presence")
+}
+
+model CollabComment {
+  id        String       @id @default(uuid())
+  recordId  String
+  actorId   String
+  content   String
+  mentions  String[]     @default([])
+  createdAt DateTime     @default(now())
+  record    CollabRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@index([recordId, createdAt])
+  @@map("collab_comment")
+}
+
+model CollabAttachment {
+  id         String   @id @default(uuid())
+  tableId    String
+  ownerId    String
+  name       String
+  mimeType   String
+  size       Int
+  storageKey String   @unique
+  createdAt  DateTime @default(now())
+
+  @@index([tableId])
+  @@map("collab_attachment")
+}
+
+model CollabRule {
+  id        String      @id @default(uuid())
+  tableId   String
+  name      String
+  ownerId   String
+  enabled   Boolean     @default(false)
+  version   Int         @default(1)
+  trigger   String
+  condition Json        @default("{}")
+  action    Json
+  table     CollabTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  runs      CollabRun[]
+
+  @@map("collab_rule")
+}
+
+model CollabRun {
+  id            String     @id @default(uuid())
+  ruleId        String
+  recordId      String
+  recordVersion Int
+  ruleVersion   Int
+  status        String
+  attempts      Int        @default(0)
+  error         String?
+  createdAt     DateTime   @default(now())
+  rule          CollabRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, recordId, recordVersion, ruleVersion])
+  @@map("collab_run")
+}
+
+model CollabPreference {
+  id      String @id @default(uuid())
+  userId  String
+  tableId String
+  viewId  String
+
+  @@unique([userId, tableId])
+  @@map("collab_preference")
 }

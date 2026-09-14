@@ -33,7 +33,7 @@ const EVENT_OPERATION_CODES = [
 ] as const;
 
 test('catalog contains every unique immutable permission code exactly once', () => {
-  assert.equal(PERMISSION_CODES.length, 146);
+  assert.equal(PERMISSION_CODES.length, 147);
   assert.equal(new Set(PERMISSION_CODES).size, PERMISSION_CODES.length);
   assert.equal(PERMISSION_CATALOG.length, PERMISSION_CODES.length);
   assert.deepEqual(
@@ -42,6 +42,14 @@ test('catalog contains every unique immutable permission code exactly once', () 
   );
   assert.equal(new Set(PERMISSION_CATALOG.map(item => item.id)).size, PERMISSION_CATALOG.length);
   assert.ok(PERMISSION_CATALOG.every(item => item.id === `permission:${item.code}`));
+});
+
+test('workspace creation is an explicit action rather than implicit access to business data', () => {
+  const permission = PERMISSION_CATALOG.find(item => item.code === 'workspace.create');
+  assert.ok(permission);
+  assert.equal(permission.resource, 'workspace');
+  assert.equal(permission.type, 'ACTION');
+  assert.equal(permission.riskLevel, 'MEDIUM');
 });
 
 test('catalog registers the SPEC-007 event operations permission boundary', () => {

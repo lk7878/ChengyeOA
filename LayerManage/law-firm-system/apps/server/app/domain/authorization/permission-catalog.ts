@@ -32,6 +32,7 @@ function permission(
 }
 
 export const PERMISSION_CATALOG = Object.freeze([
+  permission('workspace.create', '创建多维协作工作区', 'ACTION', 'workspace', 'create', 'MEDIUM'),
   permission('menu.knowledge', '云端知识库', 'MENU', 'menu', 'view', 'LOW', '/knowledge'),
   permission('menu.smart_case', '智慧办案', 'MENU', 'menu', 'view', 'LOW', '/smart-case'),
   permission('menu.inventory', '物品管理', 'MENU', 'menu', 'view', 'LOW', '/inventory'),

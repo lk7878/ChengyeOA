@@ -5,7 +5,7 @@ source: PRD §8.1
 status: approved
 implements: SPEC-002, SPEC-003, SPEC-004, SPEC-005, SPEC-003-A
 design_refs: [docs/专项设计/角色权限与数据范围设计.md, docs/专项设计/系统管理员与超级管理员权限设计.md]
-last_updated: 2026-09-11
+last_updated: 2026-09-14
 ---
 
 # MOD-001 组织权限模块
@@ -30,6 +30,9 @@ last_updated: 2026-09-11
 | ORG-11 | 超管组织管理与复制 | 仅超级管理员查询、编辑、删除无引用组织；新增可复制全部下级和岗位结构 | 已实现 |
 | ORG-12 | 部门负责人 | 从现有在职员工设置、更换或清空负责人，不隐式授予权限 | 已实现 |
 | ORG-13 | 组织树折叠与排序 | 各节点独立展开/收起；全部组织排序号全局唯一，占用号不可重复选择 | 已实现 |
+| ORG-14 | 协作资源授权 | 工作区/应用/表成员及建表能力，分享委派、行列权限和撤权后的协作会话失效；遵循 FTN-003 新扩展 | 待开发 |
+
+ORG-14 工程输入见 [SPEC-COLLAB-20260914](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md) §6/10；原组织与账号验收不代表协作资源授权完成。
 
 ## 3. 业务规则
 

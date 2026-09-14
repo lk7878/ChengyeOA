@@ -989,7 +989,14 @@ const approvalInstanceCompletedV1Definition: EventDefinition<ApprovalInstanceCom
   },
 };
 
+const collaborationChanged: EventDefinition<{ baseId: string }> = {
+  sourceModule: 'COLLABORATION', objectType: 'COLLAB_BASE', filterFields: new Set(),
+  parsePayload(payload: unknown) { const value = requirePlainObject(payload, 'Collaboration event'); assertExactKeys(value, ['baseId'], 'Collaboration event'); return { baseId: requireUuid(value.baseId, 'baseId') }; },
+  extractObjectId(payload) { return payload.baseId; },
+};
+
 const EVENT_DEFINITIONS = new Map<string, EventDefinition<unknown>>([
+  [ eventKey('collaboration.changed', 1), collaborationChanged ],
   [ eventKey('admin.operation.reviewed', 1), reviewedV1Definition ],
   [ eventKey('lead.created', 1), leadCreatedV1Definition ],
   [ eventKey('lead.assigned', 1), leadAssignedV1Definition ],

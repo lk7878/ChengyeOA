@@ -15,6 +15,7 @@ import {
 } from 'antd';
 import {
   DashboardOutlined,
+  AppstoreOutlined,
   UserOutlined,
   TeamOutlined,
   FileSearchOutlined,
@@ -53,6 +54,7 @@ interface NavigationItem {
 }
 
 const baseMenuItems: NavigationItem[] = [
+  { key: '/workspaces', icon: <AppstoreOutlined />, label: '协作工作区' },
   { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
   {
     key: 'lead-crm',

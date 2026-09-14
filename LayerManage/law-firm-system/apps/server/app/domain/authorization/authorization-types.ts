@@ -14,6 +14,7 @@ export type FieldReadLevel = 'NONE' | 'MASKED' | 'READ';
 export type DataClassification = 'L1' | 'L2' | 'L3' | 'L4' | 'FORBIDDEN';
 
 export const RESOURCE_CODES = [
+  'workspace',
   'inventory',
   'menu',
   'organization',
@@ -70,6 +71,7 @@ export const FIELD_CODES = [
 export type FieldCode = typeof FIELD_CODES[number];
 
 export const PERMISSION_CODES = [
+  'workspace.create',
   'menu.knowledge', 'menu.smart_case',
   'menu.inventory', 'inventory.read', 'inventory.manage', 'inventory.inbound', 'inventory.outbound', 'inventory.stocktake', 'inventory.export',
   'menu.organization_personnel',

@@ -6,6 +6,29 @@ import { requireAnyPermission } from './middleware/requireAnyPermission';
 export default (app: Application) => {
   const { router, controller } = app;
 
+  // SPEC-COLLAB: authenticated endpoints; services enforce resource permissions.
+  router.get('/api/v1/workspaces', controller.collaboration.index);
+  router.post('/api/v1/workspaces', controller.collaboration.createWorkspace);
+  router.get('/api/v1/collaboration/options', controller.collaboration.options);
+  router.post('/api/v1/workspaces/:workspaceId/bases', controller.collaboration.createBase);
+  router.get('/api/v1/workspaces/:workspaceId/members', controller.collaboration.members);
+  router.post('/api/v1/workspaces/:workspaceId/members', controller.collaboration.saveMember);
+  router.get('/api/v1/bases/:baseId/tables', controller.collaboration.tables);
+  router.post('/api/v1/bases/:baseId/tables', controller.collaboration.createTable);
+  router.get('/api/v1/tables/:tableId', controller.collaboration.table);
+  router.patch('/api/v1/tables/:tableId', controller.collaboration.mutateTable);
+  router.post('/api/v1/tables/:tableId/fields', controller.collaboration.field);
+  router.patch('/api/v1/tables/:tableId/fields/:fieldId', controller.collaboration.field);
+  router.post('/api/v1/tables/:tableId/views', controller.collaboration.view);
+  router.patch('/api/v1/tables/:tableId/views/:viewId', controller.collaboration.view);
+  router.post('/api/v1/tables/:tableId/records/query', controller.collaboration.query);
+  router.get('/api/v1/tables/:tableId/records/:recordId', controller.collaboration.record);
+  router.post('/api/v1/tables/:tableId/records', controller.collaboration.saveRecord);
+  router.patch('/api/v1/tables/:tableId/records/:recordId', controller.collaboration.saveRecord);
+  router.get('/api/v1/collaboration/events', controller.collaboration.events);
+  router.post('/api/v1/tables/:tableId/files', controller.collaboration.upload);
+  router.get('/api/v1/tables/:tableId/files/:fileId', controller.collaboration.download);
+
   router.post('/api/v1/intelligence/knowledge', controller.intelligence.knowledge);
   router.post('/api/v1/intelligence/desktop-knowledge', controller.intelligence.desktopKnowledge);
   router.post('/api/v1/intelligence/case', controller.intelligence.caseOperation);

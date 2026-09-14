@@ -1,0 +1,979 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { CollabField, CollabRecord, Prisma, PrismaClient } from '@prisma/client';
+import { PrismaEventOutboxWriter } from '../events/event-outbox-writer';
+import { AuthorizationContext } from '../authorization/authorization-service';
+import {
+  boolean,
+  choice,
+  exact,
+  fail,
+  FIELD_TYPES,
+  fieldExpression,
+  fieldOf,
+  filterSql,
+  integer,
+  isSystemField,
+  json,
+  object,
+  ObjectValue,
+  strings,
+  text,
+  validateOptions,
+  validateValue,
+  validateView,
+  VIEW_TYPES,
+  ViewConfig,
+} from './collaboration-policy';
+
+type Tx = Prisma.TransactionClient;
+const levels: Record<string, number> = { READER: 1, EDITOR: 2, MANAGER: 3, OWNER: 4 };
+export interface Access {
+  level: number;
+  canCreate: boolean;
+  selfOnly: boolean;
+  hidden: string[];
+  readonly: string[];
+  workspaceId: string;
+  organizationId: string;
+}
+
+export class CollaborationService {
+  constructor(
+    readonly db: PrismaClient,
+    readonly actor: AuthorizationContext,
+  ) {}
+  private async principals(tx: Tx): Promise<Array<{ principalType: string; principalId: string }>> {
+    const result = [{ principalType: 'USER', principalId: this.actor.userId }];
+    if (!this.actor.employeeId) return result;
+    const now = new Date();
+    const [assignments, teams] = await Promise.all([
+      tx.employeeAssignment.findMany({
+        where: {
+          employeeId: this.actor.employeeId,
+          startedAt: { lte: now },
+          OR: [{ endedAt: null }, { endedAt: { gt: now } }],
+        },
+        include: { organization: true },
+      }),
+      tx.professionalTeamMember.findMany({ where: { employeeId: this.actor.employeeId, endedAt: null } }),
+    ]);
+    for (const assignment of assignments) {
+      if (assignment.organization.status !== 'ENABLED') continue;
+      const ancestors = await tx.organization.findMany({
+        where: {
+          status: 'ENABLED',
+          OR: [
+            { id: assignment.organizationId },
+            { id: { in: assignment.organization.path.split('/').filter(Boolean) } },
+          ],
+        },
+        select: { id: true },
+      });
+      result.push(...ancestors.map((o) => ({ principalType: 'ORG', principalId: o.id })));
+      result.push({ principalType: 'ORG', principalId: assignment.organizationId });
+    }
+    result.push(...teams.map((t) => ({ principalType: 'TEAM', principalId: t.professionalTeamId })));
+    return result;
+  }
+  async access(workspaceId: string, tx: Tx = this.db, level = 1): Promise<Access> {
+    const w = await tx.collabWorkspace.findUnique({ where: { id: workspaceId } });
+    if (!w) fail('COLLAB_NOT_FOUND', 404);
+    const members = await tx.collabMember.findMany({ where: { workspaceId, OR: await this.principals(tx) } });
+    // A resource owner is explicit, never inferred from a system administrator flag.
+    const effective = Math.max(0, ...members.map((m) => levels[m.role] ?? 0));
+    if (effective < level) fail('COLLAB_FORBIDDEN', 403);
+    return {
+      level: effective,
+      canCreate: effective >= 3 || members.some((m) => m.canCreate),
+      selfOnly: members.every((m) => m.rowScope === 'SELF'),
+      hidden: [...new Set(members.flatMap((m) => m.hiddenFields))],
+      readonly: [...new Set(members.flatMap((m) => m.readonlyFields))],
+      workspaceId,
+      organizationId: w.organizationId,
+    };
+  }
+  async baseAccess(baseId: string, tx: Tx = this.db, level = 1) {
+    const base = await tx.collabBase.findUnique({ where: { id: baseId } });
+    if (!base) fail('COLLAB_NOT_FOUND', 404);
+    return { base, access: await this.access(base.workspaceId, tx, level) };
+  }
+  async tableAccess(tableId: string, tx: Tx = this.db, level = 1, allowArchived = false) {
+    const table = await tx.collabTable.findUnique({
+      where: { id: tableId },
+      include: { fields: { orderBy: { position: 'asc' } } },
+    });
+    if (!table || (table.archived && !allowArchived)) fail('COLLAB_NOT_FOUND', 404);
+    const { access } = await this.baseAccess(table.baseId, tx);
+    if (table.createdBy === this.actor.userId && access.level >= 2 && access.canCreate)
+      access.level = Math.max(access.level, 3);
+    if (access.level < level) fail('COLLAB_FORBIDDEN', 403);
+    return {
+      table,
+      access,
+      fields: table.fields.filter((f) => !f.archived && !access.hidden.includes(f.id)),
+    };
+  }
+  private async lock(tx: Tx, workspaceId: string) {
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM collab_workspace WHERE id = ${workspaceId} FOR UPDATE`);
+  }
+  private async write<T>(key: unknown, payload: unknown, callback: (tx: Tx) => Promise<T>): Promise<T> {
+    const mutationKey = text(key, 120);
+    const fingerprint = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+    try {
+      return await this.db.$transaction(
+        async (tx) => {
+          await tx.$executeRaw(
+            Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${this.actor.userId + ':' + mutationKey}, 0))`,
+          );
+          const existing = await tx.collabMutation.findUnique({
+            where: { actorId_key: { actorId: this.actor.userId, key: mutationKey } },
+          });
+          if (existing) {
+            if (existing.fingerprint !== fingerprint) fail('COLLAB_IDEMPOTENCY_CONFLICT', 409);
+            return existing.result as T;
+          }
+          const result = await callback(tx);
+          await tx.collabMutation.create({
+            data: { actorId: this.actor.userId, key: mutationKey, fingerprint, result: json(result) },
+          });
+          return result;
+        },
+        { timeout: 15000 },
+      );
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')
+        fail('COLLAB_NAME_OR_ID_CONFLICT', 409);
+      throw error;
+    }
+  }
+  private async event(tx: Tx, baseId: string, kind: string, targetId: string) {
+    await tx.collabEvent.create({ data: { baseId, kind } });
+    await new PrismaEventOutboxWriter().append(tx, {
+      eventType: 'collaboration.changed',
+      eventVersion: 1,
+      objectType: 'COLLAB_BASE',
+      objectId: baseId,
+      operatorUserId: this.actor.userId,
+      organizationId: null,
+      branchId: null,
+      teamId: null,
+      payload: { baseId },
+      traceId: randomUUID(),
+      occurredAt: new Date(),
+    });
+    await tx.operationLog.create({
+      data: { userId: this.actor.userId, action: kind, targetType: 'COLLAB', targetId },
+    });
+  }
+  async listWorkspaces() {
+    const members = await this.db.collabMember.findMany({
+      where: { OR: await this.principals(this.db) },
+      select: { workspaceId: true },
+    });
+    const workspaces = await this.db.collabWorkspace.findMany({
+      where: { id: { in: members.map((m) => m.workspaceId) } },
+      include: { bases: { orderBy: { name: 'asc' } } },
+      orderBy: { name: 'asc' },
+    });
+    return {
+      workspaces,
+      canCreate:
+        this.actor.isSystemSuperAdmin ||
+        this.actor.permissionCodes.some((p) => String(p) === 'workspace.create'),
+    };
+  }
+  async createWorkspace(raw: unknown, key: unknown) {
+    const input = exact(raw, ['name', 'organizationId']);
+    if (
+      !this.actor.isSystemSuperAdmin &&
+      !this.actor.permissionCodes.some((p) => String(p) === 'workspace.create')
+    )
+      fail('COLLAB_FORBIDDEN', 403);
+    const organizationId = text(input.organizationId);
+    const name = text(input.name);
+    return this.write(key, ['workspace.create', input], async (tx) => {
+      const org = await tx.organization.findUnique({ where: { id: organizationId } });
+      if (!org || org.status !== 'ENABLED') fail('COLLAB_ORGANIZATION_UNAVAILABLE');
+      if (
+        !this.actor.isSystemSuperAdmin &&
+        !(await this.principals(tx)).some(
+          (p) => p.principalType === 'ORG' && p.principalId === organizationId,
+        )
+      )
+        fail('COLLAB_FORBIDDEN', 403);
+      const w = await tx.collabWorkspace.create({
+        data: { organizationId, name, ownerId: this.actor.userId },
+      });
+      await tx.collabMember.create({
+        data: { workspaceId: w.id, principalId: this.actor.userId, role: 'OWNER', canCreate: true },
+      });
+      await tx.operationLog.create({
+        data: {
+          userId: this.actor.userId,
+          action: 'workspace.created',
+          targetType: 'COLLAB',
+          targetId: w.id,
+        },
+      });
+      return { id: w.id };
+    });
+  }
+  async createBase(workspaceId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['name']);
+    await this.access(workspaceId, this.db, 3);
+    return this.write(key, ['base.create', workspaceId, input], async (tx) => {
+      await this.lock(tx, workspaceId);
+      await this.access(workspaceId, tx, 3);
+      const base = await tx.collabBase.create({ data: { workspaceId, name: text(input.name) } });
+      await this.event(tx, base.id, 'base.created', base.id);
+      return { id: base.id };
+    });
+  }
+  async listTables(baseId: string) {
+    const { base, access } = await this.baseAccess(baseId);
+    const tables = await this.db.collabTable.findMany({
+      where: { baseId },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
+      select: { id: true, name: true, source: true, position: true, schemaVersion: true, archived: true },
+    });
+    return { base, access, tables: tables.filter((t) => access.level >= 3 || !t.archived) };
+  }
+  async createTable(baseId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['name', 'template']);
+    const initial = await this.baseAccess(baseId);
+    if (!initial.access.canCreate) fail('COLLAB_FORBIDDEN', 403);
+    return this.write(key, ['table.create', baseId, input], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId);
+      const { access } = await this.baseAccess(baseId, tx);
+      if (!access.canCreate) fail('COLLAB_FORBIDDEN', 403);
+      const table = await tx.collabTable.create({
+        data: {
+          baseId,
+          name: text(input.name),
+          createdBy: this.actor.userId,
+          position: await tx.collabTable.count({ where: { baseId } }),
+        },
+      });
+      const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS']);
+      await tx.collabField.create({
+        data: { tableId: table.id, name: '标题', type: 'TEXT', required: true },
+      });
+      if (template !== 'BLANK') {
+        await tx.collabField.create({
+          data: { tableId: table.id, name: '负责人', type: 'USER', position: 1 },
+        });
+        await tx.collabField.create({
+          data: {
+            tableId: table.id,
+            name: template === 'TASKS' ? '截止日期' : '下次联系',
+            type: 'DATE',
+            position: 2,
+          },
+        });
+        await tx.collabField.create({
+          data: {
+            tableId: table.id,
+            name: '状态',
+            type: 'SINGLE_SELECT',
+            position: 3,
+            options: {
+              choices: [
+                { id: 'todo', name: '待处理' },
+                { id: 'doing', name: '进行中' },
+                { id: 'done', name: '已完成' },
+              ],
+            },
+          },
+        });
+      }
+      const view = await tx.collabView.create({
+        data: { tableId: table.id, name: '总表', ownerId: this.actor.userId, shared: true, isDefault: true },
+      });
+      await this.event(tx, baseId, 'table.created', table.id);
+      return { id: table.id, viewId: view.id };
+    });
+  }
+  async describe(tableId: string) {
+    const { table, access, fields } = await this.tableAccess(tableId);
+    const views = await this.db.collabView.findMany({
+      where: { tableId, OR: [{ shared: true }, { ownerId: this.actor.userId }] },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
+    });
+    const preference = await this.db.collabPreference.findUnique({
+      where: { userId_tableId: { userId: this.actor.userId, tableId } },
+    });
+    return {
+      table: { ...table, fields: [] as CollabField[] },
+      access,
+      fields: fields.map((f) => ({
+        ...f,
+        writable: access.level >= 2 && !access.readonly.includes(f.id) && !isSystemField(f),
+      })),
+      views: views.map((v) => ({ ...v, config: this.sanitizeConfig(v.config, fields) })),
+      preferredViewId: preference?.viewId,
+      userId: this.actor.userId,
+      employeeId: this.actor.employeeId,
+    };
+  }
+  private sanitizeConfig(raw: unknown, fields: CollabField[]): ViewConfig {
+    const c = object(raw) as ViewConfig;
+    const ids = new Set(fields.map((f) => f.id));
+    // A shared filter mentioning a forbidden field cannot be exposed or silently removed.
+    if (c.filter) {
+      try {
+        filterSql(c.filter, fields, this.actor.userId, this.actor.employeeId);
+      } catch {
+        return { visibleFields: [], filter: { fieldId: '__restricted__', operator: 'eq', value: '' } };
+      }
+    }
+    return {
+      ...c,
+      dateFieldId: ids.has(c.dateFieldId) ? c.dateFieldId : undefined,
+      endDateFieldId: ids.has(c.endDateFieldId) ? c.endDateFieldId : undefined,
+      colorFieldId: ids.has(c.colorFieldId) ? c.colorFieldId : undefined,
+      visibleFields: c.visibleFields?.filter((id) => ids.has(id)),
+      groupBy: c.groupBy?.filter((id) => ids.has(id)),
+      sorts: c.sorts?.filter((s) => ids.has(s.fieldId)),
+      widths: c.widths
+        ? Object.fromEntries(Object.entries(c.widths).filter(([id]) => ids.has(id)))
+        : undefined,
+    };
+  }
+  async mutateTable(tableId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['name', 'position', 'archived', 'duplicate', 'version']);
+    const initial = await this.tableAccess(tableId, this.db, 3, true);
+    return this.write(key, ['table.update', tableId, input], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId);
+      const { table } = await this.tableAccess(tableId, tx, 3, true);
+      if (table.schemaVersion !== integer(input.version)) fail('COLLAB_SCHEMA_CONFLICT', 409);
+      if (input.duplicate) {
+        const copy = await tx.collabTable.create({
+          data: {
+            baseId: table.baseId,
+            name: text(input.name),
+            createdBy: this.actor.userId,
+            position: table.position + 1,
+          },
+        });
+        const mapping = new Map<string, string>();
+        for (const f of table.fields.filter((f) => !f.archived)) {
+          const id = randomUUID();
+          mapping.set(f.id, id);
+          await tx.collabField.create({
+            data: {
+              ...f,
+              id,
+              tableId: copy.id,
+              defaultValue: f.defaultValue === null ? Prisma.DbNull : json(f.defaultValue),
+            },
+          });
+        }
+        const views = await tx.collabView.findMany({ where: { tableId, shared: true } });
+        for (const v of views) {
+          let config = JSON.stringify(v.config);
+          for (const [oldId, id] of mapping) config = config.replaceAll(oldId, id);
+          await tx.collabView.create({
+            data: {
+              ...v,
+              id: randomUUID(),
+              tableId: copy.id,
+              ownerId: this.actor.userId,
+              config: JSON.parse(config),
+              version: 1,
+            },
+          });
+        }
+        await this.event(tx, table.baseId, 'table.created', copy.id);
+        return { id: copy.id };
+      }
+      if (input.archived === true) {
+        const references = await tx.collabField.count({
+          where: {
+            archived: false,
+            type: 'RELATION',
+            options: { path: ['targetTableId'], equals: tableId },
+            tableId: { not: tableId },
+          },
+        });
+        if (references) fail('COLLAB_REFERENCED_TABLE', 409, { references });
+        if (await tx.collabRule.count({ where: { tableId, enabled: true } })) fail('COLLAB_ACTIVE_RULE', 409);
+      }
+      await tx.collabTable.update({
+        where: { id: tableId },
+        data: {
+          name: input.name === undefined ? undefined : text(input.name),
+          position: input.position === undefined ? undefined : integer(input.position, 0),
+          archived: input.archived === undefined ? undefined : boolean(input.archived),
+          schemaVersion: { increment: 1 },
+        },
+      });
+      await this.event(tx, table.baseId, 'table.updated', tableId);
+      return { id: tableId, version: table.schemaVersion + 1 };
+    });
+  }
+  async saveField(tableId: string, fieldId: string | undefined, raw: unknown, key: unknown) {
+    const input = exact(raw, [
+      'name',
+      'type',
+      'required',
+      'options',
+      'defaultValue',
+      'position',
+      'archived',
+      'version',
+    ]);
+    const initial = await this.tableAccess(tableId, this.db, 3);
+    return this.write(key, ['field.save', tableId, fieldId, input], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId);
+      const { table, fields } = await this.tableAccess(tableId, tx, 3);
+      if (table.schemaVersion !== integer(input.version)) fail('COLLAB_SCHEMA_CONFLICT', 409);
+      const previous = fieldId ? table.fields.find((f) => f.id === fieldId) : undefined;
+      if (fieldId && !previous) fail('COLLAB_NOT_FOUND', 404);
+      if (fieldId && !fields.some((f) => f.id === fieldId)) fail('COLLAB_FORBIDDEN', 403);
+      const type = choice(input.type ?? previous?.type, FIELD_TYPES);
+      if (
+        previous &&
+        previous.type !== type &&
+        (await tx.collabRecord.count({
+          where: { tableId, values: { path: [previous.id], not: Prisma.DbNull } },
+        }))
+      )
+        fail('COLLAB_FIELD_MIGRATION_REQUIRED', 409);
+      const required = input.required === undefined ? (previous?.required ?? false) : boolean(input.required);
+      if (required && !previous?.required) {
+        const missing = await tx.$queryRaw<Array<{ count: bigint }>>(
+          Prisma.sql`SELECT count(*) FROM collab_record WHERE "tableId" = ${tableId} AND archived = false AND ("values" ->> ${fieldId ?? ''} IS NULL OR "values" ->> ${fieldId ?? ''} IN ('', '[]'))`,
+        );
+        if (Number(missing[0].count)) fail('COLLAB_REQUIRED_BACKFILL_REQUIRED', 409);
+      }
+      const options = validateOptions(type, input.options ?? previous?.options ?? {});
+      if (previous && ['SINGLE_SELECT', 'MULTI_SELECT'].includes(type)) {
+        const nextIds = new Set((options.choices as Array<{ id: string }>).map((o) => o.id));
+        const removed = ((object(previous.options).choices ?? []) as Array<{ id: string }>).filter(
+          (o) => !nextIds.has(o.id),
+        );
+        for (const option of removed)
+          if (
+            await tx.collabRecord.count({
+              where: {
+                tableId,
+                values:
+                  type === 'SINGLE_SELECT'
+                    ? { path: [previous.id], equals: option.id }
+                    : { path: [previous.id], array_contains: [option.id] },
+              },
+            })
+          )
+            fail('COLLAB_OPTION_IN_USE', 409);
+      }
+      if (
+        previous?.type === 'RELATION' &&
+        options.targetTableId !== object(previous.options).targetTableId &&
+        (await tx.collabRelation.count({ where: { fieldId: previous.id } }))
+      )
+        fail('COLLAB_FIELD_MIGRATION_REQUIRED', 409);
+      if (type === 'RELATION') {
+        const target = await this.tableAccess(text(options.targetTableId), tx);
+        if (target.access.workspaceId !== initial.access.workspaceId) fail('COLLAB_CROSS_WORKSPACE_RELATION');
+      }
+      if (input.archived === true && previous) {
+        if (previous.position === 0) fail('COLLAB_TITLE_FIELD_REQUIRED', 409);
+        const views = await tx.collabView.findMany({ where: { tableId } });
+        if (
+          views.some(
+            (v) =>
+              JSON.stringify(object(v.config).filter ?? {}).includes(previous.id) ||
+              JSON.stringify(object(v.config).sorts ?? []).includes(previous.id) ||
+              JSON.stringify(object(v.config).groupBy ?? []).includes(previous.id),
+          )
+        )
+          fail('COLLAB_REFERENCED_FIELD', 409);
+      }
+      if (!fieldId && fields.length >= 100) fail('COLLAB_FIELD_LIMIT');
+      const data = {
+        name: text(input.name ?? previous?.name),
+        type,
+        required,
+        options: json(options),
+        position:
+          input.position === undefined
+            ? (previous?.position ?? table.fields.length)
+            : integer(input.position, 0),
+        archived: input.archived === undefined ? (previous?.archived ?? false) : boolean(input.archived),
+      };
+      const fake = { ...previous, ...data, id: fieldId ?? 'new' } as CollabField;
+      const defaultValue = input.defaultValue === undefined ? previous?.defaultValue : input.defaultValue;
+      const validatedDefault =
+        defaultValue === null || defaultValue === undefined
+          ? Prisma.DbNull
+          : json(validateValue(fake, defaultValue));
+      const field = fieldId
+        ? await tx.collabField.update({
+            where: { id: fieldId },
+            data: { ...data, defaultValue: validatedDefault },
+          })
+        : await tx.collabField.create({ data: { ...data, tableId, defaultValue: validatedDefault } });
+      await tx.collabTable.update({ where: { id: tableId }, data: { schemaVersion: { increment: 1 } } });
+      await this.event(tx, table.baseId, 'schema.updated', tableId);
+      return { id: field.id, version: table.schemaVersion + 1 };
+    });
+  }
+  async saveView(tableId: string, viewId: string | undefined, raw: unknown, key: unknown) {
+    const input = exact(raw, [
+      'name',
+      'type',
+      'shared',
+      'config',
+      'position',
+      'version',
+      'remove',
+      'default',
+    ]);
+    const initial = await this.tableAccess(tableId);
+    return this.write(key, ['view.save', tableId, viewId, input], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId);
+      const { table, access, fields } = await this.tableAccess(tableId, tx);
+      const previous = viewId
+        ? await tx.collabView.findFirst({
+            where: { id: viewId, tableId, OR: [{ shared: true }, { ownerId: this.actor.userId }] },
+          })
+        : null;
+      if (viewId && !previous) fail('COLLAB_NOT_FOUND', 404);
+      if (input.default && previous) {
+        await tx.collabPreference.upsert({
+          where: { userId_tableId: { userId: this.actor.userId, tableId } },
+          create: { userId: this.actor.userId, tableId, viewId },
+          update: { viewId },
+        });
+        return { id: viewId };
+      }
+      const shared = input.shared === undefined ? (previous?.shared ?? false) : boolean(input.shared);
+      if ((shared || previous?.shared) && access.level < 3) fail('COLLAB_FORBIDDEN', 403);
+      if (previous && !previous.shared && previous.ownerId !== this.actor.userId)
+        fail('COLLAB_FORBIDDEN', 403);
+      if (previous && previous.version !== integer(input.version)) fail('COLLAB_VIEW_CONFLICT', 409);
+      if (previous?.isDefault && (input.remove || !shared)) fail('COLLAB_DEFAULT_VIEW_REQUIRED', 409);
+      if (input.remove && previous) {
+        await tx.collabView.delete({ where: { id: viewId } });
+        await this.event(tx, table.baseId, 'view.updated', tableId);
+        return { id: viewId };
+      }
+      const config = validateView(input.config ?? previous?.config ?? {}, fields);
+      const data = {
+        name: text(input.name ?? previous?.name),
+        type: choice(input.type ?? previous?.type ?? 'GRID', VIEW_TYPES),
+        shared,
+        config: json(config),
+        position: input.position === undefined ? (previous?.position ?? 0) : integer(input.position, 0),
+      };
+      const view = previous
+        ? await tx.collabView.update({ where: { id: viewId }, data: { ...data, version: { increment: 1 } } })
+        : await tx.collabView.create({ data: { ...data, tableId, ownerId: this.actor.userId } });
+      await this.event(tx, table.baseId, 'view.updated', tableId);
+      return { id: view.id, version: view.version };
+    });
+  }
+  private rowWhere(tableId: string, access: Access): Prisma.CollabRecordWhereInput {
+    return { tableId, archived: false, ...(access.selfOnly ? { ownerId: this.actor.userId } : {}) };
+  }
+  async attachment(tableId: string, fileId: string, tx: Tx = this.db) {
+    const { access, fields, table } = await this.tableAccess(tableId, tx);
+    const file = await tx.collabAttachment.findFirst({ where: { id: fileId, tableId } });
+    if (!file) fail('COLLAB_NOT_FOUND', 404);
+    const references = (items: CollabField[]) =>
+      items
+        .filter((f) => f.type === 'FILE')
+        .map((f) => ({ values: { path: [f.id], array_contains: [fileId] } }));
+    const visible = await tx.collabRecord.findFirst({
+      where: { ...this.rowWhere(tableId, access), OR: references(fields) },
+      select: { id: true },
+    });
+    if (!visible) {
+      const referenced = await tx.collabRecord.count({ where: { tableId, OR: references(table.fields) } });
+      if (referenced || file.ownerId !== this.actor.userId) fail('COLLAB_FORBIDDEN', 403);
+    }
+    return file;
+  }
+  private project(record: CollabRecord, fields: CollabField[]) {
+    const values: ObjectValue = {};
+    const original = object(record.values);
+    for (const f of fields) {
+      const system: ObjectValue = {
+        CREATED_BY: record.createdBy,
+        UPDATED_BY: record.updatedBy,
+        CREATED_AT: record.createdAt.toISOString(),
+        UPDATED_AT: record.updatedAt.toISOString(),
+      };
+      values[f.id] = isSystemField(f) ? system[f.type] : (original[f.id] ?? null);
+    }
+    return { ...record, values };
+  }
+  private async projectReferences(records: CollabRecord[], fields: CollabField[]) {
+    const projected = records.map((record) => this.project(record, fields));
+    for (const field of fields.filter((f) => f.type === 'RELATION')) {
+      const targetId = text(object(field.options).targetTableId);
+      const ids = [
+        ...new Set(
+          projected.flatMap((r) =>
+            Array.isArray(r.values[field.id]) ? (r.values[field.id] as string[]) : [],
+          ),
+        ),
+      ];
+      let permitted = new Set<string>();
+      try {
+        const { access } = await this.tableAccess(targetId);
+        permitted = new Set(
+          (
+            await this.db.collabRecord.findMany({
+              where: { ...this.rowWhere(targetId, access), id: { in: ids } },
+              select: { id: true },
+            })
+          ).map((r) => r.id),
+        );
+      } catch (e) {
+        if (!['COLLAB_FORBIDDEN', 'COLLAB_NOT_FOUND'].includes((e as Error).message)) throw e;
+      }
+      for (const record of projected)
+        record.values[field.id] = (
+          Array.isArray(record.values[field.id]) ? (record.values[field.id] as string[]) : []
+        ).filter((id) => permitted.has(id));
+    }
+    return projected;
+  }
+  async query(tableId: string, raw: unknown) {
+    const input = exact(raw, ['viewId', 'config', 'page', 'pageSize']);
+    const { table, access, fields } = await this.tableAccess(tableId);
+    const view = input.viewId
+      ? await this.db.collabView.findFirst({
+          where: { id: text(input.viewId), tableId, OR: [{ shared: true }, { ownerId: this.actor.userId }] },
+        })
+      : null;
+    if (input.viewId && !view) fail('COLLAB_NOT_FOUND', 404);
+    const config = validateView(input.config ?? view?.config ?? {}, fields);
+    const page = integer(input.page ?? 1, 1, 100000);
+    const pageSize = integer(input.pageSize ?? 50, 1, 200);
+    const where = Prisma.sql`r."tableId" = ${tableId} AND r.archived = false AND ${access.selfOnly ? Prisma.sql`r."ownerId" = ${this.actor.userId}` : Prisma.sql`TRUE`} AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}`;
+    const ordering = (config.sorts ?? []).map(
+      (s) =>
+        Prisma.sql`${fieldExpression(fieldOf(fields, s.fieldId))} ${s.direction === 'desc' ? Prisma.sql`DESC NULLS LAST` : Prisma.sql`ASC NULLS LAST`}`,
+    );
+    ordering.push(Prisma.sql`r."createdAt" ASC`, Prisma.sql`r.id ASC`);
+    const [records, count] = await this.db.$transaction(
+      [
+        this.db.$queryRaw<CollabRecord[]>(
+          Prisma.sql`SELECT r.* FROM collab_record r WHERE ${where} ORDER BY ${Prisma.join(ordering)} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
+        ),
+        this.db.$queryRaw<Array<{ count: bigint }>>(
+          Prisma.sql`SELECT count(*) FROM collab_record r WHERE ${where}`,
+        ),
+      ],
+      { isolationLevel: 'RepeatableRead' },
+    );
+    let groups: Array<{ keys: unknown[]; count: number }> = [];
+    if (config.groupBy?.length) {
+      const expr = config.groupBy.map((id) => fieldExpression(fieldOf(fields, id)));
+      const rows = await this.db.$queryRaw<Array<{ keys: unknown[]; count: bigint }>>(
+        Prisma.sql`SELECT jsonb_build_array(${Prisma.join(expr)}) as keys, count(*) FROM collab_record r WHERE ${where} GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 201`,
+      );
+      groups = rows.map((r) => ({ keys: r.keys, count: Number(r.count) }));
+    }
+    return {
+      records: await this.projectReferences(records, fields),
+      total: Number(count[0].count),
+      page,
+      pageSize,
+      groups: groups.slice(0, 200),
+      groupsTruncated: groups.length > 200,
+      schemaVersion: table.schemaVersion,
+    };
+  }
+  async record(tableId: string, recordId: string) {
+    const { access, fields } = await this.tableAccess(tableId);
+    const record = await this.db.collabRecord.findFirst({
+      where: { ...this.rowWhere(tableId, access), id: recordId },
+    });
+    if (!record) fail('COLLAB_NOT_FOUND', 404);
+    const revisions = await this.db.collabRevision.findMany({
+      where: { recordId },
+      orderBy: { version: 'desc' },
+      take: 50,
+    });
+    const comments = await this.db.collabComment.findMany({
+      where: { recordId },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+    return {
+      record: (await this.projectReferences([record], fields))[0],
+      revisions: revisions.map((r) => ({
+        ...r,
+        changes: Object.fromEntries(
+          Object.entries(object(r.changes)).filter(([id]) =>
+            fields.some((f) => f.id === id && !['FILE', 'RELATION'].includes(f.type)),
+          ),
+        ),
+      })),
+      comments,
+    };
+  }
+  private async values(
+    tx: Tx,
+    tableId: string,
+    fields: CollabField[],
+    access: Access,
+    input: unknown,
+    existing: ObjectValue = {},
+    creating = false,
+  ): Promise<ObjectValue> {
+    const patch = object(input);
+    const result = { ...existing };
+    for (const [id, value] of Object.entries(patch)) {
+      const field = fieldOf(fields, id);
+      if (access.readonly.includes(id) || isSystemField(field))
+        fail('COLLAB_READONLY_FIELD', 403, { fieldId: id });
+      try {
+        result[id] = validateValue(field, value);
+      } catch (error) {
+        if (error instanceof Error) fail(error.message, 422, { fieldId: id });
+        throw error;
+      }
+    }
+    for (const field of fields.filter((f) => !isSystemField(f))) {
+      if (creating && result[field.id] === undefined && field.defaultValue !== null)
+        result[field.id] = validateValue(field, field.defaultValue);
+      if (field.required) validateValue(field, result[field.id]);
+      const value = result[field.id];
+      if (value === null || value === undefined) continue;
+      if (field.type === 'USER') {
+        const person = await tx.employee.findFirst({
+          where: {
+            id: String(value),
+            deletedAt: null,
+            status: { not: 'LEAVED' },
+            assignments: {
+              some: {
+                endedAt: null,
+                organization: {
+                  OR: [{ id: access.organizationId }, { path: { contains: `/${access.organizationId}/` } }],
+                },
+              },
+            },
+          },
+        });
+        if (!person) fail('COLLAB_MEMBER_UNAVAILABLE', 422, { fieldId: field.id });
+      }
+      if (field.type === 'ORGANIZATION') {
+        const org = await tx.organization.findFirst({
+          where: {
+            id: String(value),
+            status: 'ENABLED',
+            OR: [{ id: access.organizationId }, { path: { contains: `/${access.organizationId}/` } }],
+          },
+        });
+        if (!org) fail('COLLAB_ORGANIZATION_UNAVAILABLE');
+      }
+      if (field.type === 'FILE' && Array.isArray(value)) {
+        if (Object.prototype.hasOwnProperty.call(patch, field.id))
+          for (const id of value) await this.attachment(tableId, String(id), tx);
+      }
+      if (field.type === 'RELATION' && Array.isArray(value)) {
+        const target = text(object(field.options).targetTableId);
+        const a = await this.tableAccess(target, tx);
+        const count = await tx.collabRecord.count({
+          where: { ...this.rowWhere(target, a.access), id: { in: value as string[] } },
+        });
+        if (count !== value.length) fail('COLLAB_RELATION_UNAVAILABLE');
+      }
+    }
+    return result;
+  }
+  async saveRecord(tableId: string, recordId: string | undefined, raw: unknown, key: unknown) {
+    const input = exact(raw, ['values', 'version', 'schemaVersion', 'archived']);
+    const initial = await this.tableAccess(tableId, this.db, 2);
+    return this.write(key, ['record.save', tableId, recordId, input], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId);
+      const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
+      if (table.source !== 'CUSTOM') fail('COLLAB_USE_BUSINESS_ACTION', 409);
+      if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
+      const previous = recordId
+        ? await tx.collabRecord.findFirst({ where: { ...this.rowWhere(tableId, access), id: recordId } })
+        : null;
+      if (recordId && !previous) fail('COLLAB_NOT_FOUND', 404);
+      if (previous && previous.version !== integer(input.version))
+        fail('COLLAB_RECORD_CONFLICT', 409, { recordId, version: previous.version });
+      const next = await this.values(
+        tx,
+        tableId,
+        fields,
+        access,
+        input.values ?? {},
+        previous ? object(previous.values) : {},
+        !previous,
+      );
+      if (
+        !previous &&
+        table.fields.some((f) => !f.archived && f.required && !fields.some((visible) => visible.id === f.id))
+      )
+        fail('COLLAB_REQUIRED_FIELD_FORBIDDEN', 403);
+      const data = {
+        values: json(next),
+        updatedBy: this.actor.userId,
+        archived: input.archived === undefined ? false : boolean(input.archived),
+      };
+      const record = previous
+        ? await tx.collabRecord.update({
+            where: { id: recordId },
+            data: { ...data, version: { increment: 1 } },
+          })
+        : await tx.collabRecord.create({
+            data: { ...data, tableId, createdBy: this.actor.userId, ownerId: this.actor.userId },
+          });
+      const changes = Object.fromEntries(
+        Object.keys(object(input.values ?? {})).map((id) => [
+          id,
+          { before: previous ? (object(previous.values)[id] ?? null) : null, after: next[id] },
+        ]),
+      );
+      await tx.collabRevision.create({
+        data: {
+          recordId: record.id,
+          version: record.version,
+          actorId: this.actor.userId,
+          changes: json(changes),
+        },
+      });
+      for (const field of fields.filter((f) => f.type === 'RELATION')) {
+        await tx.collabRelation.deleteMany({ where: { fieldId: field.id, sourceRecordId: record.id } });
+        const targets = next[field.id];
+        if (Array.isArray(targets) && targets.length)
+          await tx.collabRelation.createMany({
+            data: targets.map((target) => ({
+              fieldId: field.id,
+              sourceRecordId: record.id,
+              targetRecordId: String(target),
+            })),
+          });
+      }
+      await this.event(tx, table.baseId, previous ? 'record.updated' : 'record.created', record.id);
+      return { id: record.id, version: record.version };
+    });
+  }
+  async options(workspaceId?: string) {
+    const access = workspaceId ? await this.access(workspaceId) : null;
+    if (
+      !access &&
+      !this.actor.isSystemSuperAdmin &&
+      !this.actor.permissionCodes.some((p) => String(p) === 'workspace.create')
+    )
+      return { organizations: [], employees: [], teams: [], users: [] };
+    const organizations = await this.db.organization.findMany({
+      where: {
+        status: 'ENABLED',
+        ...(access
+          ? { OR: [{ id: access.organizationId }, { path: { contains: `/${access.organizationId}/` } }] }
+          : this.actor.isSystemSuperAdmin
+            ? {}
+            : {
+                id: {
+                  in: (await this.principals(this.db))
+                    .filter((p) => p.principalType === 'ORG')
+                    .map((p) => p.principalId),
+                },
+              }),
+      },
+      select: { id: true, name: true },
+      take: 500,
+    });
+    const employees = await this.db.employee.findMany({
+      where: {
+        deletedAt: null,
+        status: { not: 'LEAVED' },
+        assignments: { some: { endedAt: null, organizationId: { in: organizations.map((o) => o.id) } } },
+      },
+      select: { id: true, name: true, user: { select: { id: true, status: true } } },
+      take: 1000,
+    });
+    const teams = await this.db.professionalTeam.findMany({
+      where: { homeOrganizationId: { in: organizations.map((o) => o.id) }, status: 'ENABLED' },
+      select: { id: true, name: true },
+      take: 500,
+    });
+    return {
+      organizations,
+      employees: employees.map((e) => ({ id: e.id, name: e.name })),
+      users: employees
+        .filter((e) => e.user?.status === 'ENABLED')
+        .map((e) => ({ id: e.user.id, name: e.name })),
+      teams,
+    };
+  }
+  async members(workspaceId: string) {
+    await this.access(workspaceId, this.db, 3);
+    return this.db.collabMember.findMany({ where: { workspaceId } });
+  }
+  async saveMember(workspaceId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, [
+      'principalType',
+      'principalId',
+      'role',
+      'canCreate',
+      'rowScope',
+      'hiddenFields',
+      'readonlyFields',
+      'version',
+      'remove',
+    ]);
+    await this.access(workspaceId, this.db, 4);
+    return this.write(key, ['member.save', workspaceId, input], async (tx) => {
+      await this.lock(tx, workspaceId);
+      await this.access(workspaceId, tx, 4);
+      const principalType = choice(input.principalType, ['USER', 'ORG', 'TEAM']);
+      const principalId = text(input.principalId);
+      const workspace = await tx.collabWorkspace.findUnique({ where: { id: workspaceId } });
+      if (principalType === 'USER' && principalId === workspace.ownerId) fail('COLLAB_OWNER_IMMUTABLE', 403);
+      const options = await this.options(workspaceId);
+      const candidates =
+        principalType === 'USER'
+          ? options.users
+          : principalType === 'ORG'
+            ? options.organizations
+            : options.teams;
+      if (!input.remove && !candidates.some((c) => c.id === principalId)) fail('COLLAB_MEMBER_UNAVAILABLE');
+      const existing = await tx.collabMember.findUnique({
+        where: { workspaceId_principalType_principalId: { workspaceId, principalType, principalId } },
+      });
+      if (existing && existing.version !== integer(input.version)) fail('COLLAB_MEMBER_CONFLICT', 409);
+      if (input.remove) {
+        if (existing) await tx.collabMember.delete({ where: { id: existing.id } });
+      } else {
+        const role = choice(input.role, ['READER', 'EDITOR', 'MANAGER']);
+        const hiddenFields = strings(input.hiddenFields ?? []);
+        const readonlyFields = strings(input.readonlyFields ?? []);
+        const known = await tx.collabField.count({
+          where: {
+            id: { in: [...new Set([...hiddenFields, ...readonlyFields])] },
+            table: { base: { workspaceId } },
+          },
+        });
+        if (known !== new Set([...hiddenFields, ...readonlyFields]).size) fail('COLLAB_FIELD_UNAVAILABLE');
+        const data = {
+          role,
+          canCreate: boolean(input.canCreate ?? false),
+          rowScope: choice(input.rowScope ?? 'ALL', ['ALL', 'SELF']),
+          hiddenFields,
+          readonlyFields,
+        };
+        if (existing)
+          await tx.collabMember.update({
+            where: { id: existing.id },
+            data: { ...data, version: { increment: 1 } },
+          });
+        else await tx.collabMember.create({ data: { ...data, workspaceId, principalType, principalId } });
+      }
+      await tx.collabWorkspace.update({ where: { id: workspaceId }, data: { version: { increment: 1 } } });
+      const bases = await tx.collabBase.findMany({ where: { workspaceId } });
+      for (const b of bases) await this.event(tx, b.id, 'access.updated', workspaceId);
+      return { id: existing?.id ?? principalId };
+    });
+  }
+}
