@@ -49,6 +49,16 @@ node integrations/intelligence/scripts/desktop.mjs start
 
 律师模式目前使用下述在线只读插件。管理员发布只读快照、自动同步和离线使用仍是待确认方案，未启用后台下载。
 
+### 四类法律能力
+
+依据[法律技能 Spec](../../../docs/superpowers/specs/2026-09-14-lawyer-skills.md)，唯一 lawyer 内置合同审查、应诉分析、管辖分析和法律法规/案例检索。直接描述任务即可按需加载，也可显式输入 `/contract-review`、`/litigation-response`、`/litigation-jurisdiction`、`/china-legal-query`。报告保存为工作目录中的 Markdown 草稿，包含来源、适用条件与待核验事项，供律师复核。
+
+正式技能源码位于 desktop-plugin/presets/lawyer/skills，desktop:build 将完整 preset 和引用资源复制到 dist/desktop/presets；不依赖项目根的参考 skills 目录。技能升级后重新 build 并退出重启客户端。打包搬迁仍需要按开发部署说明刷新仓库路径；本次验证 preset 与资源的相对定位，未交付无源码安装器。
+
+公开检索共用原生 web_search/web_fetch，Product 默认 deepseek-official 搜索提供器，未新增 Tavily Python 或密钥依赖。若聊天正常而搜索失败，请在原生设置 → 插件 → 插件配置 → 网页搜索中检查独立的搜索 Endpoint 与服务权限；聊天 Endpoint 不自动等同于搜索 Endpoint。工具可见不保证当前账号的实际服务可用。
+
+原始卷宗不自动上传 OA/Wiki；必要上下文进入个人模型 API，检索仅发送必要查询词。资料不足时输出条件性分析，不用内置过时管辖金额表或虚构法条补齐结论。
+
 在 OA 登录具有“知识库”和“智慧办案”权限的账号。管理员从右上角“知识库”维护并编译资料；本地助手同样只读，即使当前登录者是管理员。可以直接对助手说：“先列出云端知识库，再检索证据核验要求，引用原文与行号。”
 
 `cloud_wiki` 支持 `list`、`documents`、`search`、`read`、`wiki` 和 `compiled`。原文最多一次读取 200 行；列表每页 20 项；管理员编译成果每次读取 5 节，可根据 `nextOffset` 继续。返回来源标识、版本/摘要和可用的行号。`wiki` 是原生确定性投影，`compiled` 是管理员持久化的模型编译成果，未编译返回 `publication: null`；`stale` 表示来源已变化，应让管理员更新，不能冒充最新原文。查询不执行编译、OCR 或写入公共问答记录。

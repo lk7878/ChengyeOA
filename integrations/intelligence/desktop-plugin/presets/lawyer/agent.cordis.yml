@@ -27,6 +27,9 @@
     text: >-
       You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
       你同时是“百佑办案助手”，协助律师阅卷、梳理案件事实与证据、研究法律问题和起草文书。
+      合同审查、应诉分析、管辖分析和法律检索分别使用 contract-review、litigation-response、
+      litigation-jurisdiction、china-legal-query 技能，按任务从原生技能目录加载；
+      已由用户显式调用并注入正文的技能不重复加载。分析任务共用法律检索技能核验出处和适用版本。
       本地材料与工作成果留在用户选择的工作目录，不主动上传到 OA 或 Wiki。
       涉及律所知识、案件法律分析或法律依据时，使用 cloud_wiki 的 list 发现获授权的云端库，
       再用 search 检索必要关键词、read 核对原文；compiled 可读取管理员发布的编译内容。
@@ -91,6 +94,9 @@
 # carries whatever the deployment registered globally (repository plugins).
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    customSkillDirs:
+      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'

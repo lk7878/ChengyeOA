@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process';
 import { IntelligenceService } from '../../cloud/service.mjs';
 import { _electron, expect } from '../../../../LayerManage/law-firm-system/apps/web/node_modules/@playwright/test/index.mjs';
 import { scanZstdFrames } from '../../../../third_party/deepseek-harness/packages/session/session-persistence-jsonl/lib/types/zstd.js';
+import { lawyerScenarios } from './lawyer-scenarios.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const vendor = resolve(root, '../../third_party/deepseek-harness');
@@ -23,6 +24,8 @@ const wiki = new IntelligenceService(join(home, 'cloud-wiki'));
 const base = await wiki.knowledge(true, 'create', { alias: 'desktop-evidence', name: '证据核验指引' });
 const ref = base.knowledgeBase.id;
 const document = (await wiki.knowledge(true, 'importFile', { ref, fileName: '证据指引.md', base64: Buffer.from('# 证据核验\n\n核对原件、来源和形成时间。').toString('base64') })).document;
+const legal = lawyerScenarios({ work, home, ref, documentId: document.id });
+let appDir = join(root, 'dist/desktop');
 const cloudCalls = [];
 const deniedDirectory = join(root, 'run', home.split(/[\\/]/).at(-1));
 await mkdir(deniedDirectory, { recursive: true });
@@ -31,17 +34,21 @@ await writeFile(source, '测试案件编号 CY-TEST-001。委托人提供的证�
 const resultText = '# 办案草稿\n\n案件 CY-TEST-001：请律师核验原始证据。\n\n参考：证据指引.md，第 1–3 行。视觉接口返回：测试图片已接收（脚本结果，不代表真实识别准确率）。\n';
 const requests = [], errors = [];
 const model = createServer(async (req, res) => {
-  // Exercise the native adapter's supported inline-image fallback for generic endpoints.
-  if (!req.url.endsWith('/chat/completions')) { req.resume(); res.writeHead(404); res.end(); return; }
   try {
+    if (await legal.search(req, res)) return;
+    // Exercise the native adapter's supported inline-image fallback for generic endpoints.
+    if (!req.url.endsWith('/chat/completions')) { req.resume(); res.writeHead(404); res.end(); return; }
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString()); requests.push(body);
     assert.equal(req.headers.authorization, 'Bearer desktop-fixture');
     const tools = body.tools?.map(tool => tool.function?.name) || [];
     // Session title generation has no tool catalog; keep it separate from the agent flow.
     let tool, finalText = '已读取本地案情并保存办案草稿，请律师复核。';
+    const legalStep = legal.step(body);
     const followup = body.messages.findLastIndex(message => message.role === 'user' && typeof message.content === 'string' && /账号.*查询验证/.test(message.content));
-    if (tools.includes('cloud_wiki') && followup >= 0) {
+    if (legalStep) {
+      tool = legalStep.tool; finalText = legalStep.finalText;
+    } else if (tools.includes('cloud_wiki') && followup >= 0) {
       const results = body.messages.slice(followup + 1).filter(message => message.role === 'tool');
       const otherAccount = body.messages[followup].content.includes('跨账号');
       if (!results.length) tool = { name: 'cloud_wiki', arguments: JSON.stringify({ method: 'list' }) };
@@ -93,7 +100,7 @@ async function run(command, args, env) {
 const env = { ...process.env, CHENGYE_DESKTOP_HOME: home }; delete env.ELECTRON_RUN_AS_NODE;
 let app, oa, agent, launches = 0;
 async function launch() {
-  app = await _electron.launch({ executablePath: require('electron'), args: [join(root, 'dist/desktop')], env });
+  app = await _electron.launch({ executablePath: require('electron'), args: [appDir], env });
   app.process().stderr.on('data', value => { if (String(value).includes('Harness startup:')) console.error(String(value)); });
   oa = await app.firstWindow(); oa.setDefaultTimeout(30000);
   await oa.waitForLoadState();
@@ -126,10 +133,11 @@ async function launch() {
 
 try {
   await run(process.execPath, ['scripts/desktop.mjs', 'setup', '--oa-url', 'http://localhost:3000/e2e/intelligence.html'], env);
+  appDir = await legal.prepare(appDir, (command, args) => run(command, args, env));
   // Reproduce an existing stage-one profile: opening the assistant must install the new plugin itself.
   await run(process.execPath, [join(vendor, 'apps/cli/lib/bin.js'), 'plugin', '--profile', 'product', 'remove', '@chengyeoa/harness-desktop-tools'], { ...env, DSH_HOME: join(home, 'harness') });
   await writeFile(join(home, 'harness/.credentials.yaml'), 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: desktop-fixture\n');
-  await writeFile(join(home, 'harness/settings.yaml'), JSON.stringify({ 'agent-presets': { default: 'standard' }, 'llm-deepseek': { baseURL: `http://127.0.0.1:${model.address().port}`, thinking: 'disabled', reasoningEffort: 'off' }, 'agent-default-model': { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp', reasoningEffort: 'off' } }));
+  await writeFile(join(home, 'harness/settings.yaml'), JSON.stringify({ 'web-search-deepseek': { baseURL: `http://127.0.0.1:${model.address().port}` }, 'agent-presets': { default: 'standard' }, 'llm-deepseek': { baseURL: `http://127.0.0.1:${model.address().port}`, thinking: 'disabled', reasoningEffort: 'off' }, 'agent-default-model': { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp', reasoningEffort: 'off' } }));
   await launch();
   await expect(agent.getByText('百佑办案助手', { exact: true })).toBeVisible();
   await expect(agent.getByText('让法律服务更智能', { exact: true })).toBeVisible();
@@ -148,7 +156,9 @@ try {
   assert.deepEqual(await oa.evaluate(() => ({ node: typeof window.require, keys: Object.keys(window.chengyeDesktop) })), { node: 'undefined', keys: ['version', 'openAssistant', 'setKnowledgeIdentity', 'replyKnowledge', 'onKnowledgeRequest'] });
   assert.equal(await agent.evaluate(() => typeof window.chengyeDesktop), 'undefined');
   assert.equal(await oa.getByRole('dialog', { name: '智慧办案浮动工作台' }).count(), 0);
+  await (await app.browserWindow(oa)).evaluate(window => { window.show(); window.focus(); });
   await oa.screenshot({ path: join(home, 'oa-entry.png') });
+  await (await app.browserWindow(agent)).evaluate(window => { window.show(); window.focus(); });
   await agent.getByRole('button', { name: '选择工作区', exact: true }).click();
   await run('pwsh.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(root, 'desktop/tests/select-directory.ps1'), '-Directory', work, '-AppProcessId', String(app.process().pid)], env);
   console.log('Native directory selected.');
@@ -172,6 +182,7 @@ try {
   await assert.rejects(readFile(outside), { code: 'ENOENT' });
   assert.equal(await readFile(source, 'utf8'), '测试案件编号 CY-TEST-001。委托人提供的证据需要核验。');
   await agent.screenshot({ path: join(home, 'native-result.png') });
+  await legal.verify(agent, expect);
   const agentId = await (await app.browserWindow(agent)).evaluate(window => window.id);
   await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows().find(window => window.webContents.getURL().startsWith('http://127.0.0.1:')).close(); });
   await oa.getByRole('button', { name: '智慧办案', exact: true }).click();
@@ -214,7 +225,7 @@ try {
   await expect(agent.getByText('已阻止跨账号知识库访问。', { exact: true })).toBeVisible({ timeout: 30000 });
   await agent.screenshot({ path: join(home, 'native-account-boundary.png') });
   assert.deepEqual(errors, []);
-  assert.deepEqual(cloudCalls.map(call => call.method), ['list', 'search', 'read', 'list']);
+  assert.deepEqual(cloudCalls.map(call => call.method), ['list', 'search', 'read', 'read', 'read', 'read', 'read', 'list']);
   assert.ok(requests.some(body => body.tools?.some(tool => tool.function?.name === 'read')));
   assert.ok(requests.some(body => body.messages.some(message => message.role === 'system' && JSON.stringify(message.content).includes('百佑办案助手'))));
   console.log('PASS: native directory, cloud Wiki IPC/HTTP/service citations, vision image request, read/write, window restore and restart persistence. Artifacts: ' + home);

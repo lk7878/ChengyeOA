@@ -103,3 +103,7 @@ last_updated: 2026-09-13
 补充：[百佑办案助手与 lawyer preset](../superpowers/specs/2026-09-13-baiyou-lawyer-preset.md)；[实施验收](../superpowers/plans/2026-09-13-baiyou-lawyer-preset.md)。品牌与独立预设已完成，本地 Wiki 快照同步等待权限方案确认。
 
 [统一桌面客户端与本地 Harness](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md)：云端 OA/Wiki、本机原生 Harness、OA 草稿提交与云端校验、个人办案数据不自动同步、Wiki OCR 与个人在线视觉 API 分工、主动提交成果至案件档案。对应 MOD-010 AI-08～10、MOD-008 MAT-04B。替代上述 V1.2.0/V1.2.1 中冲突的浏览器办案与云端办案引擎契约，保留历史验收。[阶段一](../superpowers/plans/2026-09-13-unified-desktop-local-harness.md)已验证本机目录与历史恢复；[阶段二](../superpowers/plans/2026-09-13-desktop-cloud-wiki-vision.md)已接入本地助手云端 Wiki 只读查询、账号绑定和原生个人视觉接口。正式运行版本不变；真实模型效果、云端 OCR 部署、归档、草稿同步和安装交付仍待后续验收，完整 Spec 尚未验收。
+
+## SPEC-LAWYER-SKILLS-20260914
+
+[四类法律能力规格](../superpowers/specs/2026-09-14-lawyer-skills.md)与[实施记录](../superpowers/plans/2026-09-14-lawyer-skills.md)：唯一 lawyer 中的合同审查、应诉分析、管辖分析和共享法律检索，原生技能目录和工具复用，正式资源随 preset 分发；不接入诉讼费用，不同步个人卷宗。

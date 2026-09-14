@@ -2,7 +2,7 @@ import { build } from 'esbuild';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
-import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, copyFile, cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { dataDirectory, hostEnvironment, readConfig, validateOaUrl } from '../desktop/config.mjs';
 import { buildDesktopBrand } from './build-desktop-brand.mjs';
@@ -28,9 +28,11 @@ if (command === 'build') {
   await build({ entryPoints: [join(root, 'desktop/main.mjs')], outfile: join(out, 'main.mjs'), bundle: true,
     platform: 'node', target: 'node22', format: 'esm', external: ['electron'] });
   await copyFile(join(root, 'desktop/preload.cjs'), join(out, 'preload.cjs'));
+  // Keep the preset and its relative skill resources together in the build.
+  await cp(join(root, 'desktop-plugin/presets'), join(out, 'presets'), { recursive: true });
   const patch = await readFile(join(root, 'desktop/product.patch.yml'), 'utf8');
   await writeFile(join(out, 'product.patch.yml'), patch
-    .replace('__LAWYER_PRESET_ROOT__', JSON.stringify(join(root, 'desktop-plugin/presets').replaceAll('\\', '/')))
+    .replace('__LAWYER_PRESET_ROOT__', JSON.stringify(join(out, 'presets').replaceAll('\\', '/')))
     .replace('__LAWYER_REGISTRY__', JSON.stringify(pathToFileURL(join(root, 'desktop/lawyer-presets.mjs')).href)));
   await copyFile(join(root, 'desktop-plugin/assets/baiyou-logo.jpg'), join(out, 'baiyou-logo.jpg'));
   await writeFile(join(out, 'package.json'), JSON.stringify({ name: 'chengye-desktop', productName: '律师智慧管理系统', version: '1.3.0-dev.2', private: true, type: 'module', main: 'main.mjs' }, null, 2));

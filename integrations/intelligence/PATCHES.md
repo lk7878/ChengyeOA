@@ -38,3 +38,7 @@
 独立 `desktop-plugin/presets/lawyer` 复制标准组合，只补充 persona 和 preset 元数据；通过 Product patch 的唯一 roots 接入，关闭上游和用户 preset 目录发现。`desktop/lawyer-presets.mjs` 继承原生注册服务，仅固定默认值和兼容旧内置标识的 resolve，不重写原生挂载、权限或历史存储逻辑。只有 lawyer 可选，旧内置会话恢复时统一运行 lawyer。只读 Wiki 工具保持兼容，不启用个人 Wiki 数据库写入和后台快照下载。
 
 导入快照继续无修改。`desktop-plugin/` 通过原生 `tools`、`storageDomain`、`sessions`、`sessionPersistence` 扩展点注册只读 Wiki 工具并持久化根会话身份绑定；通过 CLI 安装普通依赖，不增加或替代正式 Profile 层。`desktop/knowledge-broker.mjs` 使用上游 HostSupervisor 的 `spawnHost` 接口加私有 Node IPC，OA 页面既有认证客户端代发固定只读请求，云端独立路由重验身份和两个模块权限。`knowledge-contract.mjs` 统一操作、参数与结果上限。个人图像直接复用原生 `read_image`、附件和 DeepSeek 适配器，不改 UI、不引入个人 OCR。升级上游时应复核这些扩展点、session.header.parentSession、Profile 和原生图片调用契约，见[阶段二记录](../../docs/superpowers/plans/2026-09-13-desktop-cloud-wiki-vision.md)。
+
+## V1.3.0 四类法律技能
+
+依据 [SPEC-LAWYER-SKILLS-20260914](../../docs/superpowers/specs/2026-09-14-lawyer-skills.md)，在上述品牌版本基础上增加 skill-filesystem.customSkillDirs，以原生 baseUrl 解析随 lawyer 的四个技能。除 persona 和这项配置外，原生标准组合不变。desktop:build 复制完整 presets 到构建目录；package files 包含 presets。正式技能与工具由集成目录维护，不扫描根目录参考资料，不修改导入快照。使用既有 cloud_wiki、web_search/web_fetch，无新增 Tavily 提供器或缓存副本。[实施记录](../../docs/superpowers/plans/2026-09-14-lawyer-skills.md)。
