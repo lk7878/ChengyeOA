@@ -1,4 +1,5 @@
-import { Alert, Form, Input, Modal, Select } from 'antd';
+import { Alert, Form, Input, Select } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { useEffect, useState } from 'react';
 import { showRequestError } from '@/api/errors';
 import { masterDataApi } from '../api';

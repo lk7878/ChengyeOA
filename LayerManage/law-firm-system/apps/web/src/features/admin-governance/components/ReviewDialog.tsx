@@ -1,4 +1,5 @@
-import { Form, Input, Modal, Radio } from 'antd';
+import { Form, Input, Radio } from 'antd';
+import Modal from '@/components/DraggableModal';
 import type { AdminOperationSummary, GovernanceDecision } from '../types';
 
 type Props = { operation: AdminOperationSummary | null; submitting: boolean; onClose: () => void; onSubmit: (decision: GovernanceDecision, comment?: string) => Promise<void> };

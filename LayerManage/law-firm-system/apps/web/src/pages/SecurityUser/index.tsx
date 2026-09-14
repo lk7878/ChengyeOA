@@ -2,8 +2,9 @@ import { businessLabel } from '@/locales/business-labels';
 import Table from '@/components/ResizableTable';
 import { useEffect, useState } from 'react';
 import {
-  Button, DatePicker, Drawer, Form, Input, message, Modal, Segmented, Select, Space, Tabs, Tag,
+  Button, DatePicker, Drawer, Form, Input, message, Segmented, Select, Space, Tabs, Tag,
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { ReloadOutlined, SafetyCertificateOutlined, StopOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { authorizationAdminApi, authorizationErrorMessage } from '@/features/authorization/admin-api';

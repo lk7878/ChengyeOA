@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { Alert, Button, Image, Modal, Progress, Space, Spin, Tag, message } from 'antd';
+import { Alert, Button, Image, Progress, Space, Spin, Tag, message } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { approvalMaterialsApi, decodeAttachment, downloadBlob, type ApprovalAttachment } from '@/api/approval-materials';
 import './materials.css';
 const OfficeEditor = lazy(() => import('./OfficeEditor'));

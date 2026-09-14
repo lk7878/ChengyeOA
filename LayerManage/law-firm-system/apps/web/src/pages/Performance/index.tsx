@@ -15,13 +15,13 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Row,
   Select,
   Space,
   Tag,
   message,
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { CheckCircleOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { performanceApi, employeeApi } from '@/api/organization';

@@ -1,4 +1,5 @@
-import { Form, Modal, Select } from 'antd';
+import { Form, Select } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { useEffect } from 'react';
 import type { OrganizationNode } from '../types';
 import { allowedChildTypes } from '../form-rules';

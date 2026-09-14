@@ -1,9 +1,10 @@
 import { businessLabel } from '@/locales/business-labels';
 import Table from '@/components/ResizableTable';
 import React, { useState, useEffect } from 'react';
-import { Button, Input, Tag, Space, Modal, Form, message,
+import { Button, Input, Tag, Space, Form, message,
   Popconfirm, Card, Row, Col
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SyncOutlined,
   SafetyOutlined

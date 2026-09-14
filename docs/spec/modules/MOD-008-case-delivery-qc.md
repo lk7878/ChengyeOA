@@ -3,9 +3,9 @@ id: MOD-008
 title: 案件交付与质量控制模块
 source: PRD §8.8
 status: draft
-implements:
+implements: [SPEC-CASE-20260914]
 design_refs: [docs/专项设计/三大专业团队SOP系统字段清单.md]
-last_updated: 2026-09-13
+last_updated: 2026-09-14
 ---
 
 # MOD-008 案件交付与质量控制模块
@@ -20,7 +20,7 @@ last_updated: 2026-09-13
 
 | 编号 | 功能 | 需求 | 现状 |
 |---|---|---|---|
-| MAT-01 | 案件建档 | 正式委托合同生效后可创建案件 | 待补SPEC |
+| MAT-01 | 案件建档 | 客户与主办律师必填；补全签约、代理收费、收退款、提成、附件；客户管理新建往返保留草稿 | SPEC-CASE-20260914 已实现并验证 |
 | MAT-02 | 成员管理 | 支持主办律师、协办律师、助理、专家指导人 | 待补SPEC |
 | MAT-03 | 节点任务 | 按案件类型生成 SOP 节点任务 | 待补SPEC |
 | MAT-04 | 材料管理 | 上传、分类、预览、下载、归档案件材料 | 待补SPEC |
@@ -61,6 +61,7 @@ last_updated: 2026-09-13
 - 回调验收：文书审核同意/退回、质量审核通过等同步回调必须校验权限、状态和重复提交。（源自 §14.1 第 8 项）
 
 ## 7. 追溯
+- 本次案件管理完善：[SPEC-CASE-20260914](../../superpowers/specs/2026-09-14-case-management-extension.md)，验证见[实施记录](../../superpowers/plans/2026-09-14-case-management-extension.md)。
 - 专项设计: docs/专项设计/三大专业团队SOP系统字段清单.md
 - 落地 SPEC: 待立项
 - 主要代码: apps/server/app/controller/case.ts

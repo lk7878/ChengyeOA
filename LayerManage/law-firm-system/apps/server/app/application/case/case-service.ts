@@ -3,6 +3,7 @@
 // requireAction 每公开方法第一行；assertExactKeys 入参白名单；同事务 OperationLog 审计。
 // 案件为业务资源（可转介绍 isReferrable），仅权限门控（case.* 码）不做行级 scope。
 
+import { normalizeIntake, prepareAttachments, persistAttachments, cleanAttachments } from './case-intake';
 import { buildContractScopeWhere } from '../contract/contract-scope';
 import { Prisma, PrismaClient } from '@prisma/client';
 
@@ -69,14 +70,18 @@ export class CaseService {
   /** 新建案件：case.create → 校验（title/caseType 必填、customerId/lawyerId 存在）→ caseNo=CA 随机码 → status PENDING + 审计。 */
   async createCase(input: CreateCaseInput): Promise<CaseView> {
     this.authorization.requireAction(this.authorizationContext, 'case.create');
-    assertExactKeys(input, ['title', 'customerId', 'contractId', 'lawyerId', 'teamIds', 'caseType', 'priority', 'fee', 'description']);
+    assertExactKeys(input, ['intakeData', 'attachments', 'title', 'customerId', 'contractId', 'lawyerId', 'teamIds', 'caseType', 'priority', 'fee', 'description']);
     const title = normalizeRequiredText(input.title, 1, 100);
     const customerId = normalizeRequiredText(input.customerId, 1, 100);
     const caseType = normalizeRequiredText(input.caseType, 1, 100);
     const priority = input.priority === undefined ? 'NORMAL' : normalizeAllowedValue(input.priority, CASE_PRIORITIES);
     const description = normalizeOptionalText(input.description, 1000);
     const contractId = normalizeOptionalText(input.contractId, 100);
-    const lawyerId = normalizeOptionalText(input.lawyerId, 100);
+    const lawyerId = normalizeRequiredText(input.lawyerId, 1, 100);
+    const intakeData = normalizeIntake(input.intakeData);
+    if (intakeData.departmentId && !await this.prisma.organization.findFirst({ where: { id: intakeData.departmentId, type: 'DEPARTMENT', status: 'ENABLED' } })) throw new MasterDataError('VALIDATION_FAILED', 400);
+    const attachments = prepareAttachments(input.attachments);
+    if (attachments.length) this.authorization.requireAction(this.authorizationContext, 'case.file.manage');
     const teamIds = input.teamIds === undefined ? null : JSON.stringify(normalizeStringArray(input.teamIds, 50, 100));
     const fee = input.fee === undefined ? null : normalizeCaseFee(input.fee);
 
@@ -92,34 +97,42 @@ export class CaseService {
     }
 
     const caseNo = makeBusinessNo('CA');
-    return this.prisma.$transaction(async tx => {
-      const created = await tx.case.create({
-        data: {
-          caseNo,
-          title,
-          customerId,
-          contractId,
-          lawyerId,
-          teamIds,
-          caseType,
-          status: 'PENDING',
-          priority,
-          description,
-          fee: fee ?? undefined,
-        },
+    try {
+      persistAttachments(attachments);
+      return await this.prisma.$transaction(async tx => {
+        const created = await tx.case.create({
+          data: {
+            caseNo,
+            intakeData,
+            files: { create: attachments.map(file => ({ fileName: file.fileName, fileType: file.fileType, category: file.category, filePath: file.filePath, fileSize: file.buffer.length, uploadedBy: this.actor.actorUserId })) },
+            title,
+            customerId,
+            contractId,
+            lawyerId,
+            teamIds,
+            caseType,
+            status: 'PENDING',
+            priority,
+            description,
+            fee: fee ?? undefined,
+          },
+        });
+        await tx.operationLog.create({
+          data: {
+            userId: this.actor.actorUserId,
+            action: 'CASE_CREATE',
+            targetType: 'CASE',
+            targetId: created.id,
+            newValues: JSON.stringify({ caseId: created.id, caseNo, title, caseType, customerId }),
+            ip: this.actor.ip,
+          },
+        });
+        return projectCase(created);
       });
-      await tx.operationLog.create({
-        data: {
-          userId: this.actor.actorUserId,
-          action: 'CASE_CREATE',
-          targetType: 'CASE',
-          targetId: created.id,
-          newValues: JSON.stringify({ caseId: created.id, caseNo, title, caseType, customerId }),
-          ip: this.actor.ip,
-        },
-      });
-      return projectCase(created);
-    });
+    } catch (error) {
+      cleanAttachments(attachments);
+      throw error;
+    }
   }
 
   /** 更新案件：case.update → 白名单 + 乐观锁（updateMany {id, version} → VERSION_CONFLICT 409）+ 审计。 */

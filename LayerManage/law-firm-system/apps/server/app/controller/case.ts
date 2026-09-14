@@ -15,7 +15,7 @@ import {
 import { MasterDataError } from '../domain/master-data/master-data-errors';
 import { assertExactKeys } from '../domain/master-data/master-data-validation';
 
-const CREATE_CASE_BODY_KEYS = ['title', 'customerId', 'contractId', 'lawyerId', 'teamIds', 'caseType', 'priority', 'fee', 'description'] as const;
+const CREATE_CASE_BODY_KEYS = ['intakeData', 'attachments', 'title', 'customerId', 'contractId', 'lawyerId', 'teamIds', 'caseType', 'priority', 'fee', 'description'] as const;
 const UPDATE_CASE_BODY_KEYS = ['title', 'lawyerId', 'teamIds', 'caseType', 'priority', 'description', 'result', 'satisfaction', 'isReferrable', 'version'] as const;
 const CLOSE_CASE_BODY_KEYS = ['result', 'satisfaction'] as const;
 const CREATE_TASK_BODY_KEYS = ['name', 'nodeType', 'dueDate', 'remark'] as const;

@@ -1,5 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
+import CustomerListPage from '@/pages/customers/CustomerListPage';
+import { clearCaseDraft } from '../case-draft';
+import { useCustomerStore } from '@/stores/customer-store';
 import { message } from 'antd';
 import { beforeEach, expect, test, vi } from 'vitest';
 import CasePage from '../index';
@@ -113,6 +116,8 @@ function grantPermissions(permissions: PermissionCode[]) {
 }
 
 beforeEach(() => {
+  clearCaseDraft();
+  useCustomerStore.getState().reset();
   vi.clearAllMocks();
   vi.spyOn(message, 'success').mockImplementation(() => undefined as never);
   vi.spyOn(message, 'error').mockImplementation(() => undefined as never);
@@ -168,7 +173,7 @@ test('shows create and close actions with the matching permissions', async () =>
 });
 
 test('create modal submits the case create mutation with normalized payload', async () => {
-  grantPermissions(['case.create']);
+  grantPermissions(['case.create', 'case.file.manage']);
   caseApiMock.list.mockResolvedValue(pageOf([]));
   caseApiMock.create.mockResolvedValue({ code: 200, message: 'success', data: caseFixture() });
   render(<MemoryRouter><CasePage /></MemoryRouter>);
@@ -182,16 +187,81 @@ test('create modal submits the case create mutation with normalized payload', as
   fireEvent.mouseDown(customerSelect);
   fireEvent.click(await screen.findByText('张三'));
 
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: '主办律师' }));
+  fireEvent.click(await screen.findByText('李律师'));
+  fireEvent.change(screen.getByRole('spinbutton', { name: '固定代理费金额' }), { target: { value: '1234.50' } });
+  fireEvent.change(screen.getByRole('textbox', { name: '合同编号' }), { target: { value: 'HT-TEST-01' } });
+  const uploadInput = screen.getByRole('dialog').querySelector('input[type="file"]')!;
+  fireEvent.change(uploadInput, { target: { files: [new File(['contract'], '合同.pdf', { type: 'application/pdf' })] } });
+  expect(await screen.findByText('合同.pdf')).toBeInTheDocument();
+
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /确\s*定/ }));
 
   await waitFor(() => expect(caseApiMock.create).toHaveBeenCalledWith(
     expect.objectContaining({
       title: '合同纠纷案',
       customerId: 'customer-1',
+      lawyerId: 'emp-1',
       caseType: '合同纠纷',
       priority: 'NORMAL',
+      intakeData: expect.objectContaining({ fixedAgencyFee: '1234.5', contractNumber: 'HT-TEST-01' }),
+      attachments: [{ category: '合同附件', fileName: '合同.pdf', fileType: 'application/pdf', base64: btoa('contract') }],
     }),
   ));
+});
+
+test('requires both customer and lead lawyer before creating a case', async () => {
+  grantPermissions(['case.create']);
+  caseApiMock.list.mockResolvedValue(pageOf([]));
+  render(<MemoryRouter><CasePage /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button', { name: /新建案件/ }));
+  fireEvent.change(screen.getByRole('textbox', { name: '案件标题' }), { target: { value: '案件' } });
+  fireEvent.change(screen.getByRole('textbox', { name: '案由' }), { target: { value: '合同纠纷' } });
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /确\s*定/ }));
+  expect(await screen.findByText('请选择客户')).toBeInTheDocument();
+  expect(await screen.findByText('请选择主办律师', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument();
+  expect(caseApiMock.create).not.toHaveBeenCalled();
+});
+
+function FinanceLocation() { const location = useLocation(); return <p>财务页面{location.search}</p>; }
+test('related finance navigates within the router with the encoded case number and preserves authentication', async () => {
+  caseApiMock.list.mockResolvedValue(pageOf([caseFixture()]));
+  useAuthStore.setState({ isAuthenticated: true });
+  render(<MemoryRouter initialEntries={['/cases']}><Routes><Route path="/cases" element={<CasePage />} /><Route path="/finance" element={<FinanceLocation />} /></Routes></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('link', { name: '关联财务' }));
+  expect(await screen.findByText('财务页面?caseNo=CA2026-0001')).toBeInTheDocument();
+  expect(useAuthStore.getState().isAuthenticated).toBe(true);
+});
+
+test('new customer round trip saves to customer management and restores the unsaved case', async () => {
+  grantPermissions(['case.create', 'customer.create', 'menu.customer']);
+  caseApiMock.list.mockResolvedValue(pageOf([]));
+  customerApiMock.create.mockResolvedValue({ data: { id: 'new-customer', name: '新增测试客户', customerNo: 'CU-NEW' } });
+  render(<MemoryRouter initialEntries={['/cases']}><Routes><Route path="/cases" element={<CasePage />} /><Route path="/customers" element={<CustomerListPage />} /></Routes></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button', { name: /新建案件/ }));
+  fireEvent.change(screen.getByRole('textbox', { name: '案件标题' }), { target: { value: '保留的案件草稿' } });
+  fireEvent.change(screen.getByRole('combobox', { name: '客户' }), { target: { value: '新增测试客户' } });
+  fireEvent.click(await screen.findByRole('button', { name: '新建客户：新增测试客户' }));
+  expect(await screen.findByDisplayValue('新增测试客户')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('电话'), { target: { value: '13800000003' } });
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /OK|确\s*定/ }));
+  expect(await screen.findByDisplayValue('保留的案件草稿')).toBeInTheDocument();
+  expect(customerApiMock.create).toHaveBeenCalledWith(expect.objectContaining({ name: '新增测试客户' }));
+  expect(screen.getByText('新增测试客户')).toBeInTheDocument();
+  expect(caseApiMock.create).not.toHaveBeenCalled();
+});
+
+test('cancelling customer creation returns to the case draft', async () => {
+  grantPermissions(['case.create', 'customer.create', 'menu.customer']);
+  caseApiMock.list.mockResolvedValue(pageOf([]));
+  render(<MemoryRouter initialEntries={['/cases']}><Routes><Route path="/cases" element={<CasePage />} /><Route path="/customers" element={<CustomerListPage />} /></Routes></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button', { name: /新建案件/ }));
+  fireEvent.change(screen.getByRole('textbox', { name: '案件标题' }), { target: { value: '取消后保留' } });
+  fireEvent.change(screen.getByRole('combobox', { name: '客户' }), { target: { value: '待新建' } });
+  fireEvent.click(await screen.findByRole('button', { name: '新建客户：待新建' }));
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /Cancel|取\s*消/ }));
+  expect(await screen.findByDisplayValue('取消后保留')).toBeInTheDocument();
+  expect(customerApiMock.create).not.toHaveBeenCalled();
 });
 
 test('close flow submits the case close mutation with result and satisfaction', async () => {

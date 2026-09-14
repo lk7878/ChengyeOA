@@ -8,15 +8,16 @@ import {
   Col,
   Form,
   Input,
-  Modal,
   Row,
   Select,
   Space,
   Tag,
   message,
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
+import { useAuthStore } from '@/stores/authStore';
 import dayjs from 'dayjs';
 import { useCustomerStore, type CustomerListFilters } from '@/stores/customer-store';
 import {
@@ -31,6 +32,11 @@ import { CUSTOMER_STATUS_META, CUSTOMER_TYPE_META } from '../leads/meta';
 
 const CustomerListPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromCase = Boolean(location.state?.fromCase);
+  const canCreate = useAuthStore(state => state.hasPermission('customer.create'));
+  const initialName = typeof location.state?.createCustomerName === 'string' ? location.state.createCustomerName : '';
+  const cancelCreate = () => { if (submitting) return; if (fromCase) navigate('/cases', { replace: true, state: { resumeCase: true } }); else setCreateOpen(false); };
   const {
     customers, listTotal, listPage, listPageSize, listLoading, listError,
     fetchCustomers, applyFilters, createCustomer,
@@ -38,7 +44,7 @@ const CustomerListPage: React.FC = () => {
   const [keyword, setKeyword] = useState('');
   const [status, setStatus] = useState<CustomerStatus | undefined>(undefined);
   const [customerType, setCustomerType] = useState<CustomerType | undefined>(undefined);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(Boolean(initialName && canCreate));
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm<CreateCustomerInput>();
 
@@ -68,6 +74,11 @@ const CustomerListPage: React.FC = () => {
       const customer = await createCustomer(values);
       if (!customer) return;
       message.success('创建成功');
+      if (fromCase) {
+        void fetchCustomers(1);
+        navigate('/cases', { replace: true, state: { resumeCase: true, createdCustomer: customer } });
+        return;
+      }
       setCreateOpen(false);
       form.resetFields();
       void fetchCustomers(1);
@@ -161,7 +172,8 @@ const CustomerListPage: React.FC = () => {
             </Space>
           </Col>
           <Col>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建客户</Button>
+            {canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建客户</Button>}
+            {fromCase && <Button onClick={cancelCreate}>返回新建案件</Button>}
           </Col>
         </Row>
       </Card>
@@ -197,13 +209,16 @@ const CustomerListPage: React.FC = () => {
       <Modal
         title="新建客户"
         open={createOpen}
-        onCancel={() => setCreateOpen(false)}
+        onCancel={cancelCreate}
+        mask={{ closable: false }}
+        cancelButtonProps={{ disabled: submitting }}
         onOk={() => form.submit()}
         confirmLoading={submitting}
         width={560}
+        styles={{ body: { maxHeight: '65vh', overflowY: 'auto' } }}
         destroyOnHidden
       >
-        <Form form={form} layout="vertical" onFinish={handleCreate}>
+        <Form form={form} layout="vertical" onFinish={handleCreate} initialValues={{ name: initialName }} disabled={submitting}>
           <Form.Item name="name" label="姓名" rules={crmNameRules}>
             <Input maxLength={50} />
           </Form.Item>

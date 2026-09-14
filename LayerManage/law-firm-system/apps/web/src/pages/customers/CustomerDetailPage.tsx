@@ -9,7 +9,6 @@ import {
   Input,
   InputNumber,
   List,
-  Modal,
   Popconfirm,
   Select,
   Space,
@@ -18,6 +17,7 @@ import {
   Tag,
   message,
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { ArrowLeftOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router';
 import dayjs from 'dayjs';

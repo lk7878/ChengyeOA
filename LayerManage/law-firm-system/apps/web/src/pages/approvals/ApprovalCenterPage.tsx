@@ -29,7 +29,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Popconfirm,
   Row,
   Select,
@@ -40,6 +39,7 @@ import {
   message,
   type TabsProps,
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ApprovalAttachments from './materials/ApprovalAttachments';

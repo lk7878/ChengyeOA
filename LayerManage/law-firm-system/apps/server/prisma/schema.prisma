@@ -1101,6 +1101,7 @@ model Case {
   contractId   String?   @unique
   lawyerId     String? // 主办律师
   teamIds      String? // 协办团队，JSON数组
+  intakeData   Json? // SPEC-CASE-20260914: validated case intake information
   caseType     String // 案由/案件类型
   status       String    @default("PENDING") // PENDING | ACCEPTED | PROCESSING | CLOSED | ARCHIVED
   priority     String    @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
@@ -1132,6 +1133,7 @@ model CaseFile {
   id         String   @id @default(uuid())
   caseId     String
   fileName   String // 原始文件名（元数据，落盘用 UUID）
+  category   String? // 合同附件 / 收款凭证 / 退款凭证
   fileType   String // MIME 类型
   filePath   String // 相对存储路径 var/storage/case-files/<uuid>
   fileSize   Int // 字节数

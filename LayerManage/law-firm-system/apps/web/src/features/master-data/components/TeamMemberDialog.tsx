@@ -1,4 +1,5 @@
-import { Form, Modal, Select } from 'antd';
+import { Form, Select } from 'antd';
+import Modal from '@/components/DraggableModal';
 import type { FormInstance } from 'antd';
 import type { TeamMemberRole } from '../types';
 import type { SelectOption } from './EmployeeForm';

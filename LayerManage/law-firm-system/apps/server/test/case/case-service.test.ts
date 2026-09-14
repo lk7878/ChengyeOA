@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
 import { CaseService } from '../../app/application/case/case-service';
@@ -139,6 +141,37 @@ test('createCase persists a PENDING case with CA number and audit, and validates
       .createCase({ title: 'x', customerId, caseType: '民事' }),
     { name: 'AuthorizationError' },
   );
+});
+
+test('case intake and categorized attachments persist atomically and missing lawyer/invalid department are rejected', async () => {
+  const customerId = await seedCustomer(), lawyerId = await seedEmployee();
+  const service = serviceFor('intake-user', actor('intake-user'), { permissionCodes: [...CASE_PERMISSIONS, 'case.file.manage'] });
+  const input = { title: '扩展建档', customerId, lawyerId, caseType: '合同纠纷' };
+  await assert.rejects(() => service.createCase({ ...input, lawyerId: undefined }), { code: 'VALIDATION_FAILED' });
+  await assert.rejects(() => service.createCase({ ...input, customerId: '' }), { code: 'VALIDATION_FAILED' });
+  await assert.rejects(() => service.createCase({ ...input, intakeData: { departmentId: 'missing' } }), { code: 'VALIDATION_FAILED' });
+  const attachments = [{ fileName: '合同.pdf', fileType: 'application/pdf', category: '合同附件' as const, base64: Buffer.from('test document').toString('base64') }];
+  await assert.rejects(() => serviceFor('no-files', actor('no-files')).createCase({ ...input, attachments }), { name: 'AuthorizationError' });
+  const row = await service.createCase({ ...input, intakeData: { fixedAgencyFee: '12.30', signedDate: '2026-09-14', caseCategory: '民事', totalReceivedAmount: '1000', lawyerCommissionRatio: '20' }, attachments });
+  const stored = await service.getCase(row.id);
+  assert.equal(stored.intakeData.fixedAgencyFee, '12.30');
+  assert.equal(stored.intakeData.lawyerCommissionRatio, '20.00');
+  assert.equal(stored.intakeData.signedDate, '2026-09-14');
+  const file = await prisma.caseFile.findFirstOrThrow({ where: { caseId: row.id } });
+  assert.equal(file.category, '合同附件');
+  const storedPath = path.join(process.cwd(), 'var/storage/case-files', file.filePath);
+  assert.equal(fs.readFileSync(storedPath, 'utf8'), 'test document');
+  fs.unlinkSync(storedPath);
+  assert.ok(stored.createdAt && stored.updatedAt);
+
+  const storage = path.join(process.cwd(), 'var/storage/case-files');
+  const before = fs.readdirSync(storage).sort();
+  const failing = prisma.$extends({ query: { operationLog: { async create() { throw new Error('simulated transaction failure'); } } } });
+  const failingService = new CaseService(failing as unknown as typeof prisma, actor('intake-user'), caseContext('intake-user', { permissionCodes: [...CASE_PERMISSIONS, 'case.file.manage'] }));
+  await assert.rejects(() => failingService.createCase({ ...input, attachments }), /simulated transaction failure/);
+  assert.deepEqual(fs.readdirSync(storage).sort(), before);
+  assert.equal(await prisma.case.count(), 1);
+  assert.equal(await prisma.caseFile.count(), 1);
 });
 
 test('updateCase applies whitelist fields with optimistic lock and refuses a closed case', async () => {

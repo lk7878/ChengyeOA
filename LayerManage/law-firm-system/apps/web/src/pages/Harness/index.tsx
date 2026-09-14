@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Alert, Button, Card, InputNumber, Space, Typography, Modal } from 'antd';
+import { Alert, Button, Card, InputNumber, Space, Typography} from 'antd';
+import Modal from '@/components/DraggableModal';
 import { connectHarness, type HarnessConnection, type HarnessFeature } from '@/api/harness';
 
 export default function HarnessPage({ feature }: { feature: HarnessFeature }) {

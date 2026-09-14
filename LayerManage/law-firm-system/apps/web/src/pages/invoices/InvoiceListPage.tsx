@@ -12,13 +12,13 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Row,
   Select,
   Space,
   Tag,
   message,
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useInvoiceStore, type InvoiceListFilters } from '@/stores/invoice-store';

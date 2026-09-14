@@ -1,6 +1,7 @@
 // SPEC-033 Task 2: case 应用层 DTO + 输出视图投影。
 // 形态镜像 finance-types / crm lead-types：入参白名单、视图全字段投影、PagedResult 复用。
 
+import type { CaseIntake, IntakeAttachment } from './intake-contract';
 import { Case, CaseFile, CaseTask, Communication } from '@prisma/client';
 
 export type { PagedResult } from '../crm/lead-types';
@@ -28,6 +29,8 @@ export const CASE_COMMUNICATION_TYPES = ['PHONE', 'MEETING', 'WECHAT', 'EMAIL', 
 export type CaseCommunicationType = (typeof CASE_COMMUNICATION_TYPES)[number];
 
 export interface CreateCaseInput {
+  intakeData?: CaseIntake;
+  attachments?: IntakeAttachment[];
   title: string;
   customerId: string;
   contractId?: string;
@@ -93,6 +96,7 @@ export interface UploadCaseFileInput {
 }
 
 export interface CaseFileView {
+  category: string | null;
   id: string;
   caseId: string;
   fileName: string;
@@ -110,6 +114,7 @@ export function projectCaseFile(row: CaseFile): CaseFileView {
   return {
     id: row.id,
     caseId: row.caseId,
+    category: row.category,
     fileName: row.fileName,
     fileType: row.fileType,
     fileSize: row.fileSize,
@@ -123,6 +128,7 @@ export function projectCaseFileDownload(row: CaseFile, base64: string): CaseFile
 }
 
 export interface CaseView {
+  intakeData: CaseIntake;
   id: string;
   caseNo: string;
   title: string;
@@ -176,6 +182,7 @@ export function projectCase(
   },
 ): CaseView {
   return {
+    intakeData: (caseRow.intakeData ?? {}) as CaseIntake,
     id: caseRow.id,
     caseNo: caseRow.caseNo,
     title: caseRow.title,

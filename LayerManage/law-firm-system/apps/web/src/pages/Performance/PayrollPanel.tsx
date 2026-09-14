@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Spin, Tag, Upload, message } from 'antd';
+import { Alert, Button, Form, Input, InputNumber, Select, Space, Spin, Tag, Upload, message } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { Link } from 'react-router';
 import Table from '@/components/ResizableTable';
 import { integrationApi, type PayrollBatch } from '@/api/business-integration';

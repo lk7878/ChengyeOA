@@ -1,7 +1,8 @@
 import { businessLabel } from '@/locales/business-labels';
 import Table from '@/components/ResizableTable';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Checkbox, Descriptions, message, Modal, Space, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Checkbox, Descriptions, message, Space, Tag, Typography } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { authApi } from '@/api/auth';
 import StepUpDialog from '@/features/auth/components/StepUpDialog';
 import MfaEnrollment from '@/features/auth/components/MfaEnrollment';

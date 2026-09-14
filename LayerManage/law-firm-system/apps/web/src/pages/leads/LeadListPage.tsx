@@ -9,13 +9,13 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Row,
   Select,
   Space,
   Tag,
   message,
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router';
 import dayjs from 'dayjs';

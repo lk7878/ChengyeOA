@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Statistic, Tag, message } from 'antd';
+import { Alert, Button, Card, Col, Form, Input, InputNumber, Row, Select, Space, Statistic, Tag, message } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { useLocation } from 'react-router';
 import dayjs from 'dayjs';
 import Table from '@/components/ResizableTable';

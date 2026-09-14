@@ -4,7 +4,7 @@
 // 权限按钮隐现（apply 门控新建/撤回、process 门控审批/驳回）、详情弹窗、错误 business message。
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { message } from 'antd';
+import { ConfigProvider, message } from 'antd';
 import { beforeEach, expect, test, vi } from 'vitest';
 import ApprovalCenterPage from '../ApprovalCenterPage';
 import { useApprovalStore } from '@/stores/approval-store';
@@ -724,24 +724,26 @@ test('detail modal shows the forward button only for own PENDING task and forwar
     message: 'success',
     data: instanceFixture({ id: 'ap-multi', title: '合同变更-大单' }),
   });
-  render(<MemoryRouter><ApprovalCenterPage /></MemoryRouter>);
+  // jsdom does not finish CSS modal animations; assert visible business controls with motion disabled.
+  render(<ConfigProvider theme={{ token: { motion: false } }}><MemoryRouter><ApprovalCenterPage /></MemoryRouter></ConfigProvider>);
   await screen.findByText('合同变更-大单');
 
-  fireEvent.click(screen.getByRole('button', { name: '详情' }));
-  await screen.findByRole('dialog');
+  fireEvent.click(screen.getByRole('button', { name: '详情', hidden: true }));
 
   // 仅当前用户（user-1）的 PENDING 任务行有「转交」；已处理（user-2, APPROVED）行无。
-  const currentGroup = screen.getByTestId('node-group-合伙人终审');
-  expect(within(currentGroup).getByRole('button', { name: '转交' })).toBeInTheDocument();
-  expect(within(screen.getByTestId('node-group-主管初审')).queryByRole('button', { name: '转交' })).not.toBeInTheDocument();
+  const currentGroup = await screen.findByTestId('node-group-合伙人终审');
+  await waitFor(() => expect(currentGroup.closest('[role="dialog"]')).toBeVisible());
+  expect(within(currentGroup).getByRole('button', { name: '转交', hidden: true })).toBeVisible();
+  expect(within(screen.getByTestId('node-group-主管初审')).queryByRole('button', { name: '转交', hidden: true })).not.toBeInTheDocument();
 
-  fireEvent.click(within(currentGroup).getByRole('button', { name: '转交' }));
+  fireEvent.click(within(currentGroup).getByRole('button', { name: '转交', hidden: true }));
   // 环境内 AntD Modal 的 aria-labelledby 解析异常（重复 id=test-id），按内容定位转交弹窗。
-  await screen.findByRole('textbox', { name: '目标审批人 ID' });
-  const forwardDialog = screen.getAllByRole('dialog').find(d => within(d).queryByRole('textbox', { name: '目标审批人 ID' }));
+  const targetInput = await screen.findByLabelText('目标审批人 ID');
+  await waitFor(() => expect(targetInput).toBeVisible());
+  const forwardDialog = targetInput.closest('[role="dialog"]') as HTMLElement | null;
   if (!forwardDialog) throw new Error('转交弹窗未渲染');
-  fireEvent.change(within(forwardDialog).getByRole('textbox', { name: '目标审批人 ID' }), { target: { value: 'user-9' } });
-  fireEvent.click(within(forwardDialog).getByRole('button', { name: /确认转交/ }));
+  fireEvent.change(within(forwardDialog).getByRole('textbox', { name: '目标审批人 ID', hidden: true }), { target: { value: 'user-9' } });
+  fireEvent.click(within(forwardDialog).getByRole('button', { name: /确认转交/, hidden: true }));
 
   await waitFor(() => expect(approvalApiMock.forwardTask).toHaveBeenCalledWith(
     'task-2',
@@ -835,17 +837,18 @@ test('detail modal shows the 加签 button only for own PENDING task rows', asyn
       taskFixture({ id: 'task-2', nodeName: '合伙人终审', assigneeId: 'user-1', status: 'PENDING' }),
     ],
   })]));
-  render(<MemoryRouter><ApprovalCenterPage /></MemoryRouter>);
+  // jsdom does not finish CSS modal animations; assert visible business controls with motion disabled.
+  render(<ConfigProvider theme={{ token: { motion: false } }}><MemoryRouter><ApprovalCenterPage /></MemoryRouter></ConfigProvider>);
   await screen.findByText('合同变更-大单');
 
-  fireEvent.click(screen.getByRole('button', { name: '详情' }));
-  await screen.findByRole('dialog');
+  fireEvent.click(screen.getByRole('button', { name: '详情', hidden: true }));
 
   // 仅当前用户（user-1）的 PENDING 任务行有「加签」（与转交同列）；已处理（user-2, APPROVED）行无。
-  const currentGroup = screen.getByTestId('node-group-合伙人终审');
-  expect(within(currentGroup).getByRole('button', { name: '加签' })).toBeInTheDocument();
-  expect(within(currentGroup).getByRole('button', { name: '转交' })).toBeInTheDocument();
-  expect(within(screen.getByTestId('node-group-主管初审')).queryByRole('button', { name: '加签' })).not.toBeInTheDocument();
+  const currentGroup = await screen.findByTestId('node-group-合伙人终审');
+  await waitFor(() => expect(currentGroup.closest('[role="dialog"]')).toBeVisible());
+  expect(within(currentGroup).getByRole('button', { name: '加签', hidden: true })).toBeVisible();
+  expect(within(currentGroup).getByRole('button', { name: '转交', hidden: true })).toBeVisible();
+  expect(within(screen.getByTestId('node-group-主管初审')).queryByRole('button', { name: '加签', hidden: true })).not.toBeInTheDocument();
 });
 
 // ==== SPEC-023 Task 2: 全组织视图「全部审批」Tab（approval.manage 门控）====

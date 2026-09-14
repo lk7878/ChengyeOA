@@ -83,7 +83,7 @@ export default (appInfo: EggAppInfo) => {
 
   // bodyParser 配置
   config.bodyParser = {
-    jsonLimit: '1mb',
+    jsonLimit: '16mb', // Case intake: up to 10MB decoded attachments plus base64 overhead.
     formLimit: '1mb',
   };
 

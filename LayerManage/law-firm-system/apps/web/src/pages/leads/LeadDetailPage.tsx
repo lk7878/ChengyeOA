@@ -9,7 +9,6 @@ import {
   Form,
   Input,
   List,
-  Modal,
   Popconfirm,
   Row,
   Select,
@@ -20,6 +19,7 @@ import {
   Timeline,
   message,
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import {
   ArrowLeftOutlined,
   CalendarOutlined,

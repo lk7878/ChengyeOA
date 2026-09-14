@@ -69,6 +69,10 @@ async function seedCustomer(): Promise<string> {
 
 const SAMPLE_BASE64 = Buffer.from('api case file content').toString('base64');
 
+async function seedLawyer(): Promise<string> {
+  return (await prisma.employee.create({ data: { employeeNo: randomUUID(), name: '主办律师', phone: '13800000002', type: 'PARTNER', status: 'FORMAL', entryDate: new Date() } })).id;
+}
+
 test.before(async () => {
   prisma = createTestPrisma();
   await app.ready();
@@ -100,7 +104,7 @@ test('rejects authenticated users without case.file permissions', async () => {
   const created = await app.httpRequest()
     .post('/api/v1/cases')
     .set(bearer(session.token))
-    .send({ title: '文件案', customerId, caseType: '民事' })
+    .send({ title: '文件案', customerId, lawyerId: await seedLawyer(), caseType: '民事' })
     .expect(200);
   const caseId = created.body.data.id as string;
 
@@ -114,13 +118,31 @@ test('rejects authenticated users without case.file permissions', async () => {
   await app.httpRequest().delete(`/api/v1/files/${randomUUID()}`).set(bearer(session.token)).expect(403);
 });
 
+test('creates intake and contract attachment above 1MB together and downloads the original bytes', async () => {
+  const session = await createFileSession(FULL_FILE_PERMISSIONS);
+  const base64 = Buffer.alloc(1024 * 1024 + 16, 65).toString('base64');
+  const created = await app.httpRequest().post('/api/v1/cases').set(bearer(session.token)).send({
+    title: '合同附件建档', customerId: await seedCustomer(), lawyerId: await seedLawyer(), caseType: '合同纠纷',
+    intakeData: { contractNumber: 'HT-API', signedDate: '2026-09-14', fixedAgencyFee: '1234.50' },
+    attachments: [{ fileName: '合同.pdf', fileType: 'application/pdf', category: '合同附件', base64 }],
+  }).expect(200);
+  const detail = await app.httpRequest().get(`/api/v1/cases/${created.body.data.id}`).set(bearer(session.token)).expect(200);
+  assert.equal(detail.body.data.intakeData.fixedAgencyFee, '1234.50');
+  const files = await app.httpRequest().get(`/api/v1/cases/${created.body.data.id}/files`).set(bearer(session.token)).expect(200);
+  assert.equal(files.body.data.list[0].category, '合同附件');
+  const fileId = files.body.data.list[0].id;
+  const downloaded = await app.httpRequest().get(`/api/v1/files/${fileId}/download`).set(bearer(session.token)).expect(200);
+  assert.equal(downloaded.body.data.base64, base64);
+  await app.httpRequest().delete(`/api/v1/files/${fileId}`).set(bearer(session.token)).expect(200);
+});
+
 test('uploads, lists, downloads, and deletes a case file end to end', async () => {
   const session = await createFileSession(FULL_FILE_PERMISSIONS);
   const customerId = await seedCustomer();
   const created = await app.httpRequest()
     .post('/api/v1/cases')
     .set(bearer(session.token))
-    .send({ title: '证据案', customerId, caseType: '民事' })
+    .send({ title: '证据案', customerId, lawyerId: await seedLawyer(), caseType: '民事' })
     .expect(200);
   const caseId = created.body.data.id as string;
 
@@ -167,7 +189,7 @@ test('carries case file validation and not-found error codes', async () => {
   const created = await app.httpRequest()
     .post('/api/v1/cases')
     .set(bearer(session.token))
-    .send({ title: '文件案', customerId, caseType: '民事' })
+    .send({ title: '文件案', customerId, lawyerId: await seedLawyer(), caseType: '民事' })
     .expect(200);
   const caseId = created.body.data.id as string;
 

@@ -5,10 +5,12 @@ source: PRD §8.5
 status: draft
 implements: SPEC-009（已验收 2026-07-30；覆盖 CUS-01~02，CUS-03~05 下推）
 design_refs: [docs/专项设计/页面与接口清单.md]
-last_updated: 2026-07-30
+last_updated: 2026-09-14
 ---
 
 # MOD-005 客户主数据模块
+
+案件新建往返客户管理、预填姓名及创建后自动选中客户，遵循 [SPEC-CASE-20260914](../../superpowers/specs/2026-09-14-case-management-extension.md)。
 
 ## 1. 需求概述
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Descriptions, Modal, Select, Space, Tag, message } from 'antd';
+import { Alert, Button, Descriptions, Select, Space, Tag, message } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { useSearchParams } from 'react-router';
 import Table from '@/components/ResizableTable';
 import { integrationApi, type LedgerRow, type SyncRule } from '@/api/business-integration';

@@ -15,7 +15,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Popconfirm,
   Radio,
   Row,
@@ -24,6 +23,7 @@ import {
   Tag,
   message,
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import StepUpDialog from '@/features/auth/components/StepUpDialog';

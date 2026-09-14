@@ -9,7 +9,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Popconfirm,
   Row,
   Select,
@@ -17,6 +16,7 @@ import {
   Tag,
   message,
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { usePaymentStore, type PaymentListFilters } from '@/stores/payment-store';

@@ -123,13 +123,14 @@ test('finance queries join by unique case number and existing contract records l
   const payments = new ReceivableService(db, actor, ctx), invoices = new InvoiceService(db, actor, ctx), refunds = new RefundService(db, actor, ctx);
   assert.equal((await payments.listPayments({})).list[0].linkedCase, null);
   const cases = new CaseService(db, actor, ctx);
-  const row = await cases.createCase({ title: '案件', customerId: customer.id, caseType: '民事' });
+  const lawyer = await db.employee.create({ data: { employeeNo: randomUUID(), name: '律师', phone: '13800000002', type: 'PARTNER', status: 'FORMAL', entryDate: new Date() } });
+  const row = await cases.createCase({ title: '案件', customerId: customer.id, lawyerId: lawyer.id, caseType: '民事' });
   await cases.bindFinanceContract(row.id, { contractId: contract.id, version: row.version });
   for (const list of [await payments.listPayments({ caseNo: row.caseNo }), await invoices.listInvoices({ caseNo: row.caseNo }), await refunds.listRefundRequests({ caseNo: row.caseNo })]) { assert.equal(list.total, 1); assert.equal(list.list[0].linkedCase?.id, row.id); }
   assert.equal((await invoices.listInvoices({ caseNo: row.caseNo.slice(1) })).total, 0);
   await assert.rejects(invoices.createInvoice({ contractId: contract.id, caseNo: 'INVALID-CASE', amount: '10' }), { code: 'FINANCE_CASE_MISMATCH' });
   const added = await invoices.createInvoice({ contractId: contract.id, caseNo: row.caseNo, amount: '10' });
   assert.equal(added.contractId, contract.id);
-  const other = await cases.createCase({ title: '其他案件', customerId: customer.id, caseType: '民事' });
+  const other = await cases.createCase({ title: '其他案件', customerId: customer.id, lawyerId: lawyer.id, caseType: '民事' });
   await assert.rejects(cases.bindFinanceContract(other.id, { contractId: contract.id, version: other.version }), { code: 'MASTER_DATA_IN_USE' });
 });

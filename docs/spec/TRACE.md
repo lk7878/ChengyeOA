@@ -4,7 +4,7 @@ title: 模块级追溯矩阵
 type: meta-spec
 status: approved
 created: 2026-07-28
-last_updated: 2026-09-13
+last_updated: 2026-09-14
 ---
 
 # 模块级追溯矩阵（TRACE）
@@ -32,7 +32,7 @@ last_updated: 2026-09-13
 | MOD-005 | 客户主数据 | 页面与接口清单 | SPEC-009(部分,已验收2026-07-30) | ⚠️部分落地 |
 | MOD-006 | 合同财务 | SPEC-010设计(已批准2026-07-30) | SPEC-010(立项,待实施;CON-01~07+FIN-01) | 📋有设计无SPEC |
 | MOD-007 | 专业团队SOP | 三大团队SOP字段清单 | — | ⚠️有代码无SPEC |
-| MOD-008 | 案件交付质控 | 三大团队SOP字段清单 | 原模块待补；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md) 已批准、未落地 | ⚠️原功能待补；⬜MAT-04B 待开发 |
+| MOD-008 | 案件交付质控 | 三大团队SOP字段清单 | [SPEC-CASE-20260914](../superpowers/specs/2026-09-14-case-management-extension.md)；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md) | ✅案件建档扩展、客户联动、财务跳转与通用弹窗拖动已实现并验证；⬜MAT-04B 待开发 |
 | MOD-009 | 满意度转介绍 | — | — | ⬜待开发 |
 | MOD-010 | AI录音文件 | 文件录音AI任务设计 | SPEC-AI-DECOUPLED/AI-UI 历史已实施；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md) 实施中 | 📋录音专项待开发；AI-08 桌面基础、AI-09 只读查询与 AI-10 视觉链路已验证；完整交付待验收 |
 | MOD-011 | 组织人事 | 数据库核心表设计 | SPEC-003(部分) | ⚠️有代码无SPEC |

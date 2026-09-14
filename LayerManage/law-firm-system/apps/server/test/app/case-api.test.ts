@@ -212,7 +212,7 @@ test('enforces the case optimistic lock and version whitelist through the API', 
   const created = await app.httpRequest()
     .post('/api/v1/cases')
     .set(bearer(session.token))
-    .send({ title: '乐观锁案件', customerId, caseType: '民事' })
+    .send({ title: '乐观锁案件', customerId, lawyerId: await seedEmployee(), caseType: '民事' })
     .expect(200);
   const caseId = created.body.data.id as string;
   assert.equal(created.body.data.version, 1);
@@ -255,7 +255,7 @@ test('drives the case task state machine and communications through the API, the
   const created = await app.httpRequest()
     .post('/api/v1/cases')
     .set(bearer(session.token))
-    .send({ title: '刑案', customerId, caseType: '刑事' })
+    .send({ title: '刑案', customerId, lawyerId: await seedEmployee(), caseType: '刑事' })
     .expect(200);
   const caseId = created.body.data.id as string;
 
@@ -398,13 +398,13 @@ test('carries case validation, state-machine, and not-found error codes; scopes 
   const created = await app.httpRequest()
     .post('/api/v1/cases')
     .set(bearer(session.token))
-    .send({ title: '作用域案件', customerId, caseType: '民事' })
+    .send({ title: '作用域案件', customerId, lawyerId: await seedEmployee(), caseType: '民事' })
     .expect(200);
   const caseA = created.body.data.id as string;
   const other = await app.httpRequest()
     .post('/api/v1/cases')
     .set(bearer(session.token))
-    .send({ title: '另一案件', customerId, caseType: '民事' })
+    .send({ title: '另一案件', customerId, lawyerId: await seedEmployee(), caseType: '民事' })
     .expect(200);
   const caseB = other.body.data.id as string;
   const task = await app.httpRequest()

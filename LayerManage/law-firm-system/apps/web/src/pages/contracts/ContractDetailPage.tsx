@@ -8,7 +8,6 @@ import {
   Descriptions,
   Form,
   Input,
-  Modal,
   Popconfirm,
   Space,
   Spin,
@@ -16,6 +15,7 @@ import {
   Timeline,
   message,
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router';
 import dayjs, { type Dayjs } from 'dayjs';

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Alert, Input, Modal, Typography } from 'antd';
+import { Alert, Input, Typography } from 'antd';
+import Modal from '@/components/DraggableModal';
 import type { StepUpPurpose } from '../types';
 
 export interface StepUpDialogProps {

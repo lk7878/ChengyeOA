@@ -7,7 +7,7 @@ import Table from '@/components/ResizableTable';
 // 嵌套 pagination 形态——重建后端均不再提供）。
 // 沿 CostListPage 形态：AntD 6 + useAuthStore 权限门控 + PagedResult 读取（res.data.list/total）。
 
-import { useSearchParams } from 'react-router';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { integrationApi } from '@/api/business-integration';
 import { contractApi } from '@/api/contract';
 import type { ContractView } from '@/api/contract';
@@ -22,7 +22,6 @@ import {
   Input,
   InputNumber,
   List,
-  Modal,
   Popconfirm,
   Row,
   Select,
@@ -31,6 +30,7 @@ import {
   Timeline,
   message,
 } from 'antd';
+import Modal from '@/components/DraggableModal';
 import {
   CheckCircleOutlined,
   DeleteOutlined,
@@ -45,7 +45,14 @@ import {
 import dayjs from 'dayjs';
 import { caseApi } from '@/api/business';
 import { customerApi } from '@/api/customer';
-import { employeeApi } from '@/api/organization';
+import { employeeApi, masterDataApi } from '@/api/organization';
+import type { OrganizationNode } from '@/features/master-data/types';
+import type { UploadFile } from 'antd';
+import { Upload, Divider } from 'antd';
+import IntakeFields from './IntakeFields';
+import { ATTACHMENT_CATEGORIES, INTAKE_FIELDS } from './intake-contract';
+import type { CaseIntake, IntakeAttachment } from './intake-contract';
+import { caseDraft, clearCaseDraft } from './case-draft';
 import { useAuthStore } from '@/stores/authStore';
 import type { Case, CaseFile, CaseTask, Communication, Employee } from '@/types';
 import type { CustomerView } from '@/api/types';
@@ -89,6 +96,7 @@ const TASK_STATUS_META: Record<string, { text: string; color: string }> = {
 };
 
 interface CreateFormValues {
+  intakeData?: Record<string, string | dayjs.Dayjs | null>;
   title: string;
   customerId: string;
   lawyerId?: string;
@@ -117,6 +125,18 @@ interface CreateCommFormValues {
 }
 
 const CasePage: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const ownerId = useAuthStore(s => s.userInfo?.id);
+  const canCreateCustomer = useAuthStore(s => s.hasPermission('customer.create') && s.hasPermission('menu.customer'));
+  const canReadOrganizations = useAuthStore(s => s.hasPermission('organization.read'));
+  const resumeCase = Boolean(location.state?.resumeCase && caseDraft.ownerId === ownerId);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerSearching, setCustomerSearching] = useState(false);
+  const customerSearchSequence = React.useRef(0);
+  const [departments, setDepartments] = useState<{ value: string; label: string }[]>([]);
+  const [attachments, setAttachments] = useState<Record<string, UploadFile[]>>(() => resumeCase ? caseDraft.attachments ?? {} : {});
+
   const canCreate = useAuthStore(state => state.hasPermission('case.create'));
   const canClose = useAuthStore(state => state.hasPermission('case.close'));
   const canTask = useAuthStore(state => state.hasPermission('case.task.manage'));
@@ -139,7 +159,7 @@ const CasePage: React.FC = () => {
   const [customers, setCustomers] = useState<CustomerView[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
 
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(resumeCase);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createForm] = Form.useForm<CreateFormValues>();
 
@@ -183,7 +203,10 @@ const CasePage: React.FC = () => {
     void Promise.resolve().then(() => {
       void fetchList(1, pageSize);
       customerApi.list({ page: 1, pageSize: 100 })
-        .then(res => setCustomers(res.data.list ?? []))
+        .then(res => {
+          const created = location.state?.createdCustomer as CustomerView | undefined;
+          setCustomers(created && !res.data.list.some(item => item.id === created.id) ? [created, ...res.data.list] : res.data.list);
+        })
         .catch(() => undefined);
       employeeApi.list({ page: 1, pageSize: 100 })
         .then(res => setEmployees(res.data.list ?? []))
@@ -191,6 +214,56 @@ const CasePage: React.FC = () => {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (canReadOrganizations) {
+      void masterDataApi.organizations.options('ENABLED').then(res => {
+        const flatten = (nodes: OrganizationNode[], parent = ''): { value: string; label: string }[] => nodes.flatMap(node => {
+          const label = parent ? parent + ' / ' + node.name : node.name;
+          return [...(node.type === 'DEPARTMENT' && node.status === 'ENABLED' ? [{ value: node.id, label }] : []), ...flatten(node.children ?? [], label)];
+        });
+        setDepartments(flatten(res.data));
+      }).catch(() => undefined);
+    }
+  }, [canReadOrganizations]);
+
+  useEffect(() => {
+    if (!resumeCase) return;
+    createForm.setFieldsValue(caseDraft.values ?? {});
+    const customer = location.state?.createdCustomer as CustomerView | undefined;
+    if (customer) {
+      createForm.setFieldValue('customerId', customer.id);
+      void Promise.resolve().then(() => setCustomers(previous => [...previous.filter(item => item.id !== customer.id), customer]));
+    }
+    // Restore once when returning from customer management.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!createOpen) return;
+    const sequence = ++customerSearchSequence.current;
+    const timer = window.setTimeout(() => {
+      setCustomerSearching(true);
+      void customerApi.list({ page: 1, pageSize: 100, ...(customerSearch.trim() ? { keyword: customerSearch.trim() } : {}) })
+        .then(res => {
+          if (sequence !== customerSearchSequence.current) return;
+          setCustomers(previous => {
+            const selected = previous.find(item => item.id === createForm.getFieldValue('customerId'));
+            return [...(selected && !res.data.list.some(item => item.id === selected.id) ? [selected] : []), ...res.data.list];
+          });
+        }).catch(() => undefined).finally(() => { if (sequence === customerSearchSequence.current) setCustomerSearching(false); });
+    }, 250);
+    return () => { window.clearTimeout(timer); customerSearchSequence.current = sequence + 1; };
+  }, [customerSearch, createOpen, createForm]);
+
+  const openCustomerCreate = () => {
+    const name = customerSearch.trim();
+    if (!name || !canCreateCustomer) return;
+    caseDraft.ownerId = ownerId;
+    caseDraft.values = createForm.getFieldsValue(true);
+    caseDraft.attachments = attachments;
+    navigate('/customers', { state: { createCustomerName: name, fromCase: true } });
+  };
 
   const handleSearch = () => { void fetchList(1, pageSize); };
   const handleReset = () => { setKeyword(''); setStatus(undefined); void fetchList(1, pageSize); };
@@ -210,6 +283,9 @@ const CasePage: React.FC = () => {
   };
 
   const openCreate = () => {
+    clearCaseDraft();
+    setAttachments({});
+    setCustomerSearch('');
     createForm.resetFields();
     setCreateOpen(true);
   };
@@ -217,7 +293,29 @@ const CasePage: React.FC = () => {
   const handleCreate = async (values: CreateFormValues) => {
     setCreateSubmitting(true);
     try {
+      const intakeData: CaseIntake = {};
+      for (const [key, , kind] of INTAKE_FIELDS) {
+        const value = values.intakeData?.[key];
+        if (value !== undefined && value !== null && value !== '') intakeData[key] = kind === 'date' && dayjs.isDayjs(value) ? value.format('YYYY-MM-DD') : String(value).trim();
+      }
+      if (intakeData.agencyProcedure !== '自定义') delete intakeData.customProcedure;
+      const fileInputs: IntakeAttachment[] = [];
+      for (const category of ATTACHMENT_CATEGORIES) {
+        for (const upload of attachments[category] ?? []) {
+          const file = upload.originFileObj;
+          if (!file) throw new Error('附件读取失败，请重新选择');
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result).split(',')[1]);
+            reader.onerror = () => reject(new Error('附件读取失败，请重新选择'));
+            reader.readAsDataURL(file);
+          });
+          fileInputs.push({ category, fileName: file.name, fileType: file.type || 'application/octet-stream', base64 });
+        }
+      }
       await caseApi.create({
+        intakeData,
+        ...(fileInputs.length ? { attachments: fileInputs } : {}),
         title: values.title,
         customerId: values.customerId,
         caseType: values.caseType,
@@ -226,9 +324,13 @@ const CasePage: React.FC = () => {
         ...(values.fee !== undefined ? { fee: values.fee.toFixed(2) } : {}),
         ...(values.description?.trim() ? { description: values.description.trim() } : {}),
       });
+      clearCaseDraft();
+      setAttachments({});
       message.success('案件已创建');
       setCreateOpen(false);
       void fetchList(1, pageSize);
+    } catch {
+      message.error('案件未保存，请检查填写内容或附件后重试');
     } finally {
       setCreateSubmitting(false);
     }
@@ -400,7 +502,7 @@ const CasePage: React.FC = () => {
   const employeeMap = new Map(employees.map(item => [item.id, item.name]));
 
   const columns = [
-    { title: '案件编号', dataIndex: 'caseNo', key: 'caseNo', width: 160, render: (caseNo: string) => <span>{caseNo}<br /><a href={'/finance?caseNo=' + encodeURIComponent(caseNo)}>关联财务</a></span> },
+    { title: '案件编号', dataIndex: 'caseNo', key: 'caseNo', width: 160, render: (caseNo: string) => <span>{caseNo}<br /><Link to={'/finance?caseNo=' + encodeURIComponent(caseNo)}>关联财务</Link></span> },
     { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
     { title: '客户', key: 'customer', width: 120, render: (_: unknown, record: Case) => customerMap.get(record.customerId) ?? record.customerId },
     { title: '主办律师', key: 'lawyer', width: 110, render: (_: unknown, record: Case) => (record.lawyerId ? employeeMap.get(record.lawyerId) ?? record.lawyerId : '-') },
@@ -481,48 +583,78 @@ const CasePage: React.FC = () => {
       <Modal
         title="新建案件"
         open={createOpen}
-        onCancel={() => setCreateOpen(false)}
+        onCancel={() => { if (!createSubmitting) { setCreateOpen(false); clearCaseDraft(); } }}
+        mask={{ closable: false }}
+        cancelButtonProps={{ disabled: createSubmitting }}
         onOk={() => createForm.submit()}
         confirmLoading={createSubmitting}
         okText="确定"
-        width={560}
+        width={900}
+        styles={{ body: { maxHeight: '65vh', overflowY: 'auto', paddingRight: 8 } }}
         destroyOnHidden
       >
-        <Form form={createForm} layout="vertical" onFinish={handleCreate}>
-          <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入案件标题' }]}>
+        <Form form={createForm} layout="vertical" onFinish={handleCreate} disabled={createSubmitting}>
+          <Row gutter={16}>
+          <Col xs={24} md={12}><Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入案件标题' }]}>
             <Input aria-label="案件标题" maxLength={100} />
-          </Form.Item>
-          <Form.Item name="customerId" label="客户" rules={[{ required: true, message: '请选择客户' }]}>
+          </Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="customerId" label="客户" rules={[{ required: true, message: '请选择客户' }]}>
             <Select
               aria-label="客户"
               showSearch
               optionFilterProp="label"
-              placeholder="选择客户"
+              filterOption={false}
+              onSearch={setCustomerSearch}
+              loading={customerSearching}
+              searchValue={customerSearch}
+              onChange={() => setCustomerSearch('')}
+              popupRender={menu => <>{menu}{canCreateCustomer && <Button type="link" disabled={!customerSearch.trim()} onMouseDown={event => event.preventDefault()} onClick={openCustomerCreate}>新建客户{customerSearch.trim() ? '：' + customerSearch.trim() : '（先输入名称）'}</Button>}</>}
+              placeholder="搜索已有客户，或输入名称新建"
               options={customers.map(item => ({ value: item.id, label: item.name }))}
             />
-          </Form.Item>
-          <Form.Item name="lawyerId" label="主办律师">
+          </Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="lawyerId" label="主办律师" rules={[{ required: true, message: '请选择主办律师' }]}>
             <Select
               aria-label="主办律师"
               showSearch
               optionFilterProp="label"
-              placeholder="可选"
+              placeholder="请选择主办律师"
               allowClear
               options={employees.map(item => ({ value: item.id, label: item.name }))}
             />
-          </Form.Item>
-          <Form.Item name="caseType" label="案由" rules={[{ required: true, message: '请输入案由' }]}>
+          </Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="caseType" label="案由" rules={[{ required: true, message: '请输入案由' }]}>
             <Input aria-label="案由" placeholder="如：合同纠纷" maxLength={100} />
-          </Form.Item>
-          <Form.Item name="priority" label="优先级" initialValue="NORMAL">
+          </Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="priority" label="优先级" initialValue="NORMAL">
             <Select
               aria-label="优先级"
               options={PRIORITIES.map(value => ({ value, label: PRIORITY_META[value].text }))}
             />
-          </Form.Item>
-          <Form.Item name="fee" label="费用">
+          </Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="fee" label="费用">
             <InputNumber aria-label="费用" min={0} precision={2} style={{ width: '100%' }} />
-          </Form.Item>
+          </Form.Item></Col>
+          </Row>
+          <IntakeFields departments={departments} />
+          <Divider titlePlacement="left">附件</Divider>
+          <p style={{ color: '#666' }}>支持图片、PDF、Word、Excel等常用文件，总计不超过10MB。保存案件时一并上传。</p>
+          {ATTACHMENT_CATEGORIES.map(category => <Form.Item key={category} label={category}>
+            <Upload multiple disabled={!canManageFiles || createSubmitting} accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tif,.tiff,.heic"
+              fileList={attachments[category] ?? []}
+              beforeUpload={(file, batch) => {
+                const existing = Object.values(attachments).flat();
+                if (!/\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf|png|jpe?g|gif|webp|bmp|tiff?|heic)$/i.test(file.name) || !file.size || existing.length + batch.length > 20 || [...existing, ...batch].reduce((sum, item) => sum + (item.size ?? 0), 0) > 10 * 1024 * 1024) {
+                  message.error('请上传常用格式的非空文件，最多20个，合计不超过10MB');
+                  return Upload.LIST_IGNORE;
+                }
+                return false;
+              }}
+              onChange={({ fileList }) => setAttachments(previous => ({ ...previous, [category]: fileList }))}>
+              <Button icon={<UploadOutlined />}>选择{category}</Button>
+            </Upload>
+            {!canManageFiles && <span>需要案件文件管理权限</span>}
+          </Form.Item>)}
           <Form.Item name="description" label="案情描述">
             <Input.TextArea rows={3} maxLength={1000} />
           </Form.Item>
@@ -640,6 +772,12 @@ const CasePage: React.FC = () => {
               )}
             </Card>
 
+            <Card size="small" title="建档补充信息" style={{ marginBottom: 16 }}>
+              <Row gutter={[16, 12]}>
+                {INTAKE_FIELDS.map(([key, label]) => <Col span={12} key={key}><strong>{label}：</strong>{key === 'departmentId' ? departments.find(item => item.value === detail.intakeData?.[key])?.label ?? detail.intakeData?.[key] ?? '-' : detail.intakeData?.[key] ?? '-'}</Col>)}
+                <Col span={12}><strong>最近修改时间：</strong>{detail.updatedAt ? dayjs(detail.updatedAt).format('YYYY-MM-DD HH:mm:ss') : '-'}</Col>
+              </Row>
+            </Card>
             <Card
               size="small"
               title={(
@@ -737,6 +875,7 @@ const CasePage: React.FC = () => {
                     <Space wrap>
                       <PaperClipOutlined />
                       <strong>{file.fileName}</strong>
+                      {file.category && <Tag color="blue">{file.category}</Tag>}
                       <Tag>{file.fileType}</Tag>
                       <span style={{ color: '#999', fontSize: 12 }}>{(file.fileSize / 1024).toFixed(1)} KB</span>
                     </Space>
