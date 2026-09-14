@@ -1,3 +1,4 @@
+import { crmTransaction } from './crm-transaction';
 // SPEC-009 Task 7: lead-follow-service —— 跟进记录 + 首响时长计量。
 // 事务边界（设计 §6.2/§6.4）：LeadFollow 写入、首响计量写回、状态推进、outbox 事件、
 //   OperationLog 审计全部同事务；不依赖事件往返。
@@ -103,7 +104,7 @@ export class LeadFollowService {
    * 与计量解耦，计量已完成仍推进）→ OperationLog 安全字段审计。
    * 写回竞态败方不抛错，跟进记录照常提交。
    */
-  async recordFollow(leadId: string, input: RecordFollowInput): Promise<LeadFollowView> {
+  async recordFollow(leadId: string, input: RecordFollowInput, transaction?: Prisma.TransactionClient): Promise<LeadFollowView> {
     this.authorization.requireAction(this.authorizationContext, 'lead.update');
     const id = normalizeRequiredText(leadId, 1, 100);
     assertExactKeys(input, ['type', 'content', 'nextPlan', 'nextTime']);
@@ -113,7 +114,7 @@ export class LeadFollowService {
     const nextTime = normalizeOptionalDateTime(input.nextTime);
     const scopeWhere = await this.scopeWhere('lead.update');
 
-    const follow = await this.prisma.$transaction(async tx => {
+    const follow = await crmTransaction(this.prisma, transaction, async tx => {
       const lead = await tx.lead.findFirst({
         where: { AND: [scopeWhere, { id, deletedAt: null }] },
       });

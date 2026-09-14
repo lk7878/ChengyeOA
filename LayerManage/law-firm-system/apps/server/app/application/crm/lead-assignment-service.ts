@@ -1,3 +1,4 @@
+import { crmTransaction } from './crm-transaction';
 // SPEC-009 Task 6: lead-assignment-service —— 公海领取、分配/改派、手动回收、超时回收批。
 // 事务边界（设计 §6.2）：Lead 归属变更 + LeadPoolRecord 写入 + outbox 事件同事务。
 // 公海定义（决策 2）：poolStatus ∈ {PUBLIC, RECYCLED} 可领取；仅 PRIVATE 拒绝领取
@@ -143,7 +144,7 @@ export class LeadAssignmentService {
    * 置 PRIVATE + assignedAt=now()；status=NEW 时推进 ASSIGNED。不限定来源池态
    * （公海/回收池/私海均可分配）。
    */
-  async assign(leadId: string, toEmployeeId: string, reason?: string): Promise<LeadView> {
+  async assign(leadId: string, toEmployeeId: string, reason?: string, transaction?: Prisma.TransactionClient): Promise<LeadView> {
     this.authorization.requireAction(this.authorizationContext, 'lead.assign');
     const id = normalizeRequiredText(leadId, 1, 100);
     const targetEmployeeId = normalizeRequiredText(toEmployeeId, 1, 100);
@@ -168,7 +169,7 @@ export class LeadAssignmentService {
         assignedAt: new Date(),
         auditAction: action === 'REASSIGN' ? 'LEAD_REASSIGN' : 'LEAD_ASSIGN',
       };
-    });
+    }, transaction);
   }
 
   /**
@@ -305,8 +306,9 @@ export class LeadAssignmentService {
       tx: Prisma.TransactionClient,
       lead: Lead,
     ) => PoolMutation | Promise<PoolMutation>,
+    transaction?: Prisma.TransactionClient,
   ): Promise<LeadView> {
-    const updated = await this.prisma.$transaction(async tx => {
+    const updated = await crmTransaction(this.prisma, transaction, async tx => {
       const lead = await tx.lead.findFirst({
         where: { AND: [scopeWhere, { id: leadId, deletedAt: null }] },
       });
@@ -376,6 +378,7 @@ export class LeadAssignmentService {
       fieldPermissions,
       1,
       purpose,
+      transaction,
     );
     return projectLead(updated, fieldPermissions);
   }

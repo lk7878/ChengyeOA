@@ -20,6 +20,12 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  LEAD_STATE_TRANSITION_INVALID: '当前状态不能转为目标状态，请核对最新记录。',
+  LEAD_NOT_FOUND: '线索不存在或不在你的业务权限范围内。',
+  LEAD_ASSIGN_TARGET_NOT_FOUND: '该负责人已不可用，请重新选择。',
+  COLLAB_CANNOT_GRANT_ACCESS_ADMIN: '只有工作区负责人可以授予授权管理能力；不能修改自己的授权。',
+  COLLAB_INVALID_ACCESS_ADMIN: '授权管理员需要管理角色、全部记录范围且没有字段限制。',
+  COLLAB_MEMBER_CONFLICT: '岗位或成员授权已变化，请重新打开分享窗口。',
   COLLAB_SENSITIVE_QUERY_UNSUPPORTED: '敏感字段不支持筛选、排序或分组，请选择其他字段。',
   COLLAB_ACCESS_CONFLICT: '权限已被修改，请关闭后重新打开权限窗口，再保存。',
   COLLAB_USE_BUSINESS_ACTION: '请通过业务入口办理，核心业务字段不支持直接修改。',

@@ -56,7 +56,7 @@ test.beforeEach(async () => {
       members: {
         create: [
           { principalId: owner, role: 'OWNER', canCreate: true },
-          { principalId: editor, role: 'EDITOR', canCreate: true },
+          { principalId: editor, role: 'EDITOR', rowScope: 'ALL', canCreate: true },
         ],
       },
     },
@@ -156,6 +156,19 @@ test('SSE delivers real changes and revokes an already connected member without 
     await until('event: invalidate');
     await until('event: presence');
     assert.ok(!frames.join('').includes('private-payload-never-broadcast'));
+    // Detect changed effective permissions even when no collaboration event was written.
+    await db.collabMember.updateMany({
+      where: { workspaceId, principalId: editor },
+      data: { rowScope: 'SELF' },
+    });
+    await until('"kind":"access.updated"');
+    const ownRows = await app
+      .httpRequest()
+      .post('/api/v1/tables/' + tableId + '/records/query')
+      .set('Authorization', 'Bearer ' + editorToken)
+      .send({})
+      .expect(200);
+    assert.equal(ownRows.body.data.total, 0);
     await app
       .httpRequest()
       .post('/api/v1/tables/' + tableId + '/access')
@@ -291,29 +304,60 @@ test(
       await p1.getByRole('button', { name: '保存权限', exact: true }).click();
       await p2.reload();
       await p2.getByRole('button', { name: '标题：另一成员已更新', exact: true }).waitFor();
-      const readPermission = await db.permission.findUniqueOrThrow({ where: { code: 'lead.read' } });
+      const readPermissions = await db.permission.findMany({
+        where: { code: { in: ['lead.read', 'lead.update', 'lead.assign'] } },
+      });
       const allScope = await db.dataScope.create({ data: { name: '业务表演练范围', scopeType: 'ALL' } });
       await db.role.create({
         data: {
           name: '业务表演练角色',
           code: 'COLLAB_BROWSER_CRM',
           type: 'BUSINESS',
-          permissions: { create: { permissionId: readPermission.id } },
+          permissions: { create: readPermissions.map((p) => ({ permissionId: p.id })) },
           dataScopes: { create: { resource: 'lead', dataScopeId: allScope.id } },
-          userRoles: { create: { userId: owner } },
+          userRoles: { create: [{ userId: owner }, { userId: editor }] },
         },
       });
       const org = await db.collabWorkspace.findUniqueOrThrow({ where: { id: workspaceId } });
+      const position = await db.position.create({
+        data: {
+          organizationId: org.organizationId,
+          code: 'BROWSER-SALES',
+          name: '协作业务专员',
+          categoryCode: 'SALES',
+        },
+      });
+      const target = await db.employee.create({
+        data: {
+          name: '协作专员',
+          employeeNo: 'BROWSER-SALES',
+          type: 'SALES',
+          phone: '13800001234',
+          status: 'FORMAL',
+          entryDate: new Date('2025-01-01'),
+          assignments: {
+            create: {
+              organizationId: org.organizationId,
+              positionId: position.id,
+              assignmentType: 'PRIMARY',
+              startedAt: new Date('2025-01-01'),
+            },
+          },
+        },
+      });
+      await db.user.update({ where: { id: editor }, data: { employeeId: target.id } });
       const lead = await db.lead.create({
         data: {
           name: '真实业务来源演练',
           leadNo: 'COLLAB-E2E',
           phone: '13800001234',
           phoneHash: randomUUID(),
-          createdBy: owner,
+          createdBy: editor,
           branchId: org.organizationId,
         },
       });
+      // Reload after changing business grants: permission invalidation intentionally closes open editors.
+      await p1.reload();
       await p1.getByRole('button', { name: '新建数据表', exact: true }).click();
       await p1.getByRole('textbox', { name: '名称', exact: true }).fill('真实线索表');
       await p1.getByRole('combobox', { name: '创建方式', exact: true }).click();
@@ -332,6 +376,47 @@ test(
       await p1.getByText('原业务修改自动出现', { exact: true }).waitFor({ timeout: 12000 });
       await p1.getByRole('button', { name: '展开第1条记录', exact: true }).first().click();
       await p1.getByRole('button', { name: '打开线索业务详情', exact: true }).waitFor();
+      const recordAddress = p1.url();
+      assert.ok(recordAddress.includes('record=' + lead.id));
+      await p2.goto(recordAddress);
+      await p2.getByRole('button', { name: '新增跟进', exact: true }).waitFor();
+      await p1.getByRole('button', { name: '分配负责人', exact: true }).click();
+      await p1.locator('.ant-modal:visible').getByRole('combobox', { name: '负责人', exact: true }).click();
+      await p1.getByText('协作专员', { exact: true }).last().click();
+      await p1.getByRole('textbox', { name: '原因', exact: true }).fill('交由录入专员跟进');
+      await p1
+        .locator('.ant-modal:visible')
+        .getByRole('button', { name: /^提\s*交$/ })
+        .click();
+      await p1.locator('.ant-modal:visible').waitFor({ state: 'hidden' });
+      const assignedDeadline = Date.now() + 10000;
+      while (
+        (await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).status !== 'ASSIGNED' &&
+        Date.now() < assignedDeadline
+      )
+        await new Promise((r) => setTimeout(r, 50));
+      await p2.reload();
+      await p2.getByRole('button', { name: '新增跟进', exact: true }).click();
+      await p2.getByRole('textbox', { name: '跟进内容', exact: true }).fill('无需离开工作区完成跟进');
+      await p2
+        .locator('.ant-modal:visible')
+        .getByRole('button', { name: /^提\s*交$/ })
+        .click();
+      await p1.getByText('无需离开工作区完成跟进', { exact: true }).waitFor({ timeout: 10000 });
+      await p1.getByRole('button', { name: '调整状态', exact: true }).click();
+      await p1.getByRole('combobox', { name: '目标状态', exact: true }).click();
+      await p1.getByText('已筛选', { exact: true }).click();
+      await p1.getByRole('textbox', { name: '原因', exact: true }).fill('负责人完成复核');
+      await p1
+        .locator('.ant-modal:visible')
+        .getByRole('button', { name: /^提\s*交$/ })
+        .click();
+      await p2.getByRole('button', { name: '业务状态：SCREENED', exact: true }).waitFor({ timeout: 10000 });
+      await p2.reload();
+      await p2.getByText('无需离开工作区完成跟进', { exact: true }).waitFor();
+      assert.equal((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).status, 'SCREENED');
+      assert.equal(await db.leadFollow.count({ where: { leadId: lead.id } }), 1);
+
       await p1.goto(address);
       await p1.getByRole('button', { name: '添加记录', exact: true }).waitFor();
       const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence');

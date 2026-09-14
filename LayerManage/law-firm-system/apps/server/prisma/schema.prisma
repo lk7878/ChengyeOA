@@ -1602,17 +1602,18 @@ model CollabWorkspace {
 }
 
 model CollabMember {
-  id             String          @id @default(uuid())
-  workspaceId    String
-  principalType  String          @default("USER")
-  principalId    String
-  role           String          @default("READER")
-  canCreate      Boolean         @default(false)
-  rowScope       String          @default("ALL")
-  hiddenFields   String[]        @default([])
-  readonlyFields String[]        @default([])
-  version        Int             @default(1)
-  workspace      CollabWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  canManageAccess Boolean         @default(false)
+  id              String          @id @default(uuid())
+  workspaceId     String
+  principalType   String          @default("USER")
+  principalId     String
+  role            String          @default("READER")
+  canCreate       Boolean         @default(false)
+  rowScope        String          @default("SELF")
+  hiddenFields    String[]        @default([])
+  readonlyFields  String[]        @default([])
+  version         Int             @default(1)
+  workspace       CollabWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, principalType, principalId])
   @@map("collab_member")

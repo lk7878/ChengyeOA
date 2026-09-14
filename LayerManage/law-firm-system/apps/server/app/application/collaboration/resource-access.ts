@@ -28,7 +28,7 @@ export function resourcePolicy(raw: unknown): ResourcePolicy {
       'hiddenFields',
       'readonlyFields',
     ]);
-    const principalType = choice(g.principalType, ['USER', 'ORG', 'TEAM']);
+    const principalType = choice(g.principalType, ['USER', 'ORG', 'TEAM', 'POSITION']);
     const principalId = text(g.principalId);
     const key = principalType + ':' + principalId;
     if (keys.has(key)) fail('COLLAB_DUPLICATE_PRINCIPAL');
@@ -37,7 +37,7 @@ export function resourcePolicy(raw: unknown): ResourcePolicy {
       principalType,
       principalId,
       role: choice(g.role, ['DENY', 'READER', 'EDITOR', 'MANAGER']),
-      rowScope: choice(g.rowScope ?? 'ALL', ['ALL', 'SELF']),
+      rowScope: choice(g.rowScope ?? (g.role === 'MANAGER' ? 'ALL' : 'SELF'), ['ALL', 'SELF']),
       canCreate: boolean(g.canCreate ?? false),
       hiddenFields: strings(g.hiddenFields ?? []),
       readonlyFields: strings(g.readonlyFields ?? []),

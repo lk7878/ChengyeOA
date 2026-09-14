@@ -1,3 +1,4 @@
+import { BusinessRecord } from '@/features/workspaces/BusinessRecord';
 import { ResourceAccess } from '@/features/workspaces/ResourceAccess';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -79,6 +80,7 @@ export default function WorkspacesPage() {
   const [params, setParams] = useSearchParams();
   const baseId = params.get('base') || '';
   const tableId = params.get('table') || '';
+  const recordId = params.get('record') || '';
   const selectedViewId = params.get('view') || '';
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [canCreate, setCanCreate] = useState(false);
@@ -340,8 +342,9 @@ export default function WorkspacesPage() {
       position: next.field?.position,
       principalType: 'USER',
       role: 'EDITOR',
-      rowScope: 'ALL',
+      rowScope: 'SELF',
       canCreate: false,
+      canManageAccess: false,
       hiddenFields: [],
       readonlyFields: [],
     });
@@ -445,6 +448,7 @@ export default function WorkspacesPage() {
             principalId: values.principalId,
             role: values.role,
             canCreate: values.canCreate,
+            canManageAccess: values.canManageAccess,
             rowScope: values.rowScope,
             hiddenFields: values.hiddenFields,
             readonlyFields: values.readonlyFields,
@@ -493,14 +497,48 @@ export default function WorkspacesPage() {
       values: row ? { ...row.values } : {},
       key: crypto.randomUUID(),
     });
-    if (row)
-      try {
-        const d = await get<RecordDetail>('/tables/' + tableId + '/records/' + row.id);
-        setEditing((old) => (old?.row?.id === row.id ? { ...old, detail: d } : old));
-      } catch (e) {
-        message.error(errorMessage(e));
-      }
+    const next = new URLSearchParams(params);
+    if (row) next.set('record', row.id);
+    else next.delete('record');
+    setParams(next, { replace: true });
   };
+  const closeRecord = () => {
+    setEditing(undefined);
+    const next = new URLSearchParams(params);
+    next.delete('record');
+    setParams(next, { replace: true });
+  };
+  const recordTableId = detail?.table.id;
+  const recordSource = detail?.table.source;
+  const recordSchemaVersion = detail?.table.schemaVersion;
+  useEffect(() => {
+    if (!recordId || recordTableId !== tableId) return;
+    let active = true;
+    get<RecordDetail>('/tables/' + tableId + '/records/' + recordId)
+      .then((d) => {
+        if (!active) return;
+        setEditing((old) =>
+          old?.row?.id === recordId && recordSource === 'CUSTOM'
+            ? { ...old, detail: d }
+            : {
+                row: d.record,
+                values: d.record.values,
+                schemaVersion: recordSchemaVersion || 1,
+                key: crypto.randomUUID(),
+                detail: d,
+              },
+        );
+      })
+      .catch((e) => {
+        if (active) {
+          setEditing(undefined);
+          setQueryError(errorMessage(e));
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [recordId, tableId, recordTableId, recordSource, recordSchemaVersion, revision]);
   const saveRecord = async () => {
     if (!editing || !detail) return;
     setBusy(true);
@@ -517,7 +555,7 @@ export default function WorkspacesPage() {
         input,
         editing.key,
       );
-      setEditing(undefined);
+      closeRecord();
       setSaveState('已保存');
       refresh();
     } catch (e) {
@@ -642,13 +680,13 @@ export default function WorkspacesPage() {
           {base && (
             <Button
               icon={<ShareAltOutlined />}
-              disabled={(baseAccess?.level || 0) < 4}
+              disabled={!baseAccess?.canManageAccess}
               onClick={() => openDialog({ kind: 'share' })}
             >
               分享
             </Button>
           )}
-          {base && baseAccess?.level === 4 && (
+          {base && baseAccess?.canManageAccess && (
             <ResourceAccess
               key={baseId + tableId}
               baseId={baseId}
@@ -776,7 +814,7 @@ export default function WorkspacesPage() {
                     type="info"
                     showIcon
                     title="实时业务表 · 数据来自现有 CRM"
-                    description="视图可以自定义；核心字段只读，状态流转、分配和跟进请在业务详情中办理。"
+                    description="视图可以自定义；核心字段由业务动作控制；展开记录可直接跟进、分配负责人和调整状态。"
                   />
                 )}
                 <div className="workspace-toolbar">
@@ -1134,7 +1172,7 @@ export default function WorkspacesPage() {
       <Drawer
         title={editing?.field ? '编辑 ' + editing.field.name : editing?.row ? '记录详情' : '新增记录'}
         open={!!editing}
-        onClose={() => setEditing(undefined)}
+        onClose={closeRecord}
         size={520}
         destroyOnHidden
         extra={
@@ -1154,6 +1192,29 @@ export default function WorkspacesPage() {
       >
         {editing && (
           <>
+            {editing.row && (
+              <Button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(window.location.href);
+                    message.success('记录链接已复制，打开时仍需授权');
+                  } catch {
+                    message.info('可复制浏览器地址栏中的记录链接');
+                  }
+                }}
+              >
+                复制记录链接
+              </Button>
+            )}
+            {detail?.table.source === 'LEADS' && editing.row && (
+              <BusinessRecord
+                key={tableId + editing.row.id}
+                tableId={tableId}
+                recordId={editing.row.id}
+                revision={revision}
+                onSaved={refresh}
+              />
+            )}
             {detail?.table.source === 'LEADS' && editing.row && (
               <Button onClick={() => navigate('/leads/' + editing.row!.id)}>打开线索业务详情</Button>
             )}
@@ -1289,7 +1350,22 @@ export default function WorkspacesPage() {
           preserve={false}
           onValuesChange={(changed) => {
             if (dialog?.kind !== 'share') return;
-            if ('principalType' in changed) form.setFieldValue('principalId', undefined);
+            if ('principalType' in changed) {
+              form.setFieldValue('principalId', undefined);
+              form.setFieldsValue({
+                role: 'EDITOR',
+                rowScope: 'SELF',
+                canCreate: false,
+                canManageAccess: false,
+                hiddenFields: [],
+                readonlyFields: [],
+              });
+            }
+            if ('role' in changed)
+              form.setFieldsValue({
+                rowScope: changed.role === 'MANAGER' ? 'ALL' : 'SELF',
+                canManageAccess: false,
+              });
             if ('principalId' in changed) {
               const m = members.find(
                 (m) =>
@@ -1300,7 +1376,7 @@ export default function WorkspacesPage() {
                 m || {
                   role: 'EDITOR',
                   canCreate: false,
-                  rowScope: 'ALL',
+                  rowScope: 'SELF',
                   hiddenFields: [],
                   readonlyFields: [],
                 },
@@ -1431,6 +1507,7 @@ export default function WorkspacesPage() {
                     { value: 'USER', label: '成员' },
                     { value: 'ORG', label: '部门' },
                     { value: 'TEAM', label: '团队' },
+                    { value: 'POSITION', label: '岗位（跟随有效任职）' },
                   ]}
                 />
               </Form.Item>
@@ -1442,9 +1519,11 @@ export default function WorkspacesPage() {
                       optionFilterProp="label"
                       options={(form.getFieldValue('principalType') === 'ORG'
                         ? directory.organizations
-                        : form.getFieldValue('principalType') === 'TEAM'
-                          ? directory.teams
-                          : directory.users
+                        : form.getFieldValue('principalType') === 'POSITION'
+                          ? directory.positions || []
+                          : form.getFieldValue('principalType') === 'TEAM'
+                            ? directory.teams
+                            : directory.users
                       ).map((o) => ({ value: o.id, label: o.name }))}
                     />
                   </Form.Item>
@@ -1455,9 +1534,18 @@ export default function WorkspacesPage() {
                   options={[
                     { value: 'READER', label: '仅阅读' },
                     { value: 'EDITOR', label: '可编辑记录' },
-                    { value: 'MANAGER', label: '可管理表格' },
+                    { value: 'MANAGER', label: '负责人：管理表格' },
                   ]}
                 />
+              </Form.Item>
+              <Alert
+                type="info"
+                title="普通成员默认仅看本人录入；岗位负责人默认看授权范围全部数据。岗位调动后权限随有效任职变化。"
+              />
+              <Form.Item name="canManageAccess" valuePropName="checked">
+                <Checkbox disabled={baseAccess?.level !== 4}>
+                  允许配置成员、岗位、应用和表的权限（仅负责人可委派）
+                </Checkbox>
               </Form.Item>
               <Form.Item name="canCreate" valuePropName="checked">
                 <Checkbox>允许新建数据表</Checkbox>
@@ -1466,7 +1554,7 @@ export default function WorkspacesPage() {
                 <Select
                   options={[
                     { value: 'ALL', label: '授权范围内全部记录' },
-                    { value: 'SELF', label: '仅本人记录（线索按负责人）' },
+                    { value: 'SELF', label: '仅本人录入的记录（按创建人）' },
                   ]}
                 />
               </Form.Item>

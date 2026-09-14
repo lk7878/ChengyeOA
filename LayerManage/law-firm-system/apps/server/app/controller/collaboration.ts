@@ -122,6 +122,23 @@ export default class CollaborationController extends Controller {
   async record() {
     this.respond(await this.collaborationService().record(this.ctx.params.tableId, this.ctx.params.recordId));
   }
+  async businessDetail() {
+    this.respond(
+      await this.collaborationService().businessDetail(this.ctx.params.tableId, this.ctx.params.recordId, {
+        page: this.ctx.query.page ? Number(this.ctx.query.page) : 1,
+      }),
+    );
+  }
+  async businessAction() {
+    this.respond(
+      await this.collaborationService().businessAction(
+        this.ctx.params.tableId,
+        this.ctx.params.recordId,
+        this.ctx.request.body,
+        this.key(),
+      ),
+    );
+  }
   async saveRecord() {
     this.respond(
       await this.collaborationService().saveRecord(
@@ -148,6 +165,7 @@ export default class CollaborationController extends Controller {
     let closed = false;
     let running = false;
     let businessRefreshAt = 0;
+    let permissionSnapshot = '';
     const latest = await ctx.prisma.collabEvent.findFirst({
       where: { baseId },
       orderBy: { id: 'desc' },
@@ -177,6 +195,15 @@ export default class CollaborationController extends Controller {
         await current.baseAccess(baseId);
         if (tableId) {
           const selected = await current.tableAccess(tableId);
+          const snapshot = JSON.stringify({
+            access: selected.access,
+            fields: selected.fields.map((f) => f.id),
+            grants: authorization.grants,
+            fieldRules: authorization.fieldRules,
+          });
+          if (permissionSnapshot && snapshot !== permissionSnapshot)
+            emit('invalidate', { baseId, kind: 'access.updated' });
+          permissionSnapshot = snapshot;
           // Existing CRM writes do not all publish collaboration events (e.g. immutable follows).
           // A bounded refresh catches these writes without broadcasting business data.
           if (selected.table.source !== 'CUSTOM' && Date.now() - businessRefreshAt >= 5000) {

@@ -1,3 +1,4 @@
+import { crmTransaction } from './crm-transaction';
 // SPEC-009 Task 5: lead-service —— 线索录入（去重提示）、状态流转、转客户。
 // 事务边界（设计 §6.2）：业务写入与 EventLog 同事务（SPEC-007 outbox append）。
 // 数据范围：SPEC-004 范围解析三分量锚定线索自身列——SELF→assignedTo、TEAM→professionalTeamId、
@@ -189,13 +190,13 @@ export class LeadService {
     });
   }
 
-  async transitionStatus(leadId: string, target: LeadStatus, reason: string): Promise<LeadView> {
+  async transitionStatus(leadId: string, target: LeadStatus, reason: string, transaction?: Prisma.TransactionClient): Promise<LeadView> {
     this.authorization.requireAction(this.authorizationContext, 'lead.update');
     const targetStatus = normalizeAllowedValue(target, LEAD_STATUS);
     const transitionReason = normalizeRequiredText(reason, 1, 500);
     const scopeWhere = await this.buildLeadScopeWhere('lead.update');
 
-    return this.prisma.$transaction(async tx => {
+    return crmTransaction(this.prisma, transaction, async tx => {
       const lead = await tx.lead.findFirst({
         where: { AND: [scopeWhere, { id: leadId, deletedAt: null }] },
       });

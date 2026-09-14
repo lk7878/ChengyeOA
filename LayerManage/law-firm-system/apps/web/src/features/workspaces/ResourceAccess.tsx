@@ -50,7 +50,9 @@ export function ResourceAccess({
       ? directory.users
       : m.principalType === 'ORG'
         ? directory.organizations
-        : directory.teams
+        : m.principalType === 'POSITION'
+          ? directory.positions || []
+          : directory.teams
     ).find((o) => o.id === m.principalId)?.name || m.principalId;
   const update = (member: Member, patch?: Partial<Grant>) => {
     if (!snapshot) return;
@@ -63,7 +65,7 @@ export function ResourceAccess({
         principalType: member.principalType,
         principalId: member.principalId,
         role: 'READER',
-        rowScope: 'ALL',
+        rowScope: patch?.role === 'MANAGER' ? 'ALL' : 'SELF',
         canCreate: false,
         hiddenFields: [],
         readonlyFields: [],

@@ -134,7 +134,7 @@ export class WorkspaceBusinessTable {
     for (const sort of config.sorts ?? []) this.key(source, fieldOf(fields, sort.fieldId), true);
     for (const id of config.groupBy ?? []) this.key(source, fieldOf(fields, id), true);
   }
-  private async scope(access: Access): Promise<Prisma.LeadWhereInput> {
+  async scope(access: Access): Promise<Prisma.LeadWhereInput> {
     this.authorize();
     const root = await this.db.organization.findUnique({ where: { id: access.organizationId } });
     if (!root || root.status !== 'ENABLED') fail('COLLAB_FORBIDDEN', 403);
@@ -195,7 +195,7 @@ export class WorkspaceBusinessTable {
         AND: [
           scope,
           filter,
-          ...(access.selfOnly ? [{ assignedTo: this.actor.employeeId ?? '__none__' }] : []),
+          ...(access.selfOnly ? [{ createdBy: this.actor.userId }] : []),
           ...(recordId ? [{ id: recordId }] : []),
         ],
       };

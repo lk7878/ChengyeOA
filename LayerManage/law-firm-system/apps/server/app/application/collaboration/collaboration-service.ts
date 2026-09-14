@@ -1,3 +1,10 @@
+import { LeadService } from '../crm/lead-service';
+import { LeadFollowService, LEAD_FOLLOW_TYPES } from '../crm/lead-follow-service';
+import { LeadAssignmentService } from '../crm/lead-assignment-service';
+import { buildLeadScopeWhere } from '../crm/lead-scope';
+import { DataScopeService } from '../authorization/data-scope-service';
+import { AuthorizationService } from '../authorization/authorization-service';
+import { LEAD_STATUS, canTransition, LeadStatus, REACTIVATE_ENABLED } from '../../domain/crm/lead-policy';
 import { businessFields, WorkspaceBusinessTable } from '../crm/workspace-business-table';
 import { createHash, randomUUID } from 'node:crypto';
 import { CollabField, CollabRecord, Prisma, PrismaClient } from '@prisma/client';
@@ -33,6 +40,7 @@ const levels: Record<string, number> = { READER: 1, EDITOR: 2, MANAGER: 3, OWNER
 export interface Access {
   level: number;
   canCreate: boolean;
+  canManageAccess: boolean;
   selfOnly: boolean;
   hidden: string[];
   readonly: string[];
@@ -48,6 +56,10 @@ export class CollaborationService {
   private async principals(tx: Tx): Promise<Array<{ principalType: string; principalId: string }>> {
     const result = [{ principalType: 'USER', principalId: this.actor.userId }];
     if (!this.actor.employeeId) return result;
+    const employee = await tx.employee.findFirst({
+      where: { id: this.actor.employeeId, deletedAt: null, status: { not: 'LEAVED' } },
+    });
+    if (!employee) return [];
     const now = new Date();
     const [assignments, teams] = await Promise.all([
       tx.employeeAssignment.findMany({
@@ -56,14 +68,15 @@ export class CollaborationService {
           startedAt: { lte: now },
           OR: [{ endedAt: null }, { endedAt: { gt: now } }],
         },
-        include: { organization: true },
+        include: { organization: true, position: true },
       }),
       tx.professionalTeamMember.findMany({
         where: { employeeId: this.actor.employeeId, endedAt: null, professionalTeam: { status: 'ENABLED' } },
       }),
     ]);
     for (const assignment of assignments) {
-      if (assignment.organization.status !== 'ENABLED') continue;
+      if (assignment.organization.status !== 'ENABLED' || assignment.position.status !== 'ENABLED') continue;
+      result.push({ principalType: 'POSITION', principalId: assignment.positionId });
       const ancestors = await tx.organization.findMany({
         where: {
           status: 'ENABLED',
@@ -90,7 +103,12 @@ export class CollaborationService {
     return {
       level: effective,
       canCreate: effective >= 3 || (effective >= 2 && members.some((m) => m.canCreate)),
-      selfOnly: members.every((m) => m.rowScope === 'SELF'),
+      selfOnly: effective === 4 ? false : members.every((m) => m.rowScope === 'SELF'),
+      canManageAccess:
+        effective === 4 ||
+        (effective >= 3 &&
+          members.some((m) => m.canManageAccess && m.rowScope === 'ALL') &&
+          members.every((m) => !m.hiddenFields.length && !m.readonlyFields.length)),
       hidden: [...new Set(members.flatMap((m) => m.hiddenFields))],
       readonly: [...new Set(members.flatMap((m) => m.readonlyFields))],
       workspaceId,
@@ -152,13 +170,18 @@ export class CollaborationService {
           : new WorkspaceBusinessTable(this.db, this.actor).visibleFields(table.source, visible),
     };
   }
+  private async requireAccessAdmin(workspaceId: string, tx: Tx = this.db) {
+    const access = await this.access(workspaceId, tx);
+    if (!access.canManageAccess) fail('COLLAB_FORBIDDEN', 403);
+    return access;
+  }
   private async resource(kind: 'BASE' | 'TABLE', id: string, tx: Tx) {
     const table = kind === 'TABLE' ? await tx.collabTable.findUnique({ where: { id } }) : null;
     const base = await tx.collabBase.findUnique({
       where: { id: kind === 'BASE' ? id : (table?.baseId ?? '') },
     });
     if (!base || (kind === 'TABLE' && !table)) fail('COLLAB_NOT_FOUND', 404);
-    await this.access(base.workspaceId, tx, 4);
+    await this.requireAccessAdmin(base.workspaceId, tx);
     return { target: table ?? base, base };
   }
   async resourceAccess(kind: 'BASE' | 'TABLE', id: string) {
@@ -308,7 +331,13 @@ export class CollaborationService {
         data: { organizationId, name, ownerId: this.actor.userId },
       });
       await tx.collabMember.create({
-        data: { workspaceId: w.id, principalId: this.actor.userId, role: 'OWNER', canCreate: true },
+        data: {
+          workspaceId: w.id,
+          principalId: this.actor.userId,
+          role: 'OWNER',
+          canCreate: true,
+          rowScope: 'ALL',
+        },
       });
       await tx.operationLog.create({
         data: {
@@ -710,7 +739,7 @@ export class CollaborationService {
     });
   }
   private rowWhere(tableId: string, access: Access): Prisma.CollabRecordWhereInput {
-    return { tableId, archived: false, ...(access.selfOnly ? { ownerId: this.actor.userId } : {}) };
+    return { tableId, archived: false, ...(access.selfOnly ? { createdBy: this.actor.userId } : {}) };
   }
   async attachment(tableId: string, fileId: string, tx: Tx = this.db) {
     const { access, fields, table } = await this.tableAccess(tableId, tx);
@@ -797,7 +826,7 @@ export class CollaborationService {
         page,
         pageSize,
       );
-    const where = Prisma.sql`r."tableId" = ${tableId} AND r.archived = false AND ${access.selfOnly ? Prisma.sql`r."ownerId" = ${this.actor.userId}` : Prisma.sql`TRUE`} AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}`;
+    const where = Prisma.sql`r."tableId" = ${tableId} AND r.archived = false AND ${access.selfOnly ? Prisma.sql`r."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`} AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}`;
     const ordering = (config.sorts ?? []).map(
       (s) =>
         Prisma.sql`${fieldExpression(fieldOf(fields, s.fieldId))} ${s.direction === 'desc' ? Prisma.sql`DESC NULLS LAST` : Prisma.sql`ASC NULLS LAST`}`,
@@ -873,6 +902,214 @@ export class CollaborationService {
       })),
       comments,
     };
+  }
+  private async businessLead(tableId: string, recordId: string, tx: Tx = this.db, level = 1) {
+    const result = await this.tableAccess(tableId, tx, level);
+    if (result.table.source !== 'LEADS') fail('COLLAB_INVALID_SOURCE');
+    const lead = await tx.lead.findFirst({
+      where: {
+        AND: [
+          await new WorkspaceBusinessTable(this.db, this.actor).scope(result.access),
+          { id: recordId },
+          ...(result.access.selfOnly ? [{ createdBy: this.actor.userId }] : []),
+        ],
+      },
+    });
+    if (!lead) fail('COLLAB_NOT_FOUND', 404);
+    return { ...result, lead };
+  }
+  private async businessCapabilities(tableId: string, recordId: string, tx: Tx = this.db) {
+    const result = await this.businessLead(tableId, recordId, tx);
+    const { lead, access, fields } = result;
+    const permitted = async (code: 'lead.update' | 'lead.assign') =>
+      access.level >= 2 &&
+      this.actor.permissionCodes.includes(code) &&
+      !!(await tx.lead.findFirst({
+        where: {
+          AND: [
+            { id: lead.id },
+            await buildLeadScopeWhere(
+              this.db,
+              new AuthorizationService(new DataScopeService(this.db)),
+              this.actor,
+              code,
+            ),
+          ],
+        },
+        select: { id: true },
+      }));
+    const writable = (key: string) =>
+      fields.some((f) => object(f.options).businessKey === key && !access.readonly.includes(f.id));
+    const update = await permitted('lead.update');
+    const assign = await permitted('lead.assign');
+    const stateWritable = writable('status');
+    return {
+      ...result,
+      capabilities: {
+        follow: update && (lead.status !== 'ASSIGNED' || stateWritable),
+        status: update && stateWritable,
+        assign:
+          assign &&
+          writable('assignedTo') &&
+          writable('poolStatus') &&
+          (lead.status !== 'NEW' || stateWritable),
+      },
+    };
+  }
+  async businessDetail(tableId: string, recordId: string, raw: unknown = {}) {
+    const input = exact(raw, ['page']);
+    const page = integer(input.page ?? 1, 1, 100000);
+    const { lead, access, capabilities } = await this.businessCapabilities(tableId, recordId);
+    const followWhere = { leadId: lead.id, ...(access.selfOnly ? { createdBy: this.actor.userId } : {}) };
+    const logWhere = {
+      targetType: 'LEAD',
+      targetId: lead.id,
+      action: {
+        in: [
+          'LEAD_FOLLOW_CREATE',
+          'LEAD_STATUS_TRANSITION',
+          'LEAD_ASSIGN',
+          'LEAD_REASSIGN',
+          'LEAD_POOL_CLAIM',
+          'LEAD_POOL_RECYCLE',
+        ],
+      },
+      ...(access.selfOnly ? { userId: this.actor.userId } : {}),
+    };
+    const [follows, followsTotal, history, historyTotal] = await this.db.$transaction(
+      [
+        this.db.leadFollow.findMany({
+          where: followWhere,
+          orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+          skip: (page - 1) * 20,
+          take: 20,
+        }),
+        this.db.leadFollow.count({ where: followWhere }),
+        this.db.operationLog.findMany({
+          where: logWhere,
+          orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+          skip: (page - 1) * 20,
+          take: 20,
+          select: { id: true, userId: true, action: true, createdAt: true },
+        }),
+        this.db.operationLog.count({ where: logWhere }),
+      ],
+      { isolationLevel: 'RepeatableRead' },
+    );
+    const statuses = LEAD_STATUS.filter(
+      (status) =>
+        status !== 'CONVERTED' &&
+        status !== 'ASSIGNED' &&
+        (REACTIVATE_ENABLED || (status !== 'NURTURE' && lead.status !== 'NURTURE')) &&
+        canTransition(lead.status as LeadStatus, status),
+    );
+    const directory = capabilities.assign ? await this.options(access.workspaceId) : null;
+    return {
+      version: lead.version,
+      capabilities,
+      statuses: capabilities.status ? statuses : [],
+      assignees: directory?.employees ?? [],
+      follows,
+      followsTotal,
+      history,
+      historyTotal,
+      page,
+    };
+  }
+  async businessAction(tableId: string, recordId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, [
+      'action',
+      'version',
+      'type',
+      'content',
+      'nextPlan',
+      'nextTime',
+      'status',
+      'employeeId',
+      'reason',
+    ]);
+    const action = choice(input.action, ['FOLLOW', 'STATUS', 'ASSIGN']);
+    // Reject unrelated fields so a retry fingerprint always describes exactly one command.
+    exact(
+      input,
+      action === 'FOLLOW'
+        ? ['action', 'version', 'type', 'content', 'nextPlan', 'nextTime']
+        : action === 'STATUS'
+          ? ['action', 'version', 'status', 'reason']
+          : ['action', 'version', 'employeeId', 'reason'],
+    );
+    const initial = await this.businessCapabilities(tableId, recordId);
+    const capability = action === 'FOLLOW' ? 'follow' : action === 'STATUS' ? 'status' : 'assign';
+    if (!initial.capabilities[capability]) fail('COLLAB_FORBIDDEN', 403);
+    return this.write(key, ['business.action', tableId, recordId, input], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId);
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM lead WHERE id = ${recordId} FOR UPDATE`);
+      const current = await this.businessCapabilities(tableId, recordId, tx);
+      if (!current.capabilities[capability]) fail('COLLAB_FORBIDDEN', 403);
+      if (current.lead.version !== integer(input.version)) fail('COLLAB_RECORD_CONFLICT', 409);
+      const actor = { actorUserId: this.actor.userId };
+      if (action === 'FOLLOW') {
+        const nextTime = input.nextTime ? new Date(text(input.nextTime)) : undefined;
+        if (nextTime && !Number.isFinite(nextTime.getTime())) fail('COLLAB_INVALID_DATE');
+        await new LeadFollowService(this.db, actor, this.actor).recordFollow(
+          recordId,
+          {
+            type: choice(input.type, LEAD_FOLLOW_TYPES),
+            content: text(input.content, 2000),
+            nextPlan: input.nextPlan ? text(input.nextPlan, 500) : undefined,
+            nextTime,
+          },
+          tx,
+        );
+      } else if (action === 'STATUS') {
+        const status = choice(input.status, LEAD_STATUS);
+        if (status === 'CONVERTED' || status === 'ASSIGNED') fail('COLLAB_USE_BUSINESS_ACTION', 409);
+        await new LeadService(this.db, actor, this.actor).transitionStatus(
+          recordId,
+          status,
+          text(input.reason, 500),
+          tx,
+        );
+      } else {
+        const employeeId = text(input.employeeId);
+        const root = await tx.organization.findUniqueOrThrow({
+          where: { id: current.access.organizationId },
+        });
+        const now = new Date();
+        const target = await tx.employee.findFirst({
+          where: {
+            id: employeeId,
+            status: { not: 'LEAVED' },
+            deletedAt: null,
+            assignments: {
+              some: {
+                startedAt: { lte: now },
+                OR: [{ endedAt: null }, { endedAt: { gt: now } }],
+                position: { status: 'ENABLED' },
+                organization: {
+                  status: 'ENABLED',
+                  OR: [{ id: root.id }, { path: { startsWith: root.path.replace(/\/$/, '') + '/' } }],
+                },
+              },
+            },
+          },
+          select: { id: true },
+        });
+        if (!target) fail('COLLAB_MEMBER_UNAVAILABLE');
+        await new LeadAssignmentService(this.db, actor, this.actor).assign(
+          recordId,
+          target.id,
+          text(input.reason, 500),
+          tx,
+        );
+      }
+      const bases = await tx.collabBase.findMany({ where: { workspaceId: current.access.workspaceId } });
+      for (const base of bases) await this.event(tx, base.id, 'business.changed', recordId);
+      return {
+        id: recordId,
+        version: (await tx.lead.findUniqueOrThrow({ where: { id: recordId } })).version,
+      };
+    });
   }
   private async values(
     tx: Tx,
@@ -1023,7 +1260,7 @@ export class CollaborationService {
       !this.actor.isSystemSuperAdmin &&
       !this.actor.permissionCodes.some((p) => String(p) === 'workspace.create')
     )
-      return { organizations: [], employees: [], teams: [], users: [] };
+      return { organizations: [], employees: [], teams: [], users: [], positions: [] };
     const organizations = await this.db.organization.findMany({
       where: {
         status: 'ENABLED',
@@ -1046,7 +1283,14 @@ export class CollaborationService {
       where: {
         deletedAt: null,
         status: { not: 'LEAVED' },
-        assignments: { some: { endedAt: null, organizationId: { in: organizations.map((o) => o.id) } } },
+        assignments: {
+          some: {
+            startedAt: { lte: new Date() },
+            OR: [{ endedAt: null }, { endedAt: { gt: new Date() } }],
+            position: { status: 'ENABLED' },
+            organizationId: { in: organizations.map((o) => o.id) },
+          },
+        },
       },
       select: { id: true, name: true, user: { select: { id: true, status: true } } },
       take: 1000,
@@ -1056,7 +1300,13 @@ export class CollaborationService {
       select: { id: true, name: true },
       take: 500,
     });
+    const positions = await this.db.position.findMany({
+      where: { organizationId: { in: organizations.map((o) => o.id) }, status: 'ENABLED' },
+      select: { id: true, name: true, organization: { select: { name: true } } },
+      take: 1000,
+    });
     return {
+      positions: positions.map((p) => ({ id: p.id, name: p.organization.name + ' / ' + p.name })),
       organizations,
       employees: employees.map((e) => ({ id: e.id, name: e.name })),
       users: employees
@@ -1066,7 +1316,7 @@ export class CollaborationService {
     };
   }
   async members(workspaceId: string) {
-    await this.access(workspaceId, this.db, 3);
+    await this.requireAccessAdmin(workspaceId);
     return this.db.collabMember.findMany({ where: { workspaceId } });
   }
   async saveMember(workspaceId: string, raw: unknown, key: unknown) {
@@ -1075,18 +1325,27 @@ export class CollaborationService {
       'principalId',
       'role',
       'canCreate',
+      'canManageAccess',
       'rowScope',
       'hiddenFields',
       'readonlyFields',
       'version',
       'remove',
     ]);
-    await this.access(workspaceId, this.db, 4);
+    await this.requireAccessAdmin(workspaceId);
     return this.write(key, ['member.save', workspaceId, input], async (tx) => {
       await this.lock(tx, workspaceId);
-      await this.access(workspaceId, tx, 4);
-      const principalType = choice(input.principalType, ['USER', 'ORG', 'TEAM']);
+      const administrator = await this.requireAccessAdmin(workspaceId, tx);
+      const principalType = choice(input.principalType, ['USER', 'ORG', 'TEAM', 'POSITION']);
       const principalId = text(input.principalId);
+      if (
+        administrator.level < 4 &&
+        ((await this.principals(tx)).some(
+          (p) => p.principalType === principalType && p.principalId === principalId,
+        ) ||
+          input.canManageAccess)
+      )
+        fail('COLLAB_CANNOT_GRANT_ACCESS_ADMIN', 403);
       const workspace = await tx.collabWorkspace.findUnique({ where: { id: workspaceId } });
       if (principalType === 'USER' && principalId === workspace.ownerId) fail('COLLAB_OWNER_IMMUTABLE', 403);
       const options = await this.options(workspaceId);
@@ -1095,7 +1354,9 @@ export class CollaborationService {
           ? options.users
           : principalType === 'ORG'
             ? options.organizations
-            : options.teams;
+            : principalType === 'POSITION'
+              ? options.positions
+              : options.teams;
       if (!input.remove && !candidates.some((c) => c.id === principalId)) fail('COLLAB_MEMBER_UNAVAILABLE');
       const existing = await tx.collabMember.findUnique({
         where: { workspaceId_principalType_principalId: { workspaceId, principalType, principalId } },
@@ -1117,10 +1378,18 @@ export class CollaborationService {
         const data = {
           role,
           canCreate: boolean(input.canCreate ?? false),
-          rowScope: choice(input.rowScope ?? 'ALL', ['ALL', 'SELF']),
+          rowScope: choice(input.rowScope ?? (role === 'MANAGER' ? 'ALL' : 'SELF'), ['ALL', 'SELF']),
+          canManageAccess: boolean(input.canManageAccess ?? false),
           hiddenFields,
           readonlyFields,
         };
+        if (
+          data.canManageAccess &&
+          (role !== 'MANAGER' || data.rowScope !== 'ALL' || hiddenFields.length || readonlyFields.length)
+        )
+          fail('COLLAB_INVALID_ACCESS_ADMIN');
+        if (existing?.canManageAccess && administrator.level < 4)
+          fail('COLLAB_CANNOT_GRANT_ACCESS_ADMIN', 403);
         if (existing)
           await tx.collabMember.update({
             where: { id: existing.id },

@@ -291,8 +291,8 @@ test.beforeEach(async () => {
   workspaceId = (await admin.createWorkspace({ name: '经营协作', organizationId: org.id }, randomUUID())).id;
   await db.collabMember.createMany({
     data: [
-      { workspaceId, principalId: users[1].id, role: 'EDITOR', canCreate: true },
-      { workspaceId, principalId: users[2].id, role: 'READER' },
+      { workspaceId, principalId: users[1].id, role: 'EDITOR', rowScope: 'ALL', canCreate: true },
+      { workspaceId, principalId: users[2].id, role: 'READER', rowScope: 'ALL' },
     ],
   });
   baseId = (await admin.createBase(workspaceId, { name: '团队台账' }, randomUUID())).id;

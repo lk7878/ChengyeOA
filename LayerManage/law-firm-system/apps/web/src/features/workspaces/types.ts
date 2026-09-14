@@ -57,6 +57,7 @@ export interface Workspace extends Option {
 export interface Access {
   level: number;
   canCreate: boolean;
+  canManageAccess?: boolean;
   selfOnly: boolean;
   hidden: string[];
   readonly: string[];
@@ -104,6 +105,7 @@ export interface Directory {
   organizations: Option[];
   employees: Option[];
   teams: Option[];
+  positions?: Option[];
   users: Option[];
 }
 export interface Member {
@@ -112,6 +114,7 @@ export interface Member {
   principalId: string;
   role: string;
   canCreate: boolean;
+  canManageAccess?: boolean;
   rowScope: string;
   hiddenFields: string[];
   readonlyFields: string[];
