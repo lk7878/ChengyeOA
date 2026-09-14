@@ -116,10 +116,13 @@ test('authenticated HTTP writes persist; invalid input and unauthorized access a
 test('SSE delivers real changes and revokes an already connected member without broadcasting values', async () => {
   const abort = new AbortController();
   const frames: string[] = [];
-  const response = await fetch(origin + '/api/v1/collaboration/events?baseId=' + baseId, {
-    headers: { Authorization: 'Bearer ' + editorToken },
-    signal: abort.signal,
-  });
+  const response = await fetch(
+    origin + '/api/v1/collaboration/events?baseId=' + baseId + '&tableId=' + tableId,
+    {
+      headers: { Authorization: 'Bearer ' + editorToken },
+      signal: abort.signal,
+    },
+  );
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type') || '', /event-stream/);
   const reader = response.body!.getReader();
@@ -153,8 +156,21 @@ test('SSE delivers real changes and revokes an already connected member without 
     await until('event: invalidate');
     await until('event: presence');
     assert.ok(!frames.join('').includes('private-payload-never-broadcast'));
-    await db.collabMember.deleteMany({ where: { workspaceId, principalId: editor } });
+    await app
+      .httpRequest()
+      .post('/api/v1/tables/' + tableId + '/access')
+      .set('Authorization', 'Bearer ' + token)
+      .set('Idempotency-Key', randomUUID())
+      .send({ version: 1, policy: { restricted: true, grants: [] } })
+      .expect(200);
     await until('event: revoked');
+    assert.equal(await db.collabMember.count({ where: { workspaceId, principalId: editor } }), 1);
+    const listed = await app
+      .httpRequest()
+      .get('/api/v1/bases/' + baseId + '/tables')
+      .set('Authorization', 'Bearer ' + editorToken)
+      .expect(200);
+    assert.equal(listed.body.data.tables.length, 0);
   } finally {
     abort.abort();
     await pumping;
@@ -262,6 +278,62 @@ test(
       await p2.getByRole('button', { name: '自定义备注', exact: true }).waitFor();
       await p2.reload();
       await p2.getByRole('button', { name: '自定义备注', exact: true }).waitFor();
+      await p2.goto(address);
+      await p2.getByRole('button', { name: '标题：另一成员已更新', exact: true }).waitFor();
+      await p1.getByRole('button', { name: '表权限', exact: true }).click();
+      await p1.getByRole('checkbox', { name: '启用独立授权名单', exact: true }).check();
+      await p1.getByRole('button', { name: '保存权限', exact: true }).click();
+      await p2
+        .getByRole('button', { name: '标题：另一成员已更新', exact: true })
+        .waitFor({ state: 'hidden', timeout: 10000 });
+      await p1.getByRole('button', { name: '表权限', exact: true }).click();
+      await p1.getByRole('checkbox', { name: '启用独立授权名单', exact: true }).uncheck();
+      await p1.getByRole('button', { name: '保存权限', exact: true }).click();
+      await p2.reload();
+      await p2.getByRole('button', { name: '标题：另一成员已更新', exact: true }).waitFor();
+      const readPermission = await db.permission.findUniqueOrThrow({ where: { code: 'lead.read' } });
+      const allScope = await db.dataScope.create({ data: { name: '业务表演练范围', scopeType: 'ALL' } });
+      await db.role.create({
+        data: {
+          name: '业务表演练角色',
+          code: 'COLLAB_BROWSER_CRM',
+          type: 'BUSINESS',
+          permissions: { create: { permissionId: readPermission.id } },
+          dataScopes: { create: { resource: 'lead', dataScopeId: allScope.id } },
+          userRoles: { create: { userId: owner } },
+        },
+      });
+      const org = await db.collabWorkspace.findUniqueOrThrow({ where: { id: workspaceId } });
+      const lead = await db.lead.create({
+        data: {
+          name: '真实业务来源演练',
+          leadNo: 'COLLAB-E2E',
+          phone: '13800001234',
+          phoneHash: randomUUID(),
+          createdBy: owner,
+          branchId: org.organizationId,
+        },
+      });
+      await p1.getByRole('button', { name: '新建数据表', exact: true }).click();
+      await p1.getByRole('textbox', { name: '名称', exact: true }).fill('真实线索表');
+      await p1.getByRole('combobox', { name: '创建方式', exact: true }).click();
+      await p1.getByText('现有 CRM · 线索表（负责人配置）', { exact: true }).click();
+      await p1
+        .locator('.ant-modal')
+        .getByRole('button', { name: /确\s*定/ })
+        .click();
+      await p1.getByText('真实业务来源演练', { exact: true }).waitFor();
+      assert.equal(await p1.getByRole('button', { name: '添加记录', exact: true }).isDisabled(), true);
+      await p1.getByText('138****1234', { exact: true }).waitFor();
+      await db.lead.update({
+        where: { id: lead.id },
+        data: { name: '原业务修改自动出现', version: { increment: 1 } },
+      });
+      await p1.getByText('原业务修改自动出现', { exact: true }).waitFor({ timeout: 12000 });
+      await p1.getByRole('button', { name: '展开第1条记录', exact: true }).first().click();
+      await p1.getByRole('button', { name: '打开线索业务详情', exact: true }).waitFor();
+      await p1.goto(address);
+      await p1.getByRole('button', { name: '添加记录', exact: true }).waitFor();
       const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence');
       await mkdir(evidence, { recursive: true });
       for (const width of [1440, 1024, 390]) {

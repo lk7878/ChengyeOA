@@ -25,6 +25,252 @@ const context = (userId: string, superAdmin = false): AuthorizationContext => ({
   evaluatedAt: new Date(),
 });
 const hasCode = (code: string) => (e: unknown) => e instanceof Error && e.message === code;
+
+const resourceGrant = (principalId: string, role = 'READER', extra = {}) => ({
+  principalType: 'USER',
+  principalId,
+  role,
+  rowScope: 'ALL',
+  canCreate: false,
+  hiddenFields: [],
+  readonlyFields: [],
+  ...extra,
+});
+
+test('resource ACL filters directories, intersects parent roles, and protects snapshot updates', async () => {
+  const policy = { restricted: true, grants: [resourceGrant(editor.actor.userId)] };
+  const key = randomUUID();
+  const payload = { version: 1, policy };
+  const first = await admin.saveResourceAccess('TABLE', tableId, payload, key);
+  assert.deepEqual(await admin.saveResourceAccess('TABLE', tableId, payload, key), first);
+  assert.equal((await reader.listTables(baseId)).tables.length, 0);
+  await assert.rejects(reader.record(tableId, randomUUID()), hasCode('COLLAB_FORBIDDEN'));
+  assert.equal((await editor.describe(tableId)).access.level, 1);
+  await assert.rejects(
+    editor.saveResourceAccess('TABLE', tableId, { version: 2, policy }, randomUUID()),
+    hasCode('COLLAB_FORBIDDEN'),
+  );
+  await assert.rejects(
+    admin.saveResourceAccess('TABLE', tableId, payload, randomUUID()),
+    hasCode('COLLAB_ACCESS_CONFLICT'),
+  );
+  await admin.saveResourceAccess(
+    'BASE',
+    baseId,
+    { version: 1, policy: { restricted: false, grants: [resourceGrant(editor.actor.userId, 'DENY')] } },
+    randomUUID(),
+  );
+  assert.equal((await editor.listWorkspaces()).workspaces[0].bases.length, 0);
+  await assert.rejects(editor.describe(tableId), hasCode('COLLAB_FORBIDDEN'));
+  assert.equal((await admin.describe(tableId)).access.level, 4);
+  assert.equal(await db.operationLog.count({ where: { action: 'access.updated' } }), 2);
+});
+
+test('table ACL restrictions apply to rows, fields, files and shared relation targets', async () => {
+  const other = (await admin.createTable(baseId, { name: 'other' }, randomUUID())).id;
+  const fileField = await admin.saveField(
+    tableId,
+    undefined,
+    { name: '附件', type: 'FILE', version: 1 },
+    randomUUID(),
+  );
+  const file = await db.collabAttachment.create({
+    data: {
+      tableId,
+      ownerId: editor.actor.userId,
+      name: 'fixture.pdf',
+      mimeType: 'application/pdf',
+      size: 3,
+      storageKey: randomUUID(),
+    },
+  });
+  await editor.saveRecord(
+    tableId,
+    undefined,
+    { values: { [titleId]: 'mine', [fileField.id]: [file.id] }, schemaVersion: 2 },
+    randomUUID(),
+  );
+  await admin.saveRecord(
+    tableId,
+    undefined,
+    { values: { [titleId]: 'other' }, schemaVersion: 2 },
+    randomUUID(),
+  );
+  await admin.saveResourceAccess(
+    'TABLE',
+    tableId,
+    {
+      version: 1,
+      policy: {
+        restricted: true,
+        grants: [
+          resourceGrant(editor.actor.userId, 'EDITOR', {
+            rowScope: 'SELF',
+            hiddenFields: [fileField.id],
+            readonlyFields: [titleId],
+          }),
+        ],
+      },
+    },
+    randomUUID(),
+  );
+  const rows = await editor.query(tableId, {});
+  assert.equal(rows.total, 1);
+  assert.equal(rows.records[0].values[fileField.id], undefined);
+  await assert.rejects(editor.attachment(tableId, file.id), hasCode('COLLAB_FORBIDDEN'));
+  await assert.rejects(
+    editor.saveRecord(
+      tableId,
+      rows.records[0].id,
+      { values: { [titleId]: 'changed' }, schemaVersion: 2, version: 1 },
+      randomUUID(),
+    ),
+    hasCode('COLLAB_READONLY_FIELD'),
+  );
+  // Other tables remain reachable after one table is restricted.
+  assert.equal((await reader.listTables(baseId)).tables[0].id, other);
+});
+
+test('live CRM tables intersect business scope, organization and resource permissions before paging/counting', async () => {
+  const org = await db.collabWorkspace.findUniqueOrThrow({ where: { id: workspaceId } });
+  const employee = await db.employee.create({
+    data: {
+      employeeNo: 'collab-crm',
+      name: '负责人',
+      status: 'FORMAL',
+      phone: '13800009999',
+      type: 'SALES',
+      entryDate: new Date(),
+    },
+  });
+  const crm = (userId: string, scopeIds = ['ALL']): AuthorizationContext => ({
+    ...context(userId),
+    employeeId: employee.id,
+    permissionCodes: ['lead.read'],
+    grants: [
+      {
+        sourceType: 'ROLE',
+        sourceId: 'test',
+        sourceRoleId: 'crm',
+        permissionCode: 'lead.read',
+        resource: 'lead',
+        scopeIds,
+        validUntil: null,
+      },
+    ],
+  });
+  const ownerCrm = new CollaborationService(db, crm(admin.actor.userId));
+  const selfScope = await db.dataScope.create({ data: { name: '本人', scopeType: 'SELF' } });
+  const editorCrm = new CollaborationService(db, crm(editor.actor.userId, [selfScope.id]));
+  const leads = (await ownerCrm.createTable(baseId, { name: '业务线索', source: 'LEADS' }, randomUUID())).id;
+  const follows = (await ownerCrm.createTable(baseId, { name: '业务跟进', source: 'FOLLOWS' }, randomUUID()))
+    .id;
+  const seed = async (name: string, branchId: string | null, assignedTo: string | null) =>
+    db.lead.create({
+      data: {
+        leadNo: randomUUID(),
+        name,
+        phone: '13800001234',
+        phoneHash: randomUUID(),
+        wechat: 'private-wechat',
+        branchId,
+        assignedTo,
+        createdBy: admin.actor.userId,
+      },
+    });
+  const mine = await seed('我的线索', org.organizationId, employee.id);
+  const other = await seed('他人线索', org.organizationId, null);
+  const outside = await seed('外部组织线索', randomUUID(), employee.id);
+  await db.leadFollow.createMany({
+    data: [mine, other, outside].map((l) => ({
+      leadId: l.id,
+      type: 'PHONE',
+      content: l.name + '跟进',
+      createdBy: editor.actor.userId,
+    })),
+  });
+  await assert.rejects(editor.query(leads, {}), hasCode('COLLAB_FORBIDDEN'));
+  assert.equal(
+    (await editor.listTables(baseId)).tables.some((t) => t.id === leads),
+    false,
+  );
+  const detail = await editorCrm.describe(leads);
+  const field = (key: string) =>
+    detail.fields.find((f) => (f.options as { businessKey: string }).businessKey === key)!;
+  assert.equal(field('phone').queryable, false);
+  assert.equal(field('name').queryable, true);
+  const q = await editorCrm.query(leads, {
+    pageSize: 1,
+    config: {
+      groupBy: [field('status').id],
+      sorts: [{ fieldId: field('intentionLevel').id, direction: 'desc' }],
+    },
+  });
+  assert.equal(q.total, 1);
+  assert.equal(q.records[0].id, mine.id);
+  assert.equal(q.groups[0].count, 1);
+  assert.equal(q.records[0].values[field('phone').id], '138****1234');
+  assert.equal((await ownerCrm.query(leads, {})).total, 2);
+  assert.equal((await editorCrm.query(follows, {})).total, 1);
+  const filtered = await ownerCrm.query(leads, {
+    config: {
+      filter: {
+        join: 'and',
+        children: [
+          { fieldId: field('name').id, operator: 'contains', value: '我的' },
+          { fieldId: field('intentionLevel').id, operator: 'gte', value: 3 },
+        ],
+      },
+    },
+  });
+  assert.equal(filtered.total, 1);
+  assert.equal(
+    (
+      await editorCrm.query(leads, {
+        config: { filter: { fieldId: field('assignedTo').id, operator: 'eq', value: '$currentUser' } },
+      })
+    ).total,
+    1,
+  );
+  const followDetail = await editorCrm.describe(follows);
+  const followType = followDetail.fields.find(
+    (f) => (f.options as { businessKey: string }).businessKey === 'type',
+  )!;
+  assert.equal((await editorCrm.query(follows, { config: { groupBy: [followType.id] } })).groups[0].count, 1);
+  await assert.rejects(
+    editorCrm.createTable(baseId, { name: '尝试绕过表限制', source: 'LEADS' }, randomUUID()),
+    hasCode('COLLAB_FORBIDDEN'),
+  );
+
+  await assert.rejects(editorCrm.record(leads, other.id), hasCode('COLLAB_NOT_FOUND'));
+  await assert.rejects(
+    editorCrm.query(leads, {
+      config: { filter: { fieldId: field('phone').id, operator: 'eq', value: '13800001234' } },
+    }),
+    hasCode('COLLAB_SENSITIVE_QUERY_UNSUPPORTED'),
+  );
+  await assert.rejects(
+    ownerCrm.saveField(leads, undefined, { name: 'fake', type: 'TEXT', version: 1 }, randomUUID()),
+    hasCode('COLLAB_USE_BUSINESS_ACTION'),
+  );
+  await assert.rejects(
+    editorCrm.saveRecord(
+      leads,
+      mine.id,
+      { values: { [field('status').id]: 'CONVERTED' }, schemaVersion: 1, version: 1 },
+      randomUUID(),
+    ),
+    hasCode('COLLAB_USE_BUSINESS_ACTION'),
+  );
+  await assert.rejects(
+    ownerCrm.mutateTable(leads, { duplicate: true, name: 'copy', version: 1 }, randomUUID()),
+    hasCode('COLLAB_USE_BUSINESS_ACTION'),
+  );
+  // Writes from the original business entry are visible without any synchronization copy.
+  await db.lead.update({ where: { id: mine.id }, data: { name: '业务入口更新', version: { increment: 1 } } });
+  assert.equal((await editorCrm.record(leads, mine.id)).record.values[field('name').id], '业务入口更新');
+  assert.equal(await db.collabRecord.count({ where: { tableId: { in: [leads, follows] } } }), 0);
+});
 test.before(() => {
   db = createTestPrisma();
 });

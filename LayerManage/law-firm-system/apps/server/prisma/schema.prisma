@@ -1619,20 +1619,24 @@ model CollabMember {
 }
 
 model CollabBase {
-  id          String           @id @default(uuid())
-  workspaceId String
-  name        String
-  version     Int              @default(1)
-  workspace   CollabWorkspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  tables      CollabTable[]
-  events      CollabEvent[]
-  presence    CollabPresence[]
+  accessPolicy  Json?
+  accessVersion Int              @default(1)
+  id            String           @id @default(uuid())
+  workspaceId   String
+  name          String
+  version       Int              @default(1)
+  workspace     CollabWorkspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tables        CollabTable[]
+  events        CollabEvent[]
+  presence      CollabPresence[]
 
   @@unique([workspaceId, name])
   @@map("collab_base")
 }
 
 model CollabTable {
+  accessPolicy  Json?
+  accessVersion Int            @default(1)
   id            String         @id @default(uuid())
   baseId        String
   name          String

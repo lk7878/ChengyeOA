@@ -1,3 +1,4 @@
+import { businessFields, WorkspaceBusinessTable } from '../crm/workspace-business-table';
 import { createHash, randomUUID } from 'node:crypto';
 import { CollabField, CollabRecord, Prisma, PrismaClient } from '@prisma/client';
 import { PrismaEventOutboxWriter } from '../events/event-outbox-writer';
@@ -24,6 +25,8 @@ import {
   VIEW_TYPES,
   ViewConfig,
 } from './collaboration-policy';
+
+import { accessInput, resourcePolicy } from './resource-access';
 
 type Tx = Prisma.TransactionClient;
 const levels: Record<string, number> = { READER: 1, EDITOR: 2, MANAGER: 3, OWNER: 4 };
@@ -55,7 +58,9 @@ export class CollaborationService {
         },
         include: { organization: true },
       }),
-      tx.professionalTeamMember.findMany({ where: { employeeId: this.actor.employeeId, endedAt: null } }),
+      tx.professionalTeamMember.findMany({
+        where: { employeeId: this.actor.employeeId, endedAt: null, professionalTeam: { status: 'ENABLED' } },
+      }),
     ]);
     for (const assignment of assignments) {
       if (assignment.organization.status !== 'ENABLED') continue;
@@ -84,7 +89,7 @@ export class CollaborationService {
     if (effective < level) fail('COLLAB_FORBIDDEN', 403);
     return {
       level: effective,
-      canCreate: effective >= 3 || members.some((m) => m.canCreate),
+      canCreate: effective >= 3 || (effective >= 2 && members.some((m) => m.canCreate)),
       selfOnly: members.every((m) => m.rowScope === 'SELF'),
       hidden: [...new Set(members.flatMap((m) => m.hiddenFields))],
       readonly: [...new Set(members.flatMap((m) => m.readonlyFields))],
@@ -92,10 +97,32 @@ export class CollaborationService {
       organizationId: w.organizationId,
     };
   }
+  private async restrict(parent: Access, raw: unknown, tx: Tx): Promise<Access> {
+    if (parent.level === 4) return parent;
+    const policy = resourcePolicy(raw);
+    const principals = await this.principals(tx);
+    const grants = policy.grants.filter((g) =>
+      principals.some((p) => p.principalType === g.principalType && p.principalId === g.principalId),
+    );
+    if (grants.some((g) => g.role === 'DENY') || (policy.restricted && !grants.length))
+      fail('COLLAB_FORBIDDEN', 403);
+    if (!grants.length) return parent;
+    return {
+      ...parent,
+      level: Math.min(parent.level, Math.max(...grants.map((g) => levels[g.role] ?? 0))),
+      canCreate:
+        parent.canCreate && grants.some((g) => levels[g.role] >= 3 || (levels[g.role] >= 2 && g.canCreate)),
+      selfOnly: parent.selfOnly || grants.every((g) => g.rowScope === 'SELF'),
+      hidden: [...new Set([...parent.hidden, ...grants.flatMap((g) => g.hiddenFields)])],
+      readonly: [...new Set([...parent.readonly, ...grants.flatMap((g) => g.readonlyFields)])],
+    };
+  }
   async baseAccess(baseId: string, tx: Tx = this.db, level = 1) {
     const base = await tx.collabBase.findUnique({ where: { id: baseId } });
     if (!base) fail('COLLAB_NOT_FOUND', 404);
-    return { base, access: await this.access(base.workspaceId, tx, level) };
+    const access = await this.restrict(await this.access(base.workspaceId, tx), base.accessPolicy, tx);
+    if (access.level < level) fail('COLLAB_FORBIDDEN', 403);
+    return { base, access };
   }
   async tableAccess(tableId: string, tx: Tx = this.db, level = 1, allowArchived = false) {
     const table = await tx.collabTable.findUnique({
@@ -103,15 +130,79 @@ export class CollaborationService {
       include: { fields: { orderBy: { position: 'asc' } } },
     });
     if (!table || (table.archived && !allowArchived)) fail('COLLAB_NOT_FOUND', 404);
-    const { access } = await this.baseAccess(table.baseId, tx);
-    if (table.createdBy === this.actor.userId && access.level >= 2 && access.canCreate)
-      access.level = Math.max(access.level, 3);
+    const parent = await this.baseAccess(table.baseId, tx);
+    // Creator management is an inherited capability, never an override of a child ACL.
+    if (
+      !table.accessPolicy &&
+      !parent.base.accessPolicy &&
+      table.createdBy === this.actor.userId &&
+      parent.access.level >= 2 &&
+      parent.access.canCreate
+    )
+      parent.access.level = Math.max(parent.access.level, 3);
+    const access = await this.restrict(parent.access, table.accessPolicy, tx);
     if (access.level < level) fail('COLLAB_FORBIDDEN', 403);
+    const visible = table.fields.filter((f) => !f.archived && !access.hidden.includes(f.id));
     return {
       table,
       access,
-      fields: table.fields.filter((f) => !f.archived && !access.hidden.includes(f.id)),
+      fields:
+        table.source === 'CUSTOM'
+          ? visible
+          : new WorkspaceBusinessTable(this.db, this.actor).visibleFields(table.source, visible),
     };
+  }
+  private async resource(kind: 'BASE' | 'TABLE', id: string, tx: Tx) {
+    const table = kind === 'TABLE' ? await tx.collabTable.findUnique({ where: { id } }) : null;
+    const base = await tx.collabBase.findUnique({
+      where: { id: kind === 'BASE' ? id : (table?.baseId ?? '') },
+    });
+    if (!base || (kind === 'TABLE' && !table)) fail('COLLAB_NOT_FOUND', 404);
+    await this.access(base.workspaceId, tx, 4);
+    return { target: table ?? base, base };
+  }
+  async resourceAccess(kind: 'BASE' | 'TABLE', id: string) {
+    const { target, base } = await this.resource(kind, id, this.db);
+    return {
+      version: target.accessVersion,
+      policy: resourcePolicy(target.accessPolicy),
+      members: await this.db.collabMember.findMany({ where: { workspaceId: base.workspaceId } }),
+    };
+  }
+  async saveResourceAccess(kind: 'BASE' | 'TABLE', id: string, raw: unknown, key: unknown) {
+    const input = accessInput(raw);
+    const initial = await this.resource(kind, id, this.db);
+    return this.write(key, ['resource.access', kind, id, input], async (tx) => {
+      await this.lock(tx, initial.base.workspaceId);
+      const { target, base } = await this.resource(kind, id, tx);
+      if (target.accessVersion !== input.version) fail('COLLAB_ACCESS_CONFLICT', 409);
+      const members = await tx.collabMember.findMany({ where: { workspaceId: base.workspaceId } });
+      for (const grant of input.policy.grants) {
+        if (
+          !members.some(
+            (m) =>
+              m.principalType === grant.principalType &&
+              m.principalId === grant.principalId &&
+              m.role !== 'OWNER',
+          )
+        )
+          fail('COLLAB_MEMBER_UNAVAILABLE');
+        const ids = [...new Set([...grant.hiddenFields, ...grant.readonlyFields])];
+        const count = await tx.collabField.count({
+          where: { id: { in: ids }, ...(kind === 'TABLE' ? { tableId: id } : { table: { baseId: id } }) },
+        });
+        if (count !== ids.length) fail('COLLAB_INVALID_ACCESS');
+      }
+      const data = {
+        accessPolicy:
+          !input.policy.restricted && input.policy.grants.length === 0 ? Prisma.DbNull : json(input.policy),
+        accessVersion: { increment: 1 },
+      };
+      if (kind === 'BASE') await tx.collabBase.update({ where: { id }, data });
+      else await tx.collabTable.update({ where: { id }, data });
+      await this.event(tx, base.id, 'access.updated', id);
+      return { id, version: target.accessVersion + 1 };
+    });
   }
   private async lock(tx: Tx, workspaceId: string) {
     await tx.$queryRaw(Prisma.sql`SELECT id FROM collab_workspace WHERE id = ${workspaceId} FOR UPDATE`);
@@ -175,6 +266,18 @@ export class CollaborationService {
       include: { bases: { orderBy: { name: 'asc' } } },
       orderBy: { name: 'asc' },
     });
+    for (const workspace of workspaces) {
+      const permitted = [] as typeof workspace.bases;
+      for (const base of workspace.bases) {
+        try {
+          await this.baseAccess(base.id);
+          permitted.push({ ...base, accessPolicy: null as null });
+        } catch (error) {
+          if ((error as { code?: string }).code !== 'COLLAB_FORBIDDEN') throw error;
+        }
+      }
+      workspace.bases = permitted;
+    }
     return {
       workspaces,
       canCreate:
@@ -236,55 +339,75 @@ export class CollaborationService {
       orderBy: [{ position: 'asc' }, { id: 'asc' }],
       select: { id: true, name: true, source: true, position: true, schemaVersion: true, archived: true },
     });
-    return { base, access, tables: tables.filter((t) => access.level >= 3 || !t.archived) };
+    const visible = [] as typeof tables;
+    for (const table of tables) {
+      try {
+        const result = await this.tableAccess(table.id, this.db, 1, true);
+        if (!table.archived || result.access.level >= 3) visible.push(table);
+      } catch (error) {
+        if (!['COLLAB_FORBIDDEN', 'COLLAB_NOT_FOUND'].includes((error as { code?: string }).code ?? ''))
+          throw error;
+      }
+    }
+    return { base: { ...base, accessPolicy: null as null }, access, tables: visible };
   }
   async createTable(baseId: string, raw: unknown, key: unknown) {
-    const input = exact(raw, ['name', 'template']);
+    const input = exact(raw, ['name', 'template', 'source']);
+    const source = choice(input.source ?? 'CUSTOM', ['CUSTOM', 'LEADS', 'FOLLOWS']);
+    if (source !== 'CUSTOM') new WorkspaceBusinessTable(this.db, this.actor).authorize();
     const initial = await this.baseAccess(baseId);
-    if (!initial.access.canCreate) fail('COLLAB_FORBIDDEN', 403);
+    if (!initial.access.canCreate || (source !== 'CUSTOM' && initial.access.level < 4))
+      fail('COLLAB_FORBIDDEN', 403);
     return this.write(key, ['table.create', baseId, input], async (tx) => {
       await this.lock(tx, initial.access.workspaceId);
       const { access } = await this.baseAccess(baseId, tx);
-      if (!access.canCreate) fail('COLLAB_FORBIDDEN', 403);
+      if (!access.canCreate || (source !== 'CUSTOM' && access.level < 4)) fail('COLLAB_FORBIDDEN', 403);
       const table = await tx.collabTable.create({
         data: {
           baseId,
+          source,
           name: text(input.name),
           createdBy: this.actor.userId,
           position: await tx.collabTable.count({ where: { baseId } }),
         },
       });
-      const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS']);
-      await tx.collabField.create({
-        data: { tableId: table.id, name: '标题', type: 'TEXT', required: true },
-      });
-      if (template !== 'BLANK') {
-        await tx.collabField.create({
-          data: { tableId: table.id, name: '负责人', type: 'USER', position: 1 },
+      if (source !== 'CUSTOM') {
+        await tx.collabField.createMany({
+          data: businessFields(source).map((f) => ({ ...f, tableId: table.id })),
         });
+      } else {
+        const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS']);
         await tx.collabField.create({
-          data: {
-            tableId: table.id,
-            name: template === 'TASKS' ? '截止日期' : '下次联系',
-            type: 'DATE',
-            position: 2,
-          },
+          data: { tableId: table.id, name: '标题', type: 'TEXT', required: true },
         });
-        await tx.collabField.create({
-          data: {
-            tableId: table.id,
-            name: '状态',
-            type: 'SINGLE_SELECT',
-            position: 3,
-            options: {
-              choices: [
-                { id: 'todo', name: '待处理' },
-                { id: 'doing', name: '进行中' },
-                { id: 'done', name: '已完成' },
-              ],
+        if (template !== 'BLANK') {
+          await tx.collabField.create({
+            data: { tableId: table.id, name: '负责人', type: 'USER', position: 1 },
+          });
+          await tx.collabField.create({
+            data: {
+              tableId: table.id,
+              name: template === 'TASKS' ? '截止日期' : '下次联系',
+              type: 'DATE',
+              position: 2,
             },
-          },
-        });
+          });
+          await tx.collabField.create({
+            data: {
+              tableId: table.id,
+              name: '状态',
+              type: 'SINGLE_SELECT',
+              position: 3,
+              options: {
+                choices: [
+                  { id: 'todo', name: '待处理' },
+                  { id: 'doing', name: '进行中' },
+                  { id: 'done', name: '已完成' },
+                ],
+              },
+            },
+          });
+        }
       }
       const view = await tx.collabView.create({
         data: { tableId: table.id, name: '总表', ownerId: this.actor.userId, shared: true, isDefault: true },
@@ -303,11 +426,17 @@ export class CollaborationService {
       where: { userId_tableId: { userId: this.actor.userId, tableId } },
     });
     return {
-      table: { ...table, fields: [] as CollabField[] },
+      table: { ...table, accessPolicy: null as null, fields: [] as CollabField[] },
       access,
       fields: fields.map((f) => ({
         ...f,
-        writable: access.level >= 2 && !access.readonly.includes(f.id) && !isSystemField(f),
+        queryable:
+          table.source === 'CUSTOM' || !['phone', 'wechat'].includes(String(object(f.options).businessKey)),
+        writable:
+          table.source === 'CUSTOM' &&
+          access.level >= 2 &&
+          !access.readonly.includes(f.id) &&
+          !isSystemField(f),
       })),
       views: views.map((v) => ({ ...v, config: this.sanitizeConfig(v.config, fields) })),
       preferredViewId: preference?.viewId,
@@ -347,6 +476,9 @@ export class CollaborationService {
       const { table } = await this.tableAccess(tableId, tx, 3, true);
       if (table.schemaVersion !== integer(input.version)) fail('COLLAB_SCHEMA_CONFLICT', 409);
       if (input.duplicate) {
+        if (table.source !== 'CUSTOM') fail('COLLAB_USE_BUSINESS_ACTION', 409);
+        const visible = await this.tableAccess(tableId, tx);
+        if (visible.access.hidden.length) fail('COLLAB_FORBIDDEN', 403);
         const copy = await tx.collabTable.create({
           data: {
             baseId: table.baseId,
@@ -423,6 +555,7 @@ export class CollaborationService {
       'version',
     ]);
     const initial = await this.tableAccess(tableId, this.db, 3);
+    if (initial.table.source !== 'CUSTOM') fail('COLLAB_USE_BUSINESS_ACTION', 409);
     return this.write(key, ['field.save', tableId, fieldId, input], async (tx) => {
       await this.lock(tx, initial.access.workspaceId);
       const { table, fields } = await this.tableAccess(tableId, tx, 3);
@@ -474,6 +607,7 @@ export class CollaborationService {
         fail('COLLAB_FIELD_MIGRATION_REQUIRED', 409);
       if (type === 'RELATION') {
         const target = await this.tableAccess(text(options.targetTableId), tx);
+        if (target.table.source !== 'CUSTOM') fail('COLLAB_CORE_RELATION_UNSUPPORTED');
         if (target.access.workspaceId !== initial.access.workspaceId) fail('COLLAB_CROSS_WORKSPACE_RELATION');
       }
       if (input.archived === true && previous) {
@@ -559,6 +693,8 @@ export class CollaborationService {
         return { id: viewId };
       }
       const config = validateView(input.config ?? previous?.config ?? {}, fields);
+      if (table.source !== 'CUSTOM')
+        new WorkspaceBusinessTable(this.db, this.actor).validateConfig(table.source, fields, config);
       const data = {
         name: text(input.name ?? previous?.name),
         type: choice(input.type ?? previous?.type ?? 'GRID', VIEW_TYPES),
@@ -652,6 +788,15 @@ export class CollaborationService {
     const config = validateView(input.config ?? view?.config ?? {}, fields);
     const page = integer(input.page ?? 1, 1, 100000);
     const pageSize = integer(input.pageSize ?? 50, 1, 200);
+    if (table.source !== 'CUSTOM')
+      return new WorkspaceBusinessTable(this.db, this.actor).query(
+        table,
+        access,
+        fields,
+        config,
+        page,
+        pageSize,
+      );
     const where = Prisma.sql`r."tableId" = ${tableId} AND r.archived = false AND ${access.selfOnly ? Prisma.sql`r."ownerId" = ${this.actor.userId}` : Prisma.sql`TRUE`} AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}`;
     const ordering = (config.sorts ?? []).map(
       (s) =>
@@ -688,7 +833,20 @@ export class CollaborationService {
     };
   }
   async record(tableId: string, recordId: string) {
-    const { access, fields } = await this.tableAccess(tableId);
+    const { table, access, fields } = await this.tableAccess(tableId);
+    if (table.source !== 'CUSTOM') {
+      const result = await new WorkspaceBusinessTable(this.db, this.actor).query(
+        table,
+        access,
+        fields,
+        {},
+        1,
+        1,
+        recordId,
+      );
+      if (!result.records.length) fail('COLLAB_NOT_FOUND', 404);
+      return { record: result.records[0], revisions: [] as never[], comments: [] as never[] };
+    }
     const record = await this.db.collabRecord.findFirst({
       where: { ...this.rowWhere(tableId, access), id: recordId },
     });

@@ -20,6 +20,9 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  COLLAB_SENSITIVE_QUERY_UNSUPPORTED: '敏感字段不支持筛选、排序或分组，请选择其他字段。',
+  COLLAB_ACCESS_CONFLICT: '权限已被修改，请关闭后重新打开权限窗口，再保存。',
+  COLLAB_USE_BUSINESS_ACTION: '请通过业务入口办理，核心业务字段不支持直接修改。',
   COLLAB_RECORD_CONFLICT: '这条记录已被其他成员修改。请核对最新值后再提交。',
   COLLAB_SCHEMA_CONFLICT: '表字段已经变化，请重新打开编辑器。',
   COLLAB_VIEW_CONFLICT: '视图已被修改，请重新加载后保存。',
@@ -72,9 +75,12 @@ export async function streamEvents(
   baseId: string,
   signal: AbortSignal,
   onEvent: (kind: string, data: unknown) => void,
+  tableId?: string,
 ): Promise<void> {
   const response = await authenticatedFetch(
-    '/api/v1/collaboration/events?baseId=' + encodeURIComponent(baseId),
+    '/api/v1/collaboration/events?baseId=' +
+      encodeURIComponent(baseId) +
+      (tableId ? '&tableId=' + encodeURIComponent(tableId) : ''),
     signal,
   );
   if (response.status === 403 || response.status === 404) {

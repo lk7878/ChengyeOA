@@ -1,3 +1,4 @@
+import { ResourceAccess } from '@/features/workspaces/ResourceAccess';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
@@ -237,35 +238,40 @@ export default function WorkspacesPage() {
       if (abort.signal.aborted) return;
       setConnection('连接中');
       try {
-        await streamEvents(baseId, abort.signal, (kind, payload) => {
-          if (abort.signal.aborted) return;
-          if (kind === 'ready') {
-            setConnection('实时同步已连接');
-            refresh();
-          }
-          if (kind === 'invalidate') {
-            if ((payload as { kind?: string }).kind === 'access.updated') {
+        await streamEvents(
+          baseId,
+          abort.signal,
+          (kind, payload) => {
+            if (abort.signal.aborted) return;
+            if (kind === 'ready') {
+              setConnection('实时同步已连接');
+              refresh();
+            }
+            if (kind === 'invalidate') {
+              if ((payload as { kind?: string }).kind === 'access.updated') {
+                setDetail(undefined);
+                setResult(undefined);
+                setEditing(undefined);
+                setSettings(null);
+                setDialog(undefined);
+              }
+              refresh();
+            }
+            if (kind === 'presence') setOnline((payload as { users: { id: string; name: string }[] }).users);
+            if (kind === 'revoked') {
               setDetail(undefined);
               setResult(undefined);
+              setTables([]);
               setEditing(undefined);
-              setSettings(null);
-              setDialog(undefined);
+              setDirectory(emptyDirectory);
+              setOnline([]);
+              setQueryError('访问权限或会话已失效，请重新打开工作区。');
+              setConnection('连接已失效');
+              abort.abort();
             }
-            refresh();
-          }
-          if (kind === 'presence') setOnline((payload as { users: { id: string; name: string }[] }).users);
-          if (kind === 'revoked') {
-            setDetail(undefined);
-            setResult(undefined);
-            setTables([]);
-            setEditing(undefined);
-            setDirectory(emptyDirectory);
-            setOnline([]);
-            setQueryError('访问权限或会话已失效，请重新打开工作区。');
-            setConnection('连接已失效');
-            abort.abort();
-          }
-        });
+          },
+          tableId,
+        );
       } catch {
         /* Network state is shown below; pending edits remain in the component. */
       }
@@ -281,7 +287,7 @@ export default function WorkspacesPage() {
       abort.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [baseId, refresh]);
+  }, [baseId, tableId, refresh]);
   const go = (next: Record<string, string>) => {
     if (configDirty || editing || inlineDirty) {
       Modal.confirm({
@@ -366,7 +372,12 @@ export default function WorkspacesPage() {
       if (dialog?.kind === 'table') {
         const r = await post<{ id: string; viewId: string }>(
           '/bases/' + baseId + '/tables',
-          { name: values.name, template: values.template },
+          {
+            name: values.name,
+            ...(values.template === 'LEADS' || values.template === 'FOLLOWS'
+              ? { source: values.template }
+              : { template: values.template }),
+          },
           key,
         );
         go({ base: baseId, table: r.id, view: r.viewId });
@@ -637,6 +648,16 @@ export default function WorkspacesPage() {
               分享
             </Button>
           )}
+          {base && baseAccess?.level === 4 && (
+            <ResourceAccess
+              key={baseId + tableId}
+              baseId={baseId}
+              tableId={tableId || undefined}
+              directory={directory}
+              fields={detail?.fields || []}
+              onSaved={refresh}
+            />
+          )}
           <Button onClick={() => navigate('/notifications')}>通知</Button>
           <Button onClick={() => navigate('/knowledge')}>知识库</Button>
         </Space>
@@ -750,11 +771,19 @@ export default function WorkspacesPage() {
                     <Button aria-label="视图菜单" icon={<DownOutlined />} />
                   </Dropdown>
                 </div>
+                {detail.table.source !== 'CUSTOM' && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    title="实时业务表 · 数据来自现有 CRM"
+                    description="视图可以自定义；核心字段只读，状态流转、分配和跟进请在业务详情中办理。"
+                  />
+                )}
                 <div className="workspace-toolbar">
                   <Button
                     type="primary"
                     icon={<PlusOutlined aria-hidden="true" />}
-                    disabled={detail.access.level < 2}
+                    disabled={detail.access.level < 2 || detail.table.source !== 'CUSTOM'}
                     onClick={() => {
                       void openRecord();
                     }}
@@ -866,7 +895,11 @@ export default function WorkspacesPage() {
                             title: (
                               <button
                                 className="workspace-field-heading"
-                                onClick={() => canManage && openDialog({ kind: 'field', field: f })}
+                                onClick={() =>
+                                  canManage &&
+                                  detail.table.source === 'CUSTOM' &&
+                                  openDialog({ kind: 'field', field: f })
+                                }
                               >
                                 {f.name}
                                 {f.required ? ' *' : ''}
@@ -907,7 +940,7 @@ export default function WorkspacesPage() {
                               <Button
                                 type="text"
                                 aria-label="新增字段"
-                                disabled={!canManage}
+                                disabled={!canManage || detail?.table.source !== 'CUSTOM'}
                                 onClick={() => openDialog({ kind: 'field' })}
                               >
                                 ＋
@@ -943,7 +976,11 @@ export default function WorkspacesPage() {
       >
         {settings === 'fields' ? (
           <Space orientation="vertical" style={{ width: '100%' }}>
-            <Button type="primary" disabled={!canManage} onClick={() => openDialog({ kind: 'field' })}>
+            <Button
+              type="primary"
+              disabled={!canManage || detail?.table.source !== 'CUSTOM'}
+              onClick={() => openDialog({ kind: 'field' })}
+            >
               ＋新增字段
             </Button>
             {fields.map((f) => (
@@ -953,12 +990,15 @@ export default function WorkspacesPage() {
                   <small>{fieldNames[f.type] || f.type}</small>
                 </span>
                 <Space>
-                  <Button disabled={!canManage} onClick={() => openDialog({ kind: 'field', field: f })}>
+                  <Button
+                    disabled={!canManage || detail?.table.source !== 'CUSTOM'}
+                    onClick={() => openDialog({ kind: 'field', field: f })}
+                  >
                     配置
                   </Button>
                   <Button
                     danger
-                    disabled={!canManage || f.position === 0}
+                    disabled={!canManage || f.position === 0 || detail?.table.source !== 'CUSTOM'}
                     onClick={() =>
                       Modal.confirm({
                         okText: '确定',
@@ -987,7 +1027,7 @@ export default function WorkspacesPage() {
           </Space>
         ) : settings === 'filter' ? (
           <FilterEditor
-            fields={fields}
+            fields={fields.filter((f) => f.queryable !== false)}
             value={config.filter}
             onChange={(filter) => updateConfig({ filter })}
           />
@@ -1006,7 +1046,9 @@ export default function WorkspacesPage() {
                 mode="multiple"
                 maxCount={3}
                 value={config.groupBy || []}
-                options={fields.map((f) => ({ value: f.id, label: f.name }))}
+                options={fields
+                  .filter((f) => f.queryable !== false)
+                  .map((f) => ({ value: f.id, label: f.name }))}
                 onChange={(groupBy) => updateConfig({ groupBy })}
               />
             </Form.Item>
@@ -1016,7 +1058,9 @@ export default function WorkspacesPage() {
                   <Select
                     style={{ width: 180 }}
                     value={sort.fieldId}
-                    options={fields.map((f) => ({ value: f.id, label: f.name }))}
+                    options={fields
+                      .filter((f) => f.queryable !== false)
+                      .map((f) => ({ value: f.id, label: f.name }))}
                     onChange={(fieldId) =>
                       updateConfig({ sorts: config.sorts?.map((s, n) => (i === n ? { ...s, fieldId } : s)) })
                     }
@@ -1039,10 +1083,13 @@ export default function WorkspacesPage() {
                 </Space>
               ))}
               <Button
-                disabled={!fields.length || (config.sorts?.length || 0) >= 5}
+                disabled={!fields.some((f) => f.queryable !== false) || (config.sorts?.length || 0) >= 5}
                 onClick={() =>
                   updateConfig({
-                    sorts: [...(config.sorts || []), { fieldId: fields[0].id, direction: 'asc' }],
+                    sorts: [
+                      ...(config.sorts || []),
+                      { fieldId: fields.find((f) => f.queryable !== false)!.id, direction: 'asc' },
+                    ],
                   })
                 }
               >
@@ -1094,7 +1141,9 @@ export default function WorkspacesPage() {
           <Button
             type="primary"
             loading={busy}
-            disabled={(detail?.access.level || 0) < 2 || !!editing?.remote}
+            disabled={
+              (detail?.access.level || 0) < 2 || detail?.table.source !== 'CUSTOM' || !!editing?.remote
+            }
             onClick={() => {
               void saveRecord();
             }}
@@ -1105,6 +1154,23 @@ export default function WorkspacesPage() {
       >
         {editing && (
           <>
+            {detail?.table.source === 'LEADS' && editing.row && (
+              <Button onClick={() => navigate('/leads/' + editing.row!.id)}>打开线索业务详情</Button>
+            )}
+            {detail?.table.source === 'FOLLOWS' &&
+              editing.row &&
+              fields.some((f) => f.options.businessKey === 'leadId') && (
+                <Button
+                  onClick={() =>
+                    navigate(
+                      '/leads/' +
+                        String(editing.values[fields.find((f) => f.options.businessKey === 'leadId')!.id]),
+                    )
+                  }
+                >
+                  打开关联线索
+                </Button>
+              )}
             <Form layout="vertical">
               {(editing.field ? [editing.field] : fields).map((f) => (
                 <Form.Item key={f.id} label={f.name} required={f.required}>
@@ -1261,6 +1327,16 @@ export default function WorkspacesPage() {
             <Form.Item name="template" label="创建方式">
               <Select
                 options={[
+                  {
+                    value: 'LEADS',
+                    label: '现有 CRM · 线索表（负责人配置）',
+                    disabled: baseAccess?.level !== 4,
+                  },
+                  {
+                    value: 'FOLLOWS',
+                    label: '现有 CRM · 跟进表（负责人配置）',
+                    disabled: baseAccess?.level !== 4,
+                  },
                   { value: 'BLANK', label: '空白数据表' },
                   { value: 'TASKS', label: '任务管理模板' },
                   { value: 'CONTACTS', label: '客户跟进模板' },
@@ -1345,7 +1421,10 @@ export default function WorkspacesPage() {
           )}
           {dialog?.kind === 'share' && (
             <>
-              <Alert type="info" title="分享范围为当前工作区及其应用，链接本身不会授予权限。" />
+              <Alert
+                type="info"
+                title="工作区成员是访问前提；应用和表的独立权限还会进一步限制。链接本身不会授予权限。"
+              />
               <Form.Item name="principalType" label="成员类型">
                 <Select
                   options={[
@@ -1386,8 +1465,8 @@ export default function WorkspacesPage() {
               <Form.Item name="rowScope" label="记录范围">
                 <Select
                   options={[
-                    { value: 'ALL', label: '授权工作区全部记录' },
-                    { value: 'SELF', label: '仅本人创建的记录' },
+                    { value: 'ALL', label: '授权范围内全部记录' },
+                    { value: 'SELF', label: '仅本人记录（线索按负责人）' },
                   ]}
                 />
               </Form.Item>

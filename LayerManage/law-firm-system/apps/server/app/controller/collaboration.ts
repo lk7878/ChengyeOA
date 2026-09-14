@@ -54,6 +54,24 @@ export default class CollaborationController extends Controller {
       ),
     );
   }
+  async resourceAccess() {
+    this.respond(
+      await this.collaborationService().resourceAccess(
+        this.ctx.params.tableId ? 'TABLE' : 'BASE',
+        this.ctx.params.tableId || this.ctx.params.baseId,
+      ),
+    );
+  }
+  async saveResourceAccess() {
+    this.respond(
+      await this.collaborationService().saveResourceAccess(
+        this.ctx.params.tableId ? 'TABLE' : 'BASE',
+        this.ctx.params.tableId || this.ctx.params.baseId,
+        this.ctx.request.body,
+        this.key(),
+      ),
+    );
+  }
   async tables() {
     this.respond(await this.collaborationService().listTables(this.ctx.params.baseId));
   }
@@ -120,12 +138,16 @@ export default class CollaborationController extends Controller {
     const baseId = text(ctx.query.baseId);
     const service = this.collaborationService();
     await service.baseAccess(baseId);
+    const tableId = ctx.query.tableId ? text(ctx.query.tableId) : undefined;
+    if (tableId && (await service.tableAccess(tableId)).table.baseId !== baseId)
+      fail('COLLAB_NOT_FOUND', 404);
     const connectionId = randomUUID();
     const userId = ctx.state.user.userId as string;
     const token = ctx.get('authorization').slice(7);
     const stream = new PassThrough();
     let closed = false;
     let running = false;
+    let businessRefreshAt = 0;
     const latest = await ctx.prisma.collabEvent.findFirst({
       where: { baseId },
       orderBy: { id: 'desc' },
@@ -153,6 +175,15 @@ export default class CollaborationController extends Controller {
         const authorization = await createAuthorizationContextLoader(ctx).load(userId);
         const current = new CollaborationService(ctx.prisma, authorization);
         await current.baseAccess(baseId);
+        if (tableId) {
+          const selected = await current.tableAccess(tableId);
+          // Existing CRM writes do not all publish collaboration events (e.g. immutable follows).
+          // A bounded refresh catches these writes without broadcasting business data.
+          if (selected.table.source !== 'CUSTOM' && Date.now() - businessRefreshAt >= 5000) {
+            businessRefreshAt = Date.now();
+            emit('invalidate', { baseId, kind: 'business.refresh' });
+          }
+        }
         await ctx.prisma.collabPresence.upsert({
           where: { baseId_connectionId: { baseId, connectionId } },
           create: { baseId, connectionId, userId },

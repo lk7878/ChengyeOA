@@ -6,10 +6,11 @@ export interface Field extends Option {
   type: string;
   required: boolean;
   writable: boolean;
+  queryable?: boolean;
   position: number;
   archived: boolean;
   defaultValue: unknown;
-  options: { choices?: Option[]; targetTableId?: string; helpText?: string };
+  options: { choices?: Option[]; targetTableId?: string; helpText?: string; businessKey?: string };
 }
 export interface Filter {
   join?: 'and' | 'or';

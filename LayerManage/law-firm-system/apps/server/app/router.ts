@@ -13,6 +13,10 @@ export default (app: Application) => {
   router.post('/api/v1/workspaces/:workspaceId/bases', controller.collaboration.createBase);
   router.get('/api/v1/workspaces/:workspaceId/members', controller.collaboration.members);
   router.post('/api/v1/workspaces/:workspaceId/members', controller.collaboration.saveMember);
+  router.get('/api/v1/bases/:baseId/access', controller.collaboration.resourceAccess);
+  router.post('/api/v1/bases/:baseId/access', controller.collaboration.saveResourceAccess);
+  router.get('/api/v1/tables/:tableId/access', controller.collaboration.resourceAccess);
+  router.post('/api/v1/tables/:tableId/access', controller.collaboration.saveResourceAccess);
   router.get('/api/v1/bases/:baseId/tables', controller.collaboration.tables);
   router.post('/api/v1/bases/:baseId/tables', controller.collaboration.createTable);
   router.get('/api/v1/tables/:tableId', controller.collaboration.table);
