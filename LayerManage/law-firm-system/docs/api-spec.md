@@ -799,7 +799,7 @@ Content-Type: application/json
   "name": "王五",
   "phone": "13700137000",
   "wechat": "wangwu_wechat",
-  "idCard": "11010119900101xxxx",
+  "customerType": "INDIVIDUAL",
   "email": "wangwu@email.com",
   "address": "北京市朝阳区xxx",
   "status": "POTENTIAL",
@@ -811,37 +811,38 @@ Content-Type: application/json
 ### 10.4 更新客户
 
 ```http
-PUT /api/v1/customers/:id
+PATCH /api/v1/customers/:id
 Authorization: Bearer <token>
 ```
+
+需要 `customer.update` 和客户数据范围。字段同新建客户，仅修改传入字段；普通可选字段传空字符串可清空，电话传入时必须有效且非空，未传入则保持。可附带正整数 `version`，不匹配返回 `VERSION_CONFLICT`（409）；客户管理界面始终提交读取时的版本，旧调用可省略。电话/微信脱敏值不能作为新值提交。
 
 ### 10.5 删除客户
 
 ```http
 DELETE /api/v1/customers/:id
 Authorization: Bearer <token>
+Content-Type: application/json
+
+{ "version": 1 }
 ```
 
-### 10.6 客户合同列表
+依据 SPEC-CUSTOMER-CRUD-20260914，需要 `customer.delete` 和客户数据范围。事务内校验版本、关联记录，软删客户及联系人，写入审计；成功返回 `{ "code": 200, "message": "success", "data": null }`。
+
+有关联来源/转介绍线索、案件、合同、收款、谈案、案情分析、开票或退款申请返回 `CUSTOMER_IN_USE`（409）；版本过期返回 `VERSION_CONFLICT`（409）；不存在/已删除/范围外客户沿用 `LEAD_NOT_FOUND`（404）。删除后列表及详情查询不再返回客户，历史档案保留。
+
+### 10.6 客户联系人与转介绍
 
 ```http
-GET /api/v1/customers/:id/contracts
-Authorization: Bearer <token>
+GET /api/v1/customers/:id/contacts
+POST /api/v1/customers/:id/contacts
+PATCH /api/v1/customers/:id/contacts/:contactId
+DELETE /api/v1/customers/:id/contacts/:contactId
+GET /api/v1/customers/:id/referrals
+POST /api/v1/customers/:id/referrals
 ```
 
-### 10.7 客户案件列表
-
-```http
-GET /api/v1/customers/:id/cases
-Authorization: Bearer <token>
-```
-
-### 10.8 客户收款列表
-
-```http
-GET /api/v1/customers/:id/payments
-Authorization: Bearer <token>
-```
+联系人读取使用 `customer.read`，写入使用 `customer.update`；转介绍列表/创建使用 `lead.read`/`lead.create`。历史原型 `/customers/:id/contracts`、`/cases`、`/payments` 子资源未开放，请使用对应业务模块查询。
 
 ---
 

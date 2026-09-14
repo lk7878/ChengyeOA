@@ -160,6 +160,7 @@ export const PERMISSION_CODES = [
   'customer.read',
   'customer.create',
   'customer.update',
+  'customer.delete',
 
   'menu.contract',
   'menu.payment',

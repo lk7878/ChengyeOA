@@ -14,6 +14,8 @@ last_updated: 2026-09-14
 
 新建客户电话必填标识与校验已按 [SPEC-CASE-CRUD-20260914](../../superpowers/specs/2026-09-14-case-management-crud.md) 完成。
 
+客户列表查询、修改与受业务关联保护的软删除，遵循 [SPEC-CUSTOMER-CRUD-20260914](../../superpowers/specs/2026-09-14-customer-management-crud.md)，[实施验证](../../superpowers/plans/2026-09-14-customer-management-crud.md)。
+
 ## 1. 需求概述
 
 客户主数据模块负责律所全部客户的唯一客户主档维护，覆盖客户档案、联系人、转介绍关系、重复客户去重合并与客户全景视图，为线索、合同、收款、案件、满意度等下游业务模块提供统一的客户数据源。

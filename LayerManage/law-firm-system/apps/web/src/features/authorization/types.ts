@@ -28,7 +28,7 @@ export const PERMISSION_CODES = [
   'menu.lead_crm', 'menu.customer', 'lead.read', 'lead.create', 'lead.update',
   'lead.assign', 'lead.recycle', 'lead.convert', 'lead.pool.claim',
   'appointment.read', 'appointment.create', 'appointment.visit',
-  'customer.read', 'customer.create', 'customer.update',
+  'customer.read', 'customer.create', 'customer.update', 'customer.delete',
   // SPEC-010 Task 11 追加（镜像服务端 authorization-types.ts:153-166，仅追加不改动既有行；
   // contract.void/payment.confirm 已于 SPEC-004 预置（上方 SPECIAL 段），不重复追加——合计 +16 码）
   'menu.contract', 'menu.payment', 'negotiation.read', 'negotiation.create',

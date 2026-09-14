@@ -70,6 +70,27 @@ function bearer(token: string): { Authorization: string } {
   return { Authorization: `Bearer ${token}` };
 }
 
+test('customer DELETE validates authentication, permission, body, version and removes the customer from queries', async () => {
+  const session = await createCrmSession({ permissions: ['customer.create', 'customer.read', 'customer.update', 'customer.delete'] });
+  const denied = await createCrmSession({ permissions: ['customer.read', 'customer.update'] });
+  const created = await app.httpRequest().post('/api/v1/customers').set(bearer(session.token))
+    .send({ name: '可删除客户', phone: '13800001234' }).expect(200);
+  const id = created.body.data.id;
+  const endpoint = `/api/v1/customers/${id}`;
+  await app.httpRequest().delete(endpoint).send({ version: 1 }).expect(401);
+  await app.httpRequest().delete(endpoint).set(bearer(denied.token)).send({ version: 1 }).expect(403);
+  await app.httpRequest().delete(endpoint).set(bearer(session.token)).send({}).expect(400);
+  await app.httpRequest().delete(endpoint).set(bearer(session.token)).send({ version: 1, unexpected: true }).expect(400);
+  await app.httpRequest().patch(endpoint).set(bearer(session.token)).send({ version: 1, name: '已更新客户' }).expect(200);
+  const staleEdit = await app.httpRequest().patch(endpoint).set(bearer(session.token)).send({ version: 1, name: '旧版本' }).expect(409);
+  assert.equal(staleEdit.body.message, 'VERSION_CONFLICT');
+  await app.httpRequest().delete(endpoint).set(bearer(session.token)).send({ version: 1 }).expect(409);
+  await app.httpRequest().delete(endpoint).set(bearer(session.token)).send({ version: 2 }).expect(200);
+  await app.httpRequest().get(endpoint).set(bearer(session.token)).expect(404);
+  const list = await app.httpRequest().get('/api/v1/customers').set(bearer(session.token)).expect(200);
+  assert.equal(list.body.data.total, 0);
+});
+
 async function createEmployeeFixture() {
   const orgId = randomUUID();
   await prisma.organization.create({
@@ -424,7 +445,7 @@ test('does not expose prototype routes removed by the rebuild', async () => {
     .expect(200);
   const customerId = created.body.data.id;
 
-  // 原型路由（PUT/DELETE/跨模块只读子资源）已整体移除。
+  // PUT/跨模块只读子资源保留移除；删除已作为独立权限动作重新开放。
   await app.httpRequest()
     .put(`/api/v1/customers/${customerId}`)
     .set(bearer(session.token))
@@ -433,7 +454,7 @@ test('does not expose prototype routes removed by the rebuild', async () => {
   await app.httpRequest()
     .delete(`/api/v1/customers/${customerId}`)
     .set(bearer(session.token))
-    .expect(404);
+    .expect(403);
   await app.httpRequest()
     .get(`/api/v1/customers/${customerId}/contracts`)
     .set(bearer(session.token))

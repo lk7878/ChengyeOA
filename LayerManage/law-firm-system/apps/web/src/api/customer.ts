@@ -1,5 +1,5 @@
 // SPEC-009 Task 11: 客户 API 客户端，逐条对齐 Task 10 冻结路由表 + C1 增量（用户裁决）。
-// PATCH 非 PUT；无 DELETE /customers/:id；GET /customers/:id/contacts 经 C1 增量开放；
+// PATCH 非 PUT；SPEC-CUSTOMER-CRUD-20260914 增加版本校验删除；
 // 原型跨模块子资源 /contracts /cases /payments 已移除，不再出现。
 import request from './request';
 import type { ApiResponse } from '@/types';
@@ -28,6 +28,8 @@ export const customerApi = {
   /** PATCH /api/v1/customers/:id */
   update: (id: string, data: UpdateCustomerInput) =>
     request.patch<ApiResponse<CustomerView>>(`/v1/customers/${id}`, data),
+  remove: (id: string, version: number) =>
+    request.delete<ApiResponse<null>>(`/v1/customers/${id}`, { data: { version } }),
   /** GET /api/v1/customers/:id/contacts（C1 增量：customer.read，排除软删） */
   listContacts: (id: string) =>
     request.get<ApiResponse<ContactView[]>>(`/v1/customers/${id}/contacts`),

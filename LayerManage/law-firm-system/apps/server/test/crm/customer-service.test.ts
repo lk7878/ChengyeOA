@@ -38,6 +38,7 @@ const CUSTOMER_PERMISSIONS: PermissionCode[] = [
   'customer.read',
   'customer.create',
   'customer.update',
+  'customer.delete',
 ];
 
 test.before(() => {
@@ -108,6 +109,67 @@ function customerInput(overrides: Partial<CreateCustomerInput> = {}): CreateCust
     ...overrides,
   };
 }
+
+test('client versions prevent stale edits and deletion; optional values can be cleared', async () => {
+  const { userId, actor } = await createActor();
+  const service = serviceFor(userId, actor);
+  const customer = await service.createCustomer(customerInput({ email: 'a@example.test', remark: '待清空' }));
+  const updated = await service.updateCustomer(customer.id, { version: customer.version, email: '', remark: '', phone: '13900001234' });
+  assert.equal(updated.email, null);
+  assert.equal(updated.remark, null);
+  const row = await prisma.customer.findUniqueOrThrow({ where: { id: customer.id } });
+  assert.equal(row.phoneHash, hashPhone('13900001234'));
+  await assert.rejects(service.updateCustomer(customer.id, { version: customer.version, name: '旧版本' }), hasCode('VERSION_CONFLICT'));
+  await assert.rejects(service.deleteCustomer(customer.id, { version: customer.version }), hasCode('VERSION_CONFLICT'));
+  await assert.rejects(service.deleteCustomer(customer.id, { version: 0 }), hasCode('VALIDATION_FAILED'));
+});
+
+test('deletion soft deletes only the selected customer and contacts, retains a safe audit, and removes read access', async () => {
+  const { userId, actor } = await createActor();
+  const service = serviceFor(userId, actor);
+  const customer = await service.createCustomer(customerInput());
+  const other = await service.createCustomer(customerInput({ name: '保留客户' }));
+  const contact = await service.addContact(customer.id, contactInput());
+  await service.deleteCustomer(customer.id, { version: customer.version });
+  assert.ok((await prisma.customer.findUniqueOrThrow({ where: { id: customer.id } })).deletedAt);
+  assert.ok((await prisma.contact.findUniqueOrThrow({ where: { id: contact.id } })).deletedAt);
+  assert.equal((await service.listCustomers({})).list[0].id, other.id);
+  assert.equal((await service.listCustomers({ keyword: customer.customerNo })).total, 0);
+  await assert.rejects(service.getCustomer(customer.id), hasCode(LEAD_NOT_FOUND));
+  await assert.rejects(service.updateCustomer(customer.id, { name: '恢复' }), hasCode(LEAD_NOT_FOUND));
+  await assert.rejects(service.listContacts(customer.id), hasCode(LEAD_NOT_FOUND));
+  await assert.rejects(service.deleteCustomer(customer.id, { version: customer.version }), hasCode(LEAD_NOT_FOUND));
+  const audit = await prisma.operationLog.findFirstOrThrow({ where: { action: 'CUSTOMER_DELETE', targetId: customer.id } });
+  assert.deepEqual(JSON.parse(audit.newValues!), { customerNo: customer.customerNo, version: customer.version });
+});
+
+test('deletion enforces action permission and scope, and audit failures roll back both customer and contacts', async () => {
+  const { userId, actor } = await createActor();
+  const customer = await seedCustomer();
+  const service = serviceFor(userId, actor);
+  const contact = await service.addContact(customer.id, contactInput());
+  await assert.rejects(serviceFor(userId, actor, { permissionCodes: ['customer.read'] }).deleteCustomer(customer.id, { version: 1 }), hasCode('PERMISSION_DENIED'));
+  await assert.rejects(serviceFor(userId, actor, { scopeIds: [] }).deleteCustomer(customer.id, { version: 1 }), hasCode(LEAD_NOT_FOUND));
+  const failing = prisma.$extends({ query: { operationLog: { create: async () => { throw new Error('injected audit failure'); } } } });
+  await assert.rejects(new CustomerService(failing as typeof prisma, actor, crmContext(userId)).deleteCustomer(customer.id, { version: 1 }), /injected audit failure/);
+  assert.equal((await prisma.customer.findUniqueOrThrow({ where: { id: customer.id } })).deletedAt, null);
+  assert.equal((await prisma.contact.findUniqueOrThrow({ where: { id: contact.id } })).deletedAt, null);
+  assert.equal(await prisma.operationLog.count({ where: { action: 'CUSTOMER_DELETE' } }), 0);
+});
+
+test('deletion protects case, contract and lead associations, including historical contracts', async () => {
+  const { userId, actor } = await createActor();
+  const service = serviceFor(userId, actor);
+  for (const relation of ['case', 'contract', 'referral', 'source'] as const) {
+    const source = relation === 'source' ? await seedLead() : null;
+    const customer = await seedCustomer({ sourceLeadId: source?.id });
+    if (relation === 'case') await prisma.case.create({ data: { caseNo: randomUUID(), title: '关联案件', customerId: customer.id, caseType: '民事' } });
+    if (relation === 'contract') await prisma.contract.create({ data: { contractNo: randomUUID(), contractType: 'FORMAL', title: '历史合同', customerId: customer.id, createdBy: userId, deletedAt: new Date() } });
+    if (relation === 'referral') await seedLead({ referralCustomerId: customer.id });
+    await assert.rejects(service.deleteCustomer(customer.id, { version: 1 }), hasCode('CUSTOMER_IN_USE'));
+    assert.equal((await prisma.customer.findUniqueOrThrow({ where: { id: customer.id } })).deletedAt, null);
+  }
+});
 
 function contactInput(overrides: Partial<AddContactInput> = {}): AddContactInput {
   return {

@@ -2,6 +2,7 @@ import { message } from 'antd';
 
 const reported = new WeakSet<object>();
 const messages: Record<string, string> = {
+  CUSTOMER_IN_USE: '客户已关联线索、案件、合同或其他业务记录，无法删除，请先核查关联记录',
   CASE_IN_USE: '案件已关联财务合同或成本记录，无法删除，请先核查关联记录',
   CASE_STATE_INVALID: '案件已结案或归档，不能修改或删除',
   CASE_NOT_FOUND: '案件不存在或已删除，请刷新列表',

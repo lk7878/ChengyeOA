@@ -107,3 +107,7 @@ last_updated: 2026-09-14
 ## SPEC-LAWYER-SKILLS-20260914
 
 [四类法律能力规格](../superpowers/specs/2026-09-14-lawyer-skills.md)与[实施记录](../superpowers/plans/2026-09-14-lawyer-skills.md)：唯一 lawyer 中的合同审查、应诉分析、管辖分析和共享法律检索，原生技能目录和工具复用，正式资源随 preset 分发；不接入诉讼费用，不同步个人卷宗。
+
+## SPEC-CUSTOMER-CRUD-20260914
+
+[客户管理规格](../superpowers/specs/2026-09-14-customer-management-crud.md)与[实施记录](../superpowers/plans/2026-09-14-customer-management-crud.md)：列表查询/修改/删除入口、编辑版本保护和可选字段清空、独立删除权限、业务关联保护及事务软删除，对应 MOD-005。

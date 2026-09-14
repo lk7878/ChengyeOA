@@ -83,7 +83,7 @@ test('guards test Prisma helpers and truncates every application table', async (
   assert.match(statements[0], /"system_initialization"/);
   assert.match(statements[0], / CASCADE$/);
   assert.equal(catalogWrites.length, 1);
-  assert.equal((catalogWrites[0] as { data: unknown[] }).data.length, 145);
+  assert.equal((catalogWrites[0] as { data: unknown[] }).data.length, 146);
   assert.equal(subscriptionWrites.length, 1);
   assert.deepEqual((subscriptionWrites[0] as { data: unknown[] }).data, EVENT_SUBSCRIPTION_CATALOG.map(item => ({
     ...item,

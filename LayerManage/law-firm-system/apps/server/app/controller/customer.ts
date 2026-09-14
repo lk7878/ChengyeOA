@@ -51,11 +51,19 @@ export default class CustomerController extends Controller {
   /** PATCH /api/v1/customers/:id（customer.update）：仅更新提供字段。 */
   async update() {
     const body = this.ctx.request.body;
-    assertExactKeys(body, CUSTOMER_BODY_KEYS);
+    assertExactKeys(body, [...CUSTOMER_BODY_KEYS, 'version']);
     this.respond(await customerService(this.ctx).updateCustomer(
       this.ctx.params.id,
       body as unknown as UpdateCustomerInput,
     ));
+  }
+
+  /** DELETE /api/v1/customers/:id：关联保护、版本校验和软删除。 */
+  async destroy() {
+    const body = this.ctx.request.body;
+    assertExactKeys(body, ['version']);
+    await customerService(this.ctx).deleteCustomer(this.ctx.params.id, body as unknown as { version: number });
+    this.respond(null);
   }
 
   /** GET /api/v1/customers/:id/contacts（customer.read）：排除软删，createdAt ASC。 */

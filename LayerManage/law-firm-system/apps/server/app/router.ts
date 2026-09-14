@@ -171,12 +171,13 @@ export default (app: Application) => {
   router.get('/api/v1/appointments', requirePermission('appointment.read'), controller.appointment.index);
   router.get('/api/v1/appointments/:id', requirePermission('appointment.read'), controller.appointment.show);
 
-  // 客户模块（SPEC-009 Task 10 重建：PATCH 非 PUT；无 DELETE /customers/:id；
+  // 客户模块（SPEC-CUSTOMER-CRUD-20260914 增加受权限保护的软删除；
   // 原型跨模块只读子资源 /contracts /cases /payments 移除，归 Task 11 前端重组。）
   router.post('/api/v1/customers', requirePermission('customer.create'), controller.customer.create);
   router.get('/api/v1/customers', requirePermission('customer.read'), controller.customer.index);
   router.get('/api/v1/customers/:id', requirePermission('customer.read'), controller.customer.show);
   router.patch('/api/v1/customers/:id', requirePermission('customer.update'), controller.customer.update);
+  router.delete('/api/v1/customers/:id', requirePermission('customer.delete'), controller.customer.destroy);
   // SPEC-039：客户域转介绍端点（/customers/:id/referrals）——POST 挂 lead.create（登记 REFERRAL 线索）、
   // GET 挂 lead.read（列表）。字面量子路径先于 /:id 后段无冲突（referrals 为独立子段）。
   router.post('/api/v1/customers/:id/referrals', requirePermission('lead.create'), controller.customer.createReferral);

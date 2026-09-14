@@ -1,6 +1,6 @@
 // SPEC-009 Task 8: customer-service —— 客户主数据 + 联系人（ContactService 内联，决策 15）。
 // 事务边界（设计 §6.2）：业务写入、EventLog（outbox append）、OperationLog 全部同事务。
-// 动作权限（决策 10）：customer.read/create/update；customer.merge 不实现（无方法、无路由）。
+// 动作权限：customer.read/create/update/delete；customer.merge 不实现（无方法、无路由）。
 //   每个公开方法首条语句即 AuthorizationService.requireAction。
 // 数据范围（决策 11）：Customer 无组织列——resolveScopeTargets(context,'customer',code) 取
 //   三分量后锚定：SELF/员工维度 → createdBy = context.userId（与 lead-service 写 createdBy
@@ -35,7 +35,7 @@ import { buildOrganizationScopeWhere } from '../authorization/resource-scope-res
 import { EventOutboxWriter, PrismaEventOutboxWriter } from '../events/event-outbox-writer';
 import { AuditActor } from '../master-data/master-data-types';
 import { PermissionCode } from '../../domain/authorization/authorization-types';
-import { CrmError, LEAD_NOT_FOUND } from '../../domain/crm/lead-errors';
+import { CrmError, CUSTOMER_IN_USE, LEAD_NOT_FOUND } from '../../domain/crm/lead-errors';
 import { hashPhone, normalizePhone } from '../../domain/crm/lead-policy';
 import {
   CUSTOMER_CREATED,
@@ -84,6 +84,7 @@ export interface CreateCustomerInput {
 }
 
 export interface UpdateCustomerInput {
+  version?: number;
   name?: string;
   phone?: string;
   wechat?: string;
@@ -220,8 +221,9 @@ export class CustomerService {
     this.authorization.requireAction(this.authorizationContext, 'customer.update');
     const id = normalizeRequiredText(customerId, 1, 100);
     assertExactKeys(input, [
-      'name', 'phone', 'wechat', 'email', 'address', 'customerType', 'status', 'tags', 'remark',
+      'name', 'phone', 'wechat', 'email', 'address', 'customerType', 'status', 'tags', 'remark', 'version',
     ]);
+    const version = input.version === undefined ? undefined : normalizeCustomerVersion(input.version);
 
     const data: Prisma.CustomerUncheckedUpdateInput = {};
     const updatedFields: string[] = [];
@@ -252,9 +254,10 @@ export class CustomerService {
         where: { AND: [scopeWhere, { id, deletedAt: null }] },
       });
       if (!customer) throw new CrmError(LEAD_NOT_FOUND, 404, 'customer not found');
+      if (version !== undefined && version !== customer.version) throw new MasterDataError('VERSION_CONFLICT', 409);
 
       const changed = await tx.customer.updateMany({
-        where: { id: customer.id, version: customer.version },
+        where: { id: customer.id, version: customer.version, deletedAt: null },
         data: { ...data, updatedBy: this.actor.actorUserId, version: { increment: 1 } },
       });
       if (changed.count !== 1) throw new MasterDataError('VERSION_CONFLICT', 409);
@@ -272,6 +275,43 @@ export class CustomerService {
       });
       const after = await tx.customer.findUniqueOrThrow({ where: { id: customer.id } });
       return projectCustomer(after, this.customerFieldPermissions());
+    });
+  }
+
+  /** SPEC-CUSTOMER-CRUD-20260914：软删除、业务关联保护与审计使用同一事务。 */
+  async deleteCustomer(customerId: string, input: { version: number }): Promise<void> {
+    this.authorization.requireAction(this.authorizationContext, 'customer.delete');
+    const id = normalizeRequiredText(customerId, 1, 100);
+    assertExactKeys(input, ['version']);
+    const version = normalizeCustomerVersion(input.version);
+    const scopeWhere = await this.buildCustomerScopeWhere('customer.delete');
+    await this.prisma.$transaction(async tx => {
+      const visible = await tx.customer.findFirst({ where: { AND: [scopeWhere, { id, deletedAt: null }] } });
+      if (!visible) throw new CrmError(LEAD_NOT_FOUND, 404, 'customer not found');
+      await tx.$queryRaw`SELECT id FROM customer WHERE id = ${id} FOR UPDATE`;
+      const customer = await tx.customer.findFirst({
+        where: { AND: [scopeWhere, { id, deletedAt: null }] },
+        include: { _count: { select: {
+          referrals: true, cases: true, contracts: true, payments: true, negotiations: true,
+          analysisEngagements: true, invoiceRequests: true, refundRequests: true,
+        } } },
+      });
+      if (!customer) throw new CrmError(LEAD_NOT_FOUND, 404, 'customer not found');
+      if (customer.version !== version) throw new MasterDataError('VERSION_CONFLICT', 409);
+      if (customer.sourceLeadId || Object.values(customer._count).some(count => count > 0)) {
+        throw new CrmError(CUSTOMER_IN_USE, 409, '客户已关联业务记录，无法删除');
+      }
+      const deletedAt = new Date();
+      const changed = await tx.customer.updateMany({
+        where: { id, version, deletedAt: null },
+        data: { deletedAt, updatedBy: this.actor.actorUserId, version: { increment: 1 } },
+      });
+      if (changed.count !== 1) throw new MasterDataError('VERSION_CONFLICT', 409);
+      await tx.contact.updateMany({ where: { customerId: id, deletedAt: null }, data: { deletedAt } });
+      await tx.operationLog.create({ data: {
+        userId: this.actor.actorUserId, action: 'CUSTOMER_DELETE', targetType: 'CUSTOMER', targetId: id,
+        newValues: JSON.stringify({ customerNo: customer.customerNo, version }), ip: this.actor.ip,
+      } });
     });
   }
 
@@ -646,6 +686,13 @@ export class CustomerService {
 function normalizeBoolean(value: unknown, defaultValue: boolean): boolean {
   if (value === undefined) return defaultValue;
   if (typeof value !== 'boolean') throw new MasterDataError('VALIDATION_FAILED', 400);
+  return value;
+}
+
+function normalizeCustomerVersion(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+    throw new MasterDataError('VALIDATION_FAILED', 400);
+  }
   return value;
 }
 

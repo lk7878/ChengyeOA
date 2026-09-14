@@ -9,6 +9,7 @@ export const CUSTOMER_ALREADY_CONVERTED = 'CUSTOMER_ALREADY_CONVERTED';
 
 // SPEC-039：客户域转介绍端点（/customers/:id/referrals）客户存在性探针——404。
 export const CUSTOMER_NOT_FOUND = 'CUSTOMER_NOT_FOUND';
+export const CUSTOMER_IN_USE = 'CUSTOMER_IN_USE';
 
 // SPEC-009 Task 6（决策 3）：公海领取要求 actor 账号绑定员工（User.employeeId → context.employeeId），
 // 未绑定时无法确立归属，抛 403。归属授权上下文缺陷而非入参校验失败，故独立于 VALIDATION_FAILED。
@@ -25,7 +26,8 @@ export type CrmErrorCode =
   | typeof CUSTOMER_ALREADY_CONVERTED
   | typeof ACTOR_EMPLOYEE_UNBOUND
   | typeof LEAD_PHONE_INVALID
-  | typeof CUSTOMER_NOT_FOUND;
+  | typeof CUSTOMER_NOT_FOUND
+  | typeof CUSTOMER_IN_USE;
 
 export class CrmError extends Error {
   constructor(

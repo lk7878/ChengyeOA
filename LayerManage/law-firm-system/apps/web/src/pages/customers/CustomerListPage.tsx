@@ -29,12 +29,15 @@ import {
   type CustomerView,
 } from '@/api/types';
 import { CUSTOMER_STATUS_META, CUSTOMER_TYPE_META } from '../leads/meta';
+import CustomerDeleteButton from './CustomerDeleteButton';
 
 const CustomerListPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const fromCase = Boolean(location.state?.fromCase);
   const canCreate = useAuthStore(state => state.hasPermission('customer.create'));
+  const canUpdate = useAuthStore(state => state.hasPermission('customer.update'));
+  const canDelete = useAuthStore(state => state.hasPermission('customer.delete'));
   const initialName = typeof location.state?.createCustomerName === 'string' ? location.state.createCustomerName : '';
   const cancelCreate = () => { if (submitting) return; if (fromCase) navigate('/cases', { replace: true, state: { resumeCase: true } }); else setCreateOpen(false); };
   const {
@@ -127,9 +130,16 @@ const CustomerListPage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 80,
+      width: 220,
+      fixed: 'right' as const,
       render: (_: unknown, record: CustomerView) => (
-        <Button type="link" size="small" onClick={() => navigate(`/customers/${record.id}`)}>详情</Button>
+        <Space size={0}>
+          <Button type="link" size="small" onClick={() => navigate(`/customers/${record.id}`)}>查询</Button>
+          {canUpdate && <Button type="link" size="small" onClick={() => navigate(`/customers/${record.id}`, { state: { editCustomer: true } })}>修改</Button>}
+          {canDelete && <CustomerDeleteButton customer={record} onDeleted={() => fetchCustomers(
+            Math.min(listPage, Math.max(1, Math.ceil((listTotal - 1) / listPageSize))),
+          )} />}
+        </Space>
       ),
     },
   ];

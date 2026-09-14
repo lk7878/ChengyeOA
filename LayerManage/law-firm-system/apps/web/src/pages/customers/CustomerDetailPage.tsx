@@ -1,5 +1,5 @@
 import { crmNameRules, phoneRules } from '@/features/crm/form-rules';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Button,
@@ -19,13 +19,14 @@ import {
 } from 'antd';
 import Modal from '@/components/DraggableModal';
 import { ArrowLeftOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
-import { useNavigate, useParams } from 'react-router';
+import { useLocation, useNavigate, useParams } from 'react-router';
 import dayjs from 'dayjs';
 import { useCustomerStore } from '@/stores/customer-store';
 import { useAuthStore } from '@/stores/authStore';
 import { customerApi } from '@/api/customer';
 import {
   CUSTOMER_TYPES,
+  CUSTOMER_STATUSES,
   type ContactInput,
   type ContactView,
   type CreateReferralLeadInput,
@@ -34,10 +35,14 @@ import {
   type UpdateCustomerInput,
 } from '@/api/types';
 import { CUSTOMER_STATUS_META, CUSTOMER_TYPE_META, LEAD_STATUS_META } from '../leads/meta';
+import CustomerDeleteButton from './CustomerDeleteButton';
 
 const CustomerDetailPage: React.FC = () => {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const canUpdate = useAuthStore(state => state.hasPermission('customer.update'));
+  const canDelete = useAuthStore(state => state.hasPermission('customer.delete'));
   const {
     detail,
     fetchCustomerDetail, resetDetail, updateCustomer, addContact, updateContact, removeContact,
@@ -45,6 +50,7 @@ const CustomerDetailPage: React.FC = () => {
   const { customer, contacts, loading, error } = detail;
 
   const [editOpen, setEditOpen] = useState(false);
+  const [editVersion, setEditVersion] = useState<number>();
   const [contactModal, setContactModal] = useState<{ mode: 'create' } | { mode: 'edit'; contact: ContactView } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [editForm] = Form.useForm<UpdateCustomerInput>();
@@ -103,11 +109,13 @@ const CustomerDetailPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const openEdit = () => {
-    if (!customer) return;
+  const openEdit = useCallback(() => {
+    if (!customer || !canUpdate) return;
+    editForm.resetFields();
     editForm.setFieldsValue({
       name: customer.name,
       // 脱敏掩码不回填（提交掩码会污染数据）；保持原值则不传字段。
+      phone: undefined,
       wechat: undefined,
       email: customer.email ?? undefined,
       address: customer.address ?? undefined,
@@ -116,16 +124,29 @@ const CustomerDetailPage: React.FC = () => {
       tags: customer.tags ?? undefined,
       remark: customer.remark ?? undefined,
     });
+    setEditVersion(customer.version);
     setEditOpen(true);
-  };
+  }, [customer, canUpdate, editForm]);
+
+  useEffect(() => {
+    if (!location.state?.editCustomer || !canUpdate || loading || customer?.id !== id) return;
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      openEdit();
+      navigate(location.pathname, { replace: true, state: null });
+    });
+    return () => { cancelled = true; };
+  }, [location.state, location.pathname, canUpdate, loading, customer?.id, id, openEdit, navigate]);
 
   const handleEdit = async (values: UpdateCustomerInput) => {
     setSubmitting(true);
     try {
-      // 仅提交有值字段，避免把未回填的 L3 字段覆盖为空。
-      const payload: UpdateCustomerInput = {};
+      // 普通可选字段可清空；脱敏字段留空则保持原值。
+      const payload: UpdateCustomerInput = { version: editVersion };
       for (const [key, value] of Object.entries(values)) {
-        if (value !== undefined && value !== '') {
+        if ((key === 'phone' || key === 'wechat') && (value === undefined || String(value).trim() === '')) continue;
+        if (value !== undefined) {
           (payload as Record<string, unknown>)[key] = value;
         }
       }
@@ -209,7 +230,10 @@ const CustomerDetailPage: React.FC = () => {
             <span style={{ color: '#999', fontSize: 13 }}>{customer.customerNo}</span>
           </Space>
         )}
-        extra={<Button icon={<EditOutlined />} onClick={openEdit}>编辑档案</Button>}
+        extra={<Space>
+          {canUpdate && <Button icon={<EditOutlined />} onClick={openEdit}>编辑档案</Button>}
+          {canDelete && <CustomerDeleteButton customer={customer} onDeleted={() => navigate('/customers', { replace: true })} />}
+        </Space>}
         style={{ marginBottom: 16 }}
       />
 
@@ -320,13 +344,15 @@ const CustomerDetailPage: React.FC = () => {
       <Modal
         title="编辑客户档案"
         open={editOpen}
-        onCancel={() => setEditOpen(false)}
+        onCancel={() => { if (!submitting) setEditOpen(false); }}
+        cancelButtonProps={{ disabled: submitting }}
+        mask={{ closable: false }}
         onOk={() => editForm.submit()}
         confirmLoading={submitting}
         width={560}
         destroyOnHidden
       >
-        <Form form={editForm} layout="vertical" onFinish={handleEdit}>
+        <Form form={editForm} layout="vertical" onFinish={handleEdit} disabled={submitting}>
           <Form.Item name="name" label="姓名" rules={crmNameRules}>
             <Input maxLength={50} />
           </Form.Item>
@@ -344,6 +370,9 @@ const CustomerDetailPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="customerType" label="客户类型">
             <Select options={CUSTOMER_TYPES.map(value => ({ value, label: CUSTOMER_TYPE_META[value] }))} />
+          </Form.Item>
+          <Form.Item name="status" label="客户状态">
+            <Select options={CUSTOMER_STATUSES.map(value => ({ value, label: CUSTOMER_STATUS_META[value].text }))} />
           </Form.Item>
           <Form.Item name="email" label="邮箱">
             <Input maxLength={100} />

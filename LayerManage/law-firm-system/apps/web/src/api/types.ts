@@ -237,7 +237,7 @@ export interface CreateCustomerInput {
   remark?: string;
 }
 
-export type UpdateCustomerInput = Partial<CreateCustomerInput>;
+export type UpdateCustomerInput = Partial<CreateCustomerInput> & { version?: number };
 
 /** SPEC-039：客户域转介绍登记入参（sourceType/referralCustomerId 由服务端强制绑定）。 */
 export interface CreateReferralLeadInput {

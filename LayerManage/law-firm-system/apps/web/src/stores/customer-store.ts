@@ -111,7 +111,7 @@ export const useCustomerStore = create<CustomerState>()((set, get) => ({
   detail: initialDetail,
 
   fetchCustomerDetail: async id => {
-    set({ detail: { ...get().detail, loading: true, error: null } });
+    set({ detail: { ...(get().detail.customer?.id === id ? get().detail : initialDetail), loading: true, error: null } });
     try {
       const [customerRes, contactsRes] = await Promise.all([
         customerApi.detail(id),
