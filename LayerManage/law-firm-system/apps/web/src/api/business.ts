@@ -1,7 +1,7 @@
 // SPEC-010 Task 11 手术：contractApi/paymentApi 段已切除（原型路由随后端 Task 1 根除 404），
 // 新客户端落 @/api/contract、@/api/payment（逐条对齐 Task 10 冻结路由表）。
 // SPEC-033 Task 3：caseApi 对齐重建案件域——list 改 PagedResult（非原型嵌套 pagination）、
-// 移除 delete（后端 destroy 已根除，案件业务不可删）、close 白名单 { result, satisfaction }。
+// SPEC-CASE-CRUD-20260914：删除携带版本，服务端检查权限、状态及财务关联。
 // SPEC-042 Task 3：+案件文件方法（listFiles/uploadFile/downloadFile/removeFile）。
 import request from './request';
 import type { ApiResponse, Case, CaseFile, CaseFileDownload, CaseTask, Communication, DashboardMetrics, DashboardAlerts } from '@/types';
@@ -13,7 +13,8 @@ export const caseApi = {
   list: (params?: QueryParams) => request.get<ApiResponse<PagedResult<Case>>>('/v1/cases', { params }),
   detail: (id: string) => request.get<ApiResponse<Case>>(`/v1/cases/${id}`),
   create: (data: Partial<Case> & { attachments?: import('@/pages/Case/intake-contract').IntakeAttachment[] }) => request.post<ApiResponse<Case>>('/v1/cases', data),
-  update: (id: string, data: Partial<Case>) => request.put<ApiResponse<Case>>(`/v1/cases/${id}`, data),
+  update: (id: string, data: Partial<Case> & { attachments?: import('@/pages/Case/intake-contract').IntakeAttachment[]; removeAttachmentIds?: string[] }) => request.put<ApiResponse<Case>>(`/v1/cases/${id}`, data),
+  remove: (id: string, version: number) => request.delete<ApiResponse<{ id: string }>>(`/v1/cases/${id}`, { data: { version } }),
   createTask: (id: string, data: Partial<CaseTask>) => request.post<ApiResponse<CaseTask>>(`/v1/cases/${id}/tasks`, data),
   updateTask: (id: string, taskId: string, data: Partial<CaseTask>) => request.patch<ApiResponse<CaseTask>>(`/v1/cases/${id}/tasks/${taskId}`, data),
   createCommunication: (id: string, data: Partial<Communication>) => request.post<ApiResponse<Communication>>(`/v1/cases/${id}/communications`, data),

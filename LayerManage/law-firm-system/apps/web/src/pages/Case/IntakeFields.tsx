@@ -1,7 +1,8 @@
 import { Col, DatePicker, Divider, Form, Input, InputNumber, Row, Select } from 'antd';
 import { INTAKE_FIELDS, INTAKE_OPTIONS } from './intake-contract';
+import dayjs from 'dayjs';
 
-export default function IntakeFields({ departments }: { departments: { value: string; label: string }[] }) {
+export default function IntakeFields({ departments, createdAt, updatedAt }: { departments: { value: string; label: string }[]; createdAt?: string; updatedAt?: string }) {
   const procedure = Form.useWatch(['intakeData', 'agencyProcedure']);
   return <>
     {[...new Set(INTAKE_FIELDS.map(field => field[3]))].map(group => <div key={group}>
@@ -25,8 +26,8 @@ export default function IntakeFields({ departments }: { departments: { value: st
       </Row>
     </div>)}
     <Row gutter={16}>
-      <Col span={12}><Form.Item label="记录创建时间"><Input disabled value="保存后由系统生成" /></Form.Item></Col>
-      <Col span={12}><Form.Item label="最近修改时间"><Input disabled value="保存后由系统生成" /></Form.Item></Col>
+      <Col span={12}><Form.Item label="记录创建时间"><Input disabled value={createdAt ? dayjs(createdAt).format('YYYY-MM-DD HH:mm:ss') : '保存后由系统生成'} /></Form.Item></Col>
+      <Col span={12}><Form.Item label="最近修改时间"><Input disabled value={updatedAt ? dayjs(updatedAt).format('YYYY-MM-DD HH:mm:ss') : '保存后由系统生成'} /></Form.Item></Col>
     </Row>
   </>;
 }

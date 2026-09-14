@@ -9,12 +9,14 @@ import CasePage from '../index';
 import { useAuthStore } from '@/stores/authStore';
 import type { Case } from '@/types';
 import type { PermissionCode } from '@/features/authorization/types';
+import { ATTACHMENT_CATEGORIES, INTAKE_FIELDS } from '../intake-contract';
 
 const caseApiMock = vi.hoisted(() => ({
   list: vi.fn(),
   detail: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
+  remove: vi.fn(),
   createTask: vi.fn(),
   updateTask: vi.fn(),
   createCommunication: vi.fn(),
@@ -133,6 +135,80 @@ beforeEach(() => {
   caseApiMock.detail.mockResolvedValue({
     code: 200, message: 'success', data: caseFixture(),
   });
+});
+
+test('customer creation displays a required phone and refuses an empty phone', async () => {
+  grantPermissions(['customer.create']);
+  render(<MemoryRouter><CustomerListPage /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button', { name: /新建客户/ }));
+  fireEvent.change(screen.getByLabelText('姓名'), { target: { value: '必填测试客户' } });
+  expect(screen.getByLabelText('电话')).toHaveAttribute('aria-required', 'true');
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /OK|确\s*定/ }));
+  expect(await screen.findByText('请输入客户电话')).toBeInTheDocument();
+  expect(customerApiMock.create).not.toHaveBeenCalled();
+});
+
+test('the case table includes every intake column, attachment category and system timestamp', async () => {
+  caseApiMock.list.mockResolvedValue(pageOf([caseFixture({ customerName: '完整客户名称', lawyerName: '完整律师名称', intakeData: { contractNumber: '完整合同编号', riskAgencyRatio: '12.50' } })]));
+  render(<MemoryRouter><CasePage /></MemoryRouter>);
+  expect(await screen.findByText('完整客户名称')).toBeInTheDocument();
+  const headings = screen.getAllByRole('columnheader');
+  for (const label of [...INTAKE_FIELDS.map(field => field[1]), ...ATTACHMENT_CATEGORIES, '费用', '案情描述', '记录创建时间', '最近修改时间']) expect(headings.some(header => within(header).queryByText(label, { exact: true }))).toBe(true);
+  expect(screen.getByText('12.50%')).toBeInTheDocument();
+  expect(screen.getByText('完整合同编号')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /修\s*改|删\s*除/ })).not.toBeInTheDocument();
+});
+
+test('editing restores intake and files, saves clears with the version, and removes attachments only on save', async () => {
+  grantPermissions(['case.update', 'case.file.read', 'case.file.manage']);
+  const row = caseFixture({ lawyerId: 'emp-1', version: 7, fee: '9999999999999999.99', intakeData: { signedDate: '2026-09-14', fixedAgencyFee: '123.45' }, files: [{ id: 'contract-file', caseId: 'case-1', fileName: '原合同.pdf', category: '合同附件', fileType: 'application/pdf', fileSize: 8, uploadedBy: 'user-1', createdAt: '2026-09-14T00:00:00Z' }] });
+  caseApiMock.list.mockResolvedValue(pageOf([row]));
+  caseApiMock.detail.mockResolvedValue({ data: row });
+  caseApiMock.update.mockResolvedValue({ data: { ...row, version: 8 } });
+  render(<MemoryRouter><CasePage /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button', { name: /修\s*改/ }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText('修改案件')).toBeInTheDocument();
+  expect(within(dialog).getByDisplayValue('2026-09-14')).toBeInTheDocument();
+  expect(within(dialog).getByRole('spinbutton', { name: '费用' })).toHaveValue('9999999999999999.99');
+  fireEvent.change(within(dialog).getByRole('textbox', { name: '案件标题' }), { target: { value: '修改后的标题' } });
+  fireEvent.change(within(dialog).getByRole('spinbutton', { name: '固定代理费金额' }), { target: { value: '' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'delete' }));
+  expect(caseApiMock.removeFile).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole('button', { name: /确\s*定/ }));
+  await waitFor(() => expect(caseApiMock.update).toHaveBeenCalledWith('case-1', expect.objectContaining({ version: 7, title: '修改后的标题', fee: '9999999999999999.99', intakeData: { signedDate: '2026-09-14' }, removeAttachmentIds: ['contract-file'] })));
+  expect(caseApiMock.create).not.toHaveBeenCalled();
+});
+
+test('cancelling an edit does not persist it and confirmed deletion carries the selected version', async () => {
+  grantPermissions(['case.update', 'case.delete']);
+  const row = caseFixture({ lawyerId: 'emp-1', version: 4 });
+  caseApiMock.list.mockResolvedValue(pageOf([row]));
+  caseApiMock.detail.mockResolvedValue({ data: row });
+  caseApiMock.remove.mockResolvedValue({ data: { id: row.id } });
+  render(<MemoryRouter><CasePage /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button', { name: /修\s*改/ }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText('修改案件')).toBeInTheDocument();
+  fireEvent.change(within(dialog).getByRole('textbox', { name: '案件标题' }), { target: { value: '取消的修改' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /取\s*消|Cancel/ }));
+  expect(caseApiMock.update).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: /删\s*除/ }));
+  const confirmation = await screen.findByText('删除案件 CA2026-0001？');
+  expect(caseApiMock.remove).not.toHaveBeenCalled();
+  fireEvent.click(within(confirmation.closest('.ant-popover') as HTMLElement).getByRole('button', { name: /删\s*除/ }));
+  await waitFor(() => expect(caseApiMock.remove).toHaveBeenCalledWith('case-1', 4));
+});
+
+test('search passes the keyword and reset removes it from the next server query', async () => {
+  caseApiMock.list.mockResolvedValue(pageOf([]));
+  render(<MemoryRouter><CasePage /></MemoryRouter>);
+  await waitFor(() => expect(caseApiMock.list).toHaveBeenCalled());
+  fireEvent.change(screen.getByRole('textbox', { name: '案件关键词' }), { target: { value: ' HT-2026 ' } });
+  fireEvent.click(screen.getByRole('button', { name: /搜\s*索/ }));
+  await waitFor(() => expect(caseApiMock.list).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: 'HT-2026' })));
+  fireEvent.click(screen.getByRole('button', { name: /重\s*置/ }));
+  await waitFor(() => expect(caseApiMock.list).toHaveBeenLastCalledWith({ page: 1, pageSize: 10 }));
 });
 
 test('renders the case list with server data and customer name mapping', async () => {

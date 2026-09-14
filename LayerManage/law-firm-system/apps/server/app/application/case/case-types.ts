@@ -43,6 +43,11 @@ export interface CreateCaseInput {
 }
 
 export interface UpdateCaseInput {
+  customerId?: string;
+  fee?: string;
+  intakeData?: CaseIntake;
+  attachments?: IntakeAttachment[];
+  removeAttachmentIds?: string[];
   title?: string;
   lawyerId?: string | null;
   teamIds?: string[];
@@ -128,6 +133,9 @@ export function projectCaseFileDownload(row: CaseFile, base64: string): CaseFile
 }
 
 export interface CaseView {
+  customerName?: string;
+  lawyerName?: string | null;
+  files?: CaseFileView[];
   intakeData: CaseIntake;
   id: string;
   caseNo: string;
@@ -177,11 +185,17 @@ export interface CommunicationView {
 
 export function projectCase(
   caseRow: Case & {
+    customer?: { name: string };
+    lawyer?: { name: string } | null;
+    files?: CaseFile[];
     tasks?: CaseTask[];
     communications?: Communication[];
   },
 ): CaseView {
   return {
+    ...(caseRow.customer ? { customerName: caseRow.customer.name } : {}),
+    ...(caseRow.lawyer !== undefined ? { lawyerName: caseRow.lawyer?.name ?? null } : {}),
+    ...(caseRow.files ? { files: caseRow.files.map(projectCaseFile) } : {}),
     intakeData: (caseRow.intakeData ?? {}) as CaseIntake,
     id: caseRow.id,
     caseNo: caseRow.caseNo,

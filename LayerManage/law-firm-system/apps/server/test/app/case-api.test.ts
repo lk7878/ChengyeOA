@@ -20,6 +20,26 @@ const FULL_CASE_PERMISSIONS = [
   'case.read', 'case.create', 'case.update', 'case.close', 'case.task.manage', 'case.communication.create',
 ];
 
+test('case CRUD HTTP exposes full intake, filters new fields and deletes only with permission and current version', async () => {
+  const session = await createCaseSession([...FULL_CASE_PERMISSIONS, 'case.delete', 'case.file.read']);
+  const customerId = await seedCustomer(), lawyerId = await seedEmployee();
+  const created = await app.httpRequest().post('/api/v1/cases').set(bearer(session.token)).send({ title: 'HTTP完整案件', caseType: '合同纠纷', customerId, lawyerId }).expect(200);
+  const id = created.body.data.id;
+  const updated = await app.httpRequest().put(`/api/v1/cases/${id}`).set(bearer(session.token)).send({ version: 1, customerId, lawyerId, fee: '1234.50', intakeData: { region: '查询地区', contractNumber: 'HT-CRUD', firstPaymentAmount: '100.50' } }).expect(200);
+  assert.equal(updated.body.data.version, 2);
+  const listed = await app.httpRequest().get('/api/v1/cases?keyword=HT-CRUD').set(bearer(session.token)).expect(200);
+  assert.equal(listed.body.data.list[0].intakeData.firstPaymentAmount, '100.50');
+  assert.equal(listed.body.data.list[0].customerName, '案件客户');
+  assert.deepEqual(listed.body.data.list[0].files, []);
+  const reader = await createCaseSession(['case.read']);
+  await app.httpRequest().delete(`/api/v1/cases/${id}`).set(bearer(reader.token)).send({ version: 2 }).expect(403);
+  const stale = await app.httpRequest().delete(`/api/v1/cases/${id}`).set(bearer(session.token)).send({ version: 1 }).expect(409);
+  assert.equal(stale.body.message, 'VERSION_CONFLICT');
+  await app.httpRequest().delete(`/api/v1/cases/${id}`).set(bearer(session.token)).send({ version: 2, customerId }).expect(400);
+  await app.httpRequest().delete(`/api/v1/cases/${id}`).set(bearer(session.token)).send({ version: 2 }).expect(200);
+  await app.httpRequest().get(`/api/v1/cases/${id}`).set(bearer(session.token)).expect(404);
+});
+
 /** 案件域业务会话夹具（仿 cost-api T10 先例；case 不做行级 scope，scope 仅保持夹具同构）。 */
 async function createCaseSession(permissions: string[]): Promise<{ userId: string; token: string }> {
   const suffix = randomUUID();

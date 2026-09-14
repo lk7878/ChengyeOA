@@ -53,7 +53,7 @@ export const PERMISSION_CODES = [
   'user_role.membership.manage',
   // SPEC-033 Task 3 追加（镜像服务端 authorization-types.ts PERMISSION_CODES 尾段；案件办理域六码——
   // 合计 +6 码，服务端计数 124→130；Case 页列表/详情/新建/结案按钮门控 + 角色授予目录）
-  'case.read', 'case.create', 'case.update', 'case.close', 'case.task.manage', 'case.communication.create',
+  'case.read', 'case.create', 'case.update', 'case.delete', 'case.close', 'case.task.manage', 'case.communication.create',
   // SPEC-037 Task 3 追加（镜像服务端 authorization-types.ts PERMISSION_CODES 尾段；绩效域三码——
   // 合计 +3 码，服务端计数 129→132；Performance 页列表/录入/确认按钮门控 + 角色授予目录）
   'performance.read', 'performance.create', 'performance.confirm',

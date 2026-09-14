@@ -182,6 +182,7 @@ export const PERMISSION_CATALOG = Object.freeze([
   permission('case.read', '查看案件', 'ACTION', 'case', 'read', 'MEDIUM'),
   permission('case.create', '新建案件', 'ACTION', 'case', 'create', 'MEDIUM'),
   permission('case.update', '编辑案件', 'ACTION', 'case', 'update', 'MEDIUM'),
+  permission('case.delete', '删除案件', 'ACTION', 'case', 'delete', 'HIGH'),
   permission('case.close', '结案', 'ACTION', 'case', 'close', 'MEDIUM'),
   permission('case.task.manage', '管理案件任务', 'ACTION', 'case', 'task.manage', 'MEDIUM'),
   permission('case.communication.create', '记录案件沟通', 'ACTION', 'case', 'communication.create', 'MEDIUM'),

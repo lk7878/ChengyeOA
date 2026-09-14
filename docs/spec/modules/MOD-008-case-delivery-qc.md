@@ -3,7 +3,7 @@ id: MOD-008
 title: 案件交付与质量控制模块
 source: PRD §8.8
 status: draft
-implements: [SPEC-CASE-20260914]
+implements: [SPEC-CASE-20260914, SPEC-CASE-CRUD-20260914]
 design_refs: [docs/专项设计/三大专业团队SOP系统字段清单.md]
 last_updated: 2026-09-14
 ---
@@ -21,6 +21,7 @@ last_updated: 2026-09-14
 | 编号 | 功能 | 需求 | 现状 |
 |---|---|---|---|
 | MAT-01 | 案件建档 | 客户与主办律师必填；补全签约、代理收费、收退款、提成、附件；客户管理新建往返保留草稿 | SPEC-CASE-20260914 已实现并验证 |
+| MAT-01B | 案件展示与维护 | 列表完整字段、查询详情、带版本修改和删除；删除受独立权限及财务关联保护 | SPEC-CASE-CRUD-20260914 已实现并验证 |
 | MAT-02 | 成员管理 | 支持主办律师、协办律师、助理、专家指导人 | 待补SPEC |
 | MAT-03 | 节点任务 | 按案件类型生成 SOP 节点任务 | 待补SPEC |
 | MAT-04 | 材料管理 | 上传、分类、预览、下载、归档案件材料 | 待补SPEC |
@@ -61,6 +62,7 @@ last_updated: 2026-09-14
 - 回调验收：文书审核同意/退回、质量审核通过等同步回调必须校验权限、状态和重复提交。（源自 §14.1 第 8 项）
 
 ## 7. 追溯
+- 案件展示与维护：[SPEC-CASE-CRUD-20260914](../../superpowers/specs/2026-09-14-case-management-crud.md)，验证见[实施记录](../../superpowers/plans/2026-09-14-case-management-crud.md)。
 - 本次案件管理完善：[SPEC-CASE-20260914](../../superpowers/specs/2026-09-14-case-management-extension.md)，验证见[实施记录](../../superpowers/plans/2026-09-14-case-management-extension.md)。
 - 专项设计: docs/专项设计/三大专业团队SOP系统字段清单.md
 - 落地 SPEC: 待立项

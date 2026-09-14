@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
 import { CaseService } from '../../app/application/case/case-service';
+import { INTAKE_FIELDS, INTAKE_OPTIONS, CaseIntake } from '../../app/application/case/intake-contract';
 import { CaseTaskService } from '../../app/application/case/case-task-service';
 import { CaseCommunicationService } from '../../app/application/case/case-communication-service';
 import { AuditActor } from '../../app/application/master-data/master-data-types';
@@ -15,6 +16,7 @@ import { CASE_ERROR_CODES, CaseError } from '../../app/domain/case/case-errors';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 
 const CASE_PERMISSIONS: PermissionCode[] = [
+  'case.delete',
   'case.read',
   'case.create',
   'case.update',
@@ -109,6 +111,82 @@ const taskServiceFor = (userId: string, actorUser: AuditActor): CaseTaskService 
 
 const commServiceFor = (userId: string, actorUser: AuditActor): CaseCommunicationService =>
   new CaseCommunicationService(prisma, actorUser, caseContext(userId));
+
+test('editing persists every intake field, exact money, customer/lawyer names and searchable values', async () => {
+  const service = serviceFor('editor', actor('editor'));
+  const id = await seedCase();
+  const customerId = await seedCustomer(), lawyerId = await seedEmployee();
+  const departmentId = randomUUID();
+  const department = await prisma.organization.create({ data: { id: departmentId, name: '案件业务部', code: randomUUID(), path: `/${departmentId}`, type: 'DEPARTMENT', status: 'ENABLED' } });
+  const intakeData: CaseIntake = {};
+  for (const [key, , kind] of INTAKE_FIELDS) intakeData[key] = kind === 'date' ? '2026-09-14' : kind === 'money' ? '123.45' : kind === 'ratio' ? '25.00' : kind === 'department' ? department.id : kind === 'select' ? INTAKE_OPTIONS[key][0] : key === 'customerPhone' ? '13800000001' : `字段-${key}`;
+  intakeData.agencyProcedure = '自定义';
+  const updated = await service.updateCase(id, { customerId, lawyerId, fee: '9999999999999999.99', intakeData, description: '完整描述', version: 1 });
+  assert.deepEqual(updated.intakeData, intakeData);
+  assert.equal(updated.fee, '9999999999999999.99');
+  assert.equal((await service.getCase(id)).lawyerName, '律师甲');
+  for (const keyword of ['字段-contractNumber', '字段-region', '刑事', '客户甲']) assert.equal((await service.listCases({ keyword })).list.some(item => item.id === id), true);
+  const cleared = await service.updateCase(id, { intakeData: {}, fee: '0', description: '', version: 2 });
+  assert.deepEqual(cleared.intakeData, {});
+  assert.equal(cleared.description, null);
+  await assert.rejects(() => service.updateCase(id, { lawyerId: null, version: 3 }), { code: 'VALIDATION_FAILED' });
+  await assert.rejects(() => service.updateCase(id, { intakeData: { departmentId: 'missing' }, version: 3 }), { code: 'VALIDATION_FAILED' });
+});
+
+test('editing attachments is atomic, rejects foreign files and cleans replaced disk files', async () => {
+  const context = caseContext('files', { permissionCodes: [...CASE_PERMISSIONS, 'case.file.manage', 'case.file.read'] });
+  const service = new CaseService(prisma, actor('files'), context);
+  const file = { fileName: '合同.pdf', fileType: 'application/pdf', category: '合同附件' as const, base64: Buffer.from('original').toString('base64') };
+  const created = await service.createCase({ title: '带附件', caseType: '民事', customerId: await seedCustomer(), lawyerId: await seedEmployee(), attachments: [file] });
+  const stored = await prisma.caseFile.findFirstOrThrow({ where: { caseId: created.id } });
+  const disk = path.join(process.cwd(), 'var/storage/case-files', stored.filePath);
+  const failing = prisma.$extends({ query: { operationLog: { create: async () => { throw new Error('injected audit failure'); } } } });
+  await assert.rejects(() => new CaseService(failing as typeof prisma, actor('files'), context).updateCase(created.id, { version: 1, title: '不应保存', removeAttachmentIds: [stored.id], attachments: [{ ...file, base64: Buffer.from('new').toString('base64') }] }), /injected audit failure/);
+  assert.equal((await service.getCase(created.id)).version, 1);
+  assert.equal(fs.readFileSync(disk, 'utf8'), 'original');
+  await assert.rejects(() => service.updateCase(created.id, { version: 1, removeAttachmentIds: ['foreign-file'] }), { code: 'VALIDATION_FAILED' });
+  await assert.rejects(() => serviceFor('no-files', actor('no-files')).updateCase(created.id, { version: 1, removeAttachmentIds: [stored.id] }), { code: 'PERMISSION_DENIED', status: 403 });
+  await service.updateCase(created.id, { version: 1, removeAttachmentIds: [stored.id], attachments: [{ ...file, category: '退款凭证' }] });
+  assert.equal(fs.existsSync(disk), false);
+  const list = await service.listCases({});
+  assert.equal(list.list[0].files?.[0].category, '退款凭证');
+  assert.equal((await serviceFor('no-files', actor('no-files')).getCase(created.id)).files, undefined);
+  await service.deleteCase(created.id, { version: 2 });
+});
+
+test('deletion enforces permission/version/state and protects financial contracts and costs', async () => {
+  const service = serviceFor('delete', actor('delete'));
+  const id = await seedCase();
+  await assert.rejects(() => serviceFor('reader', actor('reader'), { permissionCodes: ['case.read'] }).deleteCase(id, { version: 1 }), { code: 'PERMISSION_DENIED', status: 403 });
+  await assert.rejects(() => service.deleteCase(id, { version: 2 }), { code: 'VERSION_CONFLICT' });
+  const row = await prisma.case.findUniqueOrThrow({ where: { id } });
+  const contract = await prisma.contract.create({ data: { contractNo: randomUUID(), contractType: 'FORMAL', title: '关联财务合同', customerId: row.customerId, createdBy: 'seed' } });
+  await prisma.case.update({ where: { id }, data: { contractId: contract.id } });
+  await assert.rejects(() => service.deleteCase(id, { version: 1 }), { code: 'CASE_IN_USE' });
+  const otherCustomerId = await seedCustomer();
+  await assert.rejects(() => service.updateCase(id, { version: 1, customerId: otherCustomerId }), { code: 'VALIDATION_FAILED' });
+  await prisma.case.update({ where: { id }, data: { contractId: null } });
+  await prisma.costEntry.create({ data: { category: 'CASE_HANDLING', occurredAt: new Date(), amount: 10, caseId: id, createdBy: 'seed' } });
+  await assert.rejects(() => service.deleteCase(id, { version: 1 }), { code: 'CASE_IN_USE' });
+  const closed = await seedCase('已结案', 'CLOSED');
+  await assert.rejects(() => service.deleteCase(closed, { version: 1 }), { code: 'CASE_STATE_INVALID' });
+});
+
+test('deletion rolls back on audit failure and removes only the selected case with its children', async () => {
+  const service = serviceFor('delete', actor('delete'));
+  const id = await seedCase(), otherId = await seedCase('保留案件');
+  await taskServiceFor('delete', actor('delete')).createTask(id, { name: '本案任务', nodeType: '立案准备' });
+  await commServiceFor('delete', actor('delete')).createCommunication(id, { type: 'PHONE', content: '本案沟通' });
+  const failing = prisma.$extends({ query: { operationLog: { create: async () => { throw new Error('injected delete audit failure'); } } } });
+  await assert.rejects(() => new CaseService(failing as typeof prisma, actor('delete'), caseContext('delete')).deleteCase(id, { version: 1 }), /injected delete audit failure/);
+  assert.equal((await service.getCase(id)).tasks.length, 1);
+  await service.deleteCase(id, { version: 1 });
+  await assert.rejects(() => service.getCase(id), { code: 'CASE_NOT_FOUND' });
+  assert.equal(await prisma.caseTask.count({ where: { caseId: id } }), 0);
+  assert.equal(await prisma.communication.count({ where: { caseId: id } }), 0);
+  assert.equal((await service.getCase(otherId)).title, '保留案件');
+  assert.ok(await prisma.operationLog.findFirst({ where: { targetId: id, action: 'CASE_DELETE' } }));
+});
 
 test('createCase persists a PENDING case with CA number and audit, and validates customer/lawyer', async () => {
   const userId = 'case-admin';

@@ -1142,12 +1142,16 @@ Content-Type: application/json
 
 ### 13.4 更新案件
 
+2026-09-14更新（SPEC-CASE-CRUD-20260914）：需`case.update`权限，JSON请求必须带`version`。支持原字段以及`customerId`、`fee`（十进制字符串）、`intakeData`、`attachments`、`removeAttachmentIds`。未提供的字段保持原值；提供`intakeData`时整体替换，`{}`清空补充字段。附件结构与新建相同，变更需`case.file.manage`，取消编辑不落库；全部修改和附件记录同事务保存。已结案/归档拒绝修改，关联财务合同后客户须与合同一致，版本过期返回409。
+
 ```http
 PUT /api/v1/cases/:id
 Authorization: Bearer <token>
 ```
 
 ### 13.5 删除案件
+
+需`case.delete`权限，请求体为`{"version": 当前案件版本}`，成功响应data为`{"id": 案件ID}`。只允许删除未结案且没有关联财务合同或成本记录的案件；有关联返回409 `CASE_IN_USE`，终态返回409 `CASE_STATE_INVALID`，版本过期返回409 `VERSION_CONFLICT`。删除包含本案任务、沟通及文件，保留删除审计。普通角色须由权限管理员显式授权。
 
 ```http
 DELETE /api/v1/cases/:id

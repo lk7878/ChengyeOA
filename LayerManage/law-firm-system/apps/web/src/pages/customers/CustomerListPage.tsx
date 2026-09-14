@@ -222,7 +222,7 @@ const CustomerListPage: React.FC = () => {
           <Form.Item name="name" label="姓名" rules={crmNameRules}>
             <Input maxLength={50} />
           </Form.Item>
-          <Form.Item name="phone" label="电话" rules={phoneRules()}>
+          <Form.Item name="phone" label="电话" rules={[{ required: true, whitespace: true, message: '请输入客户电话' }, ...phoneRules()]}>
             <Input maxLength={20} />
           </Form.Item>
           <Form.Item name="wechat" label="微信">

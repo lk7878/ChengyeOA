@@ -3,7 +3,7 @@
 // requireAction 每公开方法第一行；assertExactKeys 入参白名单；同事务 OperationLog 审计。
 // 案件为业务资源（可转介绍 isReferrable），仅权限门控（case.* 码）不做行级 scope。
 
-import { normalizeIntake, prepareAttachments, persistAttachments, cleanAttachments } from './case-intake';
+import { normalizeIntake, prepareAttachments, persistAttachments, cleanAttachments, removeStoredAttachments } from './case-intake';
 import { buildContractScopeWhere } from '../contract/contract-scope';
 import { Prisma, PrismaClient } from '@prisma/client';
 
@@ -139,7 +139,14 @@ export class CaseService {
   async updateCase(caseId: string, input: UpdateCaseInput): Promise<CaseView> {
     this.authorization.requireAction(this.authorizationContext, 'case.update');
     const id = normalizeRequiredText(caseId, 1, 100);
-    assertExactKeys(input, ['title', 'lawyerId', 'teamIds', 'caseType', 'priority', 'description', 'result', 'satisfaction', 'isReferrable', 'version']);
+    assertExactKeys(input, ['customerId', 'fee', 'intakeData', 'attachments', 'removeAttachmentIds', 'title', 'lawyerId', 'teamIds', 'caseType', 'priority', 'description', 'result', 'satisfaction', 'isReferrable', 'version']);
+    const customerId = input.customerId === undefined ? undefined : normalizeRequiredText(input.customerId, 1, 100);
+    const fee = input.fee === undefined ? undefined : normalizeCaseFee(input.fee);
+    const intakeData = input.intakeData === undefined ? undefined : normalizeIntake(input.intakeData);
+    if (intakeData?.departmentId && !await this.prisma.organization.findFirst({ where: { id: intakeData.departmentId, type: 'DEPARTMENT', status: 'ENABLED' } })) throw new MasterDataError('VALIDATION_FAILED', 400);
+    const attachments = prepareAttachments(input.attachments);
+    const removeIds = input.removeAttachmentIds === undefined ? [] : normalizeStringArray(input.removeAttachmentIds, 100, 100) ?? [];
+    if (attachments.length || removeIds.length) this.authorization.requireAction(this.authorizationContext, 'case.file.manage');
     const title = input.title === undefined ? undefined : normalizeRequiredText(input.title, 1, 100);
     const caseType = input.caseType === undefined ? undefined : normalizeRequiredText(input.caseType, 1, 100);
     const priority = input.priority === undefined ? undefined : normalizeAllowedValue(input.priority, CASE_PRIORITIES);
@@ -147,7 +154,7 @@ export class CaseService {
     const result = input.result === undefined ? undefined : normalizeOptionalText(input.result, 1000);
     const satisfaction = input.satisfaction === undefined ? undefined : normalizeSatisfaction(input.satisfaction);
     const isReferrable = input.isReferrable;
-    const lawyerId = input.lawyerId === undefined ? undefined : normalizeOptionalText(input.lawyerId, 100);
+    const lawyerId = input.lawyerId === undefined ? undefined : normalizeRequiredText(input.lawyerId, 1, 100);
     const teamIds = input.teamIds === undefined ? undefined : JSON.stringify(normalizeStringArray(input.teamIds, 50, 100));
     const version = normalizeVersion(input.version);
 
@@ -163,6 +170,9 @@ export class CaseService {
     }
 
     const data: Prisma.CaseUncheckedUpdateManyInput = {};
+    if (customerId !== undefined) data.customerId = customerId;
+    if (fee !== undefined) data.fee = fee;
+    if (intakeData !== undefined) data.intakeData = intakeData;
     if (title !== undefined) data.title = title;
     if (caseType !== undefined) data.caseType = caseType;
     if (priority !== undefined) data.priority = priority;
@@ -174,32 +184,75 @@ export class CaseService {
     if (teamIds !== undefined) data.teamIds = teamIds;
     data.version = version + 1;
 
-    return this.prisma.$transaction(async tx => {
-      const flipped = await tx.case.updateMany({
-        where: { id, version, status: { notIn: ['CLOSED', 'ARCHIVED'] } },
-        data,
-      });
-      if (flipped.count === 0) {
-        const current = await tx.case.findUnique({ where: { id } });
-        if (!current) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
-        if (current.status === 'CLOSED' || current.status === 'ARCHIVED') {
-          throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
+    let removedFiles: { filePath: string }[] = [];
+    let updated: CaseView;
+    try {
+      persistAttachments(attachments);
+      updated = await this.prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+        const currentCase = await tx.case.findUnique({ where: { id }, include: { contract: true } });
+        if (customerId !== undefined) {
+          if (!await tx.customer.findFirst({ where: { id: customerId, deletedAt: null } })) throw new MasterDataError('VALIDATION_FAILED', 400);
+          if (currentCase?.contract && currentCase.contract.customerId !== customerId) throw new MasterDataError('VALIDATION_FAILED', 400);
         }
-        throw new CaseError(CASE_ERROR_CODES.CASE_VERSION_CONFLICT, 409, 'case version conflict');
-      }
-      const row = await tx.case.findUniqueOrThrow({ where: { id } });
-      await tx.operationLog.create({
-        data: {
-          userId: this.actor.actorUserId,
-          action: 'CASE_UPDATE',
-          targetType: 'CASE',
-          targetId: row.id,
-          newValues: JSON.stringify({ caseId: row.id, caseNo: row.caseNo, version: row.version }),
-          ip: this.actor.ip,
-        },
+        const flipped = await tx.case.updateMany({
+          where: { id, version, status: { notIn: ['CLOSED', 'ARCHIVED'] } },
+          data,
+        });
+        if (flipped.count === 0) {
+          const current = await tx.case.findUnique({ where: { id } });
+          if (!current) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
+          if (current.status === 'CLOSED' || current.status === 'ARCHIVED') {
+            throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
+          }
+          throw new CaseError(CASE_ERROR_CODES.CASE_VERSION_CONFLICT, 409, 'case version conflict');
+        }
+        removedFiles = await tx.caseFile.findMany({ where: { caseId: id, id: { in: removeIds } }, select: { filePath: true } });
+        if (removedFiles.length !== removeIds.length) throw new MasterDataError('VALIDATION_FAILED', 400);
+        if (removeIds.length) await tx.caseFile.deleteMany({ where: { caseId: id, id: { in: removeIds } } });
+        if (attachments.length) await tx.caseFile.createMany({ data: attachments.map(file => ({ caseId: id, fileName: file.fileName, fileType: file.fileType, category: file.category, filePath: file.filePath, fileSize: file.buffer.length, uploadedBy: this.actor.actorUserId })) });
+        const row = await tx.case.findUniqueOrThrow({ where: { id } });
+        await tx.operationLog.create({
+          data: {
+            userId: this.actor.actorUserId,
+            action: 'CASE_UPDATE',
+            targetType: 'CASE',
+            targetId: row.id,
+            newValues: JSON.stringify({ caseId: row.id, caseNo: row.caseNo, version: row.version }),
+            ip: this.actor.ip,
+          },
+        });
+        return projectCase(row);
       });
-      return projectCase(row);
+    } catch (error) {
+      cleanAttachments(attachments);
+      throw error;
+    }
+    removeStoredAttachments(removedFiles);
+    return updated;
+  }
+
+  async deleteCase(caseId: string, input: { version: number }): Promise<{ id: string }> {
+    this.authorization.requireAction(this.authorizationContext, 'case.delete');
+    const id = normalizeRequiredText(caseId, 1, 100);
+    assertExactKeys(input, ['version']);
+    const version = normalizeVersion(input.version);
+    const files = await this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+      const row = await tx.case.findUnique({ where: { id }, include: { files: true, _count: { select: { costEntries: true, tasks: true, communications: true } } } });
+      if (!row) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
+      if (row.version !== version) throw new MasterDataError('VERSION_CONFLICT', 409);
+      if (['CLOSED', 'ARCHIVED'].includes(row.status)) throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
+      if (row.contractId || row._count.costEntries) throw new CaseError(CASE_ERROR_CODES.CASE_IN_USE, 409, 'case has financial references');
+      await tx.case.delete({ where: { id } });
+      await tx.operationLog.create({ data: {
+        userId: this.actor.actorUserId, action: 'CASE_DELETE', targetType: 'CASE', targetId: id,
+        oldValues: JSON.stringify({ caseId: id, caseNo: row.caseNo, title: row.title, version: row.version, tasks: row._count.tasks, communications: row._count.communications, files: row.files.length }), ip: this.actor.ip,
+      } });
+      return row.files;
     });
+    removeStoredAttachments(files);
+    return { id };
   }
 
   /** 案件列表：case.read → 过滤（keyword/status/lawyerId/priority/customerId）+ 分页 createdAt DESC。 */
@@ -217,7 +270,7 @@ export class CaseService {
 
     const where: Prisma.CaseWhereInput = {};
     const keyword = normalizeOptionalText(query.keyword, 100);
-    if (keyword) where.OR = [{ title: { contains: keyword } }, { caseNo: { contains: keyword } }, { caseType: { contains: keyword } }];
+    if (keyword) where.OR = [{ title: { contains: keyword } }, { caseNo: { contains: keyword } }, { caseType: { contains: keyword } }, { customer: { name: { contains: keyword } } }, ...['contractNumber', 'region', 'caseCategory'].map(key => ({ intakeData: { path: [key], string_contains: keyword } }))];
     if (query.status !== undefined) where.status = normalizeAllowedValue(query.status, CASE_STATUSES);
     if (query.lawyerId !== undefined) where.lawyerId = normalizeRequiredText(query.lawyerId, 1, 100);
     if (query.priority !== undefined) where.priority = normalizeAllowedValue(query.priority, CASE_PRIORITIES);
@@ -227,6 +280,7 @@ export class CaseService {
       this.prisma.case.count({ where }),
       this.prisma.case.findMany({
         where,
+        include: { customer: { select: { name: true } }, lawyer: { select: { name: true } }, files: this.authorizationContext.permissionCodes.includes('case.file.read') },
         orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
@@ -242,6 +296,7 @@ export class CaseService {
     const row = await this.prisma.case.findFirst({
       where: { id },
       include: {
+        customer: { select: { name: true } }, lawyer: { select: { name: true } }, files: this.authorizationContext.permissionCodes.includes('case.file.read'),
         tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
         communications: { orderBy: [{ createdAt: 'desc' }, { id: 'asc' }] },
       },
@@ -292,10 +347,7 @@ export class CaseService {
 
 /** 案件费用规范化：非负数字字符串（≤ Decimal(18,2)），非法 → 400。 */
 function normalizeCaseFee(value: string): string {
-  if (typeof value !== 'string' || !/^\d+(\.\d{1,2})?$/.test(value)) {
-    throw new MasterDataError('VALIDATION_FAILED', 400);
-  }
-  if (value.length > 18) {
+  if (typeof value !== 'string' || !/^\d{1,16}(\.\d{1,2})?$/.test(value)) {
     throw new MasterDataError('VALIDATION_FAILED', 400);
   }
   return value;

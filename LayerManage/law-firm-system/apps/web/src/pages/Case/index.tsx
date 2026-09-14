@@ -53,6 +53,8 @@ import IntakeFields from './IntakeFields';
 import { ATTACHMENT_CATEGORIES, INTAKE_FIELDS } from './intake-contract';
 import type { CaseIntake, IntakeAttachment } from './intake-contract';
 import { caseDraft, clearCaseDraft } from './case-draft';
+import { showRequestError } from '@/api/errors';
+import type { ColumnsType } from 'antd/es/table';
 import { useAuthStore } from '@/stores/authStore';
 import type { Case, CaseFile, CaseTask, Communication, Employee } from '@/types';
 import type { CustomerView } from '@/api/types';
@@ -102,7 +104,7 @@ interface CreateFormValues {
   lawyerId?: string;
   caseType: string;
   priority?: string;
-  fee?: number;
+  fee?: string | null;
   description?: string;
 }
 
@@ -136,8 +138,13 @@ const CasePage: React.FC = () => {
   const customerSearchSequence = React.useRef(0);
   const [departments, setDepartments] = useState<{ value: string; label: string }[]>([]);
   const [attachments, setAttachments] = useState<Record<string, UploadFile[]>>(() => resumeCase ? caseDraft.attachments ?? {} : {});
+  const [editingCase, setEditingCase] = useState<Case | undefined>(() => resumeCase ? caseDraft.editingCase : undefined);
+  const [editingLoading, setEditingLoading] = useState<string>();
+  const [deleting, setDeleting] = useState<string>();
 
   const canCreate = useAuthStore(state => state.hasPermission('case.create'));
+  const canUpdate = useAuthStore(state => state.hasPermission('case.update'));
+  const canDelete = useAuthStore(state => state.hasPermission('case.delete'));
   const canClose = useAuthStore(state => state.hasPermission('case.close'));
   const canTask = useAuthStore(state => state.hasPermission('case.task.manage'));
   const canCommunicate = useAuthStore(state => state.hasPermission('case.communication.create'));
@@ -179,12 +186,12 @@ const CasePage: React.FC = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  const fetchList = async (nextPage = page, nextSize = pageSize) => {
+  const fetchList = async (nextPage = page, nextSize = pageSize, filters = { keyword, status }) => {
     setLoading(true);
     try {
       const params: Record<string, string | number | undefined> = { page: nextPage, pageSize: nextSize };
-      if (keyword) params.keyword = keyword;
-      if (status) params.status = status;
+      if (filters.keyword.trim()) params.keyword = filters.keyword.trim();
+      if (filters.status) params.status = filters.status;
       const res = await caseApi.list(params);
       setData(res.data.list);
       setTotal(res.data.total);
@@ -262,11 +269,12 @@ const CasePage: React.FC = () => {
     caseDraft.ownerId = ownerId;
     caseDraft.values = createForm.getFieldsValue(true);
     caseDraft.attachments = attachments;
+    caseDraft.editingCase = editingCase;
     navigate('/customers', { state: { createCustomerName: name, fromCase: true } });
   };
 
   const handleSearch = () => { void fetchList(1, pageSize); };
-  const handleReset = () => { setKeyword(''); setStatus(undefined); void fetchList(1, pageSize); };
+  const handleReset = () => { setKeyword(''); setStatus(undefined); void fetchList(1, pageSize, { keyword: '', status: undefined }); };
 
   const openDetail = async (record: Case) => {
     setDetail(null);
@@ -284,10 +292,46 @@ const CasePage: React.FC = () => {
 
   const openCreate = () => {
     clearCaseDraft();
+    setEditingCase(undefined);
     setAttachments({});
     setCustomerSearch('');
     createForm.resetFields();
     setCreateOpen(true);
+  };
+
+  const openEdit = async (record: Case) => {
+    setEditingLoading(record.id);
+    try {
+      const { data: current } = await caseApi.detail(record.id);
+      const fields: CreateFormValues['intakeData'] = { ...current.intakeData };
+      for (const [key, , kind] of INTAKE_FIELDS) if (kind === 'date' && fields[key]) fields[key] = dayjs(String(fields[key]));
+      const stored: Record<string, UploadFile[]> = {};
+      for (const file of current.files ?? []) {
+        const category = file.category ?? '其他附件';
+        (stored[category] ??= []).push({ uid: file.id, name: file.fileName, size: file.fileSize, type: file.fileType, status: 'done' });
+      }
+      clearCaseDraft();
+      setEditingCase(current);
+      setAttachments(stored);
+      setCustomerSearch('');
+      createForm.resetFields();
+      createForm.setFieldsValue({ title: current.title, customerId: current.customerId, lawyerId: current.lawyerId ?? undefined, caseType: current.caseType, priority: current.priority, fee: current.fee, description: current.description ?? '', intakeData: fields });
+      if (current.customerName) setCustomers(previous => previous.some(item => item.id === current.customerId) ? previous : [...previous, { id: current.customerId, name: current.customerName } as CustomerView]);
+      if (current.lawyerId && current.lawyerName) setEmployees(previous => previous.some(item => item.id === current.lawyerId) ? previous : [...previous, { id: current.lawyerId!, name: current.lawyerName! } as Employee]);
+      setCreateOpen(true);
+    } catch (error) { showRequestError(error, '案件加载失败，请重试'); }
+    finally { setEditingLoading(undefined); }
+  };
+
+  const handleDelete = async (record: Case) => {
+    setDeleting(record.id);
+    try {
+      await caseApi.remove(record.id, record.version);
+      message.success('案件已删除');
+      if (detail?.id === record.id) setDetailOpen(false);
+      await fetchList(data.length === 1 && page > 1 ? page - 1 : page, pageSize);
+    } catch (error) { showRequestError(error, '案件删除失败，请刷新后重试'); }
+    finally { setDeleting(undefined); }
   };
 
   const handleCreate = async (values: CreateFormValues) => {
@@ -303,6 +347,7 @@ const CasePage: React.FC = () => {
       for (const category of ATTACHMENT_CATEGORIES) {
         for (const upload of attachments[category] ?? []) {
           const file = upload.originFileObj;
+          if (!file && editingCase?.files?.some(stored => stored.id === upload.uid)) continue;
           if (!file) throw new Error('附件读取失败，请重新选择');
           const base64 = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
@@ -313,7 +358,7 @@ const CasePage: React.FC = () => {
           fileInputs.push({ category, fileName: file.name, fileType: file.type || 'application/octet-stream', base64 });
         }
       }
-      await caseApi.create({
+      const payload = {
         intakeData,
         ...(fileInputs.length ? { attachments: fileInputs } : {}),
         title: values.title,
@@ -321,16 +366,20 @@ const CasePage: React.FC = () => {
         caseType: values.caseType,
         ...(values.lawyerId ? { lawyerId: values.lawyerId } : {}),
         ...(values.priority ? { priority: values.priority } : {}),
-        ...(values.fee !== undefined ? { fee: values.fee.toFixed(2) } : {}),
-        ...(values.description?.trim() ? { description: values.description.trim() } : {}),
-      });
+        fee: values.fee == null ? '0.00' : String(values.fee),
+        description: values.description?.trim() ?? '',
+      };
+      if (editingCase) {
+        const retained = new Set(Object.values(attachments).flat().map(file => file.uid));
+        await caseApi.update(editingCase.id, { ...payload, version: editingCase.version, removeAttachmentIds: (editingCase.files ?? []).filter(file => !retained.has(file.id)).map(file => file.id) });
+      } else await caseApi.create(payload);
       clearCaseDraft();
       setAttachments({});
-      message.success('案件已创建');
+      message.success(editingCase ? '案件已修改' : '案件已创建');
       setCreateOpen(false);
-      void fetchList(1, pageSize);
-    } catch {
-      message.error('案件未保存，请检查填写内容或附件后重试');
+      void fetchList(editingCase ? page : 1, pageSize);
+    } catch (error) {
+      showRequestError(error, '案件未保存，请检查填写内容或附件后重试');
     } finally {
       setCreateSubmitting(false);
     }
@@ -501,22 +550,37 @@ const CasePage: React.FC = () => {
   const customerMap = new Map(customers.map(item => [item.id, item.name]));
   const employeeMap = new Map(employees.map(item => [item.id, item.name]));
 
-  const columns = [
-    { title: '案件编号', dataIndex: 'caseNo', key: 'caseNo', width: 160, render: (caseNo: string) => <span>{caseNo}<br /><Link to={'/finance?caseNo=' + encodeURIComponent(caseNo)}>关联财务</Link></span> },
-    { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
-    { title: '客户', key: 'customer', width: 120, render: (_: unknown, record: Case) => customerMap.get(record.customerId) ?? record.customerId },
-    { title: '主办律师', key: 'lawyer', width: 110, render: (_: unknown, record: Case) => (record.lawyerId ? employeeMap.get(record.lawyerId) ?? record.lawyerId : '-') },
+  const intakeValue = (record: Case, key: string, kind: string) => {
+    const value = record.intakeData?.[key as keyof CaseIntake];
+    if (!value) return '-';
+    if (kind === 'department') return departments.find(item => item.value === value)?.label ?? value;
+    return kind === 'money' ? `${value} 元` : kind === 'ratio' ? `${value}%` : value;
+  };
+  const columns: ColumnsType<Case> = [
+    { title: '案件编号', dataIndex: 'caseNo', key: 'caseNo', width: 180, fixed: 'left', render: (caseNo: string) => <span>{caseNo}<br /><Link to={'/finance?caseNo=' + encodeURIComponent(caseNo)}>关联财务</Link></span> },
+    { title: '标题', dataIndex: 'title', key: 'title', width: 200, ellipsis: true },
+    { title: '客户', key: 'customer', width: 120, render: (_: unknown, record: Case) => record.customerName ?? customerMap.get(record.customerId) ?? record.customerId },
+    { title: '主办律师', key: 'lawyer', width: 110, render: (_: unknown, record: Case) => record.lawyerName ?? (record.lawyerId ? employeeMap.get(record.lawyerId) ?? record.lawyerId : '-') },
     { title: '案由', dataIndex: 'caseType', key: 'caseType', width: 120 },
     { title: '优先级', dataIndex: 'priority', key: 'priority', width: 90, render: (value: string) => <Tag color={PRIORITY_META[value]?.color}>{PRIORITY_META[value]?.text ?? value}</Tag> },
     { title: '状态', dataIndex: 'status', key: 'status', width: 90, render: (value: string) => <Tag color={STATUS_META[value]?.color}>{STATUS_META[value]?.text ?? value}</Tag> },
+    { title: '费用', dataIndex: 'fee', key: 'fee', width: 160, render: (value: string) => `${value} 元` },
+    ...INTAKE_FIELDS.map(([key, label, kind]) => ({ title: label, key, width: kind === 'textarea' ? 260 : 180, ellipsis: true, render: (_: unknown, record: Case) => <span title={intakeValue(record, key, kind)}>{intakeValue(record, key, kind)}</span> })),
+    { title: '案情描述', dataIndex: 'description', key: 'description', width: 260, ellipsis: true, render: (value: string) => value || '-' },
+    { title: '记录创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 180, render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm:ss') },
+    { title: '最近修改时间', dataIndex: 'updatedAt', key: 'updatedAt', width: 180, render: (value: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-' },
+    ...ATTACHMENT_CATEGORIES.map(category => ({ title: category, key: category, width: 200, render: (_: unknown, record: Case) => !canReadFiles ? '无文件读取权限' : <Space direction="vertical">{(record.files ?? []).filter(file => file.category === category).map(file => <Button type="link" size="small" key={file.id} title={file.fileName} onClick={() => void handleDownloadFile(file)}>{file.fileName}</Button>)}{!(record.files ?? []).some(file => file.category === category) && '-'}</Space> })),
     {
       title: '操作',
       key: 'action',
-      width: 160,
+      width: 330,
+      fixed: 'right',
       render: (_: unknown, record: Case) => (
         <Space size={0}>
           {canBindFinance && !record.contractId && <Button type="link" size="small" onClick={async () => { setBindingBusy(true); try { const res = await contractApi.list({ page: 1, pageSize: 100, customerId: record.customerId }); setFinanceContracts(res.data.list); setFinanceContractId(undefined); setBinding(record); } catch { message.error('合同加载失败'); } finally { setBindingBusy(false); } }}>关联财务合同</Button>}
-          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => void openDetailWithFiles(record)}>详情</Button>
+          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => void openDetailWithFiles(record)}>查询详情</Button>
+          {canUpdate && <Button type="link" size="small" disabled={['CLOSED', 'ARCHIVED'].includes(record.status)} loading={editingLoading === record.id} onClick={() => void openEdit(record)}>修改</Button>}
+          {canDelete && <Popconfirm title={`删除案件 ${record.caseNo}？`} description={`将删除“${record.title}”及其任务、沟通和附件，无法撤销。`} okText="删除" cancelText="取消" onConfirm={() => handleDelete(record)}><Button type="link" size="small" danger loading={deleting === record.id}>删除</Button></Popconfirm>}
           {canClose && record.status !== 'CLOSED' && record.status !== 'ARCHIVED' && (
             <Button type="link" size="small" icon={<CheckCircleOutlined />} onClick={() => openClose(record)}>结案</Button>
           )}
@@ -535,7 +599,7 @@ const CasePage: React.FC = () => {
             <Space wrap>
               <Input
                 aria-label="案件关键词"
-                placeholder="搜索编号/标题/案由"
+                placeholder="搜索编号/标题/案由/客户/合同/地区/类型"
                 value={keyword}
                 onChange={e => setKeyword(e.target.value)}
                 onPressEnter={handleSearch}
@@ -581,7 +645,7 @@ const CasePage: React.FC = () => {
 
       {/* 新建案件 */}
       <Modal
-        title="新建案件"
+        title={editingCase ? '修改案件' : '新建案件'}
         open={createOpen}
         onCancel={() => { if (!createSubmitting) { setCreateOpen(false); clearCaseDraft(); } }}
         mask={{ closable: false }}
@@ -633,17 +697,17 @@ const CasePage: React.FC = () => {
             />
           </Form.Item></Col>
           <Col xs={24} md={12}><Form.Item name="fee" label="费用">
-            <InputNumber aria-label="费用" min={0} precision={2} style={{ width: '100%' }} />
+            <InputNumber aria-label="费用" stringMode min="0" max="9999999999999999.99" precision={2} style={{ width: '100%' }} />
           </Form.Item></Col>
           </Row>
-          <IntakeFields departments={departments} />
+          <IntakeFields departments={departments} createdAt={editingCase?.createdAt} updatedAt={editingCase?.updatedAt} />
           <Divider titlePlacement="left">附件</Divider>
           <p style={{ color: '#666' }}>支持图片、PDF、Word、Excel等常用文件，总计不超过10MB。保存案件时一并上传。</p>
-          {ATTACHMENT_CATEGORIES.map(category => <Form.Item key={category} label={category}>
+          {[...ATTACHMENT_CATEGORIES, ...(attachments['其他附件']?.length ? ['其他附件'] : [])].map(category => <Form.Item key={category} label={category}>
             <Upload multiple disabled={!canManageFiles || createSubmitting} accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tif,.tiff,.heic"
               fileList={attachments[category] ?? []}
               beforeUpload={(file, batch) => {
-                const existing = Object.values(attachments).flat();
+                const existing = Object.values(attachments).flat().filter(item => item.originFileObj);
                 if (!/\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf|png|jpe?g|gif|webp|bmp|tiff?|heic)$/i.test(file.name) || !file.size || existing.length + batch.length > 20 || [...existing, ...batch].reduce((sum, item) => sum + (item.size ?? 0), 0) > 10 * 1024 * 1024) {
                   message.error('请上传常用格式的非空文件，最多20个，合计不超过10MB');
                   return Upload.LIST_IGNORE;
@@ -651,7 +715,7 @@ const CasePage: React.FC = () => {
                 return false;
               }}
               onChange={({ fileList }) => setAttachments(previous => ({ ...previous, [category]: fileList }))}>
-              <Button icon={<UploadOutlined />}>选择{category}</Button>
+              {category !== '其他附件' && <Button icon={<UploadOutlined />}>选择{category}</Button>}
             </Upload>
             {!canManageFiles && <span>需要案件文件管理权限</span>}
           </Form.Item>)}
@@ -774,7 +838,7 @@ const CasePage: React.FC = () => {
 
             <Card size="small" title="建档补充信息" style={{ marginBottom: 16 }}>
               <Row gutter={[16, 12]}>
-                {INTAKE_FIELDS.map(([key, label]) => <Col span={12} key={key}><strong>{label}：</strong>{key === 'departmentId' ? departments.find(item => item.value === detail.intakeData?.[key])?.label ?? detail.intakeData?.[key] ?? '-' : detail.intakeData?.[key] ?? '-'}</Col>)}
+                {INTAKE_FIELDS.map(([key, label, kind]) => <Col span={12} key={key}><strong>{label}：</strong>{intakeValue(detail, key, kind)}</Col>)}
                 <Col span={12}><strong>最近修改时间：</strong>{detail.updatedAt ? dayjs(detail.updatedAt).format('YYYY-MM-DD HH:mm:ss') : '-'}</Col>
               </Row>
             </Card>

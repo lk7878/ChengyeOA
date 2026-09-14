@@ -209,6 +209,7 @@ export const PERMISSION_CODES = [
   'case.read',
   'case.create',
   'case.update',
+  'case.delete',
   'case.close',
   'case.task.manage',
   'case.communication.create',

@@ -72,3 +72,14 @@ export function cleanAttachments(files: PreparedAttachment[]): void {
     }
   }
 }
+
+/** Database deletion has committed; a disk cleanup failure must not report the business write as failed. */
+export function removeStoredAttachments(files: { filePath: string }[]): void {
+  for (const file of files) {
+    if (path.basename(file.filePath) !== file.filePath) continue;
+    try { fs.unlinkSync(path.join(storageRoot(), file.filePath)); } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') console.warn('Case attachment cleanup failed:', code);
+    }
+  }
+}

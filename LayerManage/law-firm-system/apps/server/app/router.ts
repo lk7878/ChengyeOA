@@ -242,6 +242,7 @@ export default (app: Application) => {
   router.get('/api/v1/cases/:id', requirePermission('case.read'), controller.case.show);
   router.post('/api/v1/cases', requirePermission('case.create'), controller.case.create);
   router.put('/api/v1/cases/:id', requirePermission('case.update'), controller.case.update);
+  router.delete('/api/v1/cases/:id', requirePermission('case.delete'), controller.case.destroy);
   router.post('/api/v1/cases/:id/tasks', requirePermission('case.task.manage'), controller.case.createTask);
   router.patch('/api/v1/cases/:id/tasks/:taskId', requirePermission('case.task.manage'), controller.case.updateTask);
   router.post('/api/v1/cases/:id/communications', requirePermission('case.communication.create'), controller.case.createCommunication);

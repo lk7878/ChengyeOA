@@ -2,7 +2,7 @@
 // 无校验/审计/测试，本版本替换为薄控制器调正规 service 层）。
 // 薄控制器纪律（仿 payment.ts / approval.ts）：传输层解析 → 调 case 服务 → 包络响应
 // { code:200, message:'success', data }；业务校验/权限/状态机/审计全在服务层。
-// 移除 destroy（案件业务不可删，归档替代）。
+// SPEC-CASE-CRUD-20260914：新增带权限、版本和财务关联保护的删除。
 
 import { Controller } from 'egg';
 
@@ -16,7 +16,7 @@ import { MasterDataError } from '../domain/master-data/master-data-errors';
 import { assertExactKeys } from '../domain/master-data/master-data-validation';
 
 const CREATE_CASE_BODY_KEYS = ['intakeData', 'attachments', 'title', 'customerId', 'contractId', 'lawyerId', 'teamIds', 'caseType', 'priority', 'fee', 'description'] as const;
-const UPDATE_CASE_BODY_KEYS = ['title', 'lawyerId', 'teamIds', 'caseType', 'priority', 'description', 'result', 'satisfaction', 'isReferrable', 'version'] as const;
+const UPDATE_CASE_BODY_KEYS = ['customerId', 'fee', 'intakeData', 'attachments', 'removeAttachmentIds', 'title', 'lawyerId', 'teamIds', 'caseType', 'priority', 'description', 'result', 'satisfaction', 'isReferrable', 'version'] as const;
 const CLOSE_CASE_BODY_KEYS = ['result', 'satisfaction'] as const;
 const CREATE_TASK_BODY_KEYS = ['name', 'nodeType', 'dueDate', 'remark'] as const;
 const UPDATE_TASK_BODY_KEYS = ['status', 'remark'] as const;
@@ -48,6 +48,12 @@ export default class CaseController extends Controller {
     const body = this.ctx.request.body;
     assertExactKeys(body, UPDATE_CASE_BODY_KEYS);
     this.respond(await caseService(this.ctx).updateCase(this.ctx.params.id, body as never));
+  }
+
+  async destroy() {
+    const body = this.ctx.request.body;
+    assertExactKeys(body, ['version']);
+    this.respond(await caseService(this.ctx).deleteCase(this.ctx.params.id, body as never));
   }
 
   /** POST /api/v1/cases/:id/tasks（case.task.manage）：新建案件任务。 */
