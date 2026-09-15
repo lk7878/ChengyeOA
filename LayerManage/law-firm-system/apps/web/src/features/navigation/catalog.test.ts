@@ -29,13 +29,18 @@ test('every live App route is catalogued or an explicit authentication/legacy/fa
   for (const entry of entries)
     expect(routes.includes(entry.path) || entry.path.startsWith('/inventory'), entry.path).toBe(true);
   expect(new Set(entries.map((entry) => entry.path)).size).toBe(entries.length);
-  const inventory = readFileSync(resolve('src/pages/Inventory/index.tsx'), 'utf8');
+  const inventory = readFileSync(resolve('src/pages/Inventory/InventoryAnalyticsPage.tsx'), 'utf8');
   const titleDefinition = inventory.slice(
     inventory.indexOf('const titles:'),
     inventory.indexOf('const kindOptions'),
   );
   for (const route of entries.filter((entry) => entry.path.startsWith('/inventory/')))
-    expect(titleDefinition).toContain(route.path.split('/')[2]);
+    if (!['items', 'movements', 'stocktakes'].includes(route.path.split('/')[2]))
+      expect(titleDefinition).toContain(route.path.split('/')[2]);
+  for (const source of ['items', 'movements', 'stocktakes']) {
+    expect(routes).toContain('/inventory/' + source + '/new');
+    expect(routes).toContain('/inventory/' + source + '/:id');
+  }
 });
 test('static pool/calendar/new paths take precedence over record details', () => {
   expect(findEntry('/leads/pool')?.title).toBe('公海池');

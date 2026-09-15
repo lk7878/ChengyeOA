@@ -14,7 +14,13 @@ process.env.EGG_TYPESCRIPT = 'true';
 const app = mm.app();
 let prisma: PrismaClient;
 
-const METRICS_PERMISSIONS = ['performance.read', 'performance.create'];
+const METRICS_PERMISSIONS = [
+  'case.read',
+  'payment.read',
+  'employee.read',
+  'performance.read',
+  'performance.create',
+];
 
 async function createSession(permissions: string[]): Promise<{ userId: string; token: string }> {
   const suffix = randomUUID();
@@ -27,11 +33,11 @@ async function createSession(permissions: string[]): Promise<{ userId: string; t
       code: `PMA_API_${suffix.replaceAll('-', '').slice(0, 20).toUpperCase()}`,
       type: 'BUSINESS',
       permissions: {
-        create: permissions.map(code => ({ permission: { connect: { code } } })),
+        create: permissions.map((code) => ({ permission: { connect: { code } } })),
       },
     },
   });
-  const resources = [...new Set(permissions.map(code => code.split('.')[0]))];
+  const resources = [...new Set(permissions.map((code) => code.split('.')[0]))];
   for (const resource of resources) {
     const dataScope = await prisma.dataScope.create({
       data: {
@@ -86,14 +92,16 @@ test.after(async () => {
 test('returns the performance business metrics with zero activity', async () => {
   const session = await createSession(METRICS_PERMISSIONS);
   const employeeId = await seedEmployee();
-  const created = await app.httpRequest()
+  const created = await app
+    .httpRequest()
     .post('/api/v1/performances')
     .set(bearer(session.token))
     .send({ employeeId, period: '2026-04', type: 'MONTHLY' })
     .expect(200);
   const performanceId = created.body.data.id as string;
 
-  const metrics = await app.httpRequest()
+  const metrics = await app
+    .httpRequest()
     .get(`/api/v1/performances/${performanceId}/metrics`)
     .set(bearer(session.token))
     .expect(200);
@@ -104,9 +112,10 @@ test('returns the performance business metrics with zero activity', async () => 
 });
 
 test('rejects the metrics endpoint without performance.read and returns 404 for a missing record', async () => {
-  const reader = await createSession(['performance.create']);
+  const reader = await createSession(['employee.read', 'performance.create']);
   const employeeId = await seedEmployee();
-  const created = await app.httpRequest()
+  const created = await app
+    .httpRequest()
     .post('/api/v1/performances')
     .set(bearer(reader.token))
     .send({ employeeId, period: '2026-04', type: 'MONTHLY' })
@@ -114,13 +123,15 @@ test('rejects the metrics endpoint without performance.read and returns 404 for 
   const performanceId = created.body.data.id as string;
 
   // 无 performance.read → 403。
-  await app.httpRequest()
+  await app
+    .httpRequest()
     .get(`/api/v1/performances/${performanceId}/metrics`)
     .set(bearer(reader.token))
     .expect(403);
 
   // 不存在 → 404 PERFORMANCE_NOT_FOUND。
-  const missing = await app.httpRequest()
+  const missing = await app
+    .httpRequest()
     .get(`/api/v1/performances/${randomUUID()}/metrics`)
     .set(bearer((await createSession(METRICS_PERMISSIONS)).token))
     .expect(404);

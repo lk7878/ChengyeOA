@@ -1193,6 +1193,9 @@ model Communication {
 
 model Performance {
   id             String    @id @default(uuid())
+  createdBy      String?
+  updatedBy      String?
+  version        Int       @default(1)
   employeeId     String
   period         String // 考核周期，如"2026-04"
   type           String // MONTHLY | QUARTERLY | YEARLY
@@ -1215,6 +1218,7 @@ model Performance {
   employee Employee @relation(fields: [employeeId], references: [id])
 
   @@unique([employeeId, period, type])
+  @@index([createdBy])
   @@map("performance")
 }
 

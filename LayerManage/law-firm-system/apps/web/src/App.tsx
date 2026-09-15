@@ -49,8 +49,11 @@ import ProfessionalTeamPage from './pages/ProfessionalTeam';
 import ChannelPage from './pages/Channel';
 import ApprovalCenterPage from './pages/approvals/ApprovalCenterPage';
 import NotificationPage from './pages/Notification';
-import PerformancePage from './pages/Performance';
-import InventoryPage from './pages/Inventory';
+import PerformanceRecordPage from './pages/Performance/PerformanceRecordPage';
+import PerformanceCreatePage from './pages/Performance/PerformanceCreatePage';
+import PayrollPanel from './pages/Performance/PayrollPanel';
+import InventoryPage from './pages/Inventory/InventoryWorkspace';
+import InventoryRecordPage from './pages/Inventory/InventoryRecordPage';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -426,6 +429,18 @@ function SessionBootstrap() {
               </AuthorizedPage>
             }
           />
+          <Route path="/inventory/items/new" element={<InventoryRecordPage source="items" creating />} />
+          <Route path="/inventory/items/:id" element={<InventoryRecordPage source="items" />} />
+          <Route
+            path="/inventory/movements/new"
+            element={<InventoryRecordPage source="movements" creating />}
+          />
+          <Route path="/inventory/movements/:id" element={<InventoryRecordPage source="movements" />} />
+          <Route
+            path="/inventory/stocktakes/new"
+            element={<InventoryRecordPage source="stocktakes" creating />}
+          />
+          <Route path="/inventory/stocktakes/:id" element={<InventoryRecordPage source="stocktakes" />} />
           <Route path="/finance" element={<FinanceWorkspace />} />
           <Route path="/payments/new" element={<FinanceRecordPage kind="payment" />} />
           <Route path="/payments/:id" element={<FinanceRecordPage kind="payment" />} />
@@ -445,7 +460,18 @@ function SessionBootstrap() {
             }
           />
           <Route path="/notifications" element={<NotificationPage />} />
-          <Route path="/performances" element={<PerformancePage />} />
+          <Route path="/performances" element={<BusinessWorkspacePage source="PERFORMANCES" />} />
+          <Route path="/performances/new" element={<PerformanceCreatePage />} />
+          <Route path="/performances/:id" element={<PerformanceRecordPage />} />
+          <Route
+            path="/payroll"
+            element={
+              <div className="unified-area-page">
+                <h1>工资表与审批</h1>
+                <PayrollPanel />
+              </div>
+            }
+          />
           <Route path="*" element={null} />
         </Route>
       </Routes>

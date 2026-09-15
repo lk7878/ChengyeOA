@@ -1,3 +1,4 @@
+import { inventoryViewConfig } from '@/pages/Inventory/context';
 import { financialSources, financialViewConfig, financeContextParams } from '@/pages/finance/context';
 import { useAuthStore } from '@/stores/authStore';
 import { businessSources, isBusinessSource, domainCreate } from '@/features/crm/business-sources';
@@ -272,10 +273,11 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
     setQueryError('');
     let queryConfig: ViewConfig;
     try {
+      queryConfig = inventoryViewConfig(detail.table.source, detail.fields, config, params);
       queryConfig = financialViewConfig(
         detail.table.source,
         detail.fields,
-        config,
+        queryConfig,
         financeContractId,
         financeCaseId,
       );
@@ -310,7 +312,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
     return () => {
       alive = false;
     };
-  }, [tableId, detail, view?.id, config, page, revision, financeContractId, financeCaseId]);
+  }, [tableId, detail, view?.id, config, page, revision, financeContractId, financeCaseId, params]);
   useEffect(() => {
     if (!baseId) return;
     let stopped = false,
@@ -409,6 +411,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   }, [baseId, tableId, refresh]);
   const go = (next: Record<string, string>) => {
     Object.assign(next, financeContextParams(params));
+    for (const key of ['kind', 'action', 'item']) if (params.get(key)) next[key] = params.get(key)!;
     if (next.base && params.get('driveReturn')) next.driveReturn = params.get('driveReturn')!;
     setAnchor(undefined);
     setPaste(undefined);
@@ -1677,9 +1680,17 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               <Button onClick={() => navigate('/leads/' + editing.row!.id)}>打开线索业务详情</Button>
             )}
             {detail &&
-              ['CUSTOMERS', 'CONTRACTS', 'NEGOTIATIONS', 'CASES', ...financialSources].includes(
-                detail.table.source,
-              ) &&
+              [
+                'CUSTOMERS',
+                'CONTRACTS',
+                'NEGOTIATIONS',
+                'CASES',
+                'INVENTORY_ITEMS',
+                'INVENTORY_MOVEMENTS',
+                'INVENTORY_STOCKTAKES',
+                'PERFORMANCES',
+                ...financialSources,
+              ].includes(detail.table.source) &&
               editing.row && (
                 <Button
                   onClick={() =>
@@ -1687,7 +1698,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                       businessSources[detail.table.source as keyof typeof businessSources].path +
                         '/' +
                         editing.row!.id +
-                        (financialSources.includes(detail.table.source) ? '?' + params.toString() : ''),
+                        (params.size ? '?' + params.toString() : ''),
                     )
                   }
                 >
@@ -1908,6 +1919,10 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                       'INVOICES',
                       'REFUNDS',
                       'COSTS',
+                      'INVENTORY_ITEMS',
+                      'INVENTORY_MOVEMENTS',
+                      'INVENTORY_STOCKTAKES',
+                      'PERFORMANCES',
                     ] as const
                   ).map((source) => ({
                     value: source,

@@ -1,3 +1,4 @@
+import { isInventoryDecimal } from './inventory-decimal';
 import type { Directory, Field, RecordRow } from './types';
 
 export function parseClipboard(text: string): string[][] {
@@ -64,6 +65,10 @@ export function clipboardValue(field: Field, raw: string, directory: Directory):
   };
   switch (field.type) {
     case 'NUMBER':
+      if (isInventoryDecimal(field)) {
+        if (!/^-?\d{1,15}(\.\d{1,3})?$/.test(value)) throw new Error('库存数量最多三位小数');
+        return value;
+      }
       if (
         !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value) ||
         !Number.isFinite(Number(value)) ||

@@ -10,7 +10,7 @@ import { PermissionCode } from '../../app/domain/authorization/authorization-typ
 import { PERFORMANCE_ERROR_CODES, PerformanceError } from '../../app/domain/performance/performance-errors';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 
-const PERMISSIONS: PermissionCode[] = ['performance.read'];
+const PERMISSIONS: PermissionCode[] = ['case.read', 'payment.read', 'performance.read'];
 
 const prisma = createTestPrisma();
 
@@ -34,7 +34,7 @@ function context(userId: string): AuthorizationContext {
     isSystemAdmin: false,
     isSystemSuperAdmin: false,
     permissionCodes: PERMISSIONS,
-    grants: PERMISSIONS.map(permissionCode => ({
+    grants: PERMISSIONS.map((permissionCode) => ({
       sourceType: 'ROLE' as const,
       sourceId: `${userId}-grant-${permissionCode}`,
       sourceRoleId: 'test-role',
@@ -108,11 +108,25 @@ async function seedContract(customerId: string): Promise<string> {
 
 async function seedClosedCase(lawyerId: string, contractId: string, closedAt: Date): Promise<void> {
   await prisma.case.create({
-    data: { caseNo: `CA-${randomUUID()}`, title: '指标案', customerId: (await prisma.contract.findUnique({ where: { id: contractId } }))!.customerId, caseType: '民事', status: 'CLOSED', closedAt, lawyerId, contractId },
+    data: {
+      caseNo: `CA-${randomUUID()}`,
+      title: '指标案',
+      customerId: (await prisma.contract.findUnique({ where: { id: contractId } }))!.customerId,
+      caseType: '民事',
+      status: 'CLOSED',
+      closedAt,
+      lawyerId,
+      contractId,
+    },
   });
 }
 
-async function seedConfirmedPayment(contractId: string, customerId: string, amount: string, confirmedAt: Date): Promise<void> {
+async function seedConfirmedPayment(
+  contractId: string,
+  customerId: string,
+  amount: string,
+  confirmedAt: Date,
+): Promise<void> {
   await prisma.payment.create({
     data: {
       paymentNo: `PY-${randomUUID()}`,
@@ -166,17 +180,23 @@ test('getBusinessMetrics returns 404 for a missing performance and rejects witho
   const service = await serviceFor();
   await assert.rejects(
     () => service.getBusinessMetrics(randomUUID()),
-    (error: unknown) => error instanceof PerformanceError && error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_NOT_FOUND && error.httpStatus === 404,
+    (error: unknown) =>
+      error instanceof PerformanceError &&
+      error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_NOT_FOUND &&
+      error.httpStatus === 404,
   );
 
   // 无 performance.read → 403。
-  const user = await prisma.user.create({ data: { username: `perf.metrics.deny.${randomUUID()}`, password: 'x' } });
+  const user = await prisma.user.create({
+    data: { username: `perf.metrics.deny.${randomUUID()}`, password: 'x' },
+  });
   const actor: AuditActor = { actorUserId: user.id, requestId: `req-${randomUUID()}` };
   // context 始终含 performance.read——构造一个不含该权限的上下文。
-  const deniedCtx = { ...context(user.id), permissionCodes: [] as PermissionCode[], grants: [] as AuthorizationContext['grants'] };
+  const deniedCtx = {
+    ...context(user.id),
+    permissionCodes: [] as PermissionCode[],
+    grants: [] as AuthorizationContext['grants'],
+  };
   const deniedService = new PerformanceService(prisma, actor, deniedCtx);
-  await assert.rejects(
-    () => deniedService.getBusinessMetrics(randomUUID()),
-    { name: 'AuthorizationError' },
-  );
+  await assert.rejects(() => deniedService.getBusinessMetrics(randomUUID()), { name: 'AuthorizationError' });
 });

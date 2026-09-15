@@ -35,6 +35,28 @@ export function displayValue(field: Field, value: unknown, directory: Directory)
     const label = names[field.options.businessKey || '']?.[String(value)];
     if (label) return label;
   }
+  if (
+    ['INVENTORY_ITEMS', 'INVENTORY_MOVEMENTS', 'INVENTORY_STOCKTAKES', 'PERFORMANCES'].includes(
+      field.options.businessSource || '',
+    )
+  ) {
+    const names: Record<string, Record<string, string>> = {
+      kind: { OFFICE: '办公用品', CUSTOMIZED: '定制物品' },
+      itemKind: { OFFICE: '办公用品', CUSTOMIZED: '定制物品' },
+      action: { INBOUND: '入库', OUTBOUND: '领用出库', ADJUST: '盘点调整' },
+      status: {
+        ENABLED: '启用',
+        DISABLED: '停用',
+        PENDING: '待考核',
+        SELF_REVIEWED: '已自评',
+        MANAGER_REVIEWED: '已主管评',
+        CONFIRMED: '已确认',
+      },
+      type: { MONTHLY: '月度', QUARTERLY: '季度', YEARLY: '年度' },
+    };
+    const label = names[field.options.businessKey || '']?.[String(value)];
+    if (label) return label;
+  }
   const labels: Record<string, string> = Object.fromEntries(
     Object.entries(
       field.options.businessKey === 'status'

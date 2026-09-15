@@ -32,7 +32,10 @@ test.after(async () => {
   await prisma.$disconnect();
 });
 
-function performanceContext(userId: string, overrides: { permissionCodes?: PermissionCode[] } = {}): AuthorizationContext {
+function performanceContext(
+  userId: string,
+  overrides: { permissionCodes?: PermissionCode[] } = {},
+): AuthorizationContext {
   const permissionCodes = overrides.permissionCodes ?? PERFORMANCE_PERMISSIONS;
   return {
     userId,
@@ -40,7 +43,7 @@ function performanceContext(userId: string, overrides: { permissionCodes?: Permi
     isSystemAdmin: false,
     isSystemSuperAdmin: false,
     permissionCodes,
-    grants: permissionCodes.map(permissionCode => ({
+    grants: permissionCodes.map((permissionCode) => ({
       sourceType: 'ROLE' as const,
       sourceId: `${userId}-grant-${permissionCode}`,
       sourceRoleId: 'test-role',
@@ -55,12 +58,17 @@ function performanceContext(userId: string, overrides: { permissionCodes?: Permi
   };
 }
 
-async function serviceFor(permissionCodes: PermissionCode[] = PERFORMANCE_PERMISSIONS): Promise<{ service: PerformanceService; userId: string }> {
+async function serviceFor(
+  permissionCodes: PermissionCode[] = PERFORMANCE_PERMISSIONS,
+): Promise<{ service: PerformanceService; userId: string }> {
   const user = await prisma.user.create({
     data: { username: `perf.review.${randomUUID()}`, password: 'x' },
   });
   const actor: AuditActor = { actorUserId: user.id, requestId: `req-${randomUUID()}` };
-  return { service: new PerformanceService(prisma, actor, performanceContext(user.id, { permissionCodes })), userId: user.id };
+  return {
+    service: new PerformanceService(prisma, actor, performanceContext(user.id, { permissionCodes })),
+    userId: user.id,
+  };
 }
 
 async function seedEmployee(): Promise<string> {
@@ -93,14 +101,19 @@ test('setGoal sets the goal in PENDING and refuses other states', async () => {
   assert.equal(updated.goal, '完成 5 个案源转化');
   assert.equal(updated.status, 'PENDING');
 
-  const audit = await prisma.operationLog.findFirst({ where: { action: 'PERFORMANCE_GOAL_SET', targetType: 'PERFORMANCE' } });
+  const audit = await prisma.operationLog.findFirst({
+    where: { action: 'PERFORMANCE_GOAL_SET', targetType: 'PERFORMANCE' },
+  });
   assert.ok(audit, 'a PERFORMANCE_GOAL_SET audit is written');
 
   // 已自评 → 设目标 409。
   const selfReviewedId = await seedPerformance('SELF_REVIEWED');
   await assert.rejects(
     () => service.setGoal(selfReviewedId, { goal: 'x' }),
-    (error: unknown) => error instanceof PerformanceError && error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID && error.httpStatus === 409,
+    (error: unknown) =>
+      error instanceof PerformanceError &&
+      error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID &&
+      error.httpStatus === 409,
   );
 
   // 无 performance.update → 403。
@@ -111,8 +124,15 @@ test('setGoal sets the goal in PENDING and refuses other states', async () => {
 });
 
 test('selfReview transitions PENDING → SELF_REVIEWED and refuses invalid states', async () => {
-  const { service } = await serviceFor();
+  const { userId } = await serviceFor();
   const id = await seedPerformance();
+  const record = await prisma.performance.findUniqueOrThrow({ where: { id } });
+  await prisma.user.update({ where: { id: userId }, data: { employeeId: record.employeeId } });
+  const service = new PerformanceService(
+    prisma,
+    { actorUserId: userId },
+    { ...performanceContext(userId), employeeId: record.employeeId },
+  );
 
   const updated = await service.selfReview(id, { selfScore: 85, selfComment: '完成情况良好' });
   assert.equal(updated.status, 'SELF_REVIEWED');
@@ -120,15 +140,15 @@ test('selfReview transitions PENDING → SELF_REVIEWED and refuses invalid state
   assert.equal(updated.selfComment, '完成情况良好');
 
   // 非法评分 → 400。
-  await assert.rejects(
-    () => service.selfReview(id, { selfScore: 101 }),
-    { name: 'MasterDataError' },
-  );
+  await assert.rejects(() => service.selfReview(id, { selfScore: 101 }), { name: 'MasterDataError' });
 
   // 已自评 → 再自评 409。
   await assert.rejects(
     () => service.selfReview(id, { selfScore: 90 }),
-    (error: unknown) => error instanceof PerformanceError && error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID && error.httpStatus === 409,
+    (error: unknown) =>
+      error instanceof PerformanceError &&
+      error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID &&
+      error.httpStatus === 409,
   );
 });
 
@@ -146,7 +166,10 @@ test('managerReview transitions SELF_REVIEWED → MANAGER_REVIEWED and records r
   const pendingId = await seedPerformance('PENDING');
   await assert.rejects(
     () => service.managerReview(pendingId, { managerScore: 90 }),
-    (error: unknown) => error instanceof PerformanceError && error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID && error.httpStatus === 409,
+    (error: unknown) =>
+      error instanceof PerformanceError &&
+      error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID &&
+      error.httpStatus === 409,
   );
 });
 
@@ -168,6 +191,9 @@ test('confirm accepts any non-terminal state and refuses double-confirm', async 
   // 重复确认 → 409。
   await assert.rejects(
     () => service.confirmPerformance(confirmed1.id),
-    (error: unknown) => error instanceof PerformanceError && error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID && error.httpStatus === 409,
+    (error: unknown) =>
+      error instanceof PerformanceError &&
+      error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID &&
+      error.httpStatus === 409,
   );
 });

@@ -181,3 +181,6 @@ U5-B 最终证据：案件三角色 App 冒烟通过；事件批量写入后案�
 
 
 2026-09-16 U6-A（阶段验收完成）：PAYMENTS/INVOICES/REFUNDS/COSTS 同源适配、FinanceCreatePage/FinanceRecordPage、DomainMutation 持久化创建重试、独立单据/成本 scope 与精确 CURRENCY 分组，对应 MOD-006、FTN-001/003/004/005。领域数据与事务/授权回归见 financial-workspace.test.ts，真实 App 与 MFA 流程见 collaboration-http.test.ts U6-A 场景；当前结果与失败修复记录见[阶段计划第 10 节](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)，U6-A 阶段完成，U6-B/C 与 U7 仍待实施；完整 U6 不因该财务子阶段自动完成。
+
+
+2026-09-16 U6-B（阶段验收完成）：INVENTORY_ITEMS/MOVEMENTS/STOCKTAKES/PERFORMANCES 四类同源工作表、原接口动作与数据范围、库存三位精确小数、绩效事实身份和并发版本、独立详情办理与工资专用入口，对应 MOD-011/012、FTN-001/003/004/005。实现和回归见 inventory-performance-workspace.test.ts、performance-identity-migration.test.ts、collaboration-http.test.ts U6-B场景及新前端详情/数量/导航测试。原21项服务、原10项HTTP、新10项来源范围、原业务/工资7项、迁移1项、前端34个不同用例均有通过记录；完整HTTP/SSE/Edge12/12及最后目标冒烟1/1通过。类型/lint/构建与契约检查通过，开发库保留数据增量至91模型/58迁移。100会话/901.492秒、3600次保存全部成功可见，查询/保存/可见P95 1109/1171/1201ms，CPU affinity=0xffff；默认调度问题尚未解决。全部中间失败、修复、限制见[阶段计划第11节](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。U6-C/U7仍待完成，真实Electron当前仅进程及服务连通验收。

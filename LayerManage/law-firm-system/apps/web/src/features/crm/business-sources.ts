@@ -1,4 +1,8 @@
 export const businessSources = {
+  INVENTORY_ITEMS: { title: '物品库存工作表', path: '/inventory/items', personal: '我登记的物品' },
+  INVENTORY_MOVEMENTS: { title: '出入库工作表', path: '/inventory/movements', personal: '我登记的出入库' },
+  INVENTORY_STOCKTAKES: { title: '盘点工作表', path: '/inventory/stocktakes', personal: '我登记的盘点' },
+  PERFORMANCES: { title: '绩效工作表', path: '/performances', personal: '我登记的绩效' },
   PAYMENTS: { title: '收款工作表', path: '/payments', personal: '我登记的收款' },
   INVOICES: { title: '发票工作表', path: '/invoices', personal: '我申请的发票' },
   REFUNDS: { title: '退款减免工作表', path: '/refunds', personal: '我的退款减免' },
@@ -16,6 +20,18 @@ export function isBusinessSource(source: string): source is BusinessSource {
 }
 
 export const domainCreates = {
+  INVENTORY_ITEMS: { label: '新增物品', path: '/inventory/items/new', permission: 'inventory.manage' },
+  INVENTORY_MOVEMENTS: {
+    label: '登记出入库',
+    path: '/inventory/movements/new',
+    permission: 'inventory.read',
+  },
+  INVENTORY_STOCKTAKES: {
+    label: '新增盘点',
+    path: '/inventory/stocktakes/new',
+    permission: 'inventory.stocktake',
+  },
+  PERFORMANCES: { label: '登记绩效', path: '/performances/new', permission: 'performance.create' },
   PAYMENTS: { label: '登记收款', path: '/payments/new', permission: 'payment.create' },
   INVOICES: { label: '申请发票', path: '/invoices/new', permission: 'invoice.create' },
   REFUNDS: { label: '申请退款减免', path: '/refunds/new', permission: 'refund.create' },

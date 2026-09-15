@@ -11,17 +11,28 @@ import { PerformanceListQuery } from '../application/performance/performance-typ
 import { MasterDataError } from '../domain/master-data/master-data-errors';
 import { assertExactKeys } from '../domain/master-data/master-data-validation';
 
-const CREATE_PERFORMANCE_BODY_KEYS = ['employeeId', 'period', 'type', 'kpiData', 'score', 'bonus', 'remark'] as const;
+const CREATE_PERFORMANCE_BODY_KEYS = [
+  'employeeId',
+  'period',
+  'type',
+  'kpiData',
+  'score',
+  'bonus',
+  'remark',
+  'idempotencyKey',
+] as const;
 const LIST_QUERY_KEYS = ['page', 'pageSize', 'employeeId', 'period', 'type'] as const;
 // SPEC-043：考核流程入参白名单——目标设定 / 自评 / 主管评。
-const SET_GOAL_BODY_KEYS = ['goal'] as const;
-const SELF_REVIEW_BODY_KEYS = ['selfScore', 'selfComment'] as const;
-const MANAGER_REVIEW_BODY_KEYS = ['managerScore', 'managerComment'] as const;
+const SET_GOAL_BODY_KEYS = ['goal', 'version'] as const;
+const SELF_REVIEW_BODY_KEYS = ['selfScore', 'selfComment', 'version'] as const;
+const MANAGER_REVIEW_BODY_KEYS = ['managerScore', 'managerComment', 'version'] as const;
 
 export default class PerformanceController extends Controller {
   /** GET /api/v1/performances（performance.read）：绩效列表（过滤 + 分页）。 */
   async index() {
-    this.respond(await performanceService(this.ctx).listPerformances(parsePerformanceListQuery(this.ctx.query)));
+    this.respond(
+      await performanceService(this.ctx).listPerformances(parsePerformanceListQuery(this.ctx.query)),
+    );
   }
 
   /** GET /api/v1/performances/:id（performance.read）：绩效详情（含员工投影）。 */
@@ -38,7 +49,9 @@ export default class PerformanceController extends Controller {
 
   /** POST /api/v1/performances/:id/confirm（performance.confirm）：确认绩效（任意非终态→CONFIRMED）。 */
   async confirm() {
-    this.respond(await performanceService(this.ctx).confirmPerformance(this.ctx.params.id));
+    const body = this.ctx.request.body ?? {};
+    assertExactKeys(body, ['version']);
+    this.respond(await performanceService(this.ctx).confirmPerformance(this.ctx.params.id, body as never));
   }
 
   /** GET /api/v1/performances/:id/metrics（performance.read，SPEC-044）：业务指标（案件办结数/回款额）。 */

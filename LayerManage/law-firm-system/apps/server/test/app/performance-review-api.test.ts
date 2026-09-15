@@ -14,7 +14,13 @@ process.env.EGG_TYPESCRIPT = 'true';
 const app = mm.app();
 let prisma: PrismaClient;
 
-const FULL_REVIEW_PERMISSIONS = ['performance.read', 'performance.create', 'performance.update', 'performance.confirm'];
+const FULL_REVIEW_PERMISSIONS = [
+  'employee.read',
+  'performance.read',
+  'performance.create',
+  'performance.update',
+  'performance.confirm',
+];
 
 async function createReviewSession(permissions: string[]): Promise<{ userId: string; token: string }> {
   const suffix = randomUUID();
@@ -27,11 +33,11 @@ async function createReviewSession(permissions: string[]): Promise<{ userId: str
       code: `PRV_API_${suffix.replaceAll('-', '').slice(0, 20).toUpperCase()}`,
       type: 'BUSINESS',
       permissions: {
-        create: permissions.map(code => ({ permission: { connect: { code } } })),
+        create: permissions.map((code) => ({ permission: { connect: { code } } })),
       },
     },
   });
-  const resources = [...new Set(permissions.map(code => code.split('.')[0]))];
+  const resources = [...new Set(permissions.map((code) => code.split('.')[0]))];
   for (const resource of resources) {
     const dataScope = await prisma.dataScope.create({
       data: {
@@ -68,7 +74,8 @@ async function seedEmployee(): Promise<string> {
 }
 
 async function createPerformanceViaApi(session: { token: string }, employeeId: string): Promise<string> {
-  const created = await app.httpRequest()
+  const created = await app
+    .httpRequest()
     .post('/api/v1/performances')
     .set(bearer(session.token))
     .send({ employeeId, period: '2026-04', type: 'MONTHLY' })
@@ -95,9 +102,11 @@ test.after(async () => {
 test('drives the full review flow: set goal → self review → manager review → confirm', async () => {
   const session = await createReviewSession(FULL_REVIEW_PERMISSIONS);
   const employeeId = await seedEmployee();
+  await prisma.user.update({ where: { id: session.userId }, data: { employeeId } });
   const performanceId = await createPerformanceViaApi(session, employeeId);
 
-  const goal = await app.httpRequest()
+  const goal = await app
+    .httpRequest()
     .post(`/api/v1/performances/${performanceId}/set-goal`)
     .set(bearer(session.token))
     .send({ goal: '完成 5 个案源转化' })
@@ -105,7 +114,8 @@ test('drives the full review flow: set goal → self review → manager review �
   assert.equal(goal.body.data.goal, '完成 5 个案源转化');
   assert.equal(goal.body.data.status, 'PENDING');
 
-  const self = await app.httpRequest()
+  const self = await app
+    .httpRequest()
     .post(`/api/v1/performances/${performanceId}/self-review`)
     .set(bearer(session.token))
     .send({ selfScore: 85, selfComment: '完成良好' })
@@ -113,7 +123,8 @@ test('drives the full review flow: set goal → self review → manager review �
   assert.equal(self.body.data.status, 'SELF_REVIEWED');
   assert.equal(self.body.data.selfScore, 85);
 
-  const manager = await app.httpRequest()
+  const manager = await app
+    .httpRequest()
     .post(`/api/v1/performances/${performanceId}/manager-review`)
     .set(bearer(session.token))
     .send({ managerScore: 90, managerComment: '达成优秀' })
@@ -121,7 +132,8 @@ test('drives the full review flow: set goal → self review → manager review �
   assert.equal(manager.body.data.status, 'MANAGER_REVIEWED');
   assert.ok(manager.body.data.reviewedAt, 'reviewedAt is set');
 
-  const confirmed = await app.httpRequest()
+  const confirmed = await app
+    .httpRequest()
     .post(`/api/v1/performances/${performanceId}/confirm`)
     .set(bearer(session.token))
     .expect(200);
@@ -129,17 +141,25 @@ test('drives the full review flow: set goal → self review → manager review �
 });
 
 test('rejects review actions without the matching permission', async () => {
-  const reader = await createReviewSession(['performance.read', 'performance.create', 'performance.confirm']);
+  const reader = await createReviewSession([
+    'employee.read',
+    'performance.read',
+    'performance.create',
+    'performance.confirm',
+  ]);
   const employeeId = await seedEmployee();
+  await prisma.user.update({ where: { id: reader.userId }, data: { employeeId } });
   const performanceId = await createPerformanceViaApi(reader, employeeId);
 
   // 无 performance.update → set-goal / self-review 403。
-  await app.httpRequest()
+  await app
+    .httpRequest()
     .post(`/api/v1/performances/${performanceId}/set-goal`)
     .set(bearer(reader.token))
     .send({ goal: 'x' })
     .expect(403);
-  await app.httpRequest()
+  await app
+    .httpRequest()
     .post(`/api/v1/performances/${performanceId}/self-review`)
     .set(bearer(reader.token))
     .send({ selfScore: 80 })
@@ -149,10 +169,12 @@ test('rejects review actions without the matching permission', async () => {
 test('carries review state-guard and validation error codes', async () => {
   const session = await createReviewSession(FULL_REVIEW_PERMISSIONS);
   const employeeId = await seedEmployee();
+  await prisma.user.update({ where: { id: session.userId }, data: { employeeId } });
   const performanceId = await createPerformanceViaApi(session, employeeId);
 
   // 未自评 → 主管评 409。
-  const earlyManager = await app.httpRequest()
+  const earlyManager = await app
+    .httpRequest()
     .post(`/api/v1/performances/${performanceId}/manager-review`)
     .set(bearer(session.token))
     .send({ managerScore: 90 })
@@ -160,14 +182,16 @@ test('carries review state-guard and validation error codes', async () => {
   assert.equal(earlyManager.body.message, 'PERFORMANCE_STATE_INVALID');
 
   // 非法评分 → 400。
-  await app.httpRequest()
+  await app
+    .httpRequest()
     .post(`/api/v1/performances/${performanceId}/self-review`)
     .set(bearer(session.token))
     .send({ selfScore: 101 })
     .expect(400);
 
   // 不存在 → 404。
-  await app.httpRequest()
+  await app
+    .httpRequest()
     .post(`/api/v1/performances/${randomUUID()}/set-goal`)
     .set(bearer(session.token))
     .send({ goal: 'x' })

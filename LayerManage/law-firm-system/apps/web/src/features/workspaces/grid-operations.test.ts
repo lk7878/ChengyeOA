@@ -108,3 +108,24 @@ describe('grouped page rows', () => {
     ).toBe(4);
   });
 });
+
+it('keeps inventory Decimal(18,3) exact across paste and neighboring groups', () => {
+  const quantity = {
+    ...field('stock', 'NUMBER'),
+    options: { businessSource: 'INVENTORY_ITEMS', businessKey: 'stock' },
+  };
+  expect(clipboardValue(quantity, '999999999999999.999', directory)).toBe('999999999999999.999');
+  expect(() => clipboardValue(quantity, '0.0001', directory)).toThrow('三位');
+  const records = [row('a', { stock: '999999999999999.998' }), row('b', { stock: '999999999999999.999' })];
+  const result = groupedRows(
+    records,
+    [quantity],
+    [
+      { keys: ['999999999999999.998'], count: 1 },
+      { keys: ['999999999999999.999'], count: 1 },
+    ],
+    new Set(),
+  );
+  expect(result.filter((r) => !r.group).map((r) => r.id)).toEqual(['a', 'b']);
+  expect(result.filter((r) => r.group)).toHaveLength(2);
+});

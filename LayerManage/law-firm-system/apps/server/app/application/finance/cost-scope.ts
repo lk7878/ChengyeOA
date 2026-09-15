@@ -4,30 +4,8 @@ import { DataScopeService } from '../authorization/data-scope-service';
 import { buildOrganizationScopeWhere } from '../authorization/resource-scope-resolvers';
 import { PermissionCode } from '../../domain/authorization/authorization-types';
 
-/** Unanchored costs follow their actual creator's current valid employment organization. */
-export async function costCreatorIds(db: Prisma.TransactionClient, organizationIds: string[]) {
-  const now = new Date();
-  return (
-    await db.user.findMany({
-      where: {
-        status: 'ENABLED',
-        employee: {
-          deletedAt: null,
-          status: { not: 'LEAVED' },
-          assignments: {
-            some: {
-              organizationId: { in: organizationIds },
-              position: { status: 'ENABLED' },
-              startedAt: { lte: now },
-              OR: [{ endedAt: null }, { endedAt: { gt: now } }],
-            },
-          },
-        },
-      },
-      select: { id: true },
-    })
-  ).map((user) => user.id);
-}
+export { creatorIdsInOrganizations as costCreatorIds } from '../authorization/creator-organization';
+import { creatorIdsInOrganizations as costCreatorIds } from '../authorization/creator-organization';
 export async function buildCostScopeWhere(
   db: PrismaClient,
   actor: AuthorizationContext,

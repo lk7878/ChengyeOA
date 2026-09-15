@@ -15,6 +15,7 @@ export const PERFORMANCE_STATUSES = ['PENDING', 'SELF_REVIEWED', 'MANAGER_REVIEW
 export type PerformanceStatus = (typeof PERFORMANCE_STATUSES)[number];
 
 export interface CreatePerformanceInput {
+  idempotencyKey?: string;
   employeeId: string;
   period: string;
   type: PerformanceType;
@@ -26,15 +27,18 @@ export interface CreatePerformanceInput {
 
 // SPEC-043：考核流程入参——目标设定 / 自评 / 主管评。
 export interface SetGoalInput {
+  version?: number;
   goal: string;
 }
 
 export interface SelfReviewInput {
+  version?: number;
   selfScore: number;
   selfComment?: string;
 }
 
 export interface ManagerReviewInput {
+  version?: number;
   managerScore: number;
   managerComment?: string;
 }
@@ -42,9 +46,9 @@ export interface ManagerReviewInput {
 // SPEC-044：绩效业务指标（该员工考核周期案件办结数/回款额）——纯读聚合。
 // SPEC-045：+autoScore 自动计分（办结数×10 + 回款额÷10000，clamp 0-100）。
 export interface PerformanceBusinessMetrics {
-  closedCases: number;
-  confirmedRevenue: string;
-  autoScore: number;
+  closedCases: number | null;
+  confirmedRevenue: string | null;
+  autoScore: number | null;
 }
 
 export interface PerformanceListQuery {
@@ -56,6 +60,9 @@ export interface PerformanceListQuery {
 }
 
 export interface PerformanceView {
+  createdBy: string | null;
+  updatedBy: string | null;
+  version: number;
   id: string;
   employeeId: string;
   period: string;
@@ -84,6 +91,9 @@ export function projectPerformance(
 ): PerformanceView {
   return {
     id: row.id,
+    createdBy: row.createdBy,
+    updatedBy: row.updatedBy,
+    version: row.version,
     employeeId: row.employeeId,
     period: row.period,
     type: row.type,

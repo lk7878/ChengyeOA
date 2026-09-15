@@ -118,3 +118,17 @@ MOD-007 SOP、MOD-009 满意度/复购转介绍、MOD-003 内容获客、MOD-008
 
 
 U6-A：四种财务来源使用共同工作表；new 额外要求对应 create，详情与动作仍分别要求 read/动作及单据范围。案件上下文以当前查询附加过滤保留，不写入视图配置；财务详情跳转维持正式 ID，单据列表与原领域接口 SELF 均取真实单据创建人。范围细节见 U5–U7 契约，阶段验收记录见计划第 10 节。
+
+
+## U6-B 路由收敛
+
+| 路由 | 功能及读取门槛 |
+| --- | --- |
+| /inventory/items、/inventory/movements、/inventory/stocktakes | 三类同源工作表，menu.inventory + inventory.read + 原记录范围 |
+| /inventory/{items,movements,stocktakes}/new、/:id | 独立登记/详情，进入要求库存读取；提交再检查manage/inbound/outbound/stocktake、版本与目标范围 |
+| /inventory/inbound、/outbound、/customized-records、/office-records | 跳到流水工作表，action/kind与视图过滤取AND，查询上下文不写入视图 |
+| /inventory/*-statistics、/dashboard | 专用范围内汇总与导出，不嵌套旧全量台账 |
+| /performances、/performances/new、/performances/:id | 同源绩效、登记与办理；read/create/employee.read和受控动作分开校验 |
+| /payroll | 原工资表与审批，performance.read；附件仍由上传者/审批参与者授权 |
+
+最终验收证据见阶段计划第11节；U6-C管理页面及U7视觉收敛另行完成。

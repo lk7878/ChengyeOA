@@ -1,9 +1,15 @@
 // SPEC-037 Task 2: performance-service —— 绩效生命周期（create/list/get/confirm）。
 // 形态镜像 case-service：3 参构造 (prisma, actor, authorizationContext)；
 // requireAction 每公开方法第一行；assertExactKeys 入参白名单；同事务 OperationLog 审计。
-// 绩效为业务资源（员工考核记录），仅权限门控（performance.* 码）不做行级 scope。
+// U6-B：读写均校验真实创建人/员工组织范围，业务动作保留状态与版本。
 
 import { Prisma, PrismaClient } from '@prisma/client';
+import { performanceScope } from './performance-scope';
+import { buildEmployeeScopeWhere } from '../authorization/resource-scope-resolvers';
+import { buildCaseScopeWhere } from '../case/case-scope';
+import { buildFinancialRecordScopeWhere } from '../finance/financial-record-scope';
+import { createOnce } from '../finance/domain-mutation';
+import { PermissionCode } from '../../domain/authorization/authorization-types';
 
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
@@ -16,6 +22,7 @@ import {
   normalizeAllowedValue,
   normalizeOptionalText,
   normalizeRequiredText,
+  normalizeVersion,
 } from '../../domain/master-data/master-data-validation';
 import {
   PERFORMANCE_TYPES,
@@ -52,7 +59,16 @@ export class PerformanceService {
    * → 唯一探针（employeeId+period+type）→ status PENDING + 审计。 */
   async createPerformance(input: CreatePerformanceInput): Promise<PerformanceView> {
     this.authorization.requireAction(this.authorizationContext, 'performance.create');
-    assertExactKeys(input, ['employeeId', 'period', 'type', 'kpiData', 'score', 'bonus', 'remark']);
+    assertExactKeys(input, [
+      'employeeId',
+      'period',
+      'type',
+      'kpiData',
+      'score',
+      'bonus',
+      'remark',
+      'idempotencyKey',
+    ]);
     const employeeId = normalizeRequiredText(input.employeeId, 1, 100);
     const period = normalizePeriod(input.period);
     const type = normalizeAllowedValue(input.type, PERFORMANCE_TYPES);
@@ -61,32 +77,70 @@ export class PerformanceService {
     const bonus = input.bonus === undefined ? null : normalizePerformanceAmount(input.bonus);
     const remark = normalizeOptionalText(input.remark, 500);
 
-    const employee = await this.prisma.employee.findFirst({ where: { id: employeeId } });
+    const targetScope = await this.authorization.resolveScopeTargets(
+      this.authorizationContext,
+      'employee',
+      'employee.read',
+    );
+    this.authorization.requireAction(this.authorizationContext, 'employee.read');
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        AND: [
+          { id: employeeId, deletedAt: null, status: { not: 'LEAVED' } },
+          buildEmployeeScopeWhere(targetScope),
+        ],
+      },
+    });
+    const scope = await performanceScope(this.prisma, this.authorizationContext, 'performance.create');
+    const key = normalizeOptionalText(input.idempotencyKey, 100);
     if (!employee) throw new MasterDataError('VALIDATION_FAILED', 400);
 
-    // 唯一探针：employeeId+period+type 已存在 → 409（避免 FK/唯一约束 P2002 落 500）。
-    const existing = await this.prisma.performance.findFirst({ where: { employeeId, period, type } });
-    if (existing) {
-      throw new PerformanceError(PERFORMANCE_ERROR_CODES.PERFORMANCE_DUPLICATE, 409, 'performance record already exists');
-    }
-
-    return this.prisma.$transaction(async tx => {
-      const created = await tx.performance.create({
-        data: { employeeId, period, type, kpiData, score, bonus, remark, status: 'PENDING' },
-        ...PERFORMANCE_WITH_EMPLOYEE,
-      });
-      await tx.operationLog.create({
-        data: {
-          userId: this.actor.actorUserId,
-          action: 'PERFORMANCE_CREATE',
-          targetType: 'PERFORMANCE',
-          targetId: created.id,
-          newValues: JSON.stringify({ performanceId: created.id, employeeId, period, type }),
-          ip: this.actor.ip,
-        },
-      });
-      return projectPerformance(created);
-    });
+    return createOnce(
+      this.prisma,
+      {
+        actorId: this.actor.actorUserId,
+        key,
+        operation: 'performance.create',
+        normalized: { employeeId, period, type, kpiData, score, bonus, remark },
+      },
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'performance:' + employeeId + ':' + period + ':' + type}, 0))`;
+        if (await tx.performance.findFirst({ where: { employeeId, period, type }, select: { id: true } }))
+          throw new PerformanceError(
+            PERFORMANCE_ERROR_CODES.PERFORMANCE_DUPLICATE,
+            409,
+            'performance record already exists',
+          );
+        const created = await tx.performance.create({
+          data: {
+            employeeId,
+            period,
+            type,
+            kpiData,
+            score,
+            bonus,
+            remark,
+            status: 'PENDING',
+            createdBy: this.actor.actorUserId,
+            updatedBy: this.actor.actorUserId,
+          },
+          ...PERFORMANCE_WITH_EMPLOYEE,
+        });
+        await this.probe(tx, created.id, scope);
+        await tx.operationLog.create({
+          data: {
+            userId: this.actor.actorUserId,
+            action: 'PERFORMANCE_CREATE',
+            targetType: 'PERFORMANCE',
+            targetId: created.id,
+            newValues: JSON.stringify({ performanceId: created.id, employeeId, period, type }),
+            ip: this.actor.ip,
+          },
+        });
+        return projectPerformance(created);
+      },
+      async (tx, targetId) => projectPerformance(await this.probe(tx, targetId, scope)),
+    );
   }
 
   /** 绩效列表：performance.read → 过滤（employeeId/period/type）+ 分页 createdAt DESC。 */
@@ -97,11 +151,19 @@ export class PerformanceService {
     assertExactKeys(query, ['page', 'pageSize', 'employeeId', 'period', 'type']);
     const page = rawPage === undefined ? 1 : rawPage;
     const pageSize = rawPageSize === undefined ? DEFAULT_PAGE_SIZE : rawPageSize;
-    if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
+    if (
+      !Number.isInteger(page) ||
+      page < 1 ||
+      !Number.isInteger(pageSize) ||
+      pageSize < 1 ||
+      pageSize > MAX_PAGE_SIZE
+    ) {
       throw new MasterDataError('VALIDATION_FAILED', 400);
     }
 
-    const where: Prisma.PerformanceWhereInput = {};
+    const where: Prisma.PerformanceWhereInput = {
+      AND: [await performanceScope(this.prisma, this.authorizationContext, 'performance.read')],
+    };
     if (query.employeeId !== undefined) where.employeeId = normalizeRequiredText(query.employeeId, 1, 100);
     if (query.period !== undefined) where.period = normalizeRequiredText(query.period, 1, 20);
     if (query.type !== undefined) where.type = normalizeAllowedValue(query.type, PERFORMANCE_TYPES);
@@ -116,18 +178,18 @@ export class PerformanceService {
         take: pageSize,
       }),
     ]);
-    return { list: rows.map(row => projectPerformance(row)), page, pageSize, total };
+    return { list: rows.map((row) => projectPerformance(row)), page, pageSize, total };
   }
 
   /** 绩效详情：performance.read → 含 employee 主职投影。 */
   async getPerformance(performanceId: string): Promise<PerformanceView> {
     this.authorization.requireAction(this.authorizationContext, 'performance.read');
     const id = normalizeRequiredText(performanceId, 1, 100);
-    const row = await this.prisma.performance.findUnique({
-      where: { id },
-      ...PERFORMANCE_WITH_EMPLOYEE,
-    });
-    if (!row) throw new PerformanceError(PERFORMANCE_ERROR_CODES.PERFORMANCE_NOT_FOUND, 404, 'performance not found');
+    const row = await this.probe(
+      this.prisma,
+      id,
+      await performanceScope(this.prisma, this.authorizationContext, 'performance.read'),
+    );
     return projectPerformance(row);
   }
 
@@ -135,87 +197,126 @@ export class PerformanceService {
   async getBusinessMetrics(performanceId: string): Promise<PerformanceBusinessMetrics> {
     this.authorization.requireAction(this.authorizationContext, 'performance.read');
     const id = normalizeRequiredText(performanceId, 1, 100);
-    const record = await this.prisma.performance.findUnique({ where: { id } });
-    if (!record) throw new PerformanceError(PERFORMANCE_ERROR_CODES.PERFORMANCE_NOT_FOUND, 404, 'performance not found');
+    const record = await this.probe(
+      this.prisma,
+      id,
+      await performanceScope(this.prisma, this.authorizationContext, 'performance.read'),
+    );
     const { start, end } = parsePeriodRange(record.period);
-
-    const closedCases = await this.prisma.case.count({
-      where: { lawyerId: record.employeeId, status: 'CLOSED', closedAt: { gte: start, lt: end } },
-    });
-    const revenue = await this.prisma.payment.aggregate({
-      _sum: { amount: true },
-      where: {
-        status: 'CONFIRMED',
-        confirmedAt: { gte: start, lt: end },
-        contract: { case: { lawyerId: record.employeeId } },
-      },
-    });
-    const confirmedRevenue = (revenue._sum.amount ?? 0).toFixed(2);
-    // SPEC-045：自动计分——每办结 1 案 +10 分；每回款 1 万 +1 分；clamp 0-100。
-    const autoScore = Math.max(0, Math.min(100, Math.round(closedCases * 10 + Number(revenue._sum.amount ?? 0) / 10000)));
-    return {
-      closedCases,
-      confirmedRevenue,
-      autoScore,
-    };
+    const canReadCases = this.authorizationContext.permissionCodes.includes('case.read');
+    const canReadPayments =
+      canReadCases && this.authorizationContext.permissionCodes.includes('payment.read');
+    const caseScope = canReadCases
+      ? await buildCaseScopeWhere(this.prisma, this.authorizationContext, 'case.read')
+      : { id: { in: [] as string[] } };
+    const closedCases = canReadCases
+      ? await this.prisma.case.count({
+          where: {
+            AND: [
+              { lawyerId: record.employeeId, status: 'CLOSED', closedAt: { gte: start, lt: end } },
+              caseScope,
+            ],
+          },
+        })
+      : null;
+    const revenue = canReadPayments
+      ? await this.prisma.payment.aggregate({
+          _sum: { amount: true },
+          where: {
+            AND: [
+              {
+                deletedAt: null,
+                status: 'CONFIRMED',
+                confirmedAt: { gte: start, lt: end },
+                contract: { deletedAt: null, case: { AND: [{ lawyerId: record.employeeId }, caseScope] } },
+              },
+              await buildFinancialRecordScopeWhere(
+                this.prisma,
+                this.authorization,
+                this.authorizationContext,
+                'payment.read',
+                'payment',
+              ),
+            ],
+          },
+        })
+      : null;
+    const amount = revenue ? new Prisma.Decimal(revenue._sum.amount ?? 0) : null;
+    const autoScore =
+      closedCases !== null && amount !== null
+        ? Math.max(
+            0,
+            Math.min(
+              100,
+              amount
+                .div(10000)
+                .plus(closedCases * 10)
+                .toDecimalPlaces(0)
+                .toNumber(),
+            ),
+          )
+        : null;
+    return { closedCases, confirmedRevenue: amount?.toFixed(2) ?? null, autoScore };
   }
 
   /** 确认绩效：performance.confirm → PENDING → CONFIRMED（终态，重复确认 409）+ 审计。 */
-  async confirmPerformance(performanceId: string): Promise<PerformanceView> {
+  async confirmPerformance(
+    performanceId: string,
+    input: { version?: number } = {},
+  ): Promise<PerformanceView> {
     this.authorization.requireAction(this.authorizationContext, 'performance.confirm');
+    assertExactKeys(input, ['version']);
     const id = normalizeRequiredText(performanceId, 1, 100);
-
-    return this.prisma.$transaction(async tx => {
-      const flipped = await tx.performance.updateMany({
-        where: { id, status: { not: 'CONFIRMED' } },
-        data: { status: 'CONFIRMED' },
-      });
-      if (flipped.count === 0) {
-        const existing = await tx.performance.findUnique({ where: { id } });
-        if (!existing) throw new PerformanceError(PERFORMANCE_ERROR_CODES.PERFORMANCE_NOT_FOUND, 404, 'performance not found');
-        throw new PerformanceError(PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID, 409, 'performance is already confirmed');
-      }
-      const row = await tx.performance.findUniqueOrThrow({ where: { id }, ...PERFORMANCE_WITH_EMPLOYEE });
-      await tx.operationLog.create({
-        data: {
-          userId: this.actor.actorUserId,
-          action: 'PERFORMANCE_CONFIRM',
-          targetType: 'PERFORMANCE',
-          targetId: row.id,
-          newValues: JSON.stringify({ performanceId: row.id, status: 'CONFIRMED' }),
-          ip: this.actor.ip,
-        },
-      });
-      return projectPerformance(row);
-    });
+    return this.transitionPerformance(
+      id,
+      null,
+      'PERFORMANCE_CONFIRM',
+      { status: 'CONFIRMED' },
+      'performance.confirm',
+      input.version,
+    );
   }
 
   /** 目标设定：performance.update → 仅 PENDING 期可设 → goal + 审计。 */
   async setGoal(performanceId: string, input: SetGoalInput): Promise<PerformanceView> {
     this.authorization.requireAction(this.authorizationContext, 'performance.update');
     const id = normalizeRequiredText(performanceId, 1, 100);
-    assertExactKeys(input, ['goal']);
+    assertExactKeys(input, ['goal', 'version']);
     const goal = normalizeRequiredText(input.goal, 1, 2000);
 
-    return this.transitionPerformance(id, 'PENDING', 'PERFORMANCE_GOAL_SET', { goal });
+    return this.transitionPerformance(
+      id,
+      'PENDING',
+      'PERFORMANCE_GOAL_SET',
+      { goal },
+      'performance.update',
+      input.version,
+    );
   }
 
   /** 自评：performance.update → PENDING → SELF_REVIEWED + selfScore/selfComment + 审计。 */
   async selfReview(performanceId: string, input: SelfReviewInput): Promise<PerformanceView> {
     this.authorization.requireAction(this.authorizationContext, 'performance.update');
     const id = normalizeRequiredText(performanceId, 1, 100);
-    assertExactKeys(input, ['selfScore', 'selfComment']);
+    assertExactKeys(input, ['selfScore', 'selfComment', 'version']);
     const selfScore = normalizeReviewScore(input.selfScore);
     const selfComment = normalizeOptionalText(input.selfComment, 2000);
 
-    return this.transitionPerformance(id, 'PENDING', 'PERFORMANCE_SELF_REVIEW', { selfScore, selfComment, status: 'SELF_REVIEWED' });
+    return this.transitionPerformance(
+      id,
+      'PENDING',
+      'PERFORMANCE_SELF_REVIEW',
+      { selfScore, selfComment, status: 'SELF_REVIEWED' },
+      'performance.update',
+      input.version,
+    );
   }
 
   /** 主管评：performance.confirm → SELF_REVIEWED → MANAGER_REVIEWED + managerScore/managerComment/reviewerId/reviewedAt + 审计。 */
   async managerReview(performanceId: string, input: ManagerReviewInput): Promise<PerformanceView> {
     this.authorization.requireAction(this.authorizationContext, 'performance.confirm');
     const id = normalizeRequiredText(performanceId, 1, 100);
-    assertExactKeys(input, ['managerScore', 'managerComment']);
+    assertExactKeys(input, ['managerScore', 'managerComment', 'version']);
     const managerScore = normalizeReviewScore(input.managerScore);
     const managerComment = normalizeOptionalText(input.managerComment, 2000);
 
@@ -223,38 +324,68 @@ export class PerformanceService {
       id,
       'SELF_REVIEWED',
       'PERFORMANCE_MANAGER_REVIEW',
-      { managerScore, managerComment, status: 'MANAGER_REVIEWED', reviewerId: this.actor.actorUserId, reviewedAt: new Date() },
+      {
+        managerScore,
+        managerComment,
+        status: 'MANAGER_REVIEWED',
+        reviewerId: this.actor.actorUserId,
+        reviewedAt: new Date(),
+      },
+      'performance.confirm',
+      input.version,
     );
   }
 
-  /**
-   * 状态守卫翻转通用实现：updateMany {id, status: fromStatus} → count=0 → 404 或 409 STATE_INVALID；
-   * 成功后落审计 + 重读投影。
-   */
+  private async probe(tx: Prisma.TransactionClient, id: string, scope: Prisma.PerformanceWhereInput) {
+    const row = await tx.performance.findFirst({
+      where: { AND: [{ id }, scope] },
+      ...PERFORMANCE_WITH_EMPLOYEE,
+    });
+    if (!row)
+      throw new PerformanceError(PERFORMANCE_ERROR_CODES.PERFORMANCE_NOT_FOUND, 404, 'performance not found');
+    return row;
+  }
   private async transitionPerformance(
-    performanceId: string,
-    fromStatus: string,
+    id: string,
+    fromStatus: string | null,
     action: string,
     data: Prisma.PerformanceUpdateManyMutationInput,
+    permission: PermissionCode,
+    expectedVersion?: number,
   ): Promise<PerformanceView> {
-    return this.prisma.$transaction(async tx => {
+    const scope = await performanceScope(this.prisma, this.authorizationContext, permission);
+    const version = expectedVersion === undefined ? undefined : normalizeVersion(expectedVersion);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM performance WHERE id = ${id} FOR UPDATE`;
+      const current = await this.probe(tx, id, scope);
+      if (version !== undefined && current.version !== version)
+        throw new MasterDataError('VERSION_CONFLICT', 409);
+      if (action === 'PERFORMANCE_SELF_REVIEW' && current.employeeId !== this.authorizationContext.employeeId)
+        throw new MasterDataError('PERFORMANCE_SELF_REVIEW_FORBIDDEN', 403);
+      if (current.status === 'CONFIRMED' || (fromStatus && current.status !== fromStatus))
+        throw new PerformanceError(
+          PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID,
+          409,
+          'performance state invalid',
+        );
       const flipped = await tx.performance.updateMany({
-        where: { id: performanceId, status: fromStatus },
-        data,
+        where: { id, version: current.version, status: current.status },
+        data: { ...data, version: { increment: 1 }, updatedBy: this.actor.actorUserId },
       });
-      if (flipped.count === 0) {
-        const existing = await tx.performance.findUnique({ where: { id: performanceId } });
-        if (!existing) throw new PerformanceError(PERFORMANCE_ERROR_CODES.PERFORMANCE_NOT_FOUND, 404, 'performance not found');
-        throw new PerformanceError(PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID, 409, `performance is not in ${fromStatus}`);
-      }
-      const row = await tx.performance.findUniqueOrThrow({ where: { id: performanceId }, ...PERFORMANCE_WITH_EMPLOYEE });
+      if (!flipped.count) throw new MasterDataError('VERSION_CONFLICT', 409);
+      const row = await this.probe(tx, id, scope);
       await tx.operationLog.create({
         data: {
           userId: this.actor.actorUserId,
           action,
           targetType: 'PERFORMANCE',
           targetId: row.id,
-          newValues: JSON.stringify({ performanceId: row.id, fromStatus, toStatus: row.status }),
+          newValues: JSON.stringify({
+            performanceId: row.id,
+            fromStatus: current.status,
+            toStatus: row.status,
+            version: row.version,
+          }),
           ip: this.actor.ip,
         },
       });
@@ -265,7 +396,7 @@ export class PerformanceService {
 
 /** 考核周期校验：格式 "YYYY-MM"（如 "2026-04"），非法 → 400。 */
 function normalizePeriod(value: unknown): string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}$/.test(value)) {
+  if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
     throw new MasterDataError('VALIDATION_FAILED', 400);
   }
   return value;
@@ -286,10 +417,10 @@ function normalizeKpiData(value: unknown): string {
 
 /** 金额校验（score/bonus）：非负数字字符串（≤ Decimal(18,2)），非法 → 400。 */
 function normalizePerformanceAmount(value: unknown): string {
-  if (typeof value !== 'string' || !/^\d+(\.\d{1,2})?$/.test(value) || value.length > 18) {
+  if (typeof value !== 'string' || !/^\d{1,16}(\.\d{1,2})?$/.test(value)) {
     throw new MasterDataError('VALIDATION_FAILED', 400);
   }
-  return value;
+  return new Prisma.Decimal(value).toFixed(2);
 }
 
 /** 考核评分校验（selfScore/managerScore）：整数 0-100，非法 → 400。 */

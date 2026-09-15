@@ -658,7 +658,11 @@ test(
       await p1.getByRole('textbox', { name: '名称', exact: true }).fill('真实线索表');
       await p1.getByRole('combobox', { name: '创建方式', exact: true }).click();
       // More business sources make the options virtual; navigate until the requested option is rendered.
-      for (let step = 0; step < 20 && !(await p1.getByText('现有 CRM · 线索表（负责人配置）', { exact: true }).count()); step++)
+      for (
+        let step = 0;
+        step < 20 && !(await p1.getByText('现有 CRM · 线索表（负责人配置）', { exact: true }).count());
+        step++
+      )
         await p1.getByRole('combobox', { name: '创建方式', exact: true }).press('ArrowUp');
       await p1.getByText('现有 CRM · 线索表（负责人配置）', { exact: true }).click();
       await p1
@@ -3079,7 +3083,7 @@ test(
                 '../../var/collaboration-evidence/u6a-smoke-failed-' + index + '.png',
               ),
               fullPage: true,
-          animations: 'disabled',
+              animations: 'disabled',
             })
             .catch(() => undefined);
           console.error(
@@ -3101,6 +3105,315 @@ test(
       throw error;
     } finally {
       security.trustedOrigins = previousOrigins;
+      await browser.close();
+      await vite.close();
+    }
+  },
+);
+
+test(
+  'U6-B smoke: inventory worktables, atomic stock actions, performance reviews and three role scopes',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web');
+    const load = new Function('url', 'return import(url)');
+    const { chromium } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      // Run browser libraries as in the actual dev App; rc-util test mode hardcodes duplicate DOM IDs.
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'u6b-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const security = (app.config as typeof app.config & { identitySecurity: { trustedOrigins: string[] } })
+      .identitySecurity;
+    const previousOrigins = [...security.trustedOrigins];
+    security.trustedOrigins.push(new URL(vite.resolvedUrls.local[0]).origin);
+    try {
+      const org = (await db.collabWorkspace.findUniqueOrThrow({ where: { id: workspaceId } })).organizationId;
+      const position = await db.position.create({
+        data: { organizationId: org, code: randomUUID(), name: 'U6B 岗位', categoryCode: 'SALES' },
+      });
+      const manager = await db.user.create({
+        data: { username: 'u6b-manager', password: 'unused', mustChangePassword: false },
+      });
+      const ids = [owner, editor, manager.id],
+        people: Record<string, string> = {};
+      const permissions = [
+        'menu.inventory',
+        'inventory.read',
+        'inventory.manage',
+        'inventory.inbound',
+        'inventory.outbound',
+        'inventory.stocktake',
+        'inventory.export',
+        'employee.read',
+        'performance.read',
+        'performance.create',
+        'performance.update',
+        'performance.confirm',
+      ];
+      for (const id of ids) {
+        const employee = await db.employee.create({
+          data: {
+            name: id === editor ? 'U6B 员工' : id === owner ? 'U6B 管理员' : 'U6B 负责人',
+            employeeNo: randomUUID(),
+            phone: '13800000000',
+            type: 'SALES',
+            status: 'FORMAL',
+            entryDate: new Date('2025-01-01'),
+          },
+        });
+        people[id] = employee.id;
+        await db.user.update({ where: { id }, data: { employeeId: employee.id } });
+        await db.employeeAssignment.create({
+          data: {
+            employeeId: employee.id,
+            organizationId: org,
+            positionId: position.id,
+            assignmentType: 'PRIMARY',
+            startedAt: new Date('2025-01-01'),
+          },
+        });
+        const role = await db.role.create({
+          data: {
+            name: 'U6B ' + id,
+            code: 'U6B_' + id,
+            type: 'BUSINESS',
+            permissions: { create: permissions.map((code) => ({ permission: { connect: { code } } })) },
+          },
+        });
+        const all = await db.dataScope.create({ data: { name: '选项', scopeType: 'ALL' } });
+        const scoped = await db.dataScope.create({
+          data: { name: '业务范围', scopeType: id === editor ? 'SELF' : 'ALL' },
+        });
+        for (const resource of ['inventory', 'performance', 'employee'])
+          await db.roleDataScope.create({
+            data: { roleId: role.id, resource, dataScopeId: resource === 'employee' ? all.id : scoped.id },
+          });
+        await db.userRole.create({ data: { userId: id, roleId: role.id } });
+      }
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: editor },
+        data: { rowScope: 'SELF' },
+      });
+      await db.collabMember.create({
+        data: { workspaceId, principalId: manager.id, role: 'MANAGER', rowScope: 'ALL' },
+      });
+      const managerToken = (await createApiSession(db, manager.id)).token;
+      const tokens = [token, editorToken, managerToken],
+        pages = [],
+        errors: string[] = [];
+      for (let i = 0; i < ids.length; i++) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          `window.unifiedTestSession = ${JSON.stringify({ mode: 'AUTHENTICATED', token: tokens[i], csrfToken: 'test', expiresIn: 900, user: { id: ids[i], username: ids[i], name: '业务验收成员', roles: [], permissions: [] } })};`,
+        );
+        const page = await context.newPage();
+        page.setDefaultTimeout(15000);
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [admin, staff, leader] = pages,
+        address = vite.resolvedUrls.local[0];
+      const api = (method: 'get' | 'post', route: string, bearer = token, body?: unknown) => {
+        const client = app.httpRequest();
+        const call = client[method]('/api/v1' + route)
+          .set('Authorization', 'Bearer ' + bearer)
+          .set('Idempotency-Key', randomUUID());
+        return body === undefined ? call : call.send(body);
+      };
+      const tables: Record<string, string> = {};
+      for (const [source, route] of [
+        ['INVENTORY_ITEMS', 'inventory/items'],
+        ['INVENTORY_MOVEMENTS', 'inventory/movements'],
+        ['INVENTORY_STOCKTAKES', 'inventory/stocktakes'],
+        ['PERFORMANCES', 'performances'],
+      ]) {
+        await admin.goto(address + route);
+        await admin.getByRole('button', { name: '连接业务数据', exact: true }).click();
+        await admin.getByRole('combobox', { name: '连接到应用', exact: true }).click();
+        await admin
+          .locator('.ant-select-item-option-content')
+          .getByText('接口工作区 / 业务台账', { exact: true })
+          .click();
+        await admin
+          .getByRole('dialog')
+          .getByRole('button', { name: /^连\s*接$/ })
+          .click();
+        await admin.getByRole('button', { name: '字段配置', exact: true }).waitFor();
+        tables[route] = new URL(admin.url()).searchParams.get('table')!;
+        assert.equal(
+          (await db.collabTable.findUniqueOrThrow({ where: { id: tables[route] } })).source,
+          source,
+        );
+      }
+      const tableUrl = (route: string, extra: Record<string, string> = {}) =>
+        address + route + '?' + new URLSearchParams({ base: baseId, table: tables[route], ...extra });
+      await staff.goto(tableUrl('inventory/items'));
+      await staff.getByRole('button', { name: '新增物品', exact: true }).click();
+      await staff.getByLabel('物品名称', { exact: true }).fill('U6B 精确库存');
+      await staff.getByLabel('中文分类', { exact: true }).fill('书写用品');
+      let dropped = false;
+      await staff.route(
+        '**/api/v1/inventory/items',
+        async (route: {
+          request(): { method(): string };
+          fetch(): Promise<unknown>;
+          abort(reason: string): Promise<void>;
+          continue(): Promise<void>;
+        }) => {
+          if (route.request().method() === 'POST' && !dropped) {
+            dropped = true;
+            await route.fetch();
+            await route.abort('failed');
+          } else await route.continue();
+        },
+      );
+      await staff.getByRole('button', { name: '确认登记', exact: true }).click();
+      await staff.getByRole('button', { name: '刷新重试', exact: true }).waitFor();
+      assert.equal(await db.inventoryItem.count({ where: { createdBy: editor } }), 1);
+      await staff.getByRole('button', { name: '确认登记', exact: true }).click();
+      await staff.getByRole('button', { name: '登记入库', exact: true }).waitFor();
+      const item = await db.inventoryItem.findFirstOrThrow({ where: { createdBy: editor } });
+      const other = (
+        await api('post', '/inventory/items', token, {
+          name: '负责人私有物品',
+          kind: 'OFFICE',
+          category: '文具',
+          unit: '支',
+        }).expect(200)
+      ).body.data;
+      await api('get', '/inventory/items/' + other.id, editorToken).expect(404);
+      await leader.goto(tableUrl('inventory/items'));
+      await leader.getByRole('button', { name: '物品名称：U6B 精确库存', exact: true }).waitFor();
+      await staff.getByRole('button', { name: '登记入库', exact: true }).click();
+      await staff.getByRole('dialog').getByLabel('数量', { exact: true }).fill('10.125');
+      await staff.getByRole('dialog').getByRole('button', { name: '确认登记', exact: true }).click();
+      await staff.getByRole('dialog').waitFor({ state: 'hidden' });
+      await leader.getByRole('button', { name: '当前库存：10.125', exact: true }).waitFor();
+      await staff.getByRole('button', { name: '登记领用', exact: true }).click();
+      await staff.getByRole('dialog').getByLabel('数量', { exact: true }).fill('3.025');
+      await staff.getByRole('dialog').getByLabel('领用人', { exact: true }).click();
+      await staff.locator('.ant-select-item-option-content').filter({ hasText: 'U6B 员工' }).click();
+      await staff.getByRole('dialog').getByLabel('用途或原因', { exact: true }).fill('日常办公');
+      await staff.getByRole('dialog').getByRole('button', { name: '确认登记', exact: true }).click();
+      await staff.getByRole('dialog').waitFor({ state: 'hidden' });
+      assert.equal(
+        (await db.inventoryItem.findUniqueOrThrow({ where: { id: item.id } })).stock.toFixed(3),
+        '7.100',
+      );
+      await staff.getByRole('button', { name: '物品盘点', exact: true }).click();
+      await staff.getByRole('dialog').getByLabel('实盘数量', { exact: true }).fill('7');
+      await staff.getByRole('dialog').getByLabel('用途或原因', { exact: true }).fill('损耗核对');
+      await staff.getByRole('dialog').getByRole('button', { name: '确认登记', exact: true }).click();
+      await staff.getByRole('dialog').waitFor({ state: 'hidden' });
+      await staff.goto(tableUrl('inventory/movements', { action: 'OUTBOUND' }));
+      await staff.getByRole('button', { name: '业务类型：领用出库', exact: true }).waitFor();
+      assert.equal(await staff.getByRole('button', { name: '业务类型：入库', exact: true }).count(), 0);
+      for (const width of [1440, 1024, 390]) {
+        await staff.setViewportSize({ width, height: 1000 });
+        await staff.locator('.ant-spin-spinning').waitFor({ state: 'hidden' });
+        await staff.screenshot({
+          path: path.resolve(
+            process.cwd(),
+            '../../var/collaboration-evidence/u6b-inventory-' + width + '.png',
+          ),
+          fullPage: true,
+          animations: 'disabled',
+        });
+        assert.ok(await staff.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
+      }
+      await staff.setViewportSize({ width: 1440, height: 1000 });
+      await staff.goto(tableUrl('performances'));
+      await staff.getByRole('button', { name: '登记绩效', exact: true }).click();
+      await staff.getByLabel('被考核人', { exact: true }).click();
+      await staff.locator('.ant-select-item-option-content').filter({ hasText: 'U6B 员工' }).click();
+      await staff.getByLabel('考核周期', { exact: true }).fill('2026-09');
+      await staff.getByRole('button', { name: '保存绩效', exact: true }).click();
+      await staff.getByRole('button', { name: '提交自评', exact: true }).waitFor();
+      const perf = await db.performance.findFirstOrThrow({ where: { createdBy: editor } });
+      await leader.goto(address + 'performances/' + perf.id);
+      assert.equal(await leader.getByRole('button', { name: '提交自评', exact: true }).count(), 0);
+      await leader.getByRole('button', { name: '设置目标', exact: true }).click();
+      await leader.getByRole('dialog').getByLabel('考核目标', { exact: true }).fill('完成库存与客户记录核对');
+      await leader.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await leader.getByRole('dialog').waitFor({ state: 'hidden' });
+      await staff.getByText('完成库存与客户记录核对', { exact: true }).waitFor();
+      await staff.getByRole('button', { name: '提交自评', exact: true }).click();
+      await staff.getByRole('dialog').getByLabel('评分', { exact: true }).fill('85');
+      await staff.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await staff.getByRole('dialog').waitFor({ state: 'hidden' });
+      await leader.getByRole('button', { name: '主管评议', exact: true }).waitFor();
+      await leader.getByRole('button', { name: '主管评议', exact: true }).click();
+      await leader.getByRole('dialog').getByLabel('评分', { exact: true }).fill('90');
+      await leader.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await leader.getByRole('dialog').waitFor({ state: 'hidden' });
+      await leader.getByRole('button', { name: '确认绩效', exact: true }).click();
+      await leader.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await leader.getByRole('dialog').waitFor({ state: 'hidden' });
+      await staff.getByText('已确认', { exact: true }).waitFor();
+      assert.equal((await db.performance.findUniqueOrThrow({ where: { id: perf.id } })).version, 5);
+      await api('post', '/performances', token, {
+        employeeId: people[owner],
+        period: '2026-09',
+        type: 'MONTHLY',
+      }).expect(200);
+      const ownQuery = await api(
+        'post',
+        '/tables/' + tables.performances + '/records/query',
+        editorToken,
+        {},
+      ).expect(200);
+      assert.equal(ownQuery.body.data.total, 1);
+      const allQuery = await api(
+        'post',
+        '/tables/' + tables.performances + '/records/query',
+        managerToken,
+        {},
+      ).expect(200);
+      assert.equal(allQuery.body.data.total, 2);
+      await staff.goto(address + 'payroll');
+      await staff.getByRole('button', { name: '刷新工资表', exact: true }).waitFor();
+      await staff.getByRole('link', { name: '前往审批管理', exact: true }).waitFor();
+      await staff.goto(tableUrl('inventory/items'));
+      await staff.getByRole('button', { name: '物品名称：U6B 精确库存', exact: true }).waitFor();
+      await db.collabMember.deleteMany({ where: { workspaceId, principalId: editor } });
+      await staff
+        .getByRole('button', { name: '物品名称：U6B 精确库存', exact: true })
+        .waitFor({ state: 'hidden', timeout: 15000 });
+      assert.deepEqual(errors, []);
+    } catch (error) {
+      for (const context of browser.contexts())
+        for (const page of context.pages())
+          console.error(
+            'U6-B failure context',
+            page.url(),
+            (await page.locator('body').innerText()).slice(-9000),
+          );
+      throw error;
+    } finally {
+      security.trustedOrigins.splice(0, security.trustedOrigins.length, ...previousOrigins);
       await browser.close();
       await vite.close();
     }

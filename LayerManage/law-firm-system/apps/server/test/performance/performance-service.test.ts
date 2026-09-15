@@ -11,6 +11,7 @@ import { PERFORMANCE_ERROR_CODES, PerformanceError } from '../../app/domain/perf
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 
 const PERFORMANCE_PERMISSIONS: PermissionCode[] = [
+  'employee.read',
   'performance.read',
   'performance.create',
   'performance.confirm',
@@ -31,7 +32,10 @@ test.after(async () => {
   await prisma.$disconnect();
 });
 
-function performanceContext(userId: string, overrides: { permissionCodes?: PermissionCode[] } = {}): AuthorizationContext {
+function performanceContext(
+  userId: string,
+  overrides: { permissionCodes?: PermissionCode[] } = {},
+): AuthorizationContext {
   const permissionCodes = overrides.permissionCodes ?? PERFORMANCE_PERMISSIONS;
   return {
     userId,
@@ -39,7 +43,7 @@ function performanceContext(userId: string, overrides: { permissionCodes?: Permi
     isSystemAdmin: false,
     isSystemSuperAdmin: false,
     permissionCodes,
-    grants: permissionCodes.map(permissionCode => ({
+    grants: permissionCodes.map((permissionCode) => ({
       sourceType: 'ROLE' as const,
       sourceId: `${userId}-grant-${permissionCode}`,
       sourceRoleId: 'test-role',
@@ -72,8 +76,11 @@ async function seedEmployee(): Promise<string> {
   return employee.id;
 }
 
-const serviceFor = (userId: string, actorUser: AuditActor, overrides?: { permissionCodes?: PermissionCode[] }): PerformanceService =>
-  new PerformanceService(prisma, actorUser, performanceContext(userId, overrides));
+const serviceFor = (
+  userId: string,
+  actorUser: AuditActor,
+  overrides?: { permissionCodes?: PermissionCode[] },
+): PerformanceService => new PerformanceService(prisma, actorUser, performanceContext(userId, overrides));
 
 test('createPerformance persists a PENDING record with audit and validates inputs', async () => {
   const userId = 'perf-admin';
@@ -82,8 +89,13 @@ test('createPerformance persists a PENDING record with audit and validates input
   const employeeId = await seedEmployee();
 
   const view = await service.createPerformance({
-    employeeId, period: '2026-04', type: 'MONTHLY',
-    kpiData: '{"cases":5}', score: '92.50', bonus: '3000.00', remark: '优秀',
+    employeeId,
+    period: '2026-04',
+    type: 'MONTHLY',
+    kpiData: '{"cases":5}',
+    score: '92.50',
+    bonus: '3000.00',
+    remark: '优秀',
   });
   assert.equal(view.status, 'PENDING');
   assert.equal(view.type, 'MONTHLY');
@@ -91,7 +103,9 @@ test('createPerformance persists a PENDING record with audit and validates input
   assert.equal(view.bonus, '3000.00');
   assert.equal(view.employee.id, employeeId);
 
-  const audit = await prisma.operationLog.findFirst({ where: { action: 'PERFORMANCE_CREATE', targetType: 'PERFORMANCE' } });
+  const audit = await prisma.operationLog.findFirst({
+    where: { action: 'PERFORMANCE_CREATE', targetType: 'PERFORMANCE' },
+  });
   assert.ok(audit, 'a PERFORMANCE_CREATE audit is written');
 
   // 员工不存在 → 400。
@@ -101,10 +115,9 @@ test('createPerformance persists a PENDING record with audit and validates input
   );
 
   // period 格式非法 → 400。
-  await assert.rejects(
-    () => service.createPerformance({ employeeId, period: '2026', type: 'MONTHLY' }),
-    { name: 'MasterDataError' },
-  );
+  await assert.rejects(() => service.createPerformance({ employeeId, period: '2026', type: 'MONTHLY' }), {
+    name: 'MasterDataError',
+  });
 
   // type 枚举非法 → 400。
   await assert.rejects(
@@ -120,8 +133,12 @@ test('createPerformance persists a PENDING record with audit and validates input
 
   // 无 performance.create → 403。
   await assert.rejects(
-    () => serviceFor(userId, actorUser, { permissionCodes: ['performance.read'] })
-      .createPerformance({ employeeId, period: '2026-04', type: 'MONTHLY' }),
+    () =>
+      serviceFor(userId, actorUser, { permissionCodes: ['performance.read'] }).createPerformance({
+        employeeId,
+        period: '2026-04',
+        type: 'MONTHLY',
+      }),
     { name: 'AuthorizationError' },
   );
 });
@@ -134,7 +151,10 @@ test('createPerformance rejects duplicate employeeId+period+type with 409 PERFOR
   await service.createPerformance({ employeeId, period: '2026-04', type: 'QUARTERLY' });
   await assert.rejects(
     () => service.createPerformance({ employeeId, period: '2026-04', type: 'QUARTERLY' }),
-    (error: unknown) => error instanceof PerformanceError && error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_DUPLICATE && error.httpStatus === 409,
+    (error: unknown) =>
+      error instanceof PerformanceError &&
+      error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_DUPLICATE &&
+      error.httpStatus === 409,
   );
 
   // 同员工不同周期不冲突。
@@ -161,30 +181,46 @@ test('listPerformances filters and paginates; getPerformance returns detail with
   const detail = await service.getPerformance(all.list[0].id);
   assert.equal(detail.id, all.list[0].id);
   assert.equal(detail.employee.id, employeeId);
-  assert.ok(detail.employee.primaryAssignment !== undefined, 'employee projection includes primaryAssignment');
+  assert.ok(
+    detail.employee.primaryAssignment !== undefined,
+    'employee projection includes primaryAssignment',
+  );
 });
 
 test('confirmPerformance transitions PENDING→CONFIRMED and refuses double-confirm', async () => {
   const userId = 'perf-admin';
   const service = serviceFor(userId, actor(userId));
   const employeeId = await seedEmployee();
-  const created = await service.createPerformance({ employeeId, period: '2026-04', type: 'YEARLY', score: '88.00' });
+  const created = await service.createPerformance({
+    employeeId,
+    period: '2026-04',
+    type: 'YEARLY',
+    score: '88.00',
+  });
 
   const confirmed = await service.confirmPerformance(created.id);
   assert.equal(confirmed.status, 'CONFIRMED');
 
-  const audit = await prisma.operationLog.findFirst({ where: { action: 'PERFORMANCE_CONFIRM', targetType: 'PERFORMANCE' } });
+  const audit = await prisma.operationLog.findFirst({
+    where: { action: 'PERFORMANCE_CONFIRM', targetType: 'PERFORMANCE' },
+  });
   assert.ok(audit, 'a PERFORMANCE_CONFIRM audit is written');
 
   // 重复确认 → 409 PERFORMANCE_STATE_INVALID。
   await assert.rejects(
     () => service.confirmPerformance(created.id),
-    (error: unknown) => error instanceof PerformanceError && error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID && error.httpStatus === 409,
+    (error: unknown) =>
+      error instanceof PerformanceError &&
+      error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_STATE_INVALID &&
+      error.httpStatus === 409,
   );
 
   // 不存在 → 404。
   await assert.rejects(
     () => service.confirmPerformance(randomUUID()),
-    (error: unknown) => error instanceof PerformanceError && error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_NOT_FOUND && error.httpStatus === 404,
+    (error: unknown) =>
+      error instanceof PerformanceError &&
+      error.code === PERFORMANCE_ERROR_CODES.PERFORMANCE_NOT_FOUND &&
+      error.httpStatus === 404,
   );
 });

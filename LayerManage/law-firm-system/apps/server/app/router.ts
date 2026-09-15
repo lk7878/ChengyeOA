@@ -373,6 +373,9 @@ export default (app: Application) => {
   router.put('/api/v1/payroll-batches/:id', requirePermission('performance.update'), controller.businessIntegration.payrollSave);
 
   router.get('/api/v1/inventory', requirePermission('inventory.read'), controller.inventory.index);
+  router.get('/api/v1/inventory/items/:id', requirePermission('inventory.read'), controller.inventory.showItem);
+  router.get('/api/v1/inventory/movements/:id', requirePermission('inventory.read'), controller.inventory.showMovement);
+  router.get('/api/v1/inventory/stocktakes/:id', requirePermission('inventory.read'), controller.inventory.showStocktake);
   router.get('/api/v1/inventory/recipients', requirePermission('inventory.outbound'), controller.inventory.recipients);
   router.get('/api/v1/inventory/export', requirePermission('inventory.export'), controller.inventory.export);
   router.post('/api/v1/inventory/items', requirePermission('inventory.manage'), controller.inventory.save);

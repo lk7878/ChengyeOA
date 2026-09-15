@@ -15,7 +15,12 @@ process.env.EGG_TYPESCRIPT = 'true';
 const app = mm.app();
 let prisma: PrismaClient;
 
-const FULL_PERFORMANCE_PERMISSIONS = ['performance.read', 'performance.create', 'performance.confirm'];
+const FULL_PERFORMANCE_PERMISSIONS = [
+  'employee.read',
+  'performance.read',
+  'performance.create',
+  'performance.confirm',
+];
 
 /** 绩效域业务会话夹具（仿 case-api 先例；performance 不做行级 scope）。 */
 async function createPerformanceSession(permissions: string[]): Promise<{ userId: string; token: string }> {
@@ -33,11 +38,11 @@ async function createPerformanceSession(permissions: string[]): Promise<{ userId
       code: `PERF_API_${suffix.replaceAll('-', '').slice(0, 20).toUpperCase()}`,
       type: 'BUSINESS',
       permissions: {
-        create: permissions.map(code => ({ permission: { connect: { code } } })),
+        create: permissions.map((code) => ({ permission: { connect: { code } } })),
       },
     },
   });
-  const resources = [...new Set(permissions.map(code => code.split('.')[0]))];
+  const resources = [...new Set(permissions.map((code) => code.split('.')[0]))];
   for (const resource of resources) {
     const dataScope = await prisma.dataScope.create({
       data: {
@@ -94,14 +99,19 @@ test.after(async () => {
 test('requires authentication for every performance endpoint', async () => {
   await app.httpRequest().get('/api/v1/performances').expect(401);
   await app.httpRequest().get(`/api/v1/performances/${randomUUID()}`).expect(401);
-  await app.httpRequest().post('/api/v1/performances').send({ employeeId: 'x', period: '2026-04', type: 'MONTHLY' }).expect(401);
+  await app
+    .httpRequest()
+    .post('/api/v1/performances')
+    .send({ employeeId: 'x', period: '2026-04', type: 'MONTHLY' })
+    .expect(401);
   await app.httpRequest().post(`/api/v1/performances/${randomUUID()}/confirm`).expect(401);
 });
 
 test('rejects authenticated users without performance permissions', async () => {
   const ordinary = await createPerformanceSession([]);
   await app.httpRequest().get('/api/v1/performances').set(bearer(ordinary.token)).expect(403);
-  const denied = await app.httpRequest()
+  const denied = await app
+    .httpRequest()
     .post('/api/v1/performances')
     .set(bearer(ordinary.token))
     .send({ employeeId: randomUUID(), period: '2026-04', type: 'MONTHLY' })
@@ -111,12 +121,14 @@ test('rejects authenticated users without performance permissions', async () => 
   // 只有 performance.read：读通、写拒。
   const reader = await createPerformanceSession(['performance.read']);
   await app.httpRequest().get('/api/v1/performances').set(bearer(reader.token)).expect(200);
-  await app.httpRequest()
+  await app
+    .httpRequest()
     .post('/api/v1/performances')
     .set(bearer(reader.token))
     .send({ employeeId: randomUUID(), period: '2026-04', type: 'MONTHLY' })
     .expect(403);
-  await app.httpRequest()
+  await app
+    .httpRequest()
     .post(`/api/v1/performances/${randomUUID()}/confirm`)
     .set(bearer(reader.token))
     .expect(403);
@@ -126,10 +138,19 @@ test('creates, lists, reads, and confirms a performance record end to end with a
   const session = await createPerformanceSession(FULL_PERFORMANCE_PERMISSIONS);
   const employeeId = await seedEmployee();
 
-  const created = await app.httpRequest()
+  const created = await app
+    .httpRequest()
     .post('/api/v1/performances')
     .set(bearer(session.token))
-    .send({ employeeId, period: '2026-04', type: 'MONTHLY', kpiData: '{"cases":5}', score: '92.50', bonus: '3000.00', remark: '优秀' })
+    .send({
+      employeeId,
+      period: '2026-04',
+      type: 'MONTHLY',
+      kpiData: '{"cases":5}',
+      score: '92.50',
+      bonus: '3000.00',
+      remark: '优秀',
+    })
     .expect(200);
   assert.equal(created.body.code, 200);
   assert.equal(created.body.data.status, 'PENDING');
@@ -138,35 +159,39 @@ test('creates, lists, reads, and confirms a performance record end to end with a
   const performanceId = created.body.data.id as string;
 
   // 审计透传：API 写操作落 operation_log，actor 为请求用户。
-  const createAudit = await prisma.operationLog.findFirst({ where: { action: 'PERFORMANCE_CREATE', targetType: 'PERFORMANCE', targetId: performanceId } });
+  const createAudit = await prisma.operationLog.findFirst({
+    where: { action: 'PERFORMANCE_CREATE', targetType: 'PERFORMANCE', targetId: performanceId },
+  });
   assert.ok(createAudit, 'a PERFORMANCE_CREATE audit is written');
   assert.equal(createAudit.userId, session.userId);
 
-  const list = await app.httpRequest()
-    .get('/api/v1/performances')
-    .set(bearer(session.token))
-    .expect(200);
+  const list = await app.httpRequest().get('/api/v1/performances').set(bearer(session.token)).expect(200);
   assert.equal(list.body.data.total, 1);
   assert.equal(list.body.data.list[0].id, performanceId);
 
-  const detail = await app.httpRequest()
+  const detail = await app
+    .httpRequest()
     .get(`/api/v1/performances/${performanceId}`)
     .set(bearer(session.token))
     .expect(200);
   assert.equal(detail.body.data.id, performanceId);
   assert.equal(detail.body.data.status, 'PENDING');
 
-  const confirmed = await app.httpRequest()
+  const confirmed = await app
+    .httpRequest()
     .post(`/api/v1/performances/${performanceId}/confirm`)
     .set(bearer(session.token))
     .expect(200);
   assert.equal(confirmed.body.data.status, 'CONFIRMED');
 
-  const confirmAudit = await prisma.operationLog.findFirst({ where: { action: 'PERFORMANCE_CONFIRM', targetType: 'PERFORMANCE', targetId: performanceId } });
+  const confirmAudit = await prisma.operationLog.findFirst({
+    where: { action: 'PERFORMANCE_CONFIRM', targetType: 'PERFORMANCE', targetId: performanceId },
+  });
   assert.ok(confirmAudit, 'a PERFORMANCE_CONFIRM audit is written');
 
   // 重复确认 → 409 PERFORMANCE_STATE_INVALID。
-  const doubleConfirm = await app.httpRequest()
+  const doubleConfirm = await app
+    .httpRequest()
     .post(`/api/v1/performances/${performanceId}/confirm`)
     .set(bearer(session.token))
     .expect(409);
@@ -178,7 +203,8 @@ test('carries performance validation, duplicate, and not-found error codes', asy
   const employeeId = await seedEmployee();
 
   // body 未知键 → 400 VALIDATION_FAILED。
-  const unknownKey = await app.httpRequest()
+  const unknownKey = await app
+    .httpRequest()
     .post('/api/v1/performances')
     .set(bearer(session.token))
     .send({ employeeId, period: '2026-04', type: 'MONTHLY', bogus: true })
@@ -186,7 +212,8 @@ test('carries performance validation, duplicate, and not-found error codes', asy
   assert.equal(unknownKey.body.message, 'VALIDATION_FAILED');
 
   // 员工不存在 → 400。
-  const forgedEmployee = await app.httpRequest()
+  const forgedEmployee = await app
+    .httpRequest()
     .post('/api/v1/performances')
     .set(bearer(session.token))
     .send({ employeeId: randomUUID(), period: '2026-04', type: 'MONTHLY' })
@@ -194,12 +221,14 @@ test('carries performance validation, duplicate, and not-found error codes', asy
   assert.equal(forgedEmployee.body.message, 'VALIDATION_FAILED');
 
   // period 格式非法 / type 枚举非法 → 400。
-  await app.httpRequest()
+  await app
+    .httpRequest()
     .post('/api/v1/performances')
     .set(bearer(session.token))
     .send({ employeeId, period: '2026', type: 'MONTHLY' })
     .expect(400);
-  await app.httpRequest()
+  await app
+    .httpRequest()
     .post('/api/v1/performances')
     .set(bearer(session.token))
     .send({ employeeId, period: '2026-04', type: 'ANNUAL' })
@@ -209,20 +238,23 @@ test('carries performance validation, duplicate, and not-found error codes', asy
   await app.httpRequest().get('/api/v1/performances?page=0').set(bearer(session.token)).expect(400);
 
   // 不存在 → 404 PERFORMANCE_NOT_FOUND。
-  const missing = await app.httpRequest()
+  const missing = await app
+    .httpRequest()
     .get(`/api/v1/performances/${randomUUID()}`)
     .set(bearer(session.token))
     .expect(404);
   assert.equal(missing.body.message, 'PERFORMANCE_NOT_FOUND');
 
   // 重复录入（employeeId+period+type）→ 409 PERFORMANCE_DUPLICATE。
-  const first = await app.httpRequest()
+  const first = await app
+    .httpRequest()
     .post('/api/v1/performances')
     .set(bearer(session.token))
     .send({ employeeId, period: '2026-04', type: 'QUARTERLY' })
     .expect(200);
   assert.equal(first.body.data.status, 'PENDING');
-  const duplicate = await app.httpRequest()
+  const duplicate = await app
+    .httpRequest()
     .post('/api/v1/performances')
     .set(bearer(session.token))
     .send({ employeeId, period: '2026-04', type: 'QUARTERLY' })

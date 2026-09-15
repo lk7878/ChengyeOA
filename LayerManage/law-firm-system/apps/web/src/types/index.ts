@@ -249,6 +249,9 @@ export interface Notification {
 
 // 绩效
 export interface Performance {
+  version: number;
+  createdBy?: string | null;
+  updatedBy?: string | null;
   id: string;
   employeeId: string;
   employee?: Employee;
@@ -272,9 +275,9 @@ export interface Performance {
 
 // SPEC-044：绩效业务指标（该员工考核周期案件办结数/回款额）；SPEC-045：+autoScore 自动计分。
 export interface PerformanceBusinessMetrics {
-  closedCases: number;
-  confirmedRevenue: string;
-  autoScore: number;
+  closedCases: number | null;
+  confirmedRevenue: string | null;
+  autoScore: number | null;
 }
 
 // 仪表盘
