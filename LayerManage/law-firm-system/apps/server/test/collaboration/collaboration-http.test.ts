@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
+import { decodeBase32 } from '../../app/domain/security/base32';
+import { MfaSecretCrypto } from '../../app/domain/security/mfa-factor-crypto';
 import { createServer, Server } from 'node:http';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -159,6 +161,11 @@ test(
     const vite = await createViteServer({
       root: webRoot,
       cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      // Run browser libraries as in the actual dev App; rc-util test mode hardcodes duplicate DOM IDs.
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
       configFile: path.join(webRoot, 'vite.config.ts'),
       server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
     });
@@ -486,6 +493,11 @@ test(
     const vite = await createViteServer({
       root: webRoot,
       cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      // Run browser libraries as in the actual dev App; rc-util test mode hardcodes duplicate DOM IDs.
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
       configFile: path.join(webRoot, 'vite.config.ts'),
       server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
     });
@@ -645,6 +657,9 @@ test(
       await p1.getByRole('button', { name: '新建数据表', exact: true }).click();
       await p1.getByRole('textbox', { name: '名称', exact: true }).fill('真实线索表');
       await p1.getByRole('combobox', { name: '创建方式', exact: true }).click();
+      // More business sources make the options virtual; navigate until the requested option is rendered.
+      for (let step = 0; step < 20 && !(await p1.getByText('现有 CRM · 线索表（负责人配置）', { exact: true }).count()); step++)
+        await p1.getByRole('combobox', { name: '创建方式', exact: true }).press('ArrowUp');
       await p1.getByText('现有 CRM · 线索表（负责人配置）', { exact: true }).click();
       await p1
         .locator('.ant-modal')
@@ -1030,6 +1045,11 @@ test(
     const vite = await createViteServer({
       root: webRoot,
       cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      // Run browser libraries as in the actual dev App; rc-util test mode hardcodes duplicate DOM IDs.
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
       configFile: path.join(webRoot, 'vite.config.ts'),
       server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
     });
@@ -1283,6 +1303,11 @@ test(
     const vite = await createViteServer({
       root: webRoot,
       cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      // Run browser libraries as in the actual dev App; rc-util test mode hardcodes duplicate DOM IDs.
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
       configFile: path.join(webRoot, 'vite.config.ts'),
       server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
     });
@@ -1595,6 +1620,11 @@ test(
     const vite = await createViteServer({
       root: webRoot,
       cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      // Run browser libraries as in the actual dev App; rc-util test mode hardcodes duplicate DOM IDs.
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
       configFile: path.join(webRoot, 'vite.config.ts'),
       plugins: [
         {
@@ -1862,6 +1892,11 @@ test(
     const vite = await createViteServer({
       root: webRoot,
       cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      // Run browser libraries as in the actual dev App; rc-util test mode hardcodes duplicate DOM IDs.
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
       configFile: path.join(webRoot, 'vite.config.ts'),
       plugins: [
         {
@@ -2071,6 +2106,11 @@ test(
     const vite = await createViteServer({
       root: webRoot,
       cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      // Run browser libraries as in the actual dev App; rc-util test mode hardcodes duplicate DOM IDs.
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
       configFile: path.join(webRoot, 'vite.config.ts'),
       plugins: [
         {
@@ -2303,6 +2343,11 @@ test(
     const vite = await createViteServer({
       root: webRoot,
       cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      // Run browser libraries as in the actual dev App; rc-util test mode hardcodes duplicate DOM IDs.
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
       configFile: path.join(webRoot, 'vite.config.ts'),
       plugins: [
         {
@@ -2579,6 +2624,483 @@ test(
         .waitFor({ state: 'hidden', timeout: 25000 });
       assert.deepEqual(errors, []);
     } finally {
+      await browser.close();
+      await vite.close();
+    }
+  },
+);
+
+test(
+  'U6-A smoke: canonical finance views, precise creates, approvals, refund MFA and scoped case navigation',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web');
+    const load = new Function('url', 'return import(url)');
+    const { chromium } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      // Run browser libraries as in the actual dev App; rc-util test mode hardcodes duplicate DOM IDs.
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'u6a-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const security = (app.config as typeof app.config & { identitySecurity: { trustedOrigins: string[] } })
+      .identitySecurity;
+    const previousOrigins = [...security.trustedOrigins];
+    security.trustedOrigins.push(new URL(vite.resolvedUrls.local[0]).origin);
+    try {
+      const org = (await db.collabWorkspace.findUniqueOrThrow({ where: { id: workspaceId } })).organizationId;
+      const position = await db.position.create({
+        data: { organizationId: org, code: randomUUID(), name: 'U6A 岗位', categoryCode: 'SALES' },
+      });
+      const manager = await db.user.create({
+        data: { username: 'u6a-manager', password: 'unused', mustChangePassword: false },
+      });
+      const ids = [owner, editor, manager.id];
+      for (const id of ids) {
+        const employee = await db.employee.create({
+          data: {
+            name: id === editor ? 'U6A 员工' : 'U6A 负责人',
+            employeeNo: randomUUID(),
+            phone: '13800000000',
+            type: 'SALES',
+            status: 'FORMAL',
+            entryDate: new Date('2025-01-01'),
+          },
+        });
+        await db.user.update({ where: { id }, data: { employeeId: employee.id } });
+        await db.employeeAssignment.create({
+          data: {
+            employeeId: employee.id,
+            organizationId: org,
+            positionId: position.id,
+            assignmentType: 'PRIMARY',
+            startedAt: new Date('2025-01-01'),
+          },
+        });
+        const role = await db.role.create({
+          data: {
+            name: 'U6A ' + id,
+            code: 'U6A_' + id,
+            type: 'BUSINESS',
+            permissions: {
+              create: [
+                'case.read',
+                'case.create',
+                'case.update',
+                'menu.customer',
+                'menu.contract',
+                'customer.read',
+                'customer.create',
+                'contract.read',
+                'contract.create',
+                'contract.submit',
+                'contract.sign',
+                'payment.read',
+                'payment.create',
+                'payment.confirm',
+                'payment.void',
+                'invoice.read',
+                'invoice.create',
+                'invoice.approve',
+                'invoice.complete',
+                'refund.read',
+                'refund.create',
+                'refund.approve',
+                'refund.execute',
+                'cost.read',
+                'cost.create',
+                'cost.update',
+                'cost.delete',
+                'menu.payment',
+                'menu.invoice',
+                'menu.refund',
+                'menu.cost',
+              ].map((code) => ({ permission: { connect: { code } } })),
+            },
+          },
+        });
+        const scope = await db.dataScope.create({ data: { name: 'U6A scope', scopeType: 'ALL' } });
+        const caseScope = await db.dataScope.create({
+          data: { name: '案件范围', scopeType: id === editor ? 'SELF' : 'ALL' },
+        });
+        for (const resource of ['customer', 'contract', 'case', 'payment', 'invoice', 'refund', 'cost'])
+          await db.roleDataScope.create({
+            data: {
+              roleId: role.id,
+              resource,
+              dataScopeId: ['case', 'payment', 'invoice', 'refund', 'cost'].includes(resource)
+                ? caseScope.id
+                : scope.id,
+            },
+          });
+        await db.userRole.create({ data: { userId: id, roleId: role.id } });
+      }
+      // A registration-only role allows choosing authorized contracts across creators;
+      // the separate reading/confirmation role retains SELF on financial records.
+      const registration = await db.role.create({
+        data: {
+          name: '财务登记',
+          code: 'U6A_REGISTRATION',
+          type: 'BUSINESS',
+          permissions: {
+            create: ['payment.create', 'invoice.create', 'refund.create', 'cost.create'].map((code) => ({
+              permission: { connect: { code } },
+            })),
+          },
+        },
+      });
+      const registrationScope = await db.dataScope.create({
+        data: { name: '登记目标范围', scopeType: 'ALL' },
+      });
+      for (const resource of ['payment', 'invoice', 'refund', 'cost'])
+        await db.roleDataScope.create({
+          data: { roleId: registration.id, resource, dataScopeId: registrationScope.id },
+        });
+      await db.userRole.create({ data: { userId: editor, roleId: registration.id } });
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: editor },
+        data: { rowScope: 'SELF' },
+      });
+      await db.collabMember.create({
+        data: { workspaceId, principalId: manager.id, role: 'MANAGER', rowScope: 'ALL' },
+      });
+      const managerSession = await createApiSession(db, manager.id, 'MFA');
+      const managerToken = managerSession.token;
+      const addressForCookies = vite.resolvedUrls.local[0];
+      const tokens = [token, editorToken, managerToken],
+        pages = [],
+        errors: string[] = [];
+      for (let i = 0; i < ids.length; i++) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        if (i === 2)
+          await context.addCookies([
+            { name: 'chengye_csrf', value: managerSession.csrfToken, url: addressForCookies },
+          ]);
+        await context.addInitScript(
+          `window.unifiedTestSession = ${JSON.stringify({ mode: 'AUTHENTICATED', token: tokens[i], csrfToken: i === 2 ? managerSession.csrfToken : 'test', expiresIn: 900, user: { id: ids[i], username: ids[i], name: '业务验收成员', roles: [], permissions: [] } })};`,
+        );
+        const page = await context.newPage();
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [admin, staff, leader] = pages,
+        address = vite.resolvedUrls.local[0];
+      const api = (method: 'get' | 'post', route: string, bearer = token, body?: unknown) => {
+        const request = app.httpRequest();
+        const call = request[method]('/api/v1' + route)
+          .set('Authorization', 'Bearer ' + bearer)
+          .set('Idempotency-Key', randomUUID());
+        return body === undefined ? call : call.send(body);
+      };
+      const tables: Record<string, string> = {};
+      for (const [source, route] of [
+        ['PAYMENTS', 'payments'],
+        ['INVOICES', 'invoices'],
+        ['REFUNDS', 'refunds'],
+        ['COSTS', 'costs'],
+      ]) {
+        await admin.goto(address + route);
+        await admin.getByRole('button', { name: '连接业务数据', exact: true }).click();
+        await admin.getByRole('combobox', { name: '连接到应用', exact: true }).click();
+        await admin
+          .locator('.ant-select-item-option-content')
+          .getByText('接口工作区 / 业务台账', { exact: true })
+          .click();
+        await admin
+          .getByRole('dialog')
+          .getByRole('button', { name: /^连\s*接$/ })
+          .click();
+        await admin.getByRole('button', { name: '字段配置', exact: true }).waitFor();
+        tables[route] = new URL(admin.url()).searchParams.get('table')!;
+        assert.equal(
+          (await db.collabTable.findUniqueOrThrow({ where: { id: tables[route] } })).source,
+          source,
+        );
+      }
+      const customer = await db.customer.create({
+        data: {
+          customerNo: randomUUID(),
+          name: 'U6A 财务客户',
+          phone: '13900008881',
+          phoneHash: randomUUID(),
+          createdBy: owner,
+        },
+      });
+      const contract = await db.contract.create({
+        data: {
+          contractNo: 'U6A-CONTRACT',
+          contractType: 'FORMAL',
+          title: 'U6A 财务合同',
+          customerId: customer.id,
+          branchId: org,
+          createdBy: owner,
+          amount: '1000.00',
+          status: 'SIGNED',
+        },
+      });
+      const record = await db.case.create({
+        data: {
+          caseNo: 'U6A-CASE',
+          title: 'U6A 财务案件',
+          customerId: customer.id,
+          contractId: contract.id,
+          branchId: org,
+          createdBy: editor,
+          caseType: '民事',
+        },
+      });
+      const otherContract = await db.contract.create({
+        data: {
+          contractNo: 'U6A-OTHER',
+          contractType: 'FORMAL',
+          title: '另一个合同',
+          customerId: customer.id,
+          branchId: org,
+          createdBy: owner,
+          amount: '1000.00',
+          status: 'SIGNED',
+        },
+      });
+      const other = (
+        await api('post', '/payments', token, {
+          contractId: contract.id,
+          amount: '1.00',
+          idempotencyKey: randomUUID(),
+        }).expect(200)
+      ).body.data;
+      await api('get', '/payments/' + other.id, editorToken).expect(404);
+      const contextQuery = new URLSearchParams({
+        contract: contract.id,
+        case: record.id,
+        caseNo: record.caseNo,
+      });
+      const tableUrl = (route: string) =>
+        address +
+        route +
+        '?' +
+        new URLSearchParams({ ...Object.fromEntries(contextQuery), base: baseId, table: tables[route] });
+      await staff.goto(tableUrl('payments'));
+      await staff.getByRole('button', { name: '登记收款', exact: true }).click();
+      await staff.getByRole('spinbutton', { name: '单据金额', exact: true }).fill('0.30');
+      await staff.getByLabel('收款方式', { exact: true }).fill('银行转账');
+      let dropped = false;
+      await staff.route(
+        '**/api/v1/payments',
+        async (route: {
+          request(): { method(): string };
+          fetch(): Promise<unknown>;
+          abort(reason: string): Promise<void>;
+          continue(): Promise<void>;
+        }) => {
+          if (route.request().method() === 'POST' && !dropped) {
+            dropped = true;
+            await route.fetch();
+            await route.abort('failed');
+          } else await route.continue();
+        },
+      );
+      const save = staff.getByRole('button', { name: '保存单据', exact: true });
+      await save.click();
+      await staff.getByRole('button', { name: '刷新授权与选项', exact: true }).waitFor();
+      assert.equal(await db.payment.count({ where: { createdBy: editor } }), 1);
+      await save.click();
+      await staff.getByRole('button', { name: '确认收款', exact: true }).waitFor();
+      const own = await db.payment.findFirstOrThrow({ where: { createdBy: editor } });
+      assert.equal(own.amount.toFixed(2), '0.30');
+      assert.equal(await db.payment.count({ where: { createdBy: editor } }), 1);
+      await leader.goto(tableUrl('payments'));
+      await leader.getByRole('button', { name: '收款金额：0.30', exact: true }).waitFor();
+      await staff.getByRole('button', { name: '确认收款', exact: true }).click();
+      await staff.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await staff.getByText('已确认', { exact: true }).waitFor();
+      await leader.getByRole('button', { name: '收款状态：已确认', exact: true }).waitFor();
+      assert.equal(
+        (await db.contract.findUniqueOrThrow({ where: { id: contract.id } })).receivedAmount.toFixed(2),
+        '0.30',
+      );
+      // The same creator's different contract is excluded only by the transient context, not a saved view.
+      await api('post', '/payments', editorToken, {
+        contractId: otherContract.id,
+        amount: '8.88',
+        idempotencyKey: randomUUID(),
+      }).expect(200);
+      await staff.getByRole('link', { name: '返回收款工作表', exact: true }).click();
+      await staff.locator('.ant-drawer-close').waitFor();
+      await staff.locator('.ant-drawer-close').click();
+      await staff.getByRole('button', { name: '收款金额：0.30', exact: true }).waitFor();
+      assert.equal(await staff.getByRole('button', { name: '收款金额：8.88', exact: true }).count(), 0);
+      await staff.getByRole('button', { name: '创建个人视图', exact: true }).click();
+      await staff.getByRole('tab', { name: '我登记的收款 · 个人', exact: true }).waitFor();
+      await staff.reload();
+      await staff.getByRole('tab', { name: '我登记的收款 · 个人', exact: true }).waitFor();
+      const personal = await db.collabView.findFirstOrThrow({
+        where: { tableId: tables.payments, ownerId: editor, isDefault: false },
+      });
+      assert.equal(JSON.stringify(personal.config).includes(contract.id), false);
+      for (const width of [1440, 1024, 390]) {
+        await staff.setViewportSize({ width, height: 900 });
+        assert.equal(
+          await staff.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
+          false,
+        );
+        await staff.locator('.ant-spin-spinning').waitFor({ state: 'hidden' });
+        await staff.screenshot({
+          path: path.resolve(process.cwd(), '../../var/collaboration-evidence/u6a-finance-' + width + '.png'),
+          fullPage: true,
+          animations: 'disabled',
+        });
+      }
+      await staff.setViewportSize({ width: 1440, height: 1000 });
+      await staff.goto(tableUrl('invoices'));
+      await staff.getByRole('button', { name: '申请发票', exact: true }).click();
+      await staff.getByRole('spinbutton', { name: '单据金额', exact: true }).fill('0.20');
+      await staff.getByLabel('申请说明', { exact: true }).fill('冒烟开票');
+      await staff.getByRole('button', { name: '保存单据', exact: true }).click();
+      await staff.getByText('发票详情', { exact: true }).waitFor();
+      const invoice = await db.invoiceRequest.findFirstOrThrow({ where: { createdBy: editor } });
+      await leader.goto(address + 'invoices/' + invoice.id);
+      await leader.getByRole('button', { name: '审批通过', exact: true }).click();
+      await leader.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await leader.getByRole('button', { name: '完成开票', exact: true }).click();
+      await leader.getByLabel('发票号码（可留空自动生成）', { exact: true }).fill('U6A-INVOICE');
+      await leader.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await staff.getByText('已完成', { exact: true }).waitFor();
+      await staff.goto(tableUrl('refunds'));
+      await staff.getByRole('button', { name: '申请退款减免', exact: true }).click();
+      await staff.getByLabel('原收款', { exact: true }).click();
+      await staff
+        .locator('.ant-select-item-option-content')
+        .getByText(own.paymentNo + ' · 0.30 元', { exact: true })
+        .click();
+      assert.equal(
+        await staff.getByRole('spinbutton', { name: '单据金额', exact: true }).inputValue(),
+        '0.30',
+      );
+      await staff.getByLabel('申请说明', { exact: true }).fill('冒烟退款');
+      await staff.getByRole('button', { name: '保存单据', exact: true }).click();
+      await staff.getByText('退款减免详情', { exact: true }).waitFor();
+      const refund = await db.refundRequest.findFirstOrThrow({ where: { createdBy: editor } });
+      await api('post', '/refunds/' + refund.id + '/approve', managerToken, {
+        expectedVersion: refund.version,
+      }).expect(403);
+      await leader.goto(address + 'refunds/' + refund.id);
+      await leader.getByRole('button', { name: '审批通过', exact: true }).click();
+      await leader.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await leader.getByRole('dialog', { name: '再次验证身份' }).waitFor();
+      const factor = await db.mfaFactor.findFirstOrThrow({ where: { userId: manager.id, disabledAt: null } });
+      const secret = new MfaSecretCrypto(
+        new Map([[1, Buffer.from('0123456789abcdef0123456789abcdef')]]),
+      ).decrypt({
+        ciphertext: factor.encryptedSecret,
+        iv: factor.secretIv,
+        authTag: factor.secretAuthTag,
+        keyVersion: factor.keyVersion,
+      });
+      const counter = Buffer.alloc(8);
+      counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));
+      const digest = createHmac('sha1', decodeBase32(secret)).update(counter).digest();
+      const code = ((digest.readUInt32BE(digest[digest.length - 1] & 15) & 0x7fffffff) % 1000000)
+        .toString()
+        .padStart(6, '0');
+      await leader.getByLabel('当前六位验证码', { exact: true }).fill(code);
+      await leader.getByRole('button', { name: '验证并继续', exact: true }).click();
+      await leader.getByRole('button', { name: '执行退款减免', exact: true }).click();
+      await leader.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await staff.getByText('已执行', { exact: true }).waitFor();
+      assert.equal((await db.payment.findUniqueOrThrow({ where: { id: own.id } })).status, 'REFUNDED');
+      assert.equal(
+        (await db.contract.findUniqueOrThrow({ where: { id: contract.id } })).receivedAmount.toFixed(2),
+        '0.00',
+      );
+      await staff.goto(tableUrl('costs'));
+      await staff.getByRole('button', { name: '登记成本', exact: true }).click();
+      await staff.getByText('U6A-CASE · U6A 财务案件', { exact: true }).waitFor();
+      const contractOptions = await api(
+        'get',
+        '/contracts?branchId=' + contract.branchId,
+        editorToken,
+      ).expect(200);
+      assert.ok(contractOptions.body.data.list.some((row: { id: string }) => row.id === contract.id));
+      const caseOptions = await api('get', '/cases?branchId=' + contract.branchId, editorToken).expect(200);
+      assert.ok(caseOptions.body.data.list.some((row: { caseNo: string }) => row.caseNo === 'U6A-CASE'));
+      assert.equal(
+        (await api('get', '/cases?branchId=nonexistent', editorToken).expect(200)).body.data.total,
+        0,
+      );
+      await staff.getByRole('spinbutton', { name: '单据金额', exact: true }).fill('9999999999999999.99');
+      await staff.getByLabel('备注', { exact: true }).fill('大额精度冒烟');
+      await staff.getByRole('button', { name: '保存单据', exact: true }).click();
+      await staff.getByText('成本详情', { exact: true }).waitFor();
+      const cost = await db.costEntry.findFirstOrThrow({ where: { createdBy: editor } });
+      assert.equal(cost.amount.toFixed(2), '9999999999999999.99');
+      await staff.getByRole('button', { name: '编辑成本', exact: true }).click();
+      await staff.getByRole('dialog').getByLabel('备注', { exact: true }).fill('已修改成本');
+      await staff.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await staff.getByText('已修改成本', { exact: true }).waitFor();
+      await staff.goto(address + 'finance?caseNo=U6A-CASE');
+      await staff.getByText('U6A-CASE · U6A 财务案件', { exact: true }).waitFor();
+      await staff.getByRole('link', { name: /收款工作表/ }).click();
+      assert.equal(new URL(staff.url()).searchParams.get('contract'), contract.id);
+      await staff.goto(address + 'costs/' + cost.id);
+      await staff.getByText('已修改成本', { exact: true }).waitFor();
+      await db.userRole.deleteMany({ where: { userId: editor } });
+      await api('get', '/costs/' + cost.id, editorToken).expect(403);
+      await staff.getByText('已修改成本', { exact: true }).waitFor({ state: 'hidden', timeout: 25000 });
+      assert.equal(await db.collabRecord.count(), 0);
+      assert.deepEqual(errors, []);
+    } catch (error) {
+      for (const [index, context] of browser.contexts().entries())
+        for (const page of context.pages()) {
+          await page
+            .screenshot({
+              path: path.resolve(
+                process.cwd(),
+                '../../var/collaboration-evidence/u6a-smoke-failed-' + index + '.png',
+              ),
+              fullPage: true,
+          animations: 'disabled',
+            })
+            .catch(() => undefined);
+          console.error(
+            'U6-A failure context',
+            index,
+            await page
+              .locator('[role=dialog]')
+              .evaluateAll((nodes) =>
+                nodes.map((node) => ({
+                  label: node.getAttribute('aria-label'),
+                  labelledby: node.getAttribute('aria-labelledby'),
+                  title: node.querySelector('.ant-modal-title')?.outerHTML,
+                  text: node.textContent?.slice(0, 700),
+                })),
+              )
+              .catch(() => []),
+          );
+        }
+      throw error;
+    } finally {
+      security.trustedOrigins = previousOrigins;
       await browser.close();
       await vite.close();
     }

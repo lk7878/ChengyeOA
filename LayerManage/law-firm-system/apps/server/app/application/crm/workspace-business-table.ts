@@ -14,6 +14,7 @@ import {
   ViewConfig,
   filterSql,
   fieldExpression,
+  groupExpression,
 } from '../collaboration/collaboration-policy';
 
 const columns = {
@@ -269,7 +270,7 @@ export class WorkspaceBusinessTable {
         Prisma.sql`${fieldExpression(fieldOf(fields, s.fieldId))} ${s.direction === 'desc' ? Prisma.sql`DESC NULLS LAST` : Prisma.sql`ASC NULLS LAST`}`,
     );
     order.push(Prisma.sql`r."createdAt" DESC`, Prisma.sql`r.id ASC`);
-    const group = (config.groupBy ?? []).map((id) => fieldExpression(fieldOf(fields, id)));
+    const group = (config.groupBy ?? []).map((id) => groupExpression(fieldOf(fields, id)));
     const result = await this.db.$transaction(
       async (tx) => {
         const records = await tx.$queryRaw<CollabRecord[]>(

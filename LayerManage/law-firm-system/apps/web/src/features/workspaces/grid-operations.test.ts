@@ -87,11 +87,11 @@ describe('grouped page rows', () => {
       { keys: [2], count: 1 },
     ];
     const expanded = groupedRows(records, fields, totals, new Set());
-    expect(expanded.map((r) => r.id)).toEqual(['group:[1]', 'a', 'c', 'group:[2]', 'b']);
+    expect(expanded.map((r) => r.id)).toEqual(['group:["1"]', 'a', 'c', 'group:["2"]', 'b']);
     expect(expanded[0].group).toMatchObject({ loaded: 2, count: 20 });
-    expect(groupedRows(records, fields, totals, new Set(['[1]'])).map((r) => r.id)).toEqual([
-      'group:[1]',
-      'group:[2]',
+    expect(groupedRows(records, fields, totals, new Set(['["1"]'])).map((r) => r.id)).toEqual([
+      'group:["1"]',
+      'group:["2"]',
       'b',
     ]);
     expect(groupedRows(records, fields, [], new Set())[0].group?.count).toBeUndefined();

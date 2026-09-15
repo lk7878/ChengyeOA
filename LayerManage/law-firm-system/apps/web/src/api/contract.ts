@@ -139,6 +139,7 @@ export interface VoidContractInput {
 
 /** 镜像 contract-types.ts ContractListQuery。 */
 export interface ContractListQuery {
+  branchId?: string;
   caseNo?: string;
   page?: number;
   pageSize?: number;

@@ -1,3 +1,6 @@
+import { createOnce } from './domain-mutation';
+import { buildFinancialRecordScopeWhere, FinancialRecordScope } from './financial-record-scope';
+import { assertFinancialCaseLink, financialCaseFilter, projectFinancialCases } from './financial-case-projection';
 // SPEC-011 Task 6: refund-service —— 退款/减免申请全生命周期（FIN-03 回补核心，本 SPEC
 // 风险最高点）。形态逐段镜像 finance/invoice-service.ts（Task 5 同族母版）：3 参构造
 // (prisma, actor, authorizationContext) + 可选 outbox；requireAction 每公开方法第一行；
@@ -139,8 +142,7 @@ export class RefundService {
     const contractId = normalizeRequiredText(input.contractId, 1, 100);
     const reason = normalizeRequiredText(input.reason, 1, 500);
     const amount = normalizeRefundAmount(input.amount);
-    // idempotencyKey 仅作接口位校验（S8 先例）：申请重放保护由 requestNo P2002 重试承担。
-    normalizeOptionalText(input.idempotencyKey, 100);
+    const idempotencyKey = normalizeOptionalText(input.idempotencyKey, 100);
     // 交叉锚点禁填（成本锚点矩阵同型纪律）：保证锚点一实一空，refund.executed 恰 5 键因此恒良构。
     const paymentId = type === 'REFUND'
       ? normalizeRequiredText(input.paymentId, 1, 100)
@@ -157,7 +159,7 @@ export class RefundService {
       throw new ContractError(CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND, 404, 'contract not found');
     }
     const caseNo = normalizeOptionalText(input.caseNo, 100);
-    if (caseNo && !await this.prisma.case.findFirst({ where: { caseNo, contractId } })) throw new MasterDataError('FINANCE_CASE_MISMATCH', 400);
+    await assertFinancialCaseLink(this.prisma, this.authorizationContext, contractId, caseNo);
 
     const created = await this.createWithRequestNoRetry({
       type,
@@ -169,7 +171,7 @@ export class RefundService {
       reason,
       status: 'PENDING',
       createdBy: this.actor.actorUserId,
-    });
+    }, idempotencyKey, caseNo);
     return projectRefundRequest(created);
   }
 
@@ -200,7 +202,7 @@ export class RefundService {
     normalizeOptionalText(input.idempotencyKey, 100);
     const expectedVersion = normalizeOptionalVersion(input.expectedVersion);
     const refundId = normalizeRequiredText(id, 1, 100);
-    const scopeWhere = await this.buildScopeWhere('refund.approve');
+    const scopeWhere = await this.buildRecordScopeWhere('refund.approve');
 
     return this.prisma.$transaction(async tx => {
       const refund = await this.probeRefundRequest(tx, refundId, scopeWhere);
@@ -256,7 +258,7 @@ export class RefundService {
     const comment = normalizeOptionalText(input.comment, 500);
     normalizeOptionalText(input.idempotencyKey, 100);
     const refundId = normalizeRequiredText(id, 1, 100);
-    const scopeWhere = await this.buildScopeWhere('refund.approve');
+    const scopeWhere = await this.buildRecordScopeWhere('refund.approve');
 
     return this.prisma.$transaction(async tx => {
       const refund = await this.probeRefundRequest(tx, refundId, scopeWhere);
@@ -324,7 +326,7 @@ export class RefundService {
     // idempotencyKey 仅作接口位校验（S8 先例）：EXECUTED 重放由翻转谓词覆盖。
     normalizeOptionalText(input.idempotencyKey, 100);
     const refundId = normalizeRequiredText(id, 1, 100);
-    const scopeWhere = await this.buildScopeWhere('refund.execute');
+    const scopeWhere = await this.buildRecordScopeWhere('refund.execute');
 
     return this.prisma.$transaction(async tx => {
       const refund = await this.probeRefundRequest(tx, refundId, scopeWhere);
@@ -448,9 +450,9 @@ export class RefundService {
     assertExactKeys(query, ['page', 'pageSize', 'status', 'type', 'contractId', 'customerId', 'caseNo']);
     const page = normalizePage(query.page);
     const pageSize = normalizePageSize(query.pageSize);
-    const scopeWhere = await this.buildScopeWhere('refund.read');
+    const scopeWhere = await this.buildRecordScopeWhere('refund.read');
 
-    const filters: Prisma.RefundRequestWhereInput[] = [{ contract: scopeWhere }];
+    const filters: Prisma.RefundRequestWhereInput[] = [{ AND: [scopeWhere, { contract: { deletedAt: null } }] }];
     if (query.status !== undefined) {
       filters.push({ status: normalizeAllowedValue(query.status, REFUND_REQUEST_STATUSES) });
     }
@@ -463,7 +465,7 @@ export class RefundService {
     if (customerId) filters.push({ customerId });
 
     const caseNo = normalizeOptionalText(query.caseNo, 100);
-    if (caseNo) filters.push({ contract: { case: { caseNo } } });
+    if (caseNo) filters.push({ contract: { case: await financialCaseFilter(this.prisma, this.authorizationContext, caseNo) } });
     const where: Prisma.RefundRequestWhereInput = { AND: filters };
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.refundRequest.count({ where }),
@@ -476,7 +478,7 @@ export class RefundService {
       }),
     ]);
     return {
-      list: rows.map(projectRefundRequest),
+      list: (await projectFinancialCases(this.prisma, this.authorizationContext, rows)).map(projectRefundRequest),
       page,
       pageSize,
       total,
@@ -490,9 +492,9 @@ export class RefundService {
   async getRefundRequest(id: string): Promise<RefundRequestView> {
     this.authorization.requireAction(this.authorizationContext, 'refund.read');
     const refundId = normalizeRequiredText(id, 1, 100);
-    const scopeWhere = await this.buildScopeWhere('refund.read');
+    const scopeWhere = await this.buildRecordScopeWhere('refund.read');
     const refund = await this.prisma.refundRequest.findFirst({
-      where: { id: refundId, contract: scopeWhere },
+      where: { id: refundId, AND: [scopeWhere, { contract: { deletedAt: null } }] },
     });
     if (!refund) {
       throw new FinanceError(FINANCE_ERROR_CODES.REFUND_NOT_FOUND, 404, 'refund request not found');
@@ -504,10 +506,10 @@ export class RefundService {
   private async probeRefundRequest(
     tx: Prisma.TransactionClient,
     refundId: string,
-    scopeWhere: Prisma.ContractWhereInput,
+    scopeWhere: FinancialRecordScope,
   ): Promise<RefundRequest> {
     const refund = await tx.refundRequest.findFirst({
-      where: { id: refundId, contract: scopeWhere },
+      where: { id: refundId, AND: [scopeWhere, { contract: { deletedAt: null } }] },
     });
     if (!refund) {
       throw new FinanceError(FINANCE_ERROR_CODES.REFUND_NOT_FOUND, 404, 'refund request not found');
@@ -705,10 +707,11 @@ export class RefundService {
     reason: string;
     status: 'PENDING';
     createdBy: string;
-  }): Promise<RefundRequest> {
+  }, idempotencyKey: string | null, caseNo: string | null): Promise<RefundRequest> {
+    const replayScope = await this.buildRecordScopeWhere('refund.create');
     for (let attempt = 0; attempt < REFUND_NO_RETRY_LIMIT; attempt += 1) {
       try {
-        return await this.prisma.$transaction(async tx => {
+        return await createOnce(this.prisma, { actorId: this.actor.actorUserId, key: idempotencyKey, operation: 'refund.create', normalized: { ...data, amount: new Prisma.Decimal(String(data.amount)).toFixed(2), caseNo } }, async tx => {
           // 事务内首把锁 = Contract 行 FOR UPDATE（锁序统一）；类型分流校验在锁下进行，
           // 在途排他/余额判定因此只见已提交一致态（create 期为 pre-flight 闸，execute 期
           // 重验为完整性兜底——裁决 4/6）。
@@ -756,6 +759,10 @@ export class RefundService {
             },
           });
           return refund;
+        }, async (tx, targetId) => {
+          const existing = await tx.refundRequest.findFirst({ where: { id: targetId, AND: [replayScope, { contract: { deletedAt: null } }] } });
+          if (!existing) throw new FinanceError(FINANCE_ERROR_CODES.REFUND_NOT_FOUND, 404, 'record not found');
+          return existing;
         });
       } catch (error) {
         if (attempt + 1 < REFUND_NO_RETRY_LIMIT && isUniqueConflictOn(error, 'requestNo')) continue;
@@ -770,6 +777,10 @@ export class RefundService {
    * resource 为 'refund'，授权上下文按 (resource, permissionCode) 双键过滤，缺省
    * 'contract' 恒空集 fail-closed——S15 教训），锚定合同列；本方法仅做委托。
    */
+  private async buildRecordScopeWhere(permissionCode: PermissionCode): Promise<FinancialRecordScope> {
+    return buildFinancialRecordScopeWhere(this.prisma, this.authorization, this.authorizationContext, permissionCode, 'refund');
+  }
+
   private async buildScopeWhere(permissionCode: PermissionCode): Promise<Prisma.ContractWhereInput> {
     return buildContractScopeWhere(
       this.prisma,

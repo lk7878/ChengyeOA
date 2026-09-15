@@ -246,3 +246,10 @@ U4 复用 CRM 领域事件和 collaboration.changed 通知，无记录值广播�
 CASES 沿用非 CUSTOM 表每 5 秒 business.refresh 失效通知，客户端按当前范围回源读取；任务、材料和状态动作更新父案件版本。详情路由在焦点恢复及每 5 秒复查，保留编辑草稿但清除撤权后的展示数据。不把该机制声明为全领域即时 outbox 广播。[详细契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
 
 协作事件写入使用 appendCollaborationChange，在调用方事务内以一个参数化 SQL CTE 写入 collab_event、event_log 和 operation_log；仍经原 registry 信封验证，不广播记录值、不绕过权限与版本。真实数据库约束故障覆盖任一写入失败时领域变更、事件、审计和幂等结果全量回滚；具体性能条件见全站计划 U5-B。
+
+### U6-A 财务刷新（实施中）
+
+收款/发票/退款/成本领域事件、资金联动与原事务保持，新增创建幂等标记随领域事务提交。共同表继续每 5 秒 business.refresh 后授权回源；详情每 5 秒/聚焦刷新，保留动作草稿与原版本，撤权清空数据。没有新建第二套财务资金事件。[事件边界](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
+
+
+2026-09-16 U6-A 阶段已验收，91模型/57迁移已部署开发库并保留业务记录数量。财务权限、精确金额、事务重试与真实 App/MFA 冒烟通过，完整测试与负载条件见[计划第10节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)；此前“实施中/隔离库”文字为实施过程记录。

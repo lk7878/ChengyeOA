@@ -1,3 +1,4 @@
+import { financeContextParams, financialSources } from '@/pages/finance/context';
 import { useAuthStore } from '@/stores/authStore';
 import { businessSources, domainCreate, type BusinessSource } from './business-sources';
 import { useEffect, useRef, useState } from 'react';
@@ -17,6 +18,7 @@ export function BusinessTableLinks({
   recordId: string;
   source?: BusinessSource;
 }) {
+  const [linkParams] = useSearchParams();
   const [data, setData] = useState<BusinessDirectory>();
   useEffect(() => {
     let active = true;
@@ -41,7 +43,12 @@ export function BusinessTableLinks({
           to={
             businessSources[source].path +
             '?' +
-            new URLSearchParams({ base: table.baseId, table: table.id, record: recordId })
+            new URLSearchParams({
+              ...(financialSources.includes(source) ? financeContextParams(linkParams) : {}),
+              base: table.baseId,
+              table: table.id,
+              record: recordId,
+            })
           }
         >
           在「{table.name}」中打开
@@ -139,7 +146,10 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
             </Button>
           )}
           {creation && canCreate && (
-            <Link style={{ marginLeft: 16 }} to={creation.path}>
+            <Link
+              style={{ marginLeft: 16 }}
+              to={creation.path + (params.size ? '?' + params.toString() : '')}
+            >
               {creation.label}
             </Link>
           )}
@@ -175,7 +185,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
             );
             if (!mounted.current) return;
             setConnecting(false);
-            setParams({ base: values.baseId, table: table.id });
+            setParams({ ...Object.fromEntries(params), base: values.baseId, table: table.id });
           } catch (e) {
             if (!(e as { errorFields?: unknown }).errorFields) setError(errorMessage(e));
           } finally {

@@ -28,6 +28,7 @@ export interface CostView {
 
 /** 镜像 finance-types.ts CreateCostEntryInput；category 驱动锚点（CHANNEL→channelId、EVIDENCE/CASE_HANDLING→caseId）。 */
 export interface CreateCostInput {
+  idempotencyKey?: string;
   category: CostCategory;
   amount: string | number;
   occurredAt: string;

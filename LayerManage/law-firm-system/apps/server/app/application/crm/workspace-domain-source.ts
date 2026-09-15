@@ -1,3 +1,5 @@
+import { buildFinancialRecordScopeWhere } from '../finance/financial-record-scope';
+import { buildCostScopeWhere, costCreatorIds } from '../finance/cost-scope';
 import { INTAKE_FIELDS } from '../case/intake-contract';
 import { buildCaseScopeWhere } from '../case/case-scope';
 import { CollabField, CollabRecord, CollabTable, Prisma, PrismaClient } from '@prisma/client';
@@ -16,6 +18,83 @@ import { maskLeadPhone, maskLeadWechat } from './lead-projection';
 import { auditRawL3Access } from './lead-audit';
 
 export const domainSources = {
+  PAYMENTS: {
+    resource: 'payment',
+    edit: 'payment.create',
+    table: 'payment',
+    columns: [
+      ['paymentNo', '收款编号', 'TEXT'],
+      ['contractId', '关联合同', 'TEXT'],
+      ['customerId', '关联客户', 'TEXT'],
+      ['amount', '收款金额', 'CURRENCY'],
+      ['method', '收款方式', 'TEXT'],
+      ['account', '收款账户', 'TEXT'],
+      ['paidAt', '收款日期', 'DATETIME'],
+      ['status', '收款状态', 'TEXT'],
+      ['confirmedBy', '确认人', 'TEXT'],
+      ['confirmedAt', '确认时间', 'DATETIME'],
+      ['remark', '备注', 'LONG_TEXT'],
+      ['createdBy', '创建人', 'CREATED_BY'],
+      ['createdAt', '创建时间', 'CREATED_AT'],
+      ['updatedAt', '更新时间', 'UPDATED_AT'],
+    ],
+  },
+  INVOICES: {
+    resource: 'invoice',
+    edit: 'invoice.create',
+    table: 'invoice_request',
+    columns: [
+      ['requestNo', '开票申请编号', 'TEXT'],
+      ['contractId', '关联合同', 'TEXT'],
+      ['customerId', '关联客户', 'TEXT'],
+      ['amount', '开票金额', 'CURRENCY'],
+      ['status', '开票状态', 'TEXT'],
+      ['invoiceNo', '发票号码', 'TEXT'],
+      ['reason', '申请说明', 'LONG_TEXT'],
+      ['approvedBy', '审批人', 'TEXT'],
+      ['completedAt', '开具时间', 'DATETIME'],
+      ['createdBy', '创建人', 'CREATED_BY'],
+      ['createdAt', '创建时间', 'CREATED_AT'],
+      ['updatedAt', '更新时间', 'UPDATED_AT'],
+    ],
+  },
+  REFUNDS: {
+    resource: 'refund',
+    edit: 'refund.create',
+    table: 'refund_request',
+    columns: [
+      ['requestNo', '申请编号', 'TEXT'],
+      ['type', '业务类型', 'TEXT'],
+      ['contractId', '关联合同', 'TEXT'],
+      ['customerId', '关联客户', 'TEXT'],
+      ['paymentId', '关联收款', 'TEXT'],
+      ['planId', '关联计划', 'TEXT'],
+      ['amount', '申请金额', 'CURRENCY'],
+      ['status', '退款减免状态', 'TEXT'],
+      ['reason', '申请理由', 'LONG_TEXT'],
+      ['executedAt', '执行时间', 'DATETIME'],
+      ['createdBy', '创建人', 'CREATED_BY'],
+      ['createdAt', '创建时间', 'CREATED_AT'],
+      ['updatedAt', '更新时间', 'UPDATED_AT'],
+    ],
+  },
+  COSTS: {
+    resource: 'cost',
+    edit: 'cost.update',
+    table: 'cost_entry',
+    columns: [
+      ['category', '成本类别', 'TEXT'],
+      ['amount', '成本金额', 'CURRENCY'],
+      ['occurredAt', '发生日期', 'DATETIME'],
+      ['caseId', '关联案件', 'TEXT'],
+      ['channelId', '关联渠道', 'TEXT'],
+      ['sourceApprovalId', '来源审批', 'TEXT'],
+      ['note', '说明', 'LONG_TEXT'],
+      ['createdBy', '创建人', 'CREATED_BY'],
+      ['createdAt', '创建时间', 'CREATED_AT'],
+      ['updatedAt', '更新时间', 'UPDATED_AT'],
+    ],
+  },
   CASES: {
     resource: 'case',
     edit: 'case.update',
@@ -143,7 +222,7 @@ export class WorkspaceDomainSource {
         ),
     );
   }
-  private compile(raw: unknown, alias: 'b' | 'l' = 'b'): Prisma.Sql {
+  private compile(raw: unknown, alias: 'b' | 'l' | 'c' | 'k' = 'b'): Prisma.Sql {
     const clauses = Object.entries(object(raw)).map(([key, value]): Prisma.Sql => {
       if (key === 'AND' || key === 'OR') {
         const children = Array.isArray(value) ? value : [value];
@@ -154,10 +233,18 @@ export class WorkspaceDomainSource {
         )})`;
       }
       if (key === 'sourceLead' && alias === 'b') return this.compile(value, 'l');
+      if (key === 'contract' && alias === 'b') return this.compile(value, 'c');
+      if (key === 'case' && alias === 'b') return this.compile(value, 'k');
       if (
-        !['id', 'createdBy', 'branchId', 'professionalTeamId', 'negotiatorEmployeeId', 'deletedAt'].includes(
-          key,
-        )
+        ![
+          'id',
+          'caseId',
+          'createdBy',
+          'branchId',
+          'professionalTeamId',
+          'negotiatorEmployeeId',
+          'deletedAt',
+        ].includes(key)
       )
         fail('COLLAB_UNSUPPORTED_SCOPE', 403);
       const column = Prisma.raw(alias + '."' + key + '"');
@@ -178,14 +265,24 @@ export class WorkspaceDomainSource {
   }
   async scope(source: DomainSource, access: Access, action = 'read') {
     const permission = this.authorize(source, action);
-    const domain =
-      source === 'CASES'
-        ? await buildCaseScopeWhere(this.db, this.actor, permission)
-        : source === 'CUSTOMERS'
-          ? await buildCustomerVisibilityWhere(this.db, this.authorization, this.actor, permission)
-          : source === 'NEGOTIATIONS'
-            ? await buildNegotiationScopeWhere(this.db, this.authorization, this.actor, permission)
-            : await buildContractScopeWhere(this.db, this.authorization, this.actor, permission);
+    const financial = source === 'PAYMENTS' || source === 'INVOICES' || source === 'REFUNDS';
+    const domain = financial
+      ? await buildFinancialRecordScopeWhere(
+          this.db,
+          this.authorization,
+          this.actor,
+          permission,
+          domainSources[source].resource,
+        )
+      : source === 'COSTS'
+        ? await buildCostScopeWhere(this.db, this.actor, permission)
+        : source === 'CASES'
+          ? await buildCaseScopeWhere(this.db, this.actor, permission)
+          : source === 'CUSTOMERS'
+            ? await buildCustomerVisibilityWhere(this.db, this.authorization, this.actor, permission)
+            : source === 'NEGOTIATIONS'
+              ? await buildNegotiationScopeWhere(this.db, this.authorization, this.actor, permission)
+              : await buildContractScopeWhere(this.db, this.authorization, this.actor, permission);
     const root = await this.db.organization.findUnique({ where: { id: access.organizationId } });
     if (!root || root.status !== 'ENABLED') fail('COLLAB_FORBIDDEN', 403);
     const organizations = await this.db.organization.findMany({
@@ -196,7 +293,11 @@ export class WorkspaceDomainSource {
       select: { id: true },
     });
     const ids = organizations.map((o) => o.id);
-    let organization = Prisma.sql`b."branchId" IN (${Prisma.join(ids)})`;
+    let organization = Prisma.sql`${Prisma.raw(financial ? 'c."branchId"' : 'b."branchId"')} IN (${Prisma.join(ids)})`;
+    if (source === 'COSTS') {
+      const creators = await costCreatorIds(this.db, ids);
+      organization = Prisma.sql`(k."branchId" IN (${Prisma.join(ids)}) OR (b."caseId" IS NULL AND ${creators.length ? Prisma.sql`b."createdBy" IN (${Prisma.join(creators)})` : Prisma.sql`FALSE`}))`;
+    }
     if (source === 'CUSTOMERS') {
       const now = new Date();
       const creators = await this.db.user.findMany({
@@ -220,10 +321,13 @@ export class WorkspaceDomainSource {
       organization = Prisma.sql`(l."branchId" IN (${Prisma.join(ids)}) OR
         (b."sourceLeadId" IS NULL AND ${creators.length ? Prisma.sql`b."createdBy" IN (${Prisma.join(creators.map((u) => u.id))})` : Prisma.sql`FALSE`}))`;
     }
-    return Prisma.sql`${this.compile(domain)} AND ${source === 'CASES' ? Prisma.sql`TRUE` : Prisma.sql`b."deletedAt" IS NULL`} AND ${organization}
+    return Prisma.sql`${this.compile(domain)} AND ${['CASES', 'INVOICES', 'REFUNDS'].includes(source) ? Prisma.sql`TRUE` : Prisma.sql`b."deletedAt" IS NULL`} AND ${financial ? Prisma.sql`c."deletedAt" IS NULL` : Prisma.sql`TRUE`} AND ${organization}
       AND ${access.selfOnly ? Prisma.sql`b."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`}`;
   }
   from(source: DomainSource) {
+    if (source === 'PAYMENTS' || source === 'INVOICES' || source === 'REFUNDS')
+      return Prisma.sql`${Prisma.raw(domainSources[source].table)} b JOIN contract c ON c.id = b."contractId"`;
+    if (source === 'COSTS') return Prisma.sql`cost_entry b LEFT JOIN "case" k ON k.id = b."caseId"`;
     return source === 'CUSTOMERS'
       ? Prisma.sql`customer b LEFT JOIN lead l ON l.id = b."sourceLeadId"`
       : Prisma.sql`${Prisma.raw(domainSources[source].table)} b`;
@@ -329,13 +433,68 @@ export class WorkspaceDomainSource {
         : [];
       for (const customer of customers) labels.set(customer.id, customer.customerNo + ' · ' + customer.name);
     }
+    const relatedLabels: Record<string, Map<string, string>> = {};
+    for (const [key, permission] of [
+      ['contractId', 'contract.read'],
+      ['caseId', 'case.read'],
+      ['paymentId', 'payment.read'],
+    ] as const) {
+      const field = fields.find((f) => object(f.options).businessKey === key);
+      if (!field || !rows.length || !this.actor.permissionCodes.includes(permission)) continue;
+      const targetIds = rows
+        .map((row) => object(row.values)[field.id])
+        .filter((id): id is string => typeof id === 'string');
+      if (!targetIds.length) continue;
+      const labels = new Map<string, string>();
+      if (key === 'contractId') {
+        const targets = await this.db.contract.findMany({
+          where: {
+            AND: [
+              { id: { in: targetIds }, deletedAt: null },
+              await buildContractScopeWhere(this.db, this.authorization, this.actor, 'contract.read'),
+            ],
+          },
+          select: { id: true, contractNo: true, title: true },
+        });
+        targets.forEach((target) => labels.set(target.id, target.contractNo + ' · ' + target.title));
+      } else if (key === 'caseId') {
+        const targets = await this.db.case.findMany({
+          where: {
+            AND: [{ id: { in: targetIds } }, await buildCaseScopeWhere(this.db, this.actor, 'case.read')],
+          },
+          select: { id: true, caseNo: true, title: true },
+        });
+        targets.forEach((target) => labels.set(target.id, target.caseNo + ' · ' + target.title));
+      } else {
+        const targets = await this.db.payment.findMany({
+          where: {
+            AND: [
+              { id: { in: targetIds }, deletedAt: null, contract: { deletedAt: null } },
+              await buildFinancialRecordScopeWhere(
+                this.db,
+                this.authorization,
+                this.actor,
+                'payment.read',
+                'payment',
+              ),
+            ],
+          },
+          select: { id: true, paymentNo: true },
+        });
+        targets.forEach((target) => labels.set(target.id, target.paymentNo));
+      }
+      relatedLabels[field.id] = labels;
+    }
     return rows.map((row) => {
       const label = customerField && labels.get(String(object(row.values)[customerField.id]));
-      return {
-        ...row,
-        writable: ids.has(row.id),
-        ...(customerField && label ? { displayValues: { [customerField.id]: label } } : {}),
+      const displayValues = {
+        ...(customerField && label ? { [customerField.id]: label } : {}),
+        ...Object.fromEntries(Object.entries(relatedLabels).flatMap(([fieldId, labels]) => {
+          const text = labels.get(String(object(row.values)[fieldId]));
+          return text ? [[fieldId, text]] : [];
+        })),
       };
+      return { ...row, writable: ids.has(row.id), ...(Object.keys(displayValues).length ? { displayValues } : {}) };
     });
   }
 }

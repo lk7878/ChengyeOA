@@ -1,3 +1,4 @@
+import { financialSources, financialViewConfig, financeContextParams } from '@/pages/finance/context';
 import { useAuthStore } from '@/stores/authStore';
 import { businessSources, isBusinessSource, domainCreate } from '@/features/crm/business-sources';
 import CreateBusinessLead from '@/features/crm/CreateBusinessLead';
@@ -98,6 +99,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   const tableId = params.get('table') || '';
   const recordId = params.get('record') || '';
   const selectedViewId = params.get('view') || '';
+  const financeContractId = params.get('contract');
+  const financeCaseId = params.get('case');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [canCreate, setCanCreate] = useState(false);
   const [tables, setTables] = useState<DataTable[]>([]);
@@ -267,9 +270,24 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setQueryError('');
+    let queryConfig: ViewConfig;
+    try {
+      queryConfig = financialViewConfig(
+        detail.table.source,
+        detail.fields,
+        config,
+        financeContractId,
+        financeCaseId,
+      );
+    } catch (e) {
+      setResult(undefined);
+      setQueryError((e as Error).message);
+      setLoading(false);
+      return;
+    }
     void post<QueryResult>('/tables/' + tableId + '/records/query', {
       viewId: view?.id,
-      config,
+      config: queryConfig,
       page,
       pageSize: 50,
     })
@@ -292,7 +310,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
     return () => {
       alive = false;
     };
-  }, [tableId, detail, view?.id, config, page, revision]);
+  }, [tableId, detail, view?.id, config, page, revision, financeContractId, financeCaseId]);
   useEffect(() => {
     if (!baseId) return;
     let stopped = false,
@@ -390,6 +408,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
     };
   }, [baseId, tableId, refresh]);
   const go = (next: Record<string, string>) => {
+    Object.assign(next, financeContextParams(params));
     if (next.base && params.get('driveReturn')) next.driveReturn = params.get('driveReturn')!;
     setAnchor(undefined);
     setPaste(undefined);
@@ -1071,9 +1090,25 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                             content: '前往新建页面将放弃当前未保存的修改。',
                             okText: '放弃并前往',
                             cancelText: '取消',
-                            onOk: () => navigate(creation.path + (base?.workspaceId ? '?workspace=' + encodeURIComponent(base.workspaceId) : '')),
+                            onOk: () =>
+                              navigate(
+                                creation.path +
+                                  '?' +
+                                  new URLSearchParams({
+                                    ...Object.fromEntries(params),
+                                    workspace: detail.access.workspaceId,
+                                  }),
+                              ),
                           });
-                        else navigate(creation.path + (base?.workspaceId ? '?workspace=' + encodeURIComponent(base.workspaceId) : ''));
+                        else
+                          navigate(
+                            creation.path +
+                              '?' +
+                              new URLSearchParams({
+                                ...Object.fromEntries(params),
+                                workspace: detail.access.workspaceId,
+                              }),
+                          );
                       } else if (detail.table.source === 'LEADS') setCreatingLead(true);
                       else void openRecord();
                     }}
@@ -1642,14 +1677,17 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               <Button onClick={() => navigate('/leads/' + editing.row!.id)}>打开线索业务详情</Button>
             )}
             {detail &&
-              ['CUSTOMERS', 'CONTRACTS', 'NEGOTIATIONS', 'CASES'].includes(detail.table.source) &&
+              ['CUSTOMERS', 'CONTRACTS', 'NEGOTIATIONS', 'CASES', ...financialSources].includes(
+                detail.table.source,
+              ) &&
               editing.row && (
                 <Button
                   onClick={() =>
                     navigate(
                       businessSources[detail.table.source as keyof typeof businessSources].path +
                         '/' +
-                        editing.row!.id,
+                        editing.row!.id +
+                        (financialSources.includes(detail.table.source) ? '?' + params.toString() : ''),
                     )
                   }
                 >
@@ -1860,7 +1898,18 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     label: '现有 CRM · 跟进表（负责人配置）',
                     disabled: baseAccess?.level !== 4,
                   },
-                  ...(['CUSTOMERS', 'NEGOTIATIONS', 'CONTRACTS', 'CASES'] as const).map((source) => ({
+                  ...(
+                    [
+                      'CUSTOMERS',
+                      'NEGOTIATIONS',
+                      'CONTRACTS',
+                      'CASES',
+                      'PAYMENTS',
+                      'INVOICES',
+                      'REFUNDS',
+                      'COSTS',
+                    ] as const
+                  ).map((source) => ({
                     value: source,
                     label: '连接业务 · ' + businessSources[source].title,
                     disabled: (baseAccess?.level || 0) < 4,

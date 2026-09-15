@@ -207,3 +207,10 @@ CUSTOMERS / NEGOTIATIONS / CONTRACTS 直接读取 Customer / Negotiation / Contr
 ### U5-B 案件身份增量（2026-09-15）
 
 迁移 20260915210000_case_creator_organization 为 Case 增加 nullable createdBy/branchId/updatedBy 和前两列索引；模型总数仍 90，迁移数 56。历史创建人仅恢复无歧义 CASE_CREATE 审计，组织仅使用明确合同或已校验受理部门；保留全部原 ID 与关联，缺失事实留空并通过审计补录。CASES 多维来源与受理列直接回源，无新业务副本。[迁移及验收契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
+
+### U6-A 财务创建请求（实施中）
+
+新增 DomainMutation，actorId/key 唯一，存操作类型、规范化摘要与正式目标 ID，不复制财务详情；迁移 20260915233000_finance_domain_mutation，基线 91 模型/57 迁移。先部署两个隔离测试库，开发库待阶段验收。PAYMENTS/INVOICES/REFUNDS/COSTS 直接查询原正式表，金额保持 Decimal(18,2) 字符串，工作表分组的金额键也以规范十进制文本返回。详见 [U5–U7 契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
+
+
+2026-09-16 U6-A 阶段已验收，91模型/57迁移已部署开发库并保留业务记录数量。财务权限、精确金额、事务重试与真实 App/MFA 冒烟通过，完整测试与负载条件见[计划第10节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)；此前“实施中/隔离库”文字为实施过程记录。

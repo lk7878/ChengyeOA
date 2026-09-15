@@ -135,6 +135,7 @@ export interface VoidContractInput {
 }
 
 export interface ContractListQuery {
+  branchId?: string;
   caseNo?: string;
   page?: number;
   pageSize?: number;
@@ -207,9 +208,8 @@ export interface CreatePaymentInput {
   paidAt?: string;
   remark?: string;
   /**
-   * 幂等键接口位（不持久化）：Payment 无唯一 FK 幂等挡板，重放保护由 paymentNo
-   * P2002 碰撞重试（上限 2，lead 先例）承担——与 Task 8 裁决⑪（AE/CA 有 @unique
-   * 挡板不重试）区隔。
+   * 创建请求键：DomainMutation 与单据、事件、审计同事务持久化。
+   * 同操作者/键/规范化请求返回原目标；不同请求冲突，重试仍检查当前授权。
    */
   idempotencyKey?: string;
 }

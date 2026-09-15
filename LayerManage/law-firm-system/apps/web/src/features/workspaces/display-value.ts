@@ -10,6 +10,31 @@ import type { Directory, Field } from './types';
 
 export function displayValue(field: Field, value: unknown, directory: Directory): string {
   if (value === null || value === undefined || value === '') return '';
+  if (['PAYMENTS', 'INVOICES', 'REFUNDS', 'COSTS'].includes(field.options.businessSource || '')) {
+    const names: Record<string, Record<string, string>> = {
+      status: {
+        PENDING: '待处理',
+        CONFIRMED: '已确认',
+        VOIDED: '已冲销',
+        REFUNDED: '已退款',
+        APPROVED: '已批准',
+        REJECTED: '已驳回',
+        COMPLETED: '已完成',
+        EXECUTED: '已执行',
+      },
+      type: { REFUND: '退款', WAIVER: '减免' },
+      category: {
+        CHANNEL: '渠道成本',
+        EVIDENCE: '取证成本',
+        CASE_HANDLING: '办案成本',
+        LABOR: '人工成本',
+        OFFICE: '办公成本',
+        REIMBURSEMENT: '报销成本',
+      },
+    };
+    const label = names[field.options.businessKey || '']?.[String(value)];
+    if (label) return label;
+  }
   const labels: Record<string, string> = Object.fromEntries(
     Object.entries(
       field.options.businessKey === 'status'

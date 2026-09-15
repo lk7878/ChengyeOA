@@ -317,7 +317,7 @@ export class CaseService {
     // assertExactKeys 收窄入参为 Record<string, unknown>——先捕获分页字段保类型。
     const rawPage = query.page;
     const rawPageSize = query.pageSize;
-    assertExactKeys(query, ['page', 'pageSize', 'keyword', 'status', 'lawyerId', 'priority', 'customerId', 'caseNo']);
+    assertExactKeys(query, ['page', 'pageSize', 'keyword', 'status', 'lawyerId', 'priority', 'customerId', 'caseNo', 'branchId']);
     const page = rawPage === undefined ? 1 : rawPage;
     const pageSize = rawPageSize === undefined ? DEFAULT_PAGE_SIZE : rawPageSize;
     if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
@@ -325,6 +325,7 @@ export class CaseService {
     }
 
     const where: Prisma.CaseWhereInput = { AND: [await buildCaseScopeWhere(this.prisma, this.authorizationContext, 'case.read')] };
+    if (query.branchId !== undefined) where.branchId = normalizeRequiredText(query.branchId, 1, 100);
     const keyword = normalizeOptionalText(query.keyword, 100);
     if (keyword) where.OR = [{ title: { contains: keyword } }, { caseNo: { contains: keyword } }, { caseType: { contains: keyword } }, { customer: { name: { contains: keyword } } }, ...['contractNumber', 'region', 'caseCategory'].map(key => ({ intakeData: { path: [key], string_contains: keyword } }))];
     if (query.caseNo !== undefined) where.caseNo = normalizeRequiredText(query.caseNo, 1, 100);

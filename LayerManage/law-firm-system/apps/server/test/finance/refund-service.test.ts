@@ -1910,24 +1910,28 @@ test('refund.read with no scope targets fails closed (list empty, get 404)', asy
   );
 });
 
-test('SELF scope anchors RefundRequest via contract.createdBy', async () => {
+test('SELF scope anchors RefundRequest via actual record.createdBy, independently of contract creator', async () => {
   const { userId, actor } = await createRefundActor();
+  const employee = await prisma.employee.create({ data: { employeeNo: 'EMP-' + randomUUID(), name: '财务创建人', phone: '13800000011', type: 'SALES', entryDate: new Date('2025-01-01') } });
+  await prisma.user.update({ where: { id: userId }, data: { employeeId: employee.id } });
   const customer = await createCustomerFixture(userId);
   const own = await createContractRow({ customerId: customer.id, createdBy: userId });
   const foreign = await createContractRow({ customerId: customer.id, createdBy: 'someone-else' });
-  await createRefundRow({ contractId: own.id, customerId: customer.id, createdBy: userId });
-  await createRefundRow({ contractId: foreign.id, customerId: customer.id, createdBy: 'someone-else' });
+  const hidden = await createRefundRow({ contractId: own.id, customerId: customer.id, createdBy: 'someone-else' });
+  const visible = await createRefundRow({ contractId: foreign.id, customerId: customer.id, createdBy: userId });
   const selfScope = await prisma.dataScope.create({
     data: { name: `self-${randomUUID()}`, scopeType: 'SELF' },
   });
   const scoped = refundServiceFor(userId, actor, {
-    employeeId: randomUUID(),
+    employeeId: employee.id,
     scopeIds: [selfScope.id],
   });
 
   const page = await scoped.listRefundRequests({});
   assert.equal(page.total, 1);
-  assert.equal(page.list[0].contractId, own.id);
+  assert.equal(page.list[0].id, visible.id);
+  assert.equal((await scoped.getRefundRequest(visible.id)).id, visible.id);
+  await assert.rejects(() => scoped.getRefundRequest(hidden.id), (e: unknown) => (e as { httpStatus: number }).httpStatus === 404);
 });
 
 test('TEAM scope anchors RefundRequest via contract.professionalTeamId', async () => {

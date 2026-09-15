@@ -59,6 +59,7 @@ export interface ListRefundRequestsQuery {
 }
 
 export interface CreateCostEntryInput {
+  idempotencyKey?: unknown;
   category: CostCategory;
   amount: string | number;
   occurredAt: string;

@@ -46,11 +46,11 @@
 | /contracts/new | 业务应用 / 签约交付 | Contract；menu.contract + contract.create | 新建仍经正式服务，U5 | MOD-006 |
 | /contracts/:id | 业务应用 / 签约交付 | 原 Contract ID；menu.contract + contract.read | 提交/审批/签署/生效/终止，U5 | MOD-006 |
 | /cases | 业务应用 / 签约交付 | Case 与任务/沟通/文件；case.read | 建档/节点/材料/结案/归档，U5；非 Harness | MOD-008/010 |
-| /payments | 业务应用 / 财务运营 | Payment；menu.payment + payment.read | 收款登记/确认/作废，U6 | MOD-006 |
-| /invoices | 业务应用 / 财务运营 | Invoice；menu.invoice + invoice.read | 申请/审批/开具，U6 | MOD-006 |
-| /refunds | 业务应用 / 财务运营 | Refund；menu.refund + refund.read | 申请/审批/执行与 MFA，U6 | MOD-006 |
-| /costs | 业务应用 / 财务运营 | Cost；menu.cost + cost.read | 成本增改删及金额校验，U6 | MOD-006 |
-| /finance | 业务应用 / 财务运营 | 上述收款/开票/退款中至少一个菜单+读取；原 caseNo query | 保留财务聚合与案件关联，不改金额，U6 | MOD-006 |
+| /payments、/payments/new、/payments/:id | 业务应用 / 财务运营 | Payment；menu.payment + payment.read | 收款登记/确认/作废，U6 | MOD-006 |
+| /invoices、/invoices/new、/invoices/:id | 业务应用 / 财务运营 | Invoice；menu.invoice + invoice.read | 申请/审批/开具，U6 | MOD-006 |
+| /refunds、/refunds/new、/refunds/:id | 业务应用 / 财务运营 | Refund；menu.refund + refund.read | 申请/审批/执行与 MFA，U6 | MOD-006 |
+| /costs、/costs/new、/costs/:id | 业务应用 / 财务运营 | Cost；menu.cost + cost.read | 成本增改删及金额校验，U6 | MOD-006 |
+| /finance | 业务应用 / 财务运营 | 上述收款/开票/退款/成本中至少一个菜单+读取；原 caseNo query | 保留财务聚合与案件关联，不改金额，U6 | MOD-006 |
 | /inventory/items | 业务应用 / 物品管理 | InventoryItem；menu.inventory + inventory.read | 物品档案、库存，U6 | MOD-011 |
 | /inventory/customized-records | 业务应用 / 物品管理 | 原库存流水；同上 | 定制领用，U6 | MOD-011 |
 | /inventory/office-records | 业务应用 / 物品管理 | 原库存流水；同上 | 办公用品领用，U6 | MOD-011 |
@@ -115,3 +115,6 @@ MOD-007 SOP、MOD-009 满意度/复购转介绍、MOD-003 内容获客、MOD-008
 `/cases` 已接入 CASES 连接目录与共同 WorkspaceEditor；`/cases/new` 使用 case.create + customer.read，`/cases/:id` 使用 case.read，均沿用原菜单门控。详情承接受理、办理、结案归档、任务、沟通及材料动作，各动作继续独立鉴权。原 caseNo 链接通过精确编号查询定位正式案件 ID，保留查询和片段；不存在或无权时显式反馈。
 
 案件目录提供“待补录案件”：仅显示当前 case.read 范围内缺少身份的历史行，case.update ALL 可逐条补齐空白创建人/组织，必须说明依据并记录版本和审计，不能覆写已有事实。新增案件选择获权工作区组织；从案件往返新建客户保留草稿。验收状态及限制以实施计划第 9 节为准。
+
+
+U6-A：四种财务来源使用共同工作表；new 额外要求对应 create，详情与动作仍分别要求 read/动作及单据范围。案件上下文以当前查询附加过滤保留，不写入视图配置；财务详情跳转维持正式 ID，单据列表与原领域接口 SELF 均取真实单据创建人。范围细节见 U5–U7 契约，阶段验收记录见计划第 10 节。

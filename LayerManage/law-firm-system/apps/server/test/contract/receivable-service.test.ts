@@ -1264,24 +1264,28 @@ test('listPayments filters by status, contractId and customerId with pagination'
   assert.equal(paged.list.length, 1);
 });
 
-test('SELF scope anchors Payment via contract.createdBy', async () => {
+test('SELF scope anchors Payment via actual record.createdBy, independently of contract creator', async () => {
   const { userId, actor } = await createPaymentActor();
+  const employee = await prisma.employee.create({ data: { employeeNo: 'EMP-' + randomUUID(), name: '财务创建人', phone: '13800000011', type: 'SALES', entryDate: new Date('2025-01-01') } });
+  await prisma.user.update({ where: { id: userId }, data: { employeeId: employee.id } });
   const customer = await createCustomerFixture(userId);
   const own = await createContractRow({ customerId: customer.id, createdBy: userId });
   const foreign = await createContractRow({ customerId: customer.id, createdBy: 'someone-else' });
-  await createPaymentRow({ contractId: own.id, customerId: customer.id, createdBy: userId });
-  await createPaymentRow({ contractId: foreign.id, customerId: customer.id, createdBy: 'someone-else' });
+  const hidden = await createPaymentRow({ contractId: own.id, customerId: customer.id, createdBy: 'someone-else' });
+  const visible = await createPaymentRow({ contractId: foreign.id, customerId: customer.id, createdBy: userId });
   const selfScope = await prisma.dataScope.create({
     data: { name: `self-${randomUUID()}`, scopeType: 'SELF' },
   });
   const scoped = receivableServiceFor(userId, actor, {
-    employeeId: randomUUID(),
+    employeeId: employee.id,
     scopeIds: [selfScope.id],
   });
 
   const page = await scoped.listPayments({});
   assert.equal(page.total, 1);
-  assert.equal(page.list[0].contractId, own.id);
+  assert.equal(page.list[0].id, visible.id);
+  assert.equal((await scoped.getPayment(visible.id)).id, visible.id);
+  await assert.rejects(() => scoped.getPayment(hidden.id), (e: unknown) => (e as { httpStatus: number }).httpStatus === 404);
 });
 
 test('TEAM scope anchors Payment via contract.professionalTeamId', async () => {

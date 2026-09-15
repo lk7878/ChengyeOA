@@ -1,4 +1,8 @@
 export const businessSources = {
+  PAYMENTS: { title: '收款工作表', path: '/payments', personal: '我登记的收款' },
+  INVOICES: { title: '发票工作表', path: '/invoices', personal: '我申请的发票' },
+  REFUNDS: { title: '退款减免工作表', path: '/refunds', personal: '我的退款减免' },
+  COSTS: { title: '成本工作表', path: '/costs', personal: '我登记的成本' },
   CASES: { title: '案件工作表', path: '/cases', personal: '我创建的案件' },
   LEADS: { title: '线索工作表', path: '/leads', personal: '我负责的' },
   FOLLOWS: { title: '跟进工作表', path: '/leads/follows', personal: '我的跟进' },
@@ -12,6 +16,10 @@ export function isBusinessSource(source: string): source is BusinessSource {
 }
 
 export const domainCreates = {
+  PAYMENTS: { label: '登记收款', path: '/payments/new', permission: 'payment.create' },
+  INVOICES: { label: '申请发票', path: '/invoices/new', permission: 'invoice.create' },
+  REFUNDS: { label: '申请退款减免', path: '/refunds/new', permission: 'refund.create' },
+  COSTS: { label: '登记成本', path: '/costs/new', permission: 'cost.create' },
   CASES: { label: '新建案件', path: '/cases/new', permission: 'case.create' },
   CUSTOMERS: { label: '新建客户', path: '/customers/new', permission: 'customer.create' },
   NEGOTIATIONS: { label: '新建谈案', path: '/negotiations/new', permission: 'negotiation.create' },

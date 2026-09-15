@@ -27,10 +27,10 @@ import NegotiationRecordPage from './pages/negotiations/NegotiationRecordPage';
 
 import ContractDetailPage from './pages/contracts/ContractDetailPage';
 import ContractCreatePage from './pages/contracts/ContractCreatePage';
-import FinanceWorkspace from './pages/finance/FinanceWorkspace';
+import FinanceWorkspace, { FinanceTablePage } from './pages/finance/FinanceWorkspace';
+import FinanceRecordPage from './pages/finance/FinanceRecordPage';
 import ApprovalLedger from './pages/approvals/ApprovalLedger';
 
-import CostListPage from './pages/costs/CostListPage';
 import AnomalyListPage from './pages/anomalies/AnomalyListPage';
 import CaseWorkspacePage from './pages/Case/CaseWorkspacePage';
 import CaseRecordPage from './pages/Case/CaseRecordPage';
@@ -265,7 +265,7 @@ function SessionBootstrap() {
             path="/payments"
             element={
               <AuthorizedPage permission="menu.payment">
-                <FinanceWorkspace />
+                <FinanceTablePage source="PAYMENTS" />
               </AuthorizedPage>
             }
           />
@@ -273,7 +273,7 @@ function SessionBootstrap() {
             path="/invoices"
             element={
               <AuthorizedPage permission="menu.invoice">
-                <FinanceWorkspace />
+                <FinanceTablePage source="INVOICES" />
               </AuthorizedPage>
             }
           />
@@ -281,7 +281,7 @@ function SessionBootstrap() {
             path="/refunds"
             element={
               <AuthorizedPage permission="menu.refund">
-                <FinanceWorkspace />
+                <FinanceTablePage source="REFUNDS" />
               </AuthorizedPage>
             }
           />
@@ -289,7 +289,7 @@ function SessionBootstrap() {
             path="/costs"
             element={
               <AuthorizedPage permission="menu.cost">
-                <CostListPage />
+                <FinanceTablePage source="COSTS" />
               </AuthorizedPage>
             }
           />
@@ -427,6 +427,15 @@ function SessionBootstrap() {
             }
           />
           <Route path="/finance" element={<FinanceWorkspace />} />
+          <Route path="/payments/new" element={<FinanceRecordPage kind="payment" />} />
+          <Route path="/payments/:id" element={<FinanceRecordPage kind="payment" />} />
+          <Route path="/invoices/new" element={<FinanceRecordPage kind="invoice" />} />
+          <Route path="/invoices/:id" element={<FinanceRecordPage kind="invoice" />} />
+          <Route path="/refunds/new" element={<FinanceRecordPage kind="refund" />} />
+          <Route path="/refunds/:id" element={<FinanceRecordPage kind="refund" />} />
+          <Route path="/costs/new" element={<FinanceRecordPage kind="cost" />} />
+          <Route path="/costs/:id" element={<FinanceRecordPage kind="cost" />} />
+
           <Route
             path="/approvals"
             element={

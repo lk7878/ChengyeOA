@@ -1949,3 +1949,18 @@ model CollabExtensionRevision {
   @@unique([tableId, recordId, version])
   @@map("collab_extension_revision")
 }
+
+// U6-A: completed domain creations; stores identity, not a second financial payload.
+model DomainMutation {
+  id          String   @id @default(uuid())
+  actorId     String
+  key         String
+  operation   String
+  requestHash String
+  targetId    String
+  createdAt   DateTime @default(now())
+
+  @@unique([actorId, key])
+  @@index([targetId])
+  @@map("domain_mutation")
+}

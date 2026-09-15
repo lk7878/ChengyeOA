@@ -178,3 +178,6 @@ U0–U3 验收：前端相关 11 文件 51/51；完整 HTTP/SSE/Edge 7/7（290.5
 2026-09-15 U5-B：案件同源工作表、身份增量、交付动作和子对象权限对应 MOD-008/010、FTN-001/003/004/005；实现与验证追溯见 [U5–U7 契约](../superpowers/specs/2026-09-15-u5-u7-business-unification.md)和[阶段计划](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。完整质控/SOP、MAT-04B 主动归档与 U6/U7 不因本批自动完成。
 
 U5-B 最终证据：案件三角色 App 冒烟通过；事件批量写入后案件主链路及原双会话目标复验通过。100 会话/900 秒、3600/3600 保存成功且可见，查询/保存/可见 P95 1116/1182/1202ms；限定测试进程 affinity=0xffff，默认调度失败仍保留。事务回滚、构建与检查及全部中间结果见阶段计划第 9 节。
+
+
+2026-09-16 U6-A（阶段验收完成）：PAYMENTS/INVOICES/REFUNDS/COSTS 同源适配、FinanceCreatePage/FinanceRecordPage、DomainMutation 持久化创建重试、独立单据/成本 scope 与精确 CURRENCY 分组，对应 MOD-006、FTN-001/003/004/005。领域数据与事务/授权回归见 financial-workspace.test.ts，真实 App 与 MFA 流程见 collaboration-http.test.ts U6-A 场景；当前结果与失败修复记录见[阶段计划第 10 节](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)，U6-A 阶段完成，U6-B/C 与 U7 仍待实施；完整 U6 不因该财务子阶段自动完成。

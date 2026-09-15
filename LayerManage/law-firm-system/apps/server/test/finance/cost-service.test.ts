@@ -16,8 +16,8 @@ import { clearTestApplicationData, createTestPrisma } from '../helpers/test-data
 // SPEC-011 Task 8: cost-service 契约测试（FIN-04 成本台账）。
 // 形态逐段镜像 test/finance/invoice-service.test.ts（Task 5 先例）：夹具（user/channel/
 // customer/case 直建行 + 授权上下文桩 resource=permissionCode 前缀）+ 直建行成本夹具
-// （绕过服务层构造软删/过滤场景）。成本=财务职能数据，仅权限门控无行级 scope（已批准
-// 设计决策）——授权上下文桩只需管 permissionCodes，scopeIds 不参与。
+// （绕过服务层构造软删/过滤场景）。成本采用真实创建人/组织/ALL 范围；以下原业务用例使用明确 ALL，
+// 专门范围回归另覆盖 SELF/组织/无授权，关联案件需要 case.read。
 // 钉死点：锚点矩阵 5 类各一正一反（REQUIRED/FORBIDDEN 400）；channelId/caseId 伪造
 //   存在性 VALIDATION_FAILED 400；cost.created 恰 4 键 / updated/deleted 恰 2 键；
 //   审计标识符-only（create 含 amount toFixed(2)+hasNote 布尔、note 文本不落；update
@@ -29,6 +29,7 @@ import { clearTestApplicationData, createTestPrisma } from '../helpers/test-data
 let prisma: PrismaClient;
 
 const COST_PERMISSIONS: PermissionCode[] = [
+  'case.read',
   'cost.read',
   'cost.create',
   'cost.update',
@@ -421,7 +422,7 @@ test('createCostEntry rejects a malformed occurredAt and unknown extra keys with
   }
   await assert.rejects(
     () => service.createCostEntry({
-      category: 'LABOR', amount: '10.00', occurredAt: '2026-07-01', idempotencyKey: 'x',
+      category: 'LABOR', amount: '10.00', occurredAt: '2026-07-01', injectedKey: 'x',
     } as unknown as Parameters<CostService['createCostEntry']>[0]),
     isValidationFailed400,
     'assertExactKeys rejects injected keys',

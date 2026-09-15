@@ -1,5 +1,5 @@
 import { CollabField, CollabRecord, Prisma, PrismaClient } from '@prisma/client';
-import { fieldExpression, fieldOf, ViewConfig } from './collaboration-policy';
+import { groupExpression, fieldExpression, fieldOf, ViewConfig } from './collaboration-policy';
 
 type Group = { keys: unknown[]; count: number };
 type QueryRow = CollabRecord & { _total: bigint; _groups: Group[] };
@@ -27,7 +27,7 @@ export async function queryCustomRecords(
   ordering.push(Prisma.sql`"createdAt" ASC`, Prisma.sql`id ASC`);
   const grouped = !!config.groupBy?.length;
   const keys = grouped
-    ? Prisma.sql`jsonb_build_array(${Prisma.join(config.groupBy!.map((id) => fieldExpression(fieldOf(fields, id))))})`
+    ? Prisma.sql`jsonb_build_array(${Prisma.join(config.groupBy!.map((id) => groupExpression(fieldOf(fields, id))))})`
     : Prisma.sql`NULL::jsonb`;
   const columns = [
     Prisma.sql`r.id`,

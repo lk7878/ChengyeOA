@@ -128,7 +128,7 @@ export default class ContractController extends Controller {
 }
 
 function parseContractListQuery(input: unknown): ContractListQuery {
-  assertExactKeys(input, ['page', 'pageSize', 'status', 'contractType', 'customerId', 'keyword', 'caseNo']);
+  assertExactKeys(input, ['page', 'pageSize', 'status', 'contractType', 'customerId', 'keyword', 'caseNo', 'branchId']);
   const query: ContractListQuery = {};
   if (input.page !== undefined) query.page = parseQueryInteger(input.page);
   if (input.pageSize !== undefined) query.pageSize = parseQueryInteger(input.pageSize);
@@ -136,6 +136,7 @@ function parseContractListQuery(input: unknown): ContractListQuery {
   if (input.contractType !== undefined) query.contractType = input.contractType as ContractType;
   if (input.customerId !== undefined) query.customerId = input.customerId as string;
   if (input.keyword !== undefined) query.keyword = input.keyword as string;
+  if (input.branchId !== undefined) query.branchId = input.branchId as string;
   if (input.caseNo !== undefined) query.caseNo = input.caseNo as string;
   return query;
 }

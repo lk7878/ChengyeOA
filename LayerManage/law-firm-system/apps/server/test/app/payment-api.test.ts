@@ -563,7 +563,7 @@ test('rejects void without payment.void permission and voiding a non-confirmed p
   assert.equal(missing.body.message, 'PAYMENT_NOT_FOUND');
 });
 
-test('enforces all four data scope kinds on payment lists through the contract wrap', async () => {
+test('enforces true payment creator SELF and contract organization/team scopes', async () => {
   const customer = await createCustomerFixture('seed');
   const branch = await createOrgFixture('PAY_BRANCH_MAIN');
   const branchChild = await createOrgFixture('PAY_BRANCH_CHILD', branch);
@@ -573,14 +573,14 @@ test('enforces all four data scope kinds on payment lists through the contract w
   const orgChild = await createOrgFixture('PAY_ORG_CHILD', org);
   const employee = await createEmployeeFixture();
 
-  // SELF：范围锚合同 createdBy=读取者本人（employeeId 仅作锚启闭——同 contract 侧先例）。
+  // SELF：创建人取收款本身；合同创建人故意交叉，防止旧锚点回归。
   const selfReader = await createContractSession({
     permissions: ['payment.read'],
     scope: { kind: 'SELF' },
     employeeId: employee.id,
   });
-  const ownContract = await seedContract({ customerId: customer.id, createdBy: selfReader.userId });
-  const ownPayment = await seedPayment({ contractId: ownContract.id, customerId: customer.id, createdBy: 'seed' });
+  const ownContract = await seedContract({ customerId: customer.id, createdBy: 'seed' });
+  const ownPayment = await seedPayment({ contractId: ownContract.id, customerId: customer.id, createdBy: selfReader.userId });
 
   const teamContract = await seedContract({ customerId: customer.id, createdBy: 'seed', professionalTeamId: team.id });
   const teamPayment = await seedPayment({ contractId: teamContract.id, customerId: customer.id, createdBy: 'seed' });
@@ -589,7 +589,7 @@ test('enforces all four data scope kinds on payment lists through the contract w
   const branchPayment = await seedPayment({ contractId: branchContract.id, customerId: customer.id, createdBy: 'seed' });
   const childContract = await seedContract({ customerId: customer.id, createdBy: 'seed', branchId: branchChild.id });
   const childPayment = await seedPayment({ contractId: childContract.id, customerId: customer.id, createdBy: 'seed' });
-  const otherContract = await seedContract({ customerId: customer.id, createdBy: 'seed', branchId: other.id });
+  const otherContract = await seedContract({ customerId: customer.id, createdBy: selfReader.userId, branchId: other.id });
   const otherPayment = await seedPayment({ contractId: otherContract.id, customerId: customer.id, createdBy: 'seed' });
 
   const orgContract = await seedContract({ customerId: customer.id, createdBy: 'seed', branchId: org.id });

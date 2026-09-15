@@ -72,7 +72,7 @@ export function clipboardValue(field: Field, raw: string, directory: Directory):
         throw new Error('数字格式不正确');
       return Number(value);
     case 'CURRENCY':
-      if (!/^-?\d{1,15}(\.\d{1,2})?$/.test(value)) throw new Error('金额最多两位小数');
+      if (!/^-?\d{1,16}(\.\d{1,2})?$/.test(value)) throw new Error('金额最多两位小数');
       return value;
     case 'BOOLEAN':
       if (['true', '1', '是', '已勾选'].includes(value.toLowerCase())) return true;

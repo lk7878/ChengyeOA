@@ -14,7 +14,7 @@ import { CostCategory } from '../domain/finance/finance-types';
 import { MasterDataError } from '../domain/master-data/master-data-errors';
 import { assertExactKeys } from '../domain/master-data/master-data-validation';
 
-const CREATE_BODY_KEYS = ['category', 'amount', 'occurredAt', 'note', 'channelId', 'caseId'] as const;
+const CREATE_BODY_KEYS = ['category', 'amount', 'occurredAt', 'note', 'channelId', 'caseId', 'idempotencyKey'] as const;
 const UPDATE_BODY_KEYS = ['amount', 'occurredAt', 'note', 'version'] as const;
 
 export default class CostController extends Controller {

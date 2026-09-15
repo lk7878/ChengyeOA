@@ -1,8 +1,11 @@
+import { createOnce } from './domain-mutation';
+import { buildCostScopeWhere } from './cost-scope';
+import { buildCaseScopeWhere } from '../case/case-scope';
 // SPEC-011 Task 8: cost-service —— 成本台账 CRUD + 软删（FIN-04）。
 // 形态逐段镜像 finance/invoice-service.ts（Task 5 形态母版）：3 参构造
 // (prisma, actor, authorizationContext) + 可选 outbox；requireAction 每公开方法第一行；
 // assertExactKeys 入参白名单；同事务 EventLog + OperationLog。差异（已批准设计决策，
-// 设计 §8）：成本=财务职能数据，仅权限门控不做行级 scope——不调 buildContractScopeWhere；
+// 设计 §8）：成本=财务职能数据，按 cost.* 的创建人/组织/ALL 范围授权；
 // CostEntry 模型无组织列，事件信封 organizationId/branchId/teamId 恒 null（锚点
 // channelId/caseId 入载荷，registry 定 sourceModule 'FINANCE'）。
 // 规则（设计 §5.3/§6.1 + 协调者裁决）：
@@ -88,7 +91,9 @@ export class CostService {
    */
   async createCostEntry(input: CreateCostEntryInput): Promise<CostEntryView> {
     this.authorization.requireAction(this.authorizationContext, 'cost.create');
-    assertExactKeys(input, ['category', 'amount', 'occurredAt', 'note', 'channelId', 'caseId']);
+    assertExactKeys(input, ['category', 'amount', 'occurredAt', 'note', 'channelId', 'caseId', 'idempotencyKey']);
+    const idempotencyKey = normalizeOptionalText(input.idempotencyKey, 100);
+    const scopeWhere = await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.create');
     const amount = normalizeCostAmount(input.amount);
     const occurredAt = parseIsoDate(input.occurredAt);
     const note = normalizeOptionalText(input.note, 500);
@@ -100,11 +105,11 @@ export class CostService {
       if (!channel) throw new MasterDataError('VALIDATION_FAILED', 400);
     }
     if (caseId !== null) {
-      const anchoredCase = await this.prisma.case.findFirst({ where: { id: caseId } });
+      const anchoredCase = this.authorizationContext.permissionCodes.includes('case.read') && await this.prisma.case.findFirst({ where: { AND: [{ id: caseId }, await buildCaseScopeWhere(this.prisma, this.authorizationContext, 'case.read')] } });
       if (!anchoredCase) throw new MasterDataError('VALIDATION_FAILED', 400);
     }
 
-    return this.prisma.$transaction(async tx => {
+    return createOnce(this.prisma, { actorId: this.actor.actorUserId, key: idempotencyKey, operation: 'cost.create', normalized: { category: input.category, amount: amount.toFixed(2), occurredAt, note, channelId, caseId } }, async tx => {
       const entry = await tx.costEntry.create({
         data: {
           category: input.category,
@@ -116,6 +121,7 @@ export class CostService {
           createdBy: this.actor.actorUserId,
         },
       });
+      if (!await tx.costEntry.findFirst({ where: { AND: [scopeWhere, { id: entry.id }] }, select: { id: true } })) throw new FinanceError(FINANCE_ERROR_CODES.COST_NOT_FOUND, 404, 'cost entry not found');
       const payload: CostCreatedV1 = {
         costEntryId: entry.id,
         category: entry.category as CostCategory,
@@ -140,13 +146,14 @@ export class CostService {
         },
       });
       return projectCostEntry(entry);
-    });
+    }, async (tx, targetId) => projectCostEntry(await this.probeCostEntry(tx, targetId, scopeWhere)));
+
   }
 
   /**
    * 成本列表：cost.read + deletedAt null 恒过滤 + category（normalizeAllowedValue）/
    * channelId/caseId 直过滤 + 分页（形态镜像 listInvoices——page 默认 1、pageSize
-   * 默认 20 上限 100、createdAt DESC id ASC 决胜）。无行级 scope（已批准设计决策）。
+   * 默认 20 上限 100、createdAt DESC id ASC 决胜）。列表与直链均应用当前 cost.read 范围。
    */
   async listCostEntries(query: ListCostEntriesQuery): Promise<PagedResult<CostEntryView>> {
     this.authorization.requireAction(this.authorizationContext, 'cost.read');
@@ -154,7 +161,7 @@ export class CostService {
     const page = normalizePage(query.page);
     const pageSize = normalizePageSize(query.pageSize);
 
-    const filters: Prisma.CostEntryWhereInput[] = [{ deletedAt: null }];
+    const filters: Prisma.CostEntryWhereInput[] = [{ deletedAt: null }, await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.read')];
     if (query.category !== undefined) {
       filters.push({ category: normalizeAllowedValue(query.category, COST_CATEGORIES) });
     }
@@ -189,7 +196,7 @@ export class CostService {
     this.authorization.requireAction(this.authorizationContext, 'cost.read');
     const costId = normalizeRequiredText(id, 1, 100);
     const entry = await this.prisma.costEntry.findFirst({
-      where: { id: costId, deletedAt: null },
+      where: { AND: [{ id: costId, deletedAt: null }, await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.read')] },
     });
     if (!entry) {
       throw new FinanceError(FINANCE_ERROR_CODES.COST_NOT_FOUND, 404, 'cost entry not found');
@@ -212,9 +219,11 @@ export class CostService {
     this.authorization.requireAction(this.authorizationContext, 'cost.update');
     assertExactKeys(input, ['amount', 'occurredAt', 'note', 'version']);
     const costId = normalizeRequiredText(id, 1, 100);
+    const scopeWhere = await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.update');
 
     return this.prisma.$transaction(async tx => {
-      const before = await this.probeCostEntry(tx, costId);
+      await tx.$queryRaw`SELECT id FROM cost_entry WHERE id = ${costId} FOR UPDATE`;
+      const before = await this.probeCostEntry(tx, costId, scopeWhere);
       const version = normalizeNonNegativeInteger(input.version);
       const data: Prisma.CostEntryUpdateManyMutationInput = {
         updatedBy: this.actor.actorUserId,
@@ -281,9 +290,11 @@ export class CostService {
   async deleteCostEntry(id: string): Promise<{ id: string }> {
     this.authorization.requireAction(this.authorizationContext, 'cost.delete');
     const costId = normalizeRequiredText(id, 1, 100);
+    const scopeWhere = await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.delete');
 
     return this.prisma.$transaction(async tx => {
-      const before = await this.probeCostEntry(tx, costId);
+      await tx.$queryRaw`SELECT id FROM cost_entry WHERE id = ${costId} FOR UPDATE`;
+      const before = await this.probeCostEntry(tx, costId, scopeWhere);
       const flipped = await tx.costEntry.updateMany({
         where: { id: before.id, deletedAt: null },
         data: {
@@ -322,9 +333,10 @@ export class CostService {
   private async probeCostEntry(
     tx: Prisma.TransactionClient,
     costId: string,
+    scopeWhere: Prisma.CostEntryWhereInput,
   ): Promise<CostEntry> {
     const entry = await tx.costEntry.findFirst({
-      where: { id: costId, deletedAt: null },
+      where: { AND: [{ id: costId, deletedAt: null }, scopeWhere] },
     });
     if (!entry) {
       throw new FinanceError(FINANCE_ERROR_CODES.COST_NOT_FOUND, 404, 'cost entry not found');

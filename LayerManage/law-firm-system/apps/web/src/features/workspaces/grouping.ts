@@ -1,3 +1,4 @@
+import { currencyKey } from './money';
 import type { Field, QueryResult, RecordRow } from './types';
 
 export type GridRow = RecordRow & {
@@ -6,7 +7,8 @@ export type GridRow = RecordRow & {
 function normalize(value: unknown, field: Field): unknown {
   if (value === undefined || value === null) return null;
   if (field.type === 'BOOLEAN') return String(value);
-  if (['NUMBER', 'CURRENCY'].includes(field.type)) return Number(value);
+  if (field.type === 'CURRENCY') return currencyKey(value);
+  if (field.type === 'NUMBER') return Number(value);
   if (['DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(field.type))
     return new Date(String(value)).toISOString();
   // SQL grouping uses ->> for non-scalar JSON fields.

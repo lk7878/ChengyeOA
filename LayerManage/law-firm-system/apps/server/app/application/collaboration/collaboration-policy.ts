@@ -98,7 +98,7 @@ export function validateValue(field: CollabField, value: unknown): unknown {
         fail('COLLAB_INVALID_NUMBER');
       return value;
     case 'CURRENCY':
-      if (typeof value !== 'string' || !/^-?\d{1,15}(\.\d{1,2})?$/.test(value))
+      if (typeof value !== 'string' || !/^-?\d{1,16}(\.\d{1,2})?$/.test(value))
         fail('COLLAB_INVALID_CURRENCY');
       return new Prisma.Decimal(value).toFixed(2);
     case 'BOOLEAN':
@@ -199,6 +199,11 @@ export function fieldExpression(field: CollabField): Prisma.Sql {
   if (field.type === 'DATETIME') return Prisma.sql`(${value})::timestamptz`;
   if (field.type === 'DATE') return Prisma.sql`(${value})::date`;
   return ['NUMBER', 'CURRENCY'].includes(field.type) ? Prisma.sql`(${value})::numeric` : value;
+}
+/** Keep currency group keys exact across PostgreSQL JSON and JavaScript. */
+export function groupExpression(field: CollabField): Prisma.Sql {
+  const expression = fieldExpression(field);
+  return field.type === 'CURRENCY' ? Prisma.sql`trim_scale(${expression})::text` : expression;
 }
 export function fieldOf(fields: CollabField[], id: unknown): CollabField {
   const f = fields.find((f) => f.id === id && !f.archived);

@@ -1,3 +1,6 @@
+import { createOnce } from './domain-mutation';
+import { buildFinancialRecordScopeWhere, FinancialRecordScope } from './financial-record-scope';
+import { assertFinancialCaseLink, financialCaseFilter, projectFinancialCases } from './financial-case-projection';
 // SPEC-011 Task 5: invoice-service —— 开票申请全生命周期（FIN-02），finance 模块首个服务层件。
 // 形态逐段镜像 contract/receivable-service.ts 收款段（Task 9 先例）：3 参构造
 // (prisma, actor, authorizationContext) + 可选 outbox；requireAction 每公开方法第一行；
@@ -112,8 +115,7 @@ export class InvoiceService {
     const contractId = normalizeRequiredText(input.contractId, 1, 100);
     const amount = normalizeInvoiceAmount(input.amount);
     const reason = normalizeOptionalText(input.reason, 500);
-    // idempotencyKey 仅作接口位校验（S8 先例）：申请重放保护由 requestNo P2002 重试承担。
-    normalizeOptionalText(input.idempotencyKey, 100);
+    const idempotencyKey = normalizeOptionalText(input.idempotencyKey, 100);
 
     const scopeWhere = await this.buildScopeWhere('invoice.create');
     const contract = await this.prisma.contract.findFirst({
@@ -123,7 +125,7 @@ export class InvoiceService {
       throw new ContractError(CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND, 404, 'contract not found');
     }
     const caseNo = normalizeOptionalText(input.caseNo, 100);
-    if (caseNo && !await this.prisma.case.findFirst({ where: { caseNo, contractId } })) throw new MasterDataError('FINANCE_CASE_MISMATCH', 400);
+    await assertFinancialCaseLink(this.prisma, this.authorizationContext, contractId, caseNo);
 
     const created = await this.createWithRequestNoRetry({
       contractId,
@@ -132,7 +134,7 @@ export class InvoiceService {
       reason,
       status: 'PENDING',
       createdBy: this.actor.actorUserId,
-    });
+    }, idempotencyKey, caseNo);
     return projectInvoiceRequest(created);
   }
 
@@ -154,7 +156,7 @@ export class InvoiceService {
     // idempotencyKey 仅作接口位校验（S8 先例）：APPROVED 重放由翻转谓词覆盖。
     normalizeOptionalText(input.idempotencyKey, 100);
     const invoiceId = normalizeRequiredText(id, 1, 100);
-    const scopeWhere = await this.buildScopeWhere('invoice.approve');
+    const scopeWhere = await this.buildRecordScopeWhere('invoice.approve');
 
     return this.prisma.$transaction(async tx => {
       const invoice = await this.probeInvoice(tx, invoiceId, scopeWhere);
@@ -216,7 +218,7 @@ export class InvoiceService {
     const comment = normalizeOptionalText(input.comment, 500);
     normalizeOptionalText(input.idempotencyKey, 100);
     const invoiceId = normalizeRequiredText(id, 1, 100);
-    const scopeWhere = await this.buildScopeWhere('invoice.approve');
+    const scopeWhere = await this.buildRecordScopeWhere('invoice.approve');
 
     return this.prisma.$transaction(async tx => {
       const invoice = await this.probeInvoice(tx, invoiceId, scopeWhere);
@@ -270,7 +272,7 @@ export class InvoiceService {
     const invoiceNo = normalizeOptionalText(input.invoiceNo, 100);
     normalizeOptionalText(input.idempotencyKey, 100);
     const invoiceId = normalizeRequiredText(id, 1, 100);
-    const scopeWhere = await this.buildScopeWhere('invoice.complete');
+    const scopeWhere = await this.buildRecordScopeWhere('invoice.complete');
 
     return this.prisma.$transaction(async tx => {
       const invoice = await this.probeInvoice(tx, invoiceId, scopeWhere);
@@ -320,9 +322,9 @@ export class InvoiceService {
     assertExactKeys(query, ['page', 'pageSize', 'status', 'contractId', 'customerId', 'caseNo']);
     const page = normalizePage(query.page);
     const pageSize = normalizePageSize(query.pageSize);
-    const scopeWhere = await this.buildScopeWhere('invoice.read');
+    const scopeWhere = await this.buildRecordScopeWhere('invoice.read');
 
-    const filters: Prisma.InvoiceRequestWhereInput[] = [{ contract: scopeWhere }];
+    const filters: Prisma.InvoiceRequestWhereInput[] = [{ AND: [scopeWhere, { contract: { deletedAt: null } }] }];
     if (query.status !== undefined) {
       filters.push({ status: normalizeAllowedValue(query.status, INVOICE_STATUSES) });
     }
@@ -332,7 +334,7 @@ export class InvoiceService {
     if (customerId) filters.push({ customerId });
 
     const caseNo = normalizeOptionalText(query.caseNo, 100);
-    if (caseNo) filters.push({ contract: { case: { caseNo } } });
+    if (caseNo) filters.push({ contract: { case: await financialCaseFilter(this.prisma, this.authorizationContext, caseNo) } });
 
     const where: Prisma.InvoiceRequestWhereInput = { AND: filters };
     const [total, rows] = await this.prisma.$transaction([
@@ -346,7 +348,7 @@ export class InvoiceService {
       }),
     ]);
     return {
-      list: rows.map(projectInvoiceRequest),
+      list: (await projectFinancialCases(this.prisma, this.authorizationContext, rows)).map(projectInvoiceRequest),
       page,
       pageSize,
       total,
@@ -360,9 +362,9 @@ export class InvoiceService {
   async getInvoice(id: string): Promise<InvoiceRequestView> {
     this.authorization.requireAction(this.authorizationContext, 'invoice.read');
     const invoiceId = normalizeRequiredText(id, 1, 100);
-    const scopeWhere = await this.buildScopeWhere('invoice.read');
+    const scopeWhere = await this.buildRecordScopeWhere('invoice.read');
     const invoice = await this.prisma.invoiceRequest.findFirst({
-      where: { id: invoiceId, contract: scopeWhere },
+      where: { id: invoiceId, AND: [scopeWhere, { contract: { deletedAt: null } }] },
     });
     if (!invoice) {
       throw new FinanceError(FINANCE_ERROR_CODES.INVOICE_NOT_FOUND, 404, 'invoice request not found');
@@ -374,10 +376,10 @@ export class InvoiceService {
   private async probeInvoice(
     tx: Prisma.TransactionClient,
     invoiceId: string,
-    scopeWhere: Prisma.ContractWhereInput,
+    scopeWhere: FinancialRecordScope,
   ): Promise<InvoiceRequest> {
     const invoice = await tx.invoiceRequest.findFirst({
-      where: { id: invoiceId, contract: scopeWhere },
+      where: { id: invoiceId, AND: [scopeWhere, { contract: { deletedAt: null } }] },
     });
     if (!invoice) {
       throw new FinanceError(FINANCE_ERROR_CODES.INVOICE_NOT_FOUND, 404, 'invoice request not found');
@@ -457,10 +459,11 @@ export class InvoiceService {
     reason: string | null;
     status: 'PENDING';
     createdBy: string;
-  }): Promise<InvoiceRequest> {
+  }, idempotencyKey: string | null, caseNo: string | null): Promise<InvoiceRequest> {
+    const replayScope = await this.buildRecordScopeWhere('invoice.create');
     for (let attempt = 0; attempt < INVOICE_NO_RETRY_LIMIT; attempt += 1) {
       try {
-        return await this.prisma.$transaction(async tx => {
+        return await createOnce(this.prisma, { actorId: this.actor.actorUserId, key: idempotencyKey, operation: 'invoice.create', normalized: { ...data, amount: new Prisma.Decimal(String(data.amount)).toFixed(2), caseNo } }, async tx => {
           // 额度不变量：合同行 FOR UPDATE 内校验（并发超开防线）；持锁后重读合同取新鲜 amount。
           const contract = await this.lockContract(tx, data.contractId);
           const occupied = await this.sumOccupyingAmount(tx, contract.id);
@@ -498,6 +501,10 @@ export class InvoiceService {
             },
           });
           return invoice;
+        }, async (tx, targetId) => {
+          const existing = await tx.invoiceRequest.findFirst({ where: { id: targetId, AND: [replayScope, { contract: { deletedAt: null } }] } });
+          if (!existing) throw new FinanceError(FINANCE_ERROR_CODES.INVOICE_NOT_FOUND, 404, 'record not found');
+          return existing;
         });
       } catch (error) {
         if (attempt + 1 < INVOICE_NO_RETRY_LIMIT && isUniqueConflictOn(error, 'requestNo')) continue;
@@ -531,6 +538,10 @@ export class InvoiceService {
    * resource 为 'invoice'，授权上下文按 (resource, permissionCode) 双键过滤，缺省
    * 'contract' 恒空集 fail-closed——S15 教训），锚定合同列；本方法仅做委托。
    */
+  private async buildRecordScopeWhere(permissionCode: PermissionCode): Promise<FinancialRecordScope> {
+    return buildFinancialRecordScopeWhere(this.prisma, this.authorization, this.authorizationContext, permissionCode, 'invoice');
+  }
+
   private async buildScopeWhere(permissionCode: PermissionCode): Promise<Prisma.ContractWhereInput> {
     return buildContractScopeWhere(
       this.prisma,

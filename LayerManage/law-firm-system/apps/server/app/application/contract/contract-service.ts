@@ -561,7 +561,7 @@ export class ContractService {
   /** 合同列表：contract.read + 范围 + status/contractType/customerId/keyword 过滤 + 分页（createdAt DESC, id ASC 决胜）。 */
   async listContracts(query: ContractListQuery): Promise<PagedResult<ContractView>> {
     this.authorization.requireAction(this.authorizationContext, 'contract.read');
-    assertExactKeys(query, ['page', 'pageSize', 'status', 'contractType', 'customerId', 'keyword', 'caseNo']);
+    assertExactKeys(query, ['page', 'pageSize', 'status', 'contractType', 'customerId', 'keyword', 'caseNo', 'branchId']);
     const page = normalizePage(query.page);
     const pageSize = normalizePageSize(query.pageSize);
     const scopeWhere = await this.buildScopeWhere('contract.read');
@@ -575,6 +575,7 @@ export class ContractService {
     }
     const customerId = normalizeOptionalText(query.customerId, 100);
     if (customerId) filters.push({ customerId });
+    if (query.branchId !== undefined) filters.push({ branchId: normalizeRequiredText(query.branchId, 1, 100) });
     const keyword = normalizeOptionalText(query.keyword, 100);
     if (keyword) {
       filters.push({
