@@ -106,6 +106,9 @@ last_updated: 2026-09-14
 7. §14.1 通用验收要求-回调验收：审批同意、任务完成、AI 结果确认等同步回调必须校验权限、状态和重复提交。
 
 ## 6. 追溯
+
+[云盘 G1 权限决策表](../../superpowers/specs/2026-09-15-cloud-drive-g1-contract.md)扩展到文件夹祖先链：工作区 → 文件夹 → Base → 表 → 记录/字段/领域约束逐层收敛；DENY 优先，保留显式工作区 OWNER 例外。目录 ownerId、个人/共享入口及视图筛选均不授予业务数据权限。资源列表、搜索、计数、直链、附件和订阅使用相同边界，普通用户默认只看自己创建的记录。该增量待实现，现有岗位授权验收不能替代文件夹验证。
+
 - 专项设计: docs/专项设计/角色权限与数据范围设计.md
 - 落地 SPEC: SPEC-004
 - 主要代码: apps/server/app/application/{auth,authorization}、apps/server/app/controller/{auth,authorization,permission,role,organization}

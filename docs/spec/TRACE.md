@@ -4,7 +4,7 @@ title: 模块级追溯矩阵
 type: meta-spec
 status: approved
 created: 2026-07-28
-last_updated: 2026-09-14
+last_updated: 2026-09-15
 ---
 
 # 模块级追溯矩阵（TRACE）
@@ -25,7 +25,7 @@ last_updated: 2026-09-14
 
 | 编号 | 模块 | 专项设计 | 已落地SPEC | 现状 |
 |---|---|---|---|---|
-| MOD-001 | 组织权限 | 角色权限/系统管理员权限设计 | SPEC-002/003/004/005；[SPEC-003-A](../superpowers/specs/2026-09-11-organization-management-extension.md) | ✅原基线已验收；003-A 本地自动化通过，浏览器手工验收未执行；协作工作区授权/行字段限制已实现；逐应用/表授权待开发 |
+| MOD-001 | 组织权限 | 角色权限/系统管理员权限设计 | SPEC-002/003/004/005；[SPEC-003-A](../superpowers/specs/2026-09-11-organization-management-extension.md)；SPEC-COLLAB-20260914 | ✅原基线已验收；003-A 本地自动化通过，浏览器手工验收未执行；工作区/应用/表及岗位主体、行字段范围和撤权已验证；云盘文件夹继承待实施 |
 | MOD-002 | 多维协作工作区与配置中心 | 动态字段表格与模板配置（已扩展） | [SPEC-COLLAB-20260914](../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md)（前七批部分落地） | 自建表、视图、网格、SSE、防覆盖、资源/岗位授权、CRM 读取/办理及扩展字段、目录排序、断网恢复和原子批量粘贴已验证；第七批 AC-15 本地 100 会话/900 秒负载通过，3600 次保存成功；真实多设备、完整故障矩阵及 P2/P3 待验收或实施 |
 | MOD-003 | 品牌获客 | 页面与接口清单(渠道部分) | — | ⚠️有代码无SPEC |
 | MOD-004 | 线索销转 | 页面与接口清单 | SPEC-009(部分,已验收2026-07-30); SPEC-010(立项,CRM-07) | ⚠️部分落地；⬜多维工作区适配待实施 |
@@ -117,3 +117,7 @@ last_updated: 2026-09-14
 ## SPEC-CUSTOMER-CRUD-20260914
 
 [客户管理规格](../superpowers/specs/2026-09-14-customer-management-crud.md)与[实施记录](../superpowers/plans/2026-09-14-customer-management-crud.md)：列表查询/修改/删除入口、编辑版本保护和可选字段清空、独立删除权限、业务关联保护及事务软删除，对应 MOD-005。
+
+## SPEC-DRIVE-20260915（G0 契约完成，G1 待实施）
+
+[云盘资源中心规格](../superpowers/specs/2026-09-15-feishu-cloud-drive-resource-center.md)、[G1 资源与权限技术契约](../superpowers/specs/2026-09-15-cloud-drive-g1-contract.md)及[任务计划](../superpowers/plans/2026-09-15-feishu-cloud-drive-resource-center.md)承接统一界面要求，对应 MOD-002 CFG-22、MOD-001 ORG-14 及 FTN-001/003/004/005。目录与 Base/表/视图分层、文件夹共享、旧资源稳定接入和祖先鉴权均已规格化，尚未作为已实现功能验收。原第七批性能提交为 172f126d，100 会话/900 秒负载已通过；该证据不等于新增云盘完成。

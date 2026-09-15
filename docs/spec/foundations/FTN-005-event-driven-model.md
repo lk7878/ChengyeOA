@@ -210,6 +210,9 @@ last_updated: 2026-09-14
 - 同步回调必须可验证：复杂处理先落库产生事件再异步完成，回调失败给用户明确提示且不静默失败。
 
 ## 6. 追溯
+
+[云盘 G1 协作契约](../../superpowers/specs/2026-09-15-cloud-drive-g1-contract.md)：Base 变化复用现有协作事件和 outbox，目录元数据变化保留事务审计；文件夹撤权由已打开 Base 订阅的实时祖先鉴权发现。目录定时刷新只读取当前授权结果，不缓存跨请求权限；不得为更新列表修改时间而在每次记录写入时争用同一目录行。该增量待实现。
+
 - 专项设计: docs/专项设计/数据流转事件中心设计.md
 - 落地 SPEC: SPEC-007, SPEC-008
 - 主要代码: apps/server/app/application/events、apps/server/app/domain/events、apps/server/app/controller/eventOperations.ts；EventLog / EventSubscription / EventDelivery / EventHandlerLog 数据模型（apps/server/prisma/schema.prisma）
