@@ -1,4 +1,11 @@
-import { LEAD_STATUS_META, POOL_STATUS_META, FOLLOW_TYPE_META } from '@/pages/leads/meta';
+import { CONTRACT_STATUS_META, CONTRACT_TYPE_META, NEGOTIATION_STATUS_META } from '@/pages/contracts/meta';
+import {
+  LEAD_STATUS_META,
+  POOL_STATUS_META,
+  FOLLOW_TYPE_META,
+  CUSTOMER_STATUS_META,
+  CUSTOMER_TYPE_META,
+} from '@/pages/leads/meta';
 import type { Directory, Field } from './types';
 
 export function displayValue(field: Field, value: unknown, directory: Directory): string {
@@ -6,13 +13,23 @@ export function displayValue(field: Field, value: unknown, directory: Directory)
   const labels: Record<string, string> = Object.fromEntries(
     Object.entries(
       field.options.businessKey === 'status'
-        ? LEAD_STATUS_META
+        ? field.options.businessSource === 'CUSTOMERS'
+          ? CUSTOMER_STATUS_META
+          : field.options.businessSource === 'CONTRACTS'
+            ? CONTRACT_STATUS_META
+            : field.options.businessSource === 'NEGOTIATIONS'
+              ? NEGOTIATION_STATUS_META
+              : LEAD_STATUS_META
         : field.options.businessKey === 'poolStatus'
           ? POOL_STATUS_META
           : {},
     ).map(([key, value]) => [key, value.text]),
   );
   if (labels[String(value)]) return labels[String(value)];
+  if (field.options.businessKey === 'customerType')
+    return (CUSTOMER_TYPE_META as Record<string, string>)[String(value)] || String(value);
+  if (field.options.businessKey === 'contractType')
+    return (CONTRACT_TYPE_META as Record<string, { text: string }>)[String(value)]?.text || String(value);
   if (field.options.businessKey === 'type')
     return (FOLLOW_TYPE_META as Record<string, string>)[String(value)] || String(value);
   const options =

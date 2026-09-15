@@ -1,3 +1,4 @@
+import { BusinessTableLinks } from '@/features/crm/BusinessWorkspacePage';
 import Table from '@/components/ResizableTable';
 import React, { useEffect, useState } from 'react';
 import {
@@ -51,6 +52,7 @@ const ContractDetailPage: React.FC = () => {
   } = useContractStore();
   const { contract, plans, payments, loading, error } = detail;
   const hasPermission = useAuthStore(state => state.hasPermission);
+  const canReadPayments = useAuthStore(state => state.hasPermission('payment.read'));
 
   const [activeModal, setActiveModal] = useState<ActionModal>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -60,7 +62,7 @@ const ContractDetailPage: React.FC = () => {
     if (id) void fetchContractDetail(id);
     return () => resetDetail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, canReadPayments]);
 
   const openModal = (modal: Exclude<ActionModal, null>) => {
     actionForm.resetFields();
@@ -219,6 +221,7 @@ const ContractDetailPage: React.FC = () => {
     <div>
       <Space style={{ marginBottom: 16 }} wrap>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/contracts')}>返回列表</Button>
+          <BusinessTableLinks source="CONTRACTS" recordId={id} />
         {visibleActions.map(action => {
           const meta = CONTRACT_ACTION_META[action];
           const disabled = !available.has(action);
@@ -322,6 +325,7 @@ const ContractDetailPage: React.FC = () => {
         />
       </Card>
 
+      {canReadPayments ? <>
       <Card title="应收计划" style={{ marginBottom: 16 }}>
         <Table<PaymentPlanView>
           columns={planColumns}
@@ -345,6 +349,8 @@ const ContractDetailPage: React.FC = () => {
           pagination={false}
         />
       </Card>
+
+      </> : <Alert type="info" message="未授权查看应收计划和收款记录" />}
 
       <Modal
         title={activeModal ? modalTitle[activeModal] : ''}
@@ -377,7 +383,7 @@ const ContractDetailPage: React.FC = () => {
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
-            message={unsettledPlanCount > 0 ? `将取消 ${unsettledPlanCount} 个未清付款计划` : '无未清付款计划'}
+            message={canReadPayments && unsettledPlanCount > 0 ? `将取消 ${unsettledPlanCount} 个未清付款计划` : canReadPayments ? '无未清付款计划' : '未授权查看付款计划；终止时由服务端检查并取消未清计划'}
           />
         )}
         <Form form={actionForm} layout="vertical">

@@ -146,7 +146,7 @@ test('terminate modal shows unsettled plan count when N>0', async () => {
     planFixture({ id: 'plan-3', planNo: 'PLAN2026-0003', period: 3, amount: '20000.00', receivedAmount: '20000.00', status: 'RECEIVED' }),
   ]));
   paymentApi.list.mockResolvedValue(apiRes(pageOf([])));
-  grantPermissions(['contract.terminate']);
+  grantPermissions(['contract.terminate', 'payment.read']);
 
   renderPage();
   expect(await screen.findByText('WT2026-0001')).toBeInTheDocument();
@@ -162,7 +162,7 @@ test('terminate modal shows no-plan message when N=0', async () => {
     planFixture({ id: 'plan-1', status: 'RECEIVED', receivedAmount: '30000.00' }),
   ]));
   paymentApi.list.mockResolvedValue(apiRes(pageOf([])));
-  grantPermissions(['contract.terminate']);
+  grantPermissions(['contract.terminate', 'payment.read']);
 
   renderPage();
   expect(await screen.findByText('WT2026-0001')).toBeInTheDocument();
@@ -195,7 +195,7 @@ test('terminate confirm refreshes plan list to CANCELLED state', async () => {
     terminateReason: '客户原因',
   })));
   paymentApi.list.mockResolvedValue(apiRes(pageOf([])));
-  grantPermissions(['contract.terminate']);
+  grantPermissions(['contract.terminate', 'payment.read']);
 
   renderPage();
   expect(await screen.findByText('WT2026-0001')).toBeInTheDocument();
@@ -214,6 +214,7 @@ test('terminate confirm refreshes plan list to CANCELLED state', async () => {
 });
 
 test('renders CANCELLED plan status with amounts intact when detail already carries it', async () => {
+  grantPermissions(['payment.read']);
   contractApi.detail.mockResolvedValue(apiRes(contractFixture({
     status: 'TERMINATED',
     terminatedAt: '2026-08-01T02:00:00.000Z',
@@ -232,4 +233,14 @@ test('renders CANCELLED plan status with amounts intact when detail already carr
   expect(screen.getByText('30000.00')).toBeInTheDocument();
   expect(screen.getByText('0.00')).toBeInTheDocument();
   expect(screen.queryByText('待收款')).not.toBeInTheDocument();
+});
+
+test('contract-only users can submit without requesting financial records', async () => {
+  contractApi.detail.mockResolvedValue(apiRes(contractFixture({ status: 'DRAFT', contractType: 'RISK_NOTICE' })));
+  grantPermissions(['contract.read', 'contract.submit']);
+  renderPage();
+  expect(await screen.findByRole('button', { name: /提\s*交/ })).toBeEnabled();
+  expect(screen.getByText('未授权查看应收计划和收款记录')).toBeInTheDocument();
+  expect(contractApi.plans).not.toHaveBeenCalled();
+  expect(paymentApi.list).not.toHaveBeenCalled();
 });

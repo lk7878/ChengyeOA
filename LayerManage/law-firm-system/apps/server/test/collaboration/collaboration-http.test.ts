@@ -2047,3 +2047,234 @@ test(
     }
   },
 );
+
+test(
+  'U5-A smoke: customer negotiation and contract workspaces preserve canonical actions and role boundaries',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web');
+    const load = new Function('url', 'return import(url)');
+    const { chromium } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'u5-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    try {
+      const org = (await db.collabWorkspace.findUniqueOrThrow({ where: { id: workspaceId } })).organizationId;
+      const position = await db.position.create({
+        data: { organizationId: org, code: randomUUID(), name: 'U5 岗位', categoryCode: 'SALES' },
+      });
+      const manager = await db.user.create({
+        data: { username: 'u5-manager', password: 'unused', mustChangePassword: false },
+      });
+      const ids = [owner, editor, manager.id];
+      for (const id of ids) {
+        const employee = await db.employee.create({
+          data: {
+            name: id === editor ? 'U5 员工' : 'U5 负责人',
+            employeeNo: randomUUID(),
+            phone: '13800000000',
+            type: 'SALES',
+            status: 'FORMAL',
+            entryDate: new Date('2025-01-01'),
+          },
+        });
+        await db.user.update({ where: { id }, data: { employeeId: employee.id } });
+        await db.employeeAssignment.create({
+          data: {
+            employeeId: employee.id,
+            organizationId: org,
+            positionId: position.id,
+            assignmentType: 'PRIMARY',
+            startedAt: new Date('2025-01-01'),
+          },
+        });
+        const role = await db.role.create({
+          data: {
+            name: 'U5 ' + id,
+            code: 'U5_' + id,
+            type: 'BUSINESS',
+            permissions: {
+              create: [
+                'menu.customer',
+                'menu.contract',
+                'customer.read',
+                'customer.create',
+                'customer.update',
+                'negotiation.read',
+                'negotiation.create',
+                'negotiation.update',
+                'contract.read',
+                'contract.create',
+                'contract.submit',
+                'contract.sign',
+              ].map((code) => ({ permission: { connect: { code } } })),
+            },
+          },
+        });
+        const scope = await db.dataScope.create({ data: { name: 'U5 scope', scopeType: 'ALL' } });
+        for (const resource of ['customer', 'negotiation', 'contract'])
+          await db.roleDataScope.create({ data: { roleId: role.id, resource, dataScopeId: scope.id } });
+        await db.userRole.create({ data: { userId: id, roleId: role.id } });
+      }
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: editor },
+        data: { rowScope: 'SELF' },
+      });
+      await db.collabMember.create({
+        data: { workspaceId, principalId: manager.id, role: 'MANAGER', rowScope: 'ALL' },
+      });
+      const managerToken = (await createApiSession(db, manager.id)).token;
+      const tokens = [token, editorToken, managerToken],
+        pages = [],
+        errors: string[] = [];
+      for (let i = 0; i < ids.length; i++) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          `window.unifiedTestSession = ${JSON.stringify({ mode: 'AUTHENTICATED', token: tokens[i], csrfToken: 'test', expiresIn: 900, user: { id: ids[i], username: ids[i], name: '业务验收成员', roles: [], permissions: [] } })};`,
+        );
+        const page = await context.newPage();
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [admin, staff, leader] = pages,
+        address = vite.resolvedUrls.local[0];
+      const api = (method: 'get' | 'post', route: string, bearer = token, body?: unknown) => {
+        const request = app.httpRequest();
+        const call = request[method]('/api/v1' + route)
+          .set('Authorization', 'Bearer ' + bearer)
+          .set('Idempotency-Key', randomUUID());
+        return body === undefined ? call : call.send(body);
+      };
+      const tables: Record<string, string> = {};
+      for (const route of ['customers', 'negotiations', 'contracts']) {
+        await admin.goto(address + route);
+        await admin.getByRole('button', { name: '连接业务数据', exact: true }).click();
+        await admin.getByRole('combobox', { name: '连接到应用', exact: true }).click();
+        await admin
+          .locator('.ant-select-item-option-content')
+          .getByText('接口工作区 / 业务台账', { exact: true })
+          .click();
+        await admin
+          .getByRole('dialog')
+          .getByRole('button', { name: /^连\s*接$/ })
+          .click();
+        await admin.getByRole('button', { name: '字段配置', exact: true }).waitFor();
+        tables[route] = new URL(admin.url()).searchParams.get('table')!;
+      }
+      await staff.goto(address + 'customers/new');
+      await staff.getByLabel('姓名', { exact: true }).fill('U5 新客户');
+      await staff.getByLabel('电话', { exact: true }).fill('13900009991');
+      await staff.getByRole('button', { name: '创建客户', exact: true }).click();
+      await staff.getByRole('link', { name: '在「客户工作表」中打开', exact: true }).waitFor();
+      const customer = await db.customer.findFirstOrThrow({ where: { name: 'U5 新客户' } });
+      assert.equal(customer.createdBy, editor);
+      const other = (
+        await api('post', '/customers', token, { name: '负责人客户', phone: '13900009992' }).expect(200)
+      ).body.data;
+      await staff.getByRole('link', { name: '在「客户工作表」中打开', exact: true }).click();
+      await staff.getByRole('button', { name: '客户名称：U5 新客户', exact: true }).waitFor();
+      assert.equal(new URL(staff.url()).searchParams.get('record'), customer.id);
+      await staff.locator('.ant-drawer-close').click();
+      await staff.getByRole('button', { name: '创建个人视图', exact: true }).click();
+      await staff.getByRole('tab', { name: '我创建的客户 · 个人', exact: true }).waitFor();
+      const view = new URL(staff.url()).searchParams.get('view');
+      await staff.reload();
+      await staff.getByRole('tab', { name: '我创建的客户 · 个人', exact: true }).waitFor();
+      assert.equal(new URL(staff.url()).searchParams.get('view'), view);
+      await api('get', '/tables/' + tables.customers + '/records/' + other.id, editorToken).expect(404);
+      await leader.goto(address + 'customers?base=' + baseId + '&table=' + tables.customers);
+      await leader.getByRole('button', { name: '客户名称：负责人客户', exact: true }).waitFor();
+      await staff.goto(address + 'negotiations/new');
+      await staff.getByLabel('客户', { exact: true }).click();
+      await staff.locator('.ant-select-item-option-content').filter({ hasText: 'U5 新客户' }).click();
+      await staff.getByLabel('所属组织', { exact: true }).click();
+      await staff
+        .locator('.ant-select-item-option-content')
+        .getByText('协作接口测试', { exact: true })
+        .click();
+      await staff.getByLabel('谈案人', { exact: true }).click();
+      await staff.locator('.ant-select-item-option-content').getByText('U5 员工', { exact: true }).click();
+      await staff.getByLabel('报价金额', { exact: true }).fill('123.45');
+      await staff.getByRole('button', { name: '创建谈案', exact: true }).click();
+      await staff.getByRole('button', { name: '完结谈案', exact: true }).click();
+      await staff.getByRole('dialog').getByRole('button', { name: '确认完结', exact: true }).click();
+      await staff.getByRole('dialog').waitFor({ state: 'hidden' });
+      const negotiation = await db.negotiation.findFirstOrThrow({ where: { customerId: customer.id } });
+      assert.equal(negotiation.status, 'SIGNED');
+      await staff.getByRole('link', { name: '在「谈案工作表」中打开', exact: true }).click();
+      await staff.getByRole('button', { name: '谈案状态：已签约', exact: true }).waitFor();
+      const contract = await db.contract.create({
+        data: {
+          contractNo: 'U5-RISK',
+          contractType: 'RISK_NOTICE',
+          title: 'U5 风险告知',
+          customerId: customer.id,
+          branchId: org,
+          createdBy: editor,
+        },
+      });
+      await leader.goto(address + 'contracts?base=' + baseId + '&table=' + tables.contracts);
+      await leader.getByRole('button', { name: '合同状态：草稿', exact: true }).waitFor();
+      await staff.goto(
+        address + 'contracts?base=' + baseId + '&table=' + tables.contracts + '&record=' + contract.id,
+      );
+      await staff.getByRole('button', { name: '打开业务详情与办理', exact: true }).click();
+      await staff.getByRole('button', { name: /^提\s*交$/ }).click();
+      await staff
+        .locator('.ant-popconfirm')
+        .getByRole('button', { name: /^(确\s*定|OK)$/ })
+        .click();
+      await staff.getByText('待签署', { exact: true }).waitFor();
+      await leader.getByRole('button', { name: '合同状态：待签署', exact: true }).waitFor({ timeout: 15000 });
+      await staff.getByRole('link', { name: '在「合同工作表」中打开', exact: true }).click();
+      await staff.getByRole('button', { name: '合同状态：待签署', exact: true }).waitFor();
+      assert.equal(
+        (await db.contract.findUniqueOrThrow({ where: { id: contract.id } })).status,
+        'PENDING_SIGN',
+      );
+      await staff.locator('.ant-drawer-close').click();
+      const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence');
+      await mkdir(evidence, { recursive: true });
+      for (const width of [1440, 1024, 390]) {
+        await staff.setViewportSize({ width, height: 900 });
+        assert.equal(
+          await staff.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
+          false,
+          'U5 table overflow ' + width,
+        );
+        await staff.screenshot({
+          path: path.join(evidence, 'u5-contract-' + width + '.png'),
+          fullPage: true,
+        });
+      }
+      await api('post', '/tables/' + tables.contracts + '/access', token, {
+        version: 1,
+        policy: { restricted: true, grants: [] },
+      }).expect(200);
+      await api('get', '/tables/' + tables.contracts + '/records/' + contract.id, editorToken).expect(403);
+      assert.equal(await db.collabRecord.count(), 0);
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await vite.close();
+    }
+  },
+);

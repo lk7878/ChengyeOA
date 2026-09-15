@@ -233,3 +233,10 @@ G2-B [个人访问与引用](../../superpowers/specs/2026-09-15-cloud-drive-g2b-
 ### U4 线索业务工作区
 
 U4 复用 CRM 领域事件和 collaboration.changed 通知，无记录值广播；业务入口与云盘共用订阅，原接口写入继续由既有 5 秒业务刷新捕获。 工程契约见[线索与跟进统一](../../superpowers/specs/2026-09-15-u4-lead-workspace.md)，验收记录见全站统一计划第 7 节。
+
+
+### U5-A 事件边界
+
+客户/谈案/合同同源表的扩展编辑复用协作事件；原业务命令保留原事件与事务，不复制核心事实，不新增第二套结算或签约事件。本批原领域动作回表时回源刷新，未声称全部旧领域事件已接入协作 SSE 推送。详见[U5–U7 契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
+
+原业务动作的多人可见性复用既有 collaboration.events：选中非 CUSTOM 表时每 5 秒发 business.refresh 失效通知，接收端重新按自身授权读取；消息不携带业务字段。直接协作扩展事件保持原机制。该边界是有界回源刷新，不等同于为全部旧领域命令新增即时 outbox 事件。

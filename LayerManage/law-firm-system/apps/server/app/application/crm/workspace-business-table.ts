@@ -1,3 +1,4 @@
+import { domainSources, isDomainSource, WorkspaceDomainSource } from './workspace-domain-source';
 import { CollabField, CollabTable, CollabRecord, Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
@@ -40,13 +41,15 @@ const columns = {
   ],
 };
 export function businessFields(source: string) {
-  if (source !== 'LEADS' && source !== 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
-  return columns[source].map(([key, name, type], position) => ({
-    name,
-    type,
-    position,
-    options: { businessKey: key },
-  }));
+  if (!isDomainSource(source) && source !== 'LEADS' && source !== 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
+  return (isDomainSource(source) ? domainSources[source].columns : columns[source]).map(
+    ([key, name, type], position) => ({
+      name,
+      type,
+      position,
+      options: { businessKey: key, businessSource: source },
+    }),
+  );
 }
 
 /** A read adapter over CRM truth. It shares domain scope and sensitive-field projection;
@@ -60,7 +63,11 @@ export class WorkspaceBusinessTable {
   ) {
     this.authorization = new AuthorizationService(new DataScopeService(db));
   }
-  authorize() {
+  authorize(source = 'LEADS') {
+    if (isDomainSource(source)) {
+      new WorkspaceDomainSource(this.db, this.actor).authorize(source);
+      return;
+    }
     try {
       this.authorization.requireAction(this.actor, 'lead.read');
     } catch {
@@ -74,7 +81,9 @@ export class WorkspaceBusinessTable {
     };
   }
   visibleFields(source: string, fields: CollabField[]) {
-    this.authorize();
+    if (isDomainSource(source))
+      return new WorkspaceDomainSource(this.db, this.actor).visibleFields(source, fields);
+    this.authorize(source);
     const permissions = this.permissions();
     return fields.filter(
       (f) =>
@@ -104,7 +113,15 @@ export class WorkspaceBusinessTable {
     const key = this.key(source, f, true);
     if (input.operator === 'empty' || input.operator === 'notEmpty') {
       // Required CRM columns cannot be null; optional fields also treat empty strings as empty.
-      const nullable = ['assignedTo', 'branchId', 'nextPlan', 'nextTime'].includes(key);
+      const nullable = [
+        'assignedTo',
+        'branchId',
+        'nextPlan',
+        'nextTime',
+        'sourceLeadId',
+        'quotedAmount',
+        'wechat',
+      ].includes(key);
       const empty: Record<string, unknown> = nullable ? { [key]: null } : { id: { in: [] as string[] } };
       const where = ['TEXT', 'LONG_TEXT', 'PHONE'].includes(f.type) ? { OR: [empty, { [key]: '' }] } : empty;
       return input.operator === 'empty' ? where : { NOT: where };
@@ -119,7 +136,8 @@ export class WorkspaceBusinessTable {
       return { id: { in: [] as string[] } };
     if (f.type === 'NUMBER') {
       value = Number(value);
-      if (!Number.isSafeInteger(value)) fail('COLLAB_INVALID_FILTER');
+      if (!Number.isFinite(value) || (!isDomainSource(source) && !Number.isSafeInteger(value)))
+        fail('COLLAB_INVALID_FILTER');
     }
     if (['DATE', 'DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(f.type)) {
       if (input.operator === 'contains' || !Number.isFinite(Date.parse(String(value))))
@@ -132,7 +150,12 @@ export class WorkspaceBusinessTable {
       return { [key]: { contains: String(value), mode: 'insensitive' } };
     }
     const op = input.operator === 'eq' ? 'equals' : input.operator === 'ne' ? 'not' : String(input.operator);
-    if (op === 'not' && ['assignedTo', 'branchId', 'nextPlan', 'nextTime'].includes(key))
+    if (
+      op === 'not' &&
+      ['assignedTo', 'branchId', 'nextPlan', 'nextTime', 'sourceLeadId', 'quotedAmount', 'wechat'].includes(
+        key,
+      )
+    )
       return { OR: [{ [key]: null }, { [key]: { not: value } }] };
     return { [key]: { [op]: value } };
   }
@@ -200,6 +223,8 @@ export class WorkspaceBusinessTable {
     return parts.length ? Prisma.sql`(${Prisma.join(parts, ' AND ')})` : Prisma.sql`TRUE`;
   }
   async sourceSql(table: CollabTable, access: Access, fields: CollabField[]) {
+    if (isDomainSource(table.source))
+      return new WorkspaceDomainSource(this.db, this.actor).sourceSql(table, access, fields);
     const leads = table.source === 'LEADS';
     const domain = this.scopeSql(await this.scope(access), leads ? 'b' : 'l');
     const core = leads ? Prisma.sql`lead b` : Prisma.sql`lead_follow b JOIN lead l ON l.id = b."leadId"`;
@@ -266,6 +291,22 @@ export class WorkspaceBusinessTable {
       },
       { isolationLevel: 'RepeatableRead' },
     );
+    if (isDomainSource(table.source))
+      return {
+        ...result,
+        records: await new WorkspaceDomainSource(this.db, this.actor).project(
+          table.source,
+          access,
+          fields,
+          result.records,
+          recordId,
+        ),
+        groups: result.groups.slice(0, 200),
+        groupsTruncated: result.groups.length > 200,
+        page,
+        pageSize,
+        schemaVersion: table.schemaVersion,
+      };
     if (table.source === 'LEADS') {
       const permissions = this.permissions();
       for (const key of ['phone', 'wechat'] as const) {

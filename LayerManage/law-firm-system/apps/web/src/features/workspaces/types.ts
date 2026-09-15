@@ -10,7 +10,13 @@ export interface Field extends Option {
   position: number;
   archived: boolean;
   defaultValue: unknown;
-  options: { choices?: Option[]; targetTableId?: string; helpText?: string; businessKey?: string };
+  options: {
+    choices?: Option[];
+    targetTableId?: string;
+    helpText?: string;
+    businessKey?: string;
+    businessSource?: string;
+  };
 }
 export interface Filter {
   join?: 'and' | 'or';

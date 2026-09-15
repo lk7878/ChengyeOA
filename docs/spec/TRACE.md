@@ -169,3 +169,8 @@ U0–U3 验收：前端相关 11 文件 51/51；完整 HTTP/SSE/Edge 7/7（290.5
 ## SPEC-UNIFIED-OA U4
 
 [U4 契约](../superpowers/specs/2026-09-15-u4-lead-workspace.md)对应 MOD-004 与 FTN-001/003/004/005：BusinessWorkspacePage / WorkspaceEditor 提供同源入口；CollaborationService.businessTables/createBusinessRecord/businessAction 提供权限过滤目录、幂等创建及受控池动作；WorkspaceBusinessTable 提供授权内关联标签。新业务浏览器流程、权限/回滚服务测试和创建重试单测已通过。U4 最终验收：相关服务 80/80、补充断言后业务/扩展复验 17/17；前端 35 项与浏览器 8 项均有通过记录（初次失败与目标复验经过见全站计划第 7 节）；两端 lint/类型/构建、契约/文档检查通过。100 会话 / 900 秒保存 3600/3600，查询/保存/可见 P95 1196/1336/1356ms，重连 P95 4562ms，撤权 949ms 后读写均 403；原始证据 u4-load-report.json。无新迁移或开发库重置，U5–U7 仍待实施。
+
+
+## SPEC-UNIFIED-OA U5-A
+
+[U5–U7 契约](../superpowers/specs/2026-09-15-u5-u7-business-unification.md)对应 MOD-005/006、FTN-001/003/004/005：WorkspaceDomainSource 白名单查询正式客户/谈案/合同；BusinessWorkspacePage 与 WorkspaceEditor 提供同源视图和有权详情往返，原领域事务保持。新增 6 项来源/边界测试、原业务 94 项及协作 30 项通过；前端 45 个不同用例、浏览器 9 个不同用例均有通过记录（首次波动与目标复验经过见[计划第 8 节](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)）。构建与契约检查通过；100 会话/900 秒（实际 901.906 秒）负载通过，3,600 次保存全部成功且可见，查询/保存/可见 P95 1188/1339/1369ms，重连 P95 4452ms，撤权 271ms 后读写 403；u5-load-report.json。U5-A 本批阶段提交，U5-B/U6/U7 未完成。

@@ -21,10 +21,10 @@ import BusinessWorkspacePage from './features/crm/BusinessWorkspacePage';
 import LeadDetailPage from './pages/leads/LeadDetailPage';
 import PublicPoolPage from './pages/leads/PublicPoolPage';
 import VisitCalendarPage from './pages/leads/VisitCalendarPage';
-import CustomerListPage from './pages/customers/CustomerListPage';
+import CustomerCreatePage, { CustomerWorkspacePage } from './pages/customers/CustomerCreatePage';
 import CustomerDetailPage from './pages/customers/CustomerDetailPage';
-import NegotiationListPage from './pages/negotiations/NegotiationListPage';
-import ContractListPage from './pages/contracts/ContractListPage';
+import NegotiationRecordPage from './pages/negotiations/NegotiationRecordPage';
+
 import ContractDetailPage from './pages/contracts/ContractDetailPage';
 import ContractCreatePage from './pages/contracts/ContractCreatePage';
 import FinanceWorkspace from './pages/finance/FinanceWorkspace';
@@ -189,7 +189,31 @@ function SessionBootstrap() {
             path="/customers"
             element={
               <AuthorizedPage permission="menu.customer">
-                <CustomerListPage />
+                <CustomerWorkspacePage />
+              </AuthorizedPage>
+            }
+          />
+          <Route
+            path="/customers/new"
+            element={
+              <AuthorizedPage permission="menu.customer">
+                <CustomerCreatePage />
+              </AuthorizedPage>
+            }
+          />
+          <Route
+            path="/negotiations/new"
+            element={
+              <AuthorizedPage permission="menu.contract">
+                <NegotiationRecordPage />
+              </AuthorizedPage>
+            }
+          />
+          <Route
+            path="/negotiations/:id"
+            element={
+              <AuthorizedPage permission="menu.contract">
+                <NegotiationRecordPage />
               </AuthorizedPage>
             }
           />
@@ -205,7 +229,7 @@ function SessionBootstrap() {
             path="/negotiations"
             element={
               <AuthorizedPage permission="menu.contract">
-                <NegotiationListPage />
+                <BusinessWorkspacePage source="NEGOTIATIONS" />
               </AuthorizedPage>
             }
           />
@@ -213,7 +237,7 @@ function SessionBootstrap() {
             path="/contracts"
             element={
               <AuthorizedPage permission="menu.contract">
-                <ContractListPage />
+                <BusinessWorkspacePage source="CONTRACTS" />
               </AuthorizedPage>
             }
           />

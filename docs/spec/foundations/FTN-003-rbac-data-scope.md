@@ -129,3 +129,8 @@ G2-B [快捷方式权限](../../superpowers/specs/2026-09-15-cloud-drive-g2b-sho
 ### U4 线索业务工作区
 
 U4 业务创建及池动作取 CRM 动作范围、工作区组织与资源/字段限制的交集；创建人 User ID 与负责人 Employee ID 分别定义。目录及关联标签不暴露无权记录，已撤权时不可凭幂等 key 获取先前结果。 工程契约见[线索与跟进统一](../../superpowers/specs/2026-09-15-u4-lead-workspace.md)，验收记录见全站统一计划第 7 节。
+
+
+### U5-A 授权交集
+
+新增三类正式来源使用原领域 read scope ∩ 工作区组织 ∩ 资源 createdBy SELF；关联客户名称同样受客户权限、组织和创建人范围约束。客户隐藏/脱敏字段拒绝查询推断并复用原读取审计。扩展写要求资源 EDITOR 及领域编辑动作/范围；合同映射既有 contract.submit，不新增不存在的 contract.update 或触发提交。旧领域详情仍采用其原领域授权，资源入口不充当领域接口全局 ACL；岗位管理员需同时配置原领域范围和资源范围。详见[U5–U7 契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。

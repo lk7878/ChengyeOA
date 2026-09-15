@@ -1,3 +1,4 @@
+import { domainSources, isDomainSource, WorkspaceDomainSource } from '../crm/workspace-domain-source';
 import { queryCustomRecords } from './custom-record-query';
 import { LEAD_SOURCE_TYPES } from '../crm/lead-types';
 import { LeadService } from '../crm/lead-service';
@@ -435,10 +436,10 @@ export class CollaborationService {
   }
   async businessTables(raw: unknown = {}) {
     const input = exact(raw, ['source', 'recordId']);
-    const source = choice(input.source ?? 'LEADS', ['LEADS', 'FOLLOWS']);
+    const source = choice(input.source ?? 'LEADS', ['LEADS', 'FOLLOWS', ...Object.keys(domainSources)]);
     const recordId = input.recordId === undefined ? undefined : text(input.recordId);
-    if (recordId && source !== 'LEADS') fail('COLLAB_INVALID_SOURCE');
-    new WorkspaceBusinessTable(this.db, this.actor).authorize();
+    if (recordId && source === 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
+    new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
     const tables: { id: string; name: string; baseId: string; baseName: string; workspaceName: string }[] =
       [];
     const targets: { id: string; name: string; workspaceName: string }[] = [];
@@ -453,7 +454,16 @@ export class CollaborationService {
             if (table.source !== source || table.archived || tables.length >= 200) continue;
             if (recordId) {
               try {
-                await this.businessLead(table.id, recordId);
+                if (isDomainSource(source)) {
+                  const selected = await this.tableAccess(table.id);
+                  await new WorkspaceDomainSource(this.db, this.actor).target(
+                    source,
+                    selected.access,
+                    recordId,
+                    this.db,
+                    'read',
+                  );
+                } else await this.businessLead(table.id, recordId);
               } catch (e) {
                 if (['COLLAB_NOT_FOUND', 'COLLAB_FORBIDDEN'].includes((e as { code?: string }).code ?? ''))
                   continue;
@@ -713,8 +723,13 @@ export class CollaborationService {
   }
   async createTable(baseId: string, raw: unknown, key: unknown) {
     const input = exact(raw, ['name', 'template', 'source']);
-    const source = choice(input.source ?? 'CUSTOM', ['CUSTOM', 'LEADS', 'FOLLOWS']);
-    if (source !== 'CUSTOM') new WorkspaceBusinessTable(this.db, this.actor).authorize();
+    const source = choice(input.source ?? 'CUSTOM', [
+      'CUSTOM',
+      'LEADS',
+      'FOLLOWS',
+      ...Object.keys(domainSources),
+    ]);
+    if (source !== 'CUSTOM') new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
     const initial = await this.baseAccess(baseId);
     if (!initial.access.canCreate || (source !== 'CUSTOM' && initial.access.level < 4))
       fail('COLLAB_FORBIDDEN', 403);
@@ -799,7 +814,10 @@ export class CollaborationService {
           table.source === 'CUSTOM' || !['phone', 'wechat'].includes(String(object(f.options).businessKey)),
         writable:
           (table.source === 'CUSTOM' ||
-            (!object(f.options).businessKey && this.actor.permissionCodes.includes('lead.update'))) &&
+            (!object(f.options).businessKey &&
+              this.actor.permissionCodes.includes(
+                isDomainSource(table.source) ? domainSources[table.source].edit : 'lead.update',
+              ))) &&
           access.level >= 2 &&
           !access.readonly.includes(f.id) &&
           !isSystemField(f),
@@ -1591,6 +1609,8 @@ export class CollaborationService {
     recordId: string,
     tx: Tx,
   ) {
+    if (isDomainSource(table.source))
+      return new WorkspaceDomainSource(this.db, this.actor).target(table.source, access, recordId, tx);
     if (!this.actor.permissionCodes.includes('lead.update')) fail('COLLAB_FORBIDDEN', 403);
     const adapter = new WorkspaceBusinessTable(this.db, this.actor);
     const scope: Prisma.LeadWhereInput = {
@@ -1633,9 +1653,11 @@ export class CollaborationService {
         const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
         if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
         await tx.$queryRaw(
-          table.source === 'LEADS'
-            ? Prisma.sql`SELECT id FROM lead WHERE id = ${recordId} FOR UPDATE`
-            : Prisma.sql`SELECT id FROM lead_follow WHERE id = ${recordId} FOR UPDATE`,
+          isDomainSource(table.source)
+            ? Prisma.sql`SELECT id FROM ${Prisma.raw(domainSources[table.source].table)} WHERE id = ${recordId} FOR UPDATE`
+            : table.source === 'LEADS'
+              ? Prisma.sql`SELECT id FROM lead WHERE id = ${recordId} FOR UPDATE`
+              : Prisma.sql`SELECT id FROM lead_follow WHERE id = ${recordId} FOR UPDATE`,
         );
         const core = await this.extensionTarget(table, access, recordId, tx);
         const previous = await tx.collabExtension.findUnique({

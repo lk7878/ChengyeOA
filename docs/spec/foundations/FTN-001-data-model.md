@@ -198,3 +198,8 @@ G2-B [导航元数据](../../superpowers/specs/2026-09-15-cloud-drive-g2b-shortc
 ### U4 线索业务工作区
 
 U4 不新增模型或迁移；Lead/LeadFollow 仍是权威事实，目录连接仅存元数据，返回的关联显示标签不替代原 Lead.id。 工程契约见[线索与跟进统一](../../superpowers/specs/2026-09-15-u4-lead-workspace.md)，验收记录见全站统一计划第 7 节。
+
+
+### U5-A 正式来源扩展
+
+CUSTOMERS / NEGOTIATIONS / CONTRACTS 直接读取 Customer / Negotiation / Contract，复用 CollabExtension，稳定业务 ID 不变；无新模型和迁移，基线仍 90/55。字段元数据带 businessSource 用于准确显示状态；核心金额保留 Decimal 字符串。详见[U5–U7 契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。

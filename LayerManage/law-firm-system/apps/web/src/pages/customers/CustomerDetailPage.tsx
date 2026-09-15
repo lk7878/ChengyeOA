@@ -1,3 +1,4 @@
+import { BusinessTableLinks } from '@/features/crm/BusinessWorkspacePage';
 import { crmNameRules, phoneRules } from '@/features/crm/form-rules';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -225,6 +226,7 @@ const CustomerDetailPage: React.FC = () => {
         title={(
           <Space wrap>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>返回</Button>
+          <BusinessTableLinks source="CUSTOMERS" recordId={id} />
             <span>{customer.name}</span>
             <Tag color={statusMeta.color}>{statusMeta.text}</Tag>
             <span style={{ color: '#999', fontSize: 13 }}>{customer.customerNo}</span>

@@ -103,3 +103,8 @@ MOD-007 SOP、MOD-009 满意度/复购转介绍、MOD-003 内容获客、MOD-008
 ## U4 增量映射
 
 /leads 已接入线索工作表选择与共同编辑器，新增 /leads/follows（同 menu.lead_crm + lead.read 权限）。两路由在带 base/table 参数时只呈现全局栏与表目录；/leads/:id 保留专属办理并提供有权工作表定位，/leads/pool 与 /leads/calendar 保留专属场景。详情见[U4 契约](2026-09-15-u4-lead-workspace.md)。
+
+
+## U5-A 增量映射
+
+/customers、/negotiations、/contracts 接入业务连接目录和共同编辑器；带 base/table 时使用表目录。新增 /customers/new（customer.create）、/negotiations/new（negotiation.create）、/negotiations/:id（negotiation.read），均叠加原菜单权限；原合同新建/详情、客户详情保持。/customers 的案件往返 location.state 由独立创建表单承接。参见[U5–U7 契约](2026-09-15-u5-u7-business-unification.md)。

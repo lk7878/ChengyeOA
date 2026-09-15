@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/authStore';
+import { businessSources, isBusinessSource, domainCreate } from '@/features/crm/business-sources';
 import CreateBusinessLead from '@/features/crm/CreateBusinessLead';
 import { useUnifiedShell } from '@/features/navigation/shell-context';
 import CloudDrivePage from '@/features/drive/CloudDrivePage';
@@ -104,6 +106,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   const [base, setBase] = useState<Base>();
   const [baseAccess, setBaseAccess] = useState<Access>();
   const [detail, setDetail] = useState<TableDetail>();
+  const creation = domainCreate(detail?.table.source);
+  const canCreateDomain = useAuthStore((s) => !!creation && s.hasPermission(creation.permission));
   const [directory, setDirectory] = useState<Directory>(emptyDirectory);
   const [result, setResult] = useState<QueryResult>();
   const [config, setConfig] = useState<ViewConfig>({});
@@ -480,7 +484,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
           '/bases/' + baseId + '/tables',
           {
             name: values.name,
-            ...(values.template === 'LEADS' || values.template === 'FOLLOWS'
+            ...(isBusinessSource(values.template)
               ? { source: values.template }
               : { template: values.template }),
           },
@@ -1047,7 +1051,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   <Alert
                     type="info"
                     showIcon
-                    title="实时业务表 · 数据来自现有 CRM"
+                    title="实时业务表 · 数据来自正式业务"
                     description="可在字段配置中新增扩展字段并直接编辑；业务字段由原业务动作控制。"
                   />
                 )}
@@ -1057,14 +1061,24 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     icon={<PlusOutlined aria-hidden="true" />}
                     disabled={
                       detail.access.level < 2 ||
-                      (detail.table.source !== 'CUSTOM' && !detail.canCreateBusiness)
+                      (detail.table.source !== 'CUSTOM' && !detail.canCreateBusiness && !canCreateDomain)
                     }
                     onClick={() => {
-                      if (detail.table.source === 'LEADS') setCreatingLead(true);
+                      if (creation) {
+                        if (configDirty || editing || inlineDirty)
+                          Modal.confirm({
+                            title: '有尚未保存的修改',
+                            content: '前往新建页面将放弃当前未保存的修改。',
+                            okText: '放弃并前往',
+                            cancelText: '取消',
+                            onOk: () => navigate(creation.path),
+                          });
+                        else navigate(creation.path);
+                      } else if (detail.table.source === 'LEADS') setCreatingLead(true);
                       else void openRecord();
                     }}
                   >
-                    {detail.table.source === 'LEADS' ? '新建线索' : '添加记录'}
+                    {creation?.label || (detail.table.source === 'LEADS' ? '新建线索' : '添加记录')}
                   </Button>
                   <Button
                     disabled={
@@ -1087,7 +1101,9 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                         try {
                           setBusy(true);
                           const created = await post<{ id: string }>('/tables/' + tableId + '/views', {
-                            name: detail.table.source === 'LEADS' ? '我负责的' : '我的跟进',
+                            name: isBusinessSource(detail.table.source)
+                              ? businessSources[detail.table.source].personal
+                              : '我的记录',
                             type: 'GRID',
                             shared: false,
                             config: {
@@ -1625,6 +1641,21 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
             {detail?.table.source === 'LEADS' && editing.row && (
               <Button onClick={() => navigate('/leads/' + editing.row!.id)}>打开线索业务详情</Button>
             )}
+            {detail &&
+              ['CUSTOMERS', 'CONTRACTS', 'NEGOTIATIONS'].includes(detail.table.source) &&
+              editing.row && (
+                <Button
+                  onClick={() =>
+                    navigate(
+                      businessSources[detail.table.source as keyof typeof businessSources].path +
+                        '/' +
+                        editing.row!.id,
+                    )
+                  }
+                >
+                  打开业务详情与办理
+                </Button>
+              )}
             {detail?.table.source === 'FOLLOWS' &&
               editing.row &&
               fields.some((f) => f.options.businessKey === 'leadId') && (
@@ -1829,6 +1860,11 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     label: '现有 CRM · 跟进表（负责人配置）',
                     disabled: baseAccess?.level !== 4,
                   },
+                  ...(['CUSTOMERS', 'NEGOTIATIONS', 'CONTRACTS'] as const).map((source) => ({
+                    value: source,
+                    label: '连接业务 · ' + businessSources[source].title,
+                    disabled: (baseAccess?.level || 0) < 4,
+                  })),
                   { value: 'BLANK', label: '空白数据表' },
                   { value: 'TASKS', label: '任务管理模板' },
                   { value: 'CONTACTS', label: '客户跟进模板' },

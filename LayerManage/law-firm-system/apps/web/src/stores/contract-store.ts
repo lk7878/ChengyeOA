@@ -1,9 +1,9 @@
 // SPEC-010 Task 11: 合同域 Zustand store（模式仿 src/stores/customer-store.ts）。
 // 管理：合同列表（类型/状态/关键字筛选 + 分页）、详情（合同 + 应收计划 + 收款记录）、
 // 状态机动作（submit/approve/reject/sign/effect/terminate/void，写操作以返回视图就地更新）。
-// plans/payments 依赖 payment.read 权限：加载失败降级为空数组，不阻塞合同详情（自裁决，
-// 仅有 contract.read 的用户仍可见详情，计划/收款区块呈现空态）。
+// plans/payments 仅在具有 payment.read 时请求，独立于合同读取和办理。
 import { create } from 'zustand';
+import { useAuthStore } from './authStore';
 import { contractApi } from '@/api/contract';
 import type {
   ApproveContractInput,
@@ -83,6 +83,7 @@ function definedQuery(filters: ContractListFilters): ContractListQuery {
 }
 
 export const useContractStore = create<ContractState>()((set, get) => {
+  let detailRequest = 0;
   /** 动作统一形态：调 API → 就地更新详情视图 → 返回成功与否（拦截器已全局提示错误）。 */
   const runAction = async (
     id: string,
@@ -91,9 +92,9 @@ export const useContractStore = create<ContractState>()((set, get) => {
   ): Promise<boolean> => {
     try {
       const res = await action();
-      set({ detail: { ...get().detail, contract: res.data } });
+      if (get().detail.contract?.id === id) set({ detail: { ...get().detail, contract: res.data } });
       // 生效会生成应收计划：回源计划/收款两块（best-effort）。
-      if (refreshPlans) await get().fetchContractDetail(id);
+      if (refreshPlans && get().detail.contract?.id === id) await get().fetchContractDetail(id);
       return true;
     } catch {
       return false;
@@ -144,14 +145,16 @@ export const useContractStore = create<ContractState>()((set, get) => {
     detail: initialDetail,
 
     fetchContractDetail: async id => {
-      set({ detail: { ...get().detail, loading: true, error: null } });
+      const request = ++detailRequest;
+      set({ detail: { ...(get().detail.contract?.id === id ? get().detail : initialDetail), loading: true, error: null } });
       try {
         const contractRes = await contractApi.detail(id);
-        // plans/payments 走 payment.read：无该权限时 403，降级空态不阻塞详情。
-        const [plansRes, paymentsRes] = await Promise.all([
+        // 不请求无权财务接口；后端继续执行范围授权。
+        const [plansRes, paymentsRes] = useAuthStore.getState().hasPermission('payment.read') ? await Promise.all([
           contractApi.plans(id).catch(() => null),
           paymentApi.list({ contractId: id, page: 1, pageSize: 100 }).catch(() => null),
-        ]);
+        ]) : [null, null];
+        if (request !== detailRequest) return;
         set({
           detail: {
             ...get().detail,
@@ -162,7 +165,7 @@ export const useContractStore = create<ContractState>()((set, get) => {
           },
         });
       } catch (error) {
-        set({ detail: { ...get().detail, loading: false, error: errorMessage(error) } });
+        if (request === detailRequest) set({ detail: { ...get().detail, loading: false, error: errorMessage(error) } });
       }
     },
 
@@ -174,9 +177,14 @@ export const useContractStore = create<ContractState>()((set, get) => {
     terminateContract: async (id, input) => runAction(id, () => contractApi.terminate(id, input)),
     voidContract: async (id, input) => runAction(id, () => contractApi.void(id, input)),
 
-    resetDetail: () => set({ detail: initialDetail }),
+    resetDetail: () => {
+      detailRequest++;
+      set({ detail: initialDetail });
+    },
 
-    reset: () => set({
+    reset: () => {
+      detailRequest++;
+      set({
       contracts: [],
       listTotal: 0,
       listPage: 1,
@@ -185,6 +193,7 @@ export const useContractStore = create<ContractState>()((set, get) => {
       listLoading: false,
       listError: null,
       detail: initialDetail,
-    }),
+      });
+    },
   };
 });

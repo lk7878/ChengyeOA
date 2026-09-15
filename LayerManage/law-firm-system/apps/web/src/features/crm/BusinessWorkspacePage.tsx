@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/authStore';
+import { businessSources, domainCreate, type BusinessSource } from './business-sources';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Empty, Form, Input, Modal, Select, Spin } from 'antd';
 import { Link, useSearchParams } from 'react-router';
@@ -8,12 +10,18 @@ interface BusinessDirectory {
   tables: { id: string; name: string; baseId: string; baseName: string; workspaceName: string }[];
   targets: { id: string; name: string; workspaceName: string }[];
 }
-export function BusinessTableLinks({ recordId }: { recordId: string }) {
+export function BusinessTableLinks({
+  recordId,
+  source = 'LEADS',
+}: {
+  recordId: string;
+  source?: BusinessSource;
+}) {
   const [data, setData] = useState<BusinessDirectory>();
   useEffect(() => {
     let active = true;
     void get<BusinessDirectory>(
-      '/collaboration/business-tables?source=LEADS&recordId=' + encodeURIComponent(recordId),
+      '/collaboration/business-tables?source=' + source + '&recordId=' + encodeURIComponent(recordId),
     )
       .then((value) => {
         if (active) setData(value);
@@ -24,13 +32,17 @@ export function BusinessTableLinks({ recordId }: { recordId: string }) {
     return () => {
       active = false;
     };
-  }, [recordId]);
+  }, [recordId, source]);
   return (
     <>
       {data?.tables.map((table) => (
         <Link
           key={table.id}
-          to={'/leads?' + new URLSearchParams({ base: table.baseId, table: table.id, record: recordId })}
+          to={
+            businessSources[source].path +
+            '?' +
+            new URLSearchParams({ base: table.baseId, table: table.id, record: recordId })
+          }
         >
           在「{table.name}」中打开
         </Link>
@@ -38,12 +50,12 @@ export function BusinessTableLinks({ recordId }: { recordId: string }) {
     </>
   );
 }
-export default function BusinessWorkspacePage({ source = 'LEADS' }: { source?: 'LEADS' | 'FOLLOWS' }) {
+export default function BusinessWorkspacePage({ source = 'LEADS' }: { source?: BusinessSource }) {
   const [params] = useSearchParams();
   if (params.get('base')) return <WorkspaceEditor businessMode />;
   return <BusinessDirectoryPage key={source} source={source} />;
 }
-function BusinessDirectoryPage({ source }: { source: 'LEADS' | 'FOLLOWS' }) {
+function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
   const [params, setParams] = useSearchParams();
   const [data, setData] = useState<BusinessDirectory>();
   const [error, setError] = useState('');
@@ -59,7 +71,9 @@ function BusinessDirectoryPage({ source }: { source: 'LEADS' | 'FOLLOWS' }) {
     };
   }, []);
   const [form] = Form.useForm();
-  const title = source === 'LEADS' ? '线索工作表' : '跟进工作表';
+  const title = businessSources[source].title;
+  const creation = domainCreate(source);
+  const canCreate = useAuthStore((s) => !!creation && s.hasPermission(creation.permission));
   useEffect(() => {
     let active = true;
     void get<BusinessDirectory>('/collaboration/business-tables?source=' + source)
@@ -124,6 +138,11 @@ function BusinessDirectoryPage({ source }: { source: 'LEADS' | 'FOLLOWS' }) {
               连接业务数据
             </Button>
           )}
+          {creation && canCreate && (
+            <Link style={{ marginLeft: 16 }} to={creation.path}>
+              {creation.label}
+            </Link>
+          )}
           <Link style={{ marginLeft: 16 }} to="/workspaces">
             进入云盘管理工作区
           </Link>
@@ -164,7 +183,7 @@ function BusinessDirectoryPage({ source }: { source: 'LEADS' | 'FOLLOWS' }) {
           }
         }}
       >
-        <p>连接现有线索或跟进记录。字段扩展与视图独立配置，正式业务数据保持同源。</p>
+        <p>连接现有业务记录。字段扩展与视图独立配置，正式业务数据保持同源。</p>
         <Form form={form} layout="vertical" initialValues={{ name: title }}>
           <Form.Item name="baseId" label="多维表格应用" rules={[{ required: true }]}>
             <Select
