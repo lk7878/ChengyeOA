@@ -185,3 +185,6 @@ PRD §14.2 端到端验收链路中与本契约相关：
 
 
 G2-A 生命周期增量见[移动与回收契约](../../superpowers/specs/2026-09-15-cloud-drive-g2-lifecycle.md)：第 54 条迁移为 DriveNode 增加 deletedAt/deletedBy 配对标记，只有显式回收根落标记，子树由祖先状态阻断。活跃同级文件夹名称采用部分唯一索引；Base 沿用全工作区名称唯一。内容不物理删除，恢复仍使用原 ID；当前模型/迁移基线为 88/54。
+
+
+G2-B [导航元数据](../../superpowers/specs/2026-09-15-cloud-drive-g2b-shortcuts-recents.md)新增 DriveShortcut（同区原节点引用，软移除、位置/目标外键与部分唯一索引）和 DriveVisit（userId/nodeId 唯一、按个人工作区保留 100 项）。第 55 条迁移增量接入，当前模型/迁移基线 90/55；不复制资源名称、ACL 或业务内容。

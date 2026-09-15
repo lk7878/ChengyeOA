@@ -34,7 +34,7 @@ interface Preview {
   afterRules: Rule[];
   beforeAccess: { level: number; selfOnly: boolean } | null;
   afterAccess: { level: number; selfOnly: boolean } | null;
-  affected: { folders: number; bases: number; independentlyTrashed: number };
+  affected: { folders: number; bases: number; independentlyTrashed: number; shortcuts?: number };
   workspace: { name: string };
 }
 const labels = { MOVE: '移动资源', TRASH: '移入回收站', RESTORE: '恢复资源' };
@@ -279,8 +279,9 @@ export default function DriveLifecycle({
       {preview && (
         <section aria-label="权限影响预览" className="drive-lifecycle-preview">
           <p>
-            影响 {preview.affected.folders} 个文件夹、{preview.affected.bases} 个多维表格；其中{' '}
-            {preview.affected.independentlyTrashed} 项已独立回收，恢复上级时仍留在回收站。
+            影响 {preview.affected.folders} 个文件夹、{preview.affected.bases} 个多维表格、
+            {preview.affected.shortcuts ?? 0} 个可见快捷方式；其中 {preview.affected.independentlyTrashed}{' '}
+            项已独立回收，恢复上级时仍留在回收站。
           </p>
           <p>
             原位置：{preview.workspace.name} / {preview.fromPath.map((part) => part.name).join(' / ')}

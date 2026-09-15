@@ -19,6 +19,7 @@ import type { DataNode } from 'antd/es/tree';
 import {
   AppstoreOutlined,
   FolderOutlined,
+  LinkOutlined,
   MenuOutlined,
   PlusOutlined,
   TableOutlined,
@@ -29,6 +30,7 @@ import { ResourceAccess } from '../workspaces/ResourceAccess';
 import type { Directory, Workspace } from '../workspaces/types';
 import WorkspaceMembers from './WorkspaceMembers';
 import DriveLifecycle, { type LifecycleAction } from './DriveLifecycle';
+import ShortcutDialog from './ShortcutDialog';
 import './drive.css';
 
 interface Location {
@@ -40,7 +42,11 @@ interface Location {
 }
 interface DriveItem {
   id: string;
-  kind: 'BASE' | 'FOLDER';
+  kind: 'BASE' | 'FOLDER' | 'SHORTCUT';
+  targetId?: string;
+  targetKind?: string;
+  canRemove?: boolean;
+  visitedAt?: string;
   name: string;
   workspaceId: string;
   parentId: string | null;
@@ -92,7 +98,14 @@ export default function CloudDrivePage() {
   const parentId = params.get('folder') || '';
   const scope = params.get('scope') || 'all';
   const search = params.get('q') || '';
-  const sort = params.get('sort') || 'updatedAt';
+  const sort =
+    scope === 'recent'
+      ? params.get('sort') === 'name'
+        ? 'name'
+        : 'visitedAt'
+      : params.get('sort') === 'name'
+        ? 'name'
+        : 'updatedAt';
   const layout = params.get('layout') === 'cards' ? 'cards' : 'list';
   const page = Number(params.get('page') || 1);
   const [listing, setListing] = useState<Listing>();
@@ -113,6 +126,12 @@ export default function CloudDrivePage() {
   const [saving, setSaving] = useState(false);
   const [dialogError, setDialogError] = useState('');
   const [selected, setSelected] = useState<DriveItem>();
+  const [shortcutDialog, setShortcutDialog] = useState<{ target?: DriveItem }>();
+  const [personalAction, setPersonalAction] = useState<{ kind: 'remove' | 'clear'; id?: string }>();
+  const [personalError, setPersonalError] = useState('');
+  const [personalSaving, setPersonalSaving] = useState(false);
+  const personalKey = useRef(crypto.randomUUID());
+  const visitedFolder = useRef('');
   const [lifecycle, setLifecycle] = useState<{ item: DriveItem; action: LifecycleAction }>();
   const lifecycleRef = useRef(lifecycle);
   useEffect(() => {
@@ -182,6 +201,9 @@ export default function CloudDrivePage() {
         setFolders([]);
         setSelected(undefined);
         setLifecycle(undefined);
+        setShortcutDialog(undefined);
+        setPersonalAction(undefined);
+        if (!parentId) visitedFolder.current = '';
         setLoading(true);
       }
       const query = new URLSearchParams({ scope, q: search, sort, page: String(page) });
@@ -196,6 +218,10 @@ export default function CloudDrivePage() {
         setFolders(tree.folders);
         setFolderUserId(tree.userId);
         setError('');
+        if (parentId && visitedFolder.current !== workspaceId + ':' + parentId) {
+          visitedFolder.current = workspaceId + ':' + parentId;
+          void post('/drive/nodes/' + parentId + '/visit', {}).catch(() => undefined);
+        }
         const operation = lifecycleRef.current;
         if (operation && !initial) {
           let allowed = false;
@@ -239,6 +265,7 @@ export default function CloudDrivePage() {
         setFolders([]);
         setSelected(undefined);
         setLifecycle(undefined);
+        setShortcutDialog(undefined);
         if ([401, 403, 404].includes(errorStatus(e) || 0)) {
           setDialog(undefined);
           if (parentId) {
@@ -284,7 +311,17 @@ export default function CloudDrivePage() {
         .catch((e) => setDialogError(errorMessage(e)));
     }
   };
-  const openItem = async (item: DriveItem) => {
+  const openItem = async (entry: DriveItem) => {
+    let item = entry;
+    if (entry.kind === 'SHORTCUT') {
+      try {
+        item = (await get<{ target: DriveItem }>('/drive/shortcuts/' + entry.id)).target;
+      } catch (e) {
+        setError(errorMessage(e));
+        refresh();
+        return;
+      }
+    }
     if (item.deletedAt) {
       setLifecycle({ item, action: 'RESTORE' });
       return;
@@ -303,6 +340,32 @@ export default function CloudDrivePage() {
     } catch (e) {
       setError(errorMessage(e));
       refresh();
+    }
+  };
+  const openPersonal = (kind: 'remove' | 'clear', id?: string) => {
+    personalKey.current = crypto.randomUUID();
+    setPersonalError('');
+    setPersonalAction({ kind, id });
+  };
+  const submitPersonal = async () => {
+    if (!personalAction) return;
+    setPersonalSaving(true);
+    setPersonalError('');
+    try {
+      await post(
+        '/workspaces/' +
+          workspaceId +
+          '/drive/' +
+          (personalAction.kind === 'clear' ? 'recent/clear' : 'shortcuts/' + personalAction.id + '/remove'),
+        {},
+        personalKey.current,
+      );
+      setPersonalAction(undefined);
+      refresh();
+    } catch (e) {
+      setPersonalError(errorMessage(e));
+    } finally {
+      setPersonalSaving(false);
     }
   };
   const showAccess = async (item: DriveItem) => {
@@ -386,6 +449,8 @@ export default function CloudDrivePage() {
         ['all', '全部资源'],
         ['mine', '我的资源'],
         ['shared', '与我共享'],
+        ['shortcuts', '快捷方式'],
+        ['recent', '最近访问'],
         ...(listing?.canManageAccess ? [['trash', '回收站']] : []),
       ].map(([value, label]) => (
         <Button
@@ -476,8 +541,10 @@ export default function CloudDrivePage() {
                 items: [
                   { key: 'folder', label: '新建文件夹', disabled: !listing?.canCreateFolder },
                   { key: 'base', label: '新建多维表格', disabled: !listing?.canCreateBase },
+                  { key: 'shortcut', label: '添加快捷方式', disabled: !listing || scope === 'trash' },
                 ],
-                onClick: ({ key: kind }) => openDialog(kind as 'folder' | 'base'),
+                onClick: ({ key: kind }) =>
+                  kind === 'shortcut' ? setShortcutDialog({}) : openDialog(kind as 'folder' | 'base'),
               }}
             >
               <Button
@@ -492,14 +559,32 @@ export default function CloudDrivePage() {
           </div>
           <div className="drive-toolbar">
             <span className="drive-caption">
-              {search ? '搜索：' + search : scope === 'trash' ? '回收站' : '浏览资源'}
+              {search
+                ? '搜索：' + search
+                : ({ trash: '回收站', shortcuts: '快捷方式', recent: '最近访问' } as Record<string, string>)[
+                    scope
+                  ] || '浏览资源'}
             </span>
             <Space wrap>
+              {listing && scope !== 'trash' && (
+                <Button
+                  aria-label="添加快捷方式"
+                  icon={<LinkOutlined />}
+                  onClick={() => setShortcutDialog({})}
+                >
+                  添加快捷方式
+                </Button>
+              )}
+              {listing && scope === 'recent' && (
+                <Button onClick={() => openPersonal('clear')}>清空最近访问</Button>
+              )}
               <Select
                 aria-label="资源排序"
                 value={sort}
                 options={[
-                  { value: 'updatedAt', label: '最近修改' },
+                  scope === 'recent'
+                    ? { value: 'visitedAt', label: '最近访问时间' }
+                    : { value: 'updatedAt', label: '最近修改' },
                   { value: 'name', label: '名称升序' },
                 ]}
                 onChange={(value) => change({ sort: value })}
@@ -540,13 +625,25 @@ export default function CloudDrivePage() {
               ? '搜索结果'
               : scope === 'mine'
                 ? '我的资源'
-                : scope === 'trash'
-                  ? '回收站'
-                  : scope === 'shared'
-                    ? '与我共享'
-                    : '全部资源'}{' '}
+                : scope === 'recent'
+                  ? '最近访问（仅自己可见）'
+                  : scope === 'shortcuts'
+                    ? '快捷方式'
+                    : scope === 'trash'
+                      ? '回收站'
+                      : scope === 'shared'
+                        ? '与我共享'
+                        : '全部资源'}{' '}
             · {listing?.total ?? 0} 项
-            {scope === 'trash' ? ' · 恢复后回到原目录' : parentId ? '' : ' · 新建的根目录资源默认私有'}
+            {scope === 'trash'
+              ? ' · 恢复后回到原目录'
+              : scope === 'recent'
+                ? ' · 保留最近 100 个原资源'
+                : scope === 'shortcuts'
+                  ? ' · 引用原资源，不授予权限'
+                  : parentId
+                    ? ''
+                    : ' · 新建的根目录资源默认私有'}
           </p>
           {loading ? (
             <Spin />
@@ -561,7 +658,7 @@ export default function CloudDrivePage() {
               }
             />
           ) : (
-            <div className={'drive-resources drive-' + layout}>
+            <div className={'drive-resources drive-' + layout + (scope === 'recent' ? ' drive-recent' : '')}>
               {listing.items.map((item) => (
                 <article className="drive-resource" key={item.id} data-resource-id={item.id}>
                   <button
@@ -570,31 +667,55 @@ export default function CloudDrivePage() {
                     onClick={() => void openItem(item)}
                   >
                     <span className={'drive-icon drive-icon-' + item.kind.toLowerCase()}>
-                      {item.kind === 'FOLDER' ? <FolderOutlined /> : <TableOutlined />}
+                      {item.kind === 'SHORTCUT' ? (
+                        <LinkOutlined />
+                      ) : item.kind === 'FOLDER' ? (
+                        <FolderOutlined />
+                      ) : (
+                        <TableOutlined />
+                      )}
                     </span>
                     <span className="drive-resource-name">
                       {item.name}
                       <small>
-                        {item.kind === 'FOLDER' ? '文件夹' : '多维表格'} · {item.ownerName}
+                        {item.kind === 'SHORTCUT'
+                          ? '快捷方式'
+                          : item.kind === 'FOLDER'
+                            ? '文件夹'
+                            : '多维表格'}{' '}
+                        · {item.ownerName}
                       </small>
                     </span>
                   </button>
-                  <span className="drive-date">{dateLabel(item.updatedAt)}</span>
+                  <span className="drive-date">
+                    {scope === 'recent'
+                      ? '访问：' + dateLabel(item.visitedAt || null)
+                      : dateLabel(item.updatedAt)}
+                  </span>
                   <Dropdown
                     menu={{
-                      items: item.deletedAt
-                        ? [{ key: 'RESTORE', label: '恢复资源', disabled: !item.canRestore }]
-                        : [
-                            { key: 'open', label: '打开' },
-                            { key: 'rename', label: '重命名', disabled: !item.canRename },
-                            { key: 'access', label: '分享与权限' },
-                            { key: 'MOVE', label: '移动资源', disabled: !item.canMove },
-                            { key: 'TRASH', label: '移入回收站', danger: true, disabled: !item.canTrash },
-                          ],
+                      items:
+                        item.kind === 'SHORTCUT'
+                          ? [
+                              { key: 'open', label: '打开原资源' },
+                              { key: 'remove', label: '移除快捷方式', disabled: !item.canRemove },
+                            ]
+                          : item.deletedAt
+                            ? [{ key: 'RESTORE', label: '恢复资源', disabled: !item.canRestore }]
+                            : [
+                                { key: 'open', label: '打开' },
+                                { key: 'rename', label: '重命名', disabled: !item.canRename },
+                                { key: 'access', label: '分享与权限' },
+                                { key: 'shortcut', label: '添加快捷方式' },
+                                { key: 'MOVE', label: '移动资源', disabled: !item.canMove },
+                                { key: 'TRASH', label: '移入回收站', danger: true, disabled: !item.canTrash },
+                              ],
                       onClick: ({ key: action }) => {
                         if (action === 'open') void openItem(item);
                         else if (action === 'rename') openDialog('rename', item);
                         else if (action === 'access') void showAccess(item);
+                        else if (action === 'shortcut') setShortcutDialog({ target: item });
+                        else if (action === 'remove') openPersonal('remove', item.id);
                         else setLifecycle({ item, action: action as LifecycleAction });
                       },
                     }}
@@ -673,6 +794,39 @@ export default function CloudDrivePage() {
             {parentId ? '继承当前文件夹权限。' : '默认仅创建者和工作区负责人可访问，可通过分享与权限调整。'}
           </p>
         )}
+      </Modal>
+      {shortcutDialog && (
+        <ShortcutDialog
+          workspaceId={workspaceId}
+          folders={folders}
+          initialTarget={shortcutDialog.target}
+          initialParentId={
+            folders.some((folder) => folder.id === parentId && folder.canRename) ? parentId : ''
+          }
+          onClose={() => setShortcutDialog(undefined)}
+          onSaved={() => {
+            setShortcutDialog(undefined);
+            refresh();
+          }}
+        />
+      )}
+      <Modal
+        title={personalAction?.kind === 'clear' ? '清空最近访问' : '移除快捷方式'}
+        open={!!personalAction}
+        onCancel={() => {
+          if (!personalSaving) setPersonalAction(undefined);
+        }}
+        onOk={() => void submitPersonal()}
+        okText="确认"
+        cancelText="取消"
+        confirmLoading={personalSaving}
+      >
+        {personalError && <Alert type="error" title={personalError} />}
+        <p>
+          {personalAction?.kind === 'clear'
+            ? '只清空你在当前工作区的最近访问记录，原资源保持不变。'
+            : '只移除此快捷方式，原资源及其中的数据保持不变。'}
+        </p>
       </Modal>
       {lifecycle && (
         <DriveLifecycle

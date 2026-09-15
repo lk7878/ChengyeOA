@@ -168,6 +168,8 @@ model ProfessionalTeamMember {
 // ==================== 用户/权限模块 ====================
 
 model User {
+  driveShortcuts     DriveShortcut[]
+  driveVisits        DriveVisit[]
   driveNodes         DriveNode[]
   collabWorkspaces   CollabWorkspace[] @relation("CollabOwner")
   id                 String            @id @default(uuid())
@@ -1587,15 +1589,16 @@ model InventoryStocktake {
 
 // SPEC-COLLAB-20260914: independent collaboration data, never copies core business truth.
 model CollabWorkspace {
+  driveShortcuts DriveShortcut[]
   driveNodes     DriveNode[]
-  organization   Organization   @relation("CollabOrganization", fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "collab_workspace_org_fk")
-  owner          User           @relation("CollabOwner", fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "collab_workspace_owner_fk")
-  id             String         @id @default(uuid())
+  organization   Organization    @relation("CollabOrganization", fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "collab_workspace_org_fk")
+  owner          User            @relation("CollabOwner", fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "collab_workspace_owner_fk")
+  id             String          @id @default(uuid())
   organizationId String
   name           String
   ownerId        String
-  version        Int            @default(1)
-  createdAt      DateTime       @default(now())
+  version        Int             @default(1)
+  createdAt      DateTime        @default(now())
   bases          CollabBase[]
   members        CollabMember[]
 
@@ -1641,30 +1644,63 @@ model CollabBase {
 
 // SPEC-DRIVE: directory identity only; Base remains the title/content/ACL authority.
 model DriveNode {
-  id           String          @id @default(uuid())
-  workspaceId  String
-  parentId     String?
-  kind         String
-  folderName   String?
-  baseId       String?         @unique
-  ownerId      String
-  accessPolicy Json?
-  deletedAt    DateTime?
-  deletedBy    String?
-  version      Int             @default(1)
-  createdAt    DateTime?
-  cataloguedAt DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  workspace    CollabWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  owner        User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  base         CollabBase?     @relation(fields: [workspaceId, baseId], references: [workspaceId, id], onDelete: Cascade)
-  parent       DriveNode?      @relation("DriveTree", fields: [workspaceId, parentId], references: [workspaceId, id], onDelete: Restrict)
-  children     DriveNode[]     @relation("DriveTree")
+  shortcutTargets  DriveShortcut[] @relation("ShortcutTarget")
+  shortcutChildren DriveShortcut[] @relation("ShortcutParent")
+  visits           DriveVisit[]
+  id               String          @id @default(uuid())
+  workspaceId      String
+  parentId         String?
+  kind             String
+  folderName       String?
+  baseId           String?         @unique
+  ownerId          String
+  accessPolicy     Json?
+  deletedAt        DateTime?
+  deletedBy        String?
+  version          Int             @default(1)
+  createdAt        DateTime?
+  cataloguedAt     DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  workspace        CollabWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner            User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  base             CollabBase?     @relation(fields: [workspaceId, baseId], references: [workspaceId, id], onDelete: Cascade)
+  parent           DriveNode?      @relation("DriveTree", fields: [workspaceId, parentId], references: [workspaceId, id], onDelete: Restrict)
+  children         DriveNode[]     @relation("DriveTree")
 
   @@unique([workspaceId, id])
   @@unique([workspaceId, baseId])
   @@index([workspaceId, ownerId])
   @@map("drive_node")
+}
+
+model DriveShortcut {
+  id          String          @id @default(uuid())
+  workspaceId String
+  parentId    String?
+  targetId    String
+  ownerId     String
+  createdAt   DateTime        @default(now())
+  deletedAt   DateTime?
+  workspace   CollabWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parent      DriveNode?      @relation("ShortcutParent", fields: [workspaceId, parentId], references: [workspaceId, id], onDelete: Restrict)
+  target      DriveNode       @relation("ShortcutTarget", fields: [workspaceId, targetId], references: [workspaceId, id], onDelete: Cascade)
+  owner       User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, parentId])
+  @@map("drive_shortcut")
+}
+
+model DriveVisit {
+  userId      String
+  nodeId      String
+  workspaceId String
+  visitedAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  node        DriveNode @relation(fields: [workspaceId, nodeId], references: [workspaceId, id], onDelete: Cascade)
+
+  @@id([userId, nodeId])
+  @@index([userId, workspaceId, visitedAt])
+  @@map("drive_visit")
 }
 
 model CollabTable {

@@ -129,6 +129,7 @@ function WorkspaceEditor() {
     detail?.views.find((v) => v.id === detail.preferredViewId) ||
     detail?.views.find((v) => v.isDefault);
   const currentView = useRef('');
+  const visitedBase = useRef('');
   const mutationKey = useRef(crypto.randomUUID());
   const dirtyRef = useRef(false);
   const inlineDirtyRef = useRef(false);
@@ -173,13 +174,21 @@ function WorkspaceEditor() {
   }, [base?.workspaceId]);
   useEffect(() => {
     let alive = true;
-    if (!baseId) return;
+    if (!baseId) {
+      visitedBase.current = '';
+      return;
+    }
     void get<{ base: Base; access: Access; tables: DataTable[]; orderToken: string }>(
       '/bases/' + baseId + '/tables',
     )
       .then((r) => {
         if (alive) {
           setBase(r.base);
+          if (visitedBase.current !== baseId) {
+            visitedBase.current = baseId;
+            // Entering a Base records personal navigation once; refreshes and SSE do not.
+            void post('/drive/nodes/' + baseId + '/visit', {}).catch(() => undefined);
+          }
           setBaseAccess(r.access);
           setTables(r.tables);
           setOrderToken(r.orderToken);

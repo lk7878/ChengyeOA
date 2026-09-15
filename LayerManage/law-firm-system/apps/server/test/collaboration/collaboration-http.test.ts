@@ -83,6 +83,18 @@ test.after(async () => {
 });
 
 test('authenticated HTTP writes persist; invalid input and unauthorized access are denied', async () => {
+  for (const route of [
+    '/workspaces/' + workspaceId + '/drive/shortcuts',
+    '/workspaces/' + workspaceId + '/drive/recent/clear',
+    '/workspaces/' + workspaceId + '/drive/shortcuts/unknown/remove',
+    '/drive/nodes/' + baseId + '/visit',
+  ])
+    await app
+      .httpRequest()
+      .post('/api/v1' + route)
+      .send({})
+      .expect(401);
+  await app.httpRequest().get('/api/v1/drive/shortcuts/unknown').expect(401);
   for (const suffix of ['/lifecycle', '/lifecycle/preview'])
     await app
       .httpRequest()
@@ -1243,6 +1255,317 @@ test(
       await p1.getByRole('searchbox', { name: '搜索资源', exact: true }).fill('无匹配资源');
       await p1.getByRole('searchbox', { name: '搜索资源', exact: true }).press('Enter');
       await p1.getByText('暂无可访问的资源', { exact: true }).waitFor();
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await vite.close();
+    }
+  },
+);
+
+test(
+  'shortcut and recent UI share canonical data, isolate personal entries and clear revoked targets',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 240000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web');
+    const load = new Function('url', 'return import(url)');
+    const { chromium } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const errors: string[] = [];
+    const api = (method: 'get' | 'post' | 'patch', route: string, bearer = token, body?: unknown) => {
+      const request = app.httpRequest();
+      const call = request[method]('/api/v1' + route)
+        .set('Authorization', 'Bearer ' + bearer)
+        .set('Idempotency-Key', randomUUID());
+      return body === undefined ? call : call.send(body);
+    };
+    try {
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: editor },
+        data: { rowScope: 'SELF' },
+      });
+      const source = (
+        await api('post', '/workspaces/' + workspaceId + '/drive/folders', token, {
+          name: '数据来源',
+        }).expect(200)
+      ).body.data.id;
+      const destination = (
+        await api('post', '/workspaces/' + workspaceId + '/drive/folders', token, {
+          name: '团队入口',
+        }).expect(200)
+      ).body.data.id;
+      for (const id of [source, destination])
+        await api('post', '/drive/folders/' + id + '/access', token, {
+          version: 1,
+          policy: { restricted: false, grants: [] },
+        }).expect(200);
+      const resource = (
+        await api('post', '/workspaces/' + workspaceId + '/drive/bases', token, {
+          name: '同一业务表格',
+          parentId: source,
+        }).expect(200)
+      ).body.data;
+      const title = (await db.collabField.findFirstOrThrow({ where: { tableId: resource.tableId } })).id;
+      const own = (
+        await api('post', '/tables/' + resource.tableId + '/records', editorToken, {
+          schemaVersion: 1,
+          values: { [title]: '员工本人记录' },
+        }).expect(200)
+      ).body.data.id;
+      await api('post', '/tables/' + resource.tableId + '/records', token, {
+        schemaVersion: 1,
+        values: { [title]: '负责人记录' },
+      }).expect(200);
+      const pages = [];
+      for (const [id, accessToken] of [
+        [owner, token],
+        [editor, editorToken],
+      ]) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          (session: unknown) => {
+            window.collabTestSession = session;
+          },
+          {
+            mode: 'AUTHENTICATED',
+            token: accessToken,
+            csrfToken: 'test',
+            expiresIn: 900,
+            user: { id, username: id, name: '导航测试成员', roles: [], permissions: [] },
+          },
+        );
+        const page = await context.newPage();
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [p1, p2] = pages;
+      const address = vite.resolvedUrls.local[0] + 'e2e/workspace.html?workspace=' + workspaceId;
+      await Promise.all(pages.map((page) => page.goto(address + '&folder=' + source)));
+      await p1.getByRole('button', { name: '同一业务表格操作', exact: true }).click();
+      await p1.getByRole('menuitem', { name: '添加快捷方式', exact: true }).click();
+      await p1.getByRole('combobox', { name: '存放位置', exact: true }).click();
+      await p1.locator('.ant-select-item-option-content').getByText('团队入口', { exact: true }).click();
+      // Wait for the portaled menu to finish closing before changing viewport coordinates.
+      await p1.locator('.ant-select-dropdown:visible').waitFor({ state: 'hidden' });
+      const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence');
+      await mkdir(evidence, { recursive: true });
+      for (const width of [1440, 1024, 390]) {
+        await p1.setViewportSize({ width, height: 900 });
+        assert.equal(
+          await p1.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1),
+          false,
+          'shortcut dialog overflow at ' + width,
+        );
+        await p1.screenshot({ path: path.join(evidence, 'g2b-add-' + width + '.png'), fullPage: true });
+      }
+      await p1.setViewportSize({ width: 1440, height: 1000 });
+      const createKeys: string[] = [],
+        creationRoute = '**/api/v1/workspaces/' + workspaceId + '/drive/shortcuts';
+      await p1.route(
+        creationRoute,
+        async (route: {
+          request: () => { headers: () => Record<string, string> };
+          fetch: () => Promise<{ status: () => number }>;
+          fulfill: (value: unknown) => Promise<void>;
+          continue: () => Promise<void>;
+        }) => {
+          createKeys.push(route.request().headers()['idempotency-key']);
+          if (createKeys.length === 1) {
+            assert.equal((await route.fetch()).status(), 200);
+            await route.fulfill({
+              status: 503,
+              contentType: 'application/json',
+              body: '{"message":"response_lost"}',
+            });
+          } else await route.continue();
+        },
+      );
+      await p1.locator('.ant-modal').getByRole('button', { name: '添加快捷方式', exact: true }).click();
+      await p1.locator('.ant-modal').getByText('请求未完成，请检查连接后重试。', { exact: true }).waitFor();
+      await p1.locator('.ant-modal').getByRole('button', { name: '添加快捷方式', exact: true }).click();
+      await p1.getByRole('combobox', { name: '原资源', exact: true }).waitFor({ state: 'hidden' });
+      assert.equal(createKeys.length, 2);
+      assert.ok(createKeys[0] && createKeys[0] === createKeys[1]);
+      await p1.unroute(creationRoute);
+      const shared = await db.driveShortcut.findFirstOrThrow({
+        where: { targetId: resource.id, parentId: destination },
+      });
+      assert.equal(
+        await db.operationLog.count({ where: { action: 'drive.shortcut.created', targetId: shared.id } }),
+        1,
+      );
+      await p2.goto(address + '&folder=' + destination + '&layout=cards');
+      await p2.locator('[data-resource-id="' + shared.id + '"] .drive-resource-open').click();
+      await p2.getByRole('button', { name: '标题：员工本人记录', exact: true }).waitFor();
+      assert.equal(new URL(p2.url()).searchParams.get('base'), resource.id);
+      assert.equal(await p2.getByRole('button', { name: '标题：负责人记录', exact: true }).count(), 0);
+      const visitBeforeRefresh = await db.driveVisit.findUniqueOrThrow({
+        where: { userId_nodeId: { userId: editor, nodeId: resource.id } },
+      });
+      await api('patch', '/drive/nodes/' + resource.id, token, { version: 1, name: '表格当前名称' }).expect(
+        200,
+      );
+      await p2
+        .locator('.workspace-top')
+        .getByText('表格当前名称', { exact: true })
+        .waitFor({ timeout: 5000 });
+      assert.deepEqual(
+        await db.driveVisit.findUnique({ where: { userId_nodeId: { userId: editor, nodeId: resource.id } } }),
+        visitBeforeRefresh,
+        'SSE refresh must not register another visit',
+      );
+      await p2.getByRole('button', { name: '承业 · 云盘', exact: true }).click();
+      assert.equal(new URL(p2.url()).searchParams.get('folder'), destination);
+      assert.equal(new URL(p2.url()).searchParams.get('layout'), 'cards');
+      await p2.goto(address + '&folder=' + source);
+      await p2.getByRole('button', { name: '表格当前名称操作', exact: true }).click();
+      await p2.getByRole('menuitem', { name: '添加快捷方式', exact: true }).click();
+      await p2.locator('.ant-modal').getByRole('button', { name: '添加快捷方式', exact: true }).click();
+      await p2.getByRole('combobox', { name: '原资源', exact: true }).waitFor({ state: 'hidden' });
+      const personal = await db.driveShortcut.findFirstOrThrow({
+        where: { targetId: resource.id, parentId: null, ownerId: editor },
+      });
+      await p2.getByRole('button', { name: '快捷方式', exact: true }).click();
+      await p2.locator('[data-resource-id="' + personal.id + '"]').waitFor();
+      await p1.getByRole('button', { name: '快捷方式', exact: true }).click();
+      await p1.locator('[data-resource-id="' + shared.id + '"]').waitFor();
+      assert.equal(await p1.locator('[data-resource-id="' + personal.id + '"]').count(), 0);
+      await api('get', '/drive/shortcuts/' + personal.id, token).expect(403);
+      await p2.locator('[data-resource-id="' + personal.id + '"] .drive-resource-open').click();
+      await p2.getByRole('button', { name: '标题：员工本人记录', exact: true }).waitFor();
+      assert.equal(new URL(p2.url()).searchParams.get('base'), resource.id);
+      const detail = (
+        await api('get', '/tables/' + resource.tableId + '/records/' + own, editorToken).expect(200)
+      ).body.data;
+      assert.equal(detail.record.id, own);
+      await p2.getByRole('button', { name: '承业 · 云盘', exact: true }).click();
+      assert.equal(new URL(p2.url()).searchParams.get('scope'), 'shortcuts');
+      await p2.getByRole('button', { name: '最近访问', exact: true }).click();
+      await p2.locator('[data-resource-id="' + resource.id + '"]').waitFor();
+      assert.equal(await p2.locator('[data-resource-id="' + personal.id + '"]').count(), 0);
+      assert.equal(await db.driveVisit.count({ where: { userId: editor, nodeId: resource.id } }), 1);
+      assert.equal(await db.driveVisit.count({ where: { userId: owner, nodeId: resource.id } }), 0);
+      for (const width of [1440, 1024, 390]) {
+        await p2.setViewportSize({ width, height: 900 });
+        assert.equal(
+          await p2.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1),
+          false,
+          'recent overflow at ' + width,
+        );
+        assert.equal(
+          await p2.locator('.drive-date').first().isVisible(),
+          true,
+          'recent time visible at ' + width,
+        );
+        await p2.screenshot({ path: path.join(evidence, 'g2b-recent-' + width + '.png'), fullPage: true });
+      }
+      await p2.setViewportSize({ width: 1440, height: 1000 });
+      await p2.getByRole('button', { name: '表格当前名称操作', exact: true }).click();
+      await p2.getByRole('menuitem', { name: '添加快捷方式', exact: true }).click();
+      const revokedAt = Date.now();
+      await api('post', '/drive/folders/' + source + '/access', token, {
+        version: 2,
+        policy: { restricted: true, grants: [] },
+      }).expect(200);
+      await p2
+        .locator('.ant-modal .ant-select-selection-item')
+        .filter({ hasText: '表格当前名称' })
+        .waitFor({ state: 'hidden', timeout: 5000 });
+      await p2
+        .locator('[data-resource-id="' + resource.id + '"]')
+        .waitFor({ state: 'hidden', timeout: 5000 });
+      assert.ok(Date.now() - revokedAt < 5000);
+      await p2
+        .locator('.ant-modal')
+        .getByRole('button', { name: /^取\s*消$/ })
+        .click();
+      for (const id of [shared.id, personal.id])
+        await api('get', '/drive/shortcuts/' + id, editorToken).expect(403);
+      await p2.getByRole('button', { name: '快捷方式', exact: true }).click();
+      await p2.getByText('暂无可访问的资源', { exact: true }).waitFor();
+      await api('post', '/drive/folders/' + source + '/access', token, {
+        version: 3,
+        policy: { restricted: false, grants: [] },
+      }).expect(200);
+      await p2.locator('[data-resource-id="' + personal.id + '"]').waitFor({ timeout: 5000 });
+      await api('post', '/drive/folders/' + destination + '/access', token, {
+        version: 2,
+        policy: { restricted: true, grants: [] },
+      }).expect(200);
+      await p2.locator('[data-resource-id="' + shared.id + '"]').waitFor({ state: 'hidden', timeout: 5000 });
+      await p2
+        .locator('[data-resource-id="' + personal.id + '"]')
+        .getByRole('button', { name: '表格当前名称操作', exact: true })
+        .click();
+      await p2.getByRole('menuitem', { name: '移除快捷方式', exact: true }).click();
+      await p2
+        .locator('.ant-modal')
+        .getByRole('button', { name: /^确\s*认$/ })
+        .click();
+      await p2.locator('[data-resource-id="' + personal.id + '"]').waitFor({ state: 'hidden' });
+      assert.equal(
+        (await api('post', '/tables/' + resource.tableId + '/records/query', editorToken, {}).expect(200))
+          .body.data.total,
+        1,
+      );
+      const ownerHistory = await db.driveVisit.count({ where: { userId: owner } });
+      assert.ok(ownerHistory > 0);
+      await p2.getByRole('button', { name: '最近访问', exact: true }).click();
+      await p2.getByRole('button', { name: '清空最近访问', exact: true }).click();
+      await p2
+        .locator('.ant-modal')
+        .getByRole('button', { name: /^确\s*认$/ })
+        .click();
+      await p2.getByText('暂无可访问的资源', { exact: true }).waitFor();
+      assert.equal(await db.driveVisit.count({ where: { userId: editor } }), 0);
+      assert.equal(await db.driveVisit.count({ where: { userId: owner } }), ownerHistory);
+      assert.equal(await db.collabRecord.count({ where: { tableId: resource.tableId } }), 2);
+      const directVisit = p2.waitForResponse(
+        (response: { url: () => string; request: () => { method: () => string } }) =>
+          response.url().endsWith('/drive/nodes/' + resource.id + '/visit') &&
+          response.request().method() === 'POST',
+      );
+      await p2.goto(
+        vite.resolvedUrls.local[0] + 'e2e/workspace.html?base=' + resource.id + '&table=' + resource.tableId,
+      );
+      assert.equal((await directVisit).status(), 200);
+      await p2.getByRole('button', { name: '标题：员工本人记录', exact: true }).waitFor();
+      assert.equal(await db.driveVisit.count({ where: { userId: editor, nodeId: resource.id } }), 1);
+      const rootListing = p2.waitForResponse((response: { url: () => string }) =>
+        response.url().includes('/drive?scope=all'),
+      );
+      await p2.goto(address);
+      assert.equal((await rootListing).status(), 200);
+      await p2.screenshot({ path: path.join(evidence, 'g2b-root-entry.png'), fullPage: true });
+      assert.deepEqual(errors, []);
+      await p2.getByRole('button', { name: '添加快捷方式', exact: true }).click();
+      await p2.getByRole('searchbox', { name: '搜索快捷方式目标', exact: true }).fill('数据来源');
+      await p2.getByRole('searchbox', { name: '搜索快捷方式目标', exact: true }).press('Enter');
+      await p2.getByRole('combobox', { name: '原资源', exact: true }).click();
+      await p2.locator('.ant-select-item-option-content').getByText('数据来源', { exact: true }).click();
+      await p2.locator('.ant-modal').getByRole('button', { name: '添加快捷方式', exact: true }).click();
+      await p2.getByRole('combobox', { name: '原资源', exact: true }).waitFor({ state: 'hidden' });
+      const folderLink = await db.driveShortcut.findFirstOrThrow({
+        where: { targetId: source, ownerId: editor, parentId: null, deletedAt: null },
+      });
+      await p2.getByRole('button', { name: '快捷方式', exact: true }).click();
+      await p2.locator('[data-resource-id="' + folderLink.id + '"] .drive-resource-open').click();
+      await p2.locator('[data-resource-id="' + resource.id + '"]').waitFor();
+      assert.equal(new URL(p2.url()).searchParams.get('folder'), source);
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

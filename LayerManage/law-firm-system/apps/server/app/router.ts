@@ -12,6 +12,11 @@ export default (app: Application) => {
   router.get('/api/v1/workspaces/:workspaceId/drive/folders', controller.drive.folders);
   router.post('/api/v1/workspaces/:workspaceId/drive/folders', controller.drive.createFolder);
   router.post('/api/v1/workspaces/:workspaceId/drive/bases', controller.drive.createBase);
+  router.post('/api/v1/workspaces/:workspaceId/drive/shortcuts', controller.drive.createShortcut);
+  router.get('/api/v1/drive/shortcuts/:shortcutId', controller.drive.shortcut);
+  router.post('/api/v1/workspaces/:workspaceId/drive/shortcuts/:shortcutId/remove', controller.drive.removeShortcut);
+  router.post('/api/v1/drive/nodes/:nodeId/visit', controller.drive.visit);
+  router.post('/api/v1/workspaces/:workspaceId/drive/recent/clear', controller.drive.clearRecent);
   router.get('/api/v1/drive/nodes/:nodeId', controller.drive.node);
   router.patch('/api/v1/drive/nodes/:nodeId', controller.drive.rename);
   router.post('/api/v1/drive/nodes/:nodeId/lifecycle/preview', controller.drive.previewLifecycle);

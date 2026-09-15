@@ -143,3 +143,17 @@ last_updated: 2026-09-15
 | 多人原有行为与性能门槛 | 原协作/G1 回归及 collaboration-load.test.ts；沿用 100 会话 / 900 秒 / 8 层目录，结果记录于计划 |
 
 G2-A 最终验收：服务 51/51、完整 HTTP/SSE/Edge 5/5、目标撤权追加 Edge 1/1、前端相关 21 项通过；100 会话 / 900 秒负载保存 3600/3600，查询/保存/可见 P95 1177/1446/1352ms，重连 P95 4298ms。第 54 条迁移已应用到两个隔离测试库及开发库；具体限制与原始日志位置见计划。
+
+
+## SPEC-DRIVE G2-B（快捷方式与最近访问）
+
+[导航契约](../superpowers/specs/2026-09-15-cloud-drive-g2b-shortcuts-recents.md)对应 MOD-002 CFG-22、MOD-001 ORG-14 与 FTN-001/003/004/005。G2-A 的历史范围保持不变，G2-B 扩展 DRIVE-AC-04/06/07/08/10：原资源身份、引用不授权、个人状态隔离、失效隐藏与目录回归。结果见[任务计划第 8 节](../superpowers/plans/2026-09-15-feishu-cloud-drive-resource-center.md#8-g2-b-执行计划)。
+
+| 范围 | 实现与验证 |
+|---|---|
+| 个人/共享快捷方式、目标改名/移动/回收、只移除引用 | DriveNavigationService；DriveShortcut；drive-navigation.test.ts |
+| 个人最近访问、100 项上限、幂等清空与直链登记 | DriveVisit；CloudDrivePage / Workspaces 进入逻辑；导航服务与浏览器回归 |
+| 双路径鉴权、无权统计和预览清理 | shortcutValue / shortcut / catalog；ShortcutDialog；HTTP/Edge 跨角色流程 |
+| 迁移、基线及目录性能 | 20260915140000_drive_shortcuts_visits；90 模型/55 迁移；500 资源 + 200 链接 + 100 访问目录验证 |
+
+G2-B 最终验收：完整服务 59/59、严格输入追加服务 8/8、完整 HTTP/SSE/Edge 6/6、前端相关 21 项通过；混合目录 P95 29ms。两个隔离测试库及开发库增量迁移至 55 条（90 模型），两端构建与契约检查通过，开发服务恢复。没有重跑 900 秒持续负载，既有 G2-A 结果仅为历史证据。

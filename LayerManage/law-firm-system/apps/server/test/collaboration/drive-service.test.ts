@@ -3,7 +3,7 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { DriveService } from '../../app/application/collaboration/drive-service';
+import { DriveNavigationService as DriveService } from '../../app/application/collaboration/drive-navigation-service';
 import { PrismaEventOutboxWriter } from '../../app/application/events/event-outbox-writer';
 import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
@@ -359,4 +359,30 @@ test('500 resources including eight levels filter counts and pages before return
   const p95 = elapsed.sort((a, b) => a - b)[9];
   console.log('drive directory 500-resource P95 ms:', Math.round(p95));
   assert.ok(p95 <= 2000, 'directory P95 > 2s');
+  await db.driveShortcut.createMany({
+    data: bases
+      .slice(0, 200)
+      .map((targetId) => ({
+        workspaceId: workspace,
+        parentId: folders[0],
+        targetId,
+        ownerId: owner.actor.userId,
+      })),
+  });
+  await db.driveVisit.createMany({
+    data: bases
+      .slice(0, 100)
+      .map((nodeId) => ({ userId: staff.actor.userId, nodeId, workspaceId: workspace })),
+  });
+  assert.equal((await staff.list(workspace, query)).total, 354);
+  assert.equal((await staff.list(workspace, { scope: 'recent' })).total, 50);
+  const mixed: number[] = [];
+  for (let i = 0; i < 10; i++) {
+    const start = performance.now();
+    await staff.list(workspace, query);
+    mixed.push(performance.now() - start);
+  }
+  const mixedP95 = mixed.sort((a, b) => a - b)[9];
+  console.log('drive 500 resources + 200 shortcuts + 100 visits P95 ms:', Math.round(mixedP95));
+  assert.ok(mixedP95 <= 2000, 'mixed directory P95 > 2s');
 });

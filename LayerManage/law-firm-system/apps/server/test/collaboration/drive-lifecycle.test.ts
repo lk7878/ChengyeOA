@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
-import { DriveService } from '../../app/application/collaboration/drive-service';
+import { DriveNavigationService as DriveService } from '../../app/application/collaboration/drive-navigation-service';
 import { PrismaEventOutboxWriter } from '../../app/application/events/event-outbox-writer';
 import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
@@ -92,7 +92,7 @@ test('move previews rules, preserves identity and SELF records; current ancestor
   const preview = await owner.previewLifecycle(app.id, body);
   assert.equal(preview.beforeRules[0].policy.restricted, false);
   assert.equal(preview.afterRules[0].policy.restricted, true);
-  assert.deepEqual(preview.affected, { folders: 0, bases: 1, independentlyTrashed: 0 });
+  assert.deepEqual(preview.affected, { folders: 0, bases: 1, independentlyTrashed: 0, shortcuts: 0 });
   assert.equal((await staff.query(app.tableId, {})).total, 1);
   // A record edit is unrelated to the reviewed metadata/ACL snapshot.
   await staff.saveRecord(

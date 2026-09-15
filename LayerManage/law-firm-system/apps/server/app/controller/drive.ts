@@ -1,11 +1,11 @@
 import { Controller } from 'egg';
 import { randomUUID } from 'node:crypto';
-import { DriveService } from '../application/collaboration/drive-service';
+import { DriveNavigationService } from '../application/collaboration/drive-navigation-service';
 import { AuthorizationContext } from '../application/authorization/authorization-service';
 
 export default class DriveController extends Controller {
   private drive() {
-    return new DriveService(this.ctx.prisma, this.ctx.state.authorization as AuthorizationContext);
+    return new DriveNavigationService(this.ctx.prisma, this.ctx.state.authorization as AuthorizationContext);
   }
   private key() {
     return this.ctx.get('idempotency-key');
@@ -32,6 +32,32 @@ export default class DriveController extends Controller {
   async createBase() {
     this.respond(
       await this.drive().createDriveBase(this.ctx.params.workspaceId, this.ctx.request.body, this.key()),
+    );
+  }
+  async createShortcut() {
+    this.respond(
+      await this.drive().createShortcut(this.ctx.params.workspaceId, this.ctx.request.body, this.key()),
+    );
+  }
+  async shortcut() {
+    this.respond(await this.drive().shortcut(this.ctx.params.shortcutId));
+  }
+  async removeShortcut() {
+    this.respond(
+      await this.drive().removeShortcut(
+        this.ctx.params.workspaceId,
+        this.ctx.params.shortcutId,
+        this.ctx.request.body,
+        this.key(),
+      ),
+    );
+  }
+  async visit() {
+    this.respond(await this.drive().visit(this.ctx.params.nodeId, this.ctx.request.body, this.key()));
+  }
+  async clearRecent() {
+    this.respond(
+      await this.drive().clearRecent(this.ctx.params.workspaceId, this.ctx.request.body, this.key()),
     );
   }
   async node() {

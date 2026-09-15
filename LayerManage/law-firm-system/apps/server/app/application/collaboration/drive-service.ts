@@ -5,7 +5,7 @@ import { choice, exact, fail, integer, json, text } from './collaboration-policy
 import { accessInput, resourcePolicy, restrictResourceAccess } from './resource-access';
 
 type Tx = Prisma.TransactionClient;
-function optionalParent(value: unknown): string | null {
+export function optionalParent(value: unknown): string | null {
   return value === undefined || value === null || value === '' ? null : text(value);
 }
 type CatalogRow = DriveNode & {
@@ -20,7 +20,7 @@ type Location = { id: string; name: string; kind: string; level: number; selfOnl
 type Resolved = { row: CatalogRow; access: Access; path: Location[] };
 
 export class DriveService extends CollaborationService {
-  private async catalog(workspaceId: string, tx: Tx = this.db, includeDeleted = false) {
+  protected async catalog(workspaceId: string, tx: Tx = this.db, includeDeleted = false) {
     const root = await this.access(workspaceId, tx);
     const principals = await this.principals(tx);
     const workspace = await tx.collabWorkspace.findUniqueOrThrow({ where: { id: workspaceId } });
@@ -71,7 +71,7 @@ export class DriveService extends CollaborationService {
     return { root, workspace, rows, resolve, principals };
   }
 
-  private item(value: Resolved) {
+  protected item(value: Resolved) {
     const { row, access, path } = value;
     return {
       id: row.id,
@@ -102,7 +102,7 @@ export class DriveService extends CollaborationService {
     };
   }
 
-  private parent(
+  protected parent(
     snapshot: Awaited<ReturnType<DriveService['catalog']>>,
     parentId: string | null,
     manage = false,
@@ -199,7 +199,7 @@ export class DriveService extends CollaborationService {
     };
   }
 
-  private lifecycleInput(raw: unknown, commit = false) {
+  protected lifecycleInput(raw: unknown, commit = false) {
     const input = exact(raw, ['action', 'parentId', 'name', ...(commit ? ['previewToken'] : [])]);
     const action = choice(input.action, ['MOVE', 'TRASH', 'RESTORE']);
     if (commit && (typeof input.previewToken !== 'string' || !/^[a-f0-9]{64}$/.test(input.previewToken)))
@@ -224,7 +224,7 @@ export class DriveService extends CollaborationService {
     return { snapshot, source };
   }
 
-  private async lifecyclePlan(nodeId: string, input: ReturnType<DriveService['lifecycleInput']>, tx: Tx) {
+  protected async lifecyclePlan(nodeId: string, input: ReturnType<DriveService['lifecycleInput']>, tx: Tx) {
     const { snapshot, source } = await this.lifecycleSource(nodeId, tx);
     const { action } = input;
     if ((action === 'RESTORE') !== !!source.row.deletedAt) fail('DRIVE_STATE_CONFLICT', 409);
