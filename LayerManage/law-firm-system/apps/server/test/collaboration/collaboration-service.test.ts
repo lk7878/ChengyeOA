@@ -3,6 +3,7 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { CollaborationService } from '../../app/application/collaboration/collaboration-service';
+import { PrismaEventOutboxWriter } from '../../app/application/events/event-outbox-writer';
 import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
 import { createTestPrisma, clearTestApplicationData } from '../helpers/test-database';
 
@@ -378,6 +379,30 @@ test('concurrent writes prevent silent lost updates, and transaction failure emi
   assert.equal(await db.collabRevision.count({ where: { recordId: r.id } }), 2);
   assert.ok((await db.eventLog.count({ where: { eventType: 'collaboration.changed' } })) > 0);
 });
+test('an outbox failure rolls back the row, revision, audit, event and idempotency result', async (t) => {
+  const snapshot = () =>
+    Promise.all([
+      db.collabRecord.count(),
+      db.collabRevision.count(),
+      db.collabEvent.count(),
+      db.operationLog.count(),
+      db.eventLog.count(),
+      db.collabMutation.count(),
+    ]);
+  const before = await snapshot();
+  const append = t.mock.method(PrismaEventOutboxWriter.prototype, 'append', async () => {
+    throw new Error('synthetic outbox failure');
+  });
+  const key = randomUUID();
+  const body = { values: { [titleId]: 'atomic' }, schemaVersion: 1 };
+  await assert.rejects(editor.saveRecord(tableId, undefined, body, key), /synthetic outbox failure/);
+  assert.deepEqual(await snapshot(), before);
+  append.mock.restore();
+  const saved = await editor.saveRecord(tableId, undefined, body, key);
+  assert.equal(saved.version, 1);
+  assert.deepEqual(await editor.saveRecord(tableId, undefined, body, key), saved);
+});
+
 test('field rename preserves values; old schema and unsafe type changes fail', async () => {
   const r = await editor.saveRecord(
     tableId,
@@ -426,6 +451,21 @@ test('server filters, numeric ordering, grouping and pagination are evaluated on
   assert.equal(result.total, 2);
   assert.equal(result.records[0].values[f.id], 10);
   assert.equal(result.groups.length, 2);
+  const beyond = await reader.query(tableId, { page: 10, pageSize: 1, config: { groupBy: [f.id] } });
+  assert.equal(beyond.total, 3);
+  assert.equal(beyond.records.length, 0);
+  assert.equal(
+    beyond.groups.reduce((sum, group) => sum + group.count, 0),
+    3,
+  );
+  const empty = await reader.query(tableId, {
+    config: { filter: { fieldId: f.id, operator: 'gt', value: 100 }, groupBy: [f.id] },
+  });
+  assert.equal(empty.total, 0);
+  assert.deepEqual(empty.records, []);
+  assert.deepEqual(empty.groups, []);
+  assert.ok(!Object.hasOwn(result.records[0], '_total'));
+
   await assert.rejects(
     reader.query(tableId, { config: { filter: { fieldId: 'injected sql', operator: 'eq', value: 'x' } } }),
     hasCode('COLLAB_FIELD_UNAVAILABLE'),
@@ -822,7 +862,12 @@ test('maximum 100-row / 1000-cell batch commits atomically and rejects one extra
   const result = await editor.saveRecords(tableId, payload, key);
   assert.equal(await db.collabRecord.count({ where: { tableId } }), 100);
   assert.deepEqual(await editor.saveRecords(tableId, payload, key), result);
-  const extra = await admin.saveField(tableId, undefined, { name: '额外一列', type: 'TEXT', version: 10 }, randomUUID());
+  const extra = await admin.saveField(
+    tableId,
+    undefined,
+    { name: '额外一列', type: 'TEXT', version: 10 },
+    randomUUID(),
+  );
   const tooMany = records.map((row, n) =>
     n === 0 ? { values: { ...row.values, [extra.id]: '超限' } } : row,
   );

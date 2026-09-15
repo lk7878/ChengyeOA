@@ -9,7 +9,7 @@ import { EventObservabilityUnavailableError } from '../domain/events/event-obser
 import { FinanceError } from '../domain/finance/finance-errors';
 import { SecurityError } from '../domain/security/security-errors';
 
-type RequestError = Error & { status?: number; errors?: unknown };
+type RequestError = Error & { status?: number; errors?: unknown; code?: unknown; meta?: { error?: unknown } };
 
 export default () => async (ctx: Context, next: () => Promise<unknown>) => {
   try {
@@ -18,7 +18,12 @@ export default () => async (ctx: Context, next: () => Promise<unknown>) => {
     const error: RequestError = err instanceof Error ? err : new Error(String(err));
     if (error instanceof CollaborationError) {
       ctx.status = error.status;
-      ctx.body = { code: error.status, message: error.code, errors: error.errors ?? null, timestamp: Date.now() };
+      ctx.body = {
+        code: error.status,
+        message: error.code,
+        errors: error.errors ?? null,
+        timestamp: Date.now(),
+      };
       return;
     }
     if (error instanceof EventObservabilityUnavailableError) {
@@ -116,13 +121,30 @@ export default () => async (ctx: Context, next: () => Promise<unknown>) => {
     }
 
     const expectedHttpError = typeof error.status === 'number' && error.status < 500;
-    const status = expectedHttpError ? error.status as number : 500;
+    const status = expectedHttpError ? (error.status as number) : 500;
     const message = expectedHttpError
       ? error.message
       : process.env.NODE_ENV === 'development'
         ? error.message
         : 'INTERNAL_SERVER_ERROR';
-    ctx.logger.error('Unhandled request error: %s', error.name);
+    // Database codes are useful for diagnosing contention; never log query parameters or token values.
+    const databaseCode =
+      typeof error.code === 'string' && /^P[0-9]{4}$/.test(error.code) ? error.code : 'none';
+    const detail = typeof error.meta?.error === 'string' ? error.meta.error : '';
+    const transactionFailure =
+      databaseCode !== 'P2028'
+        ? 'none'
+        : detail.includes('Unable to start a transaction')
+          ? 'acquisition_timeout'
+          : detail.includes('expired')
+            ? 'expired'
+            : 'other';
+    ctx.logger.error(
+      'Unhandled request error: %s databaseCode=%s transactionFailure=%s',
+      error.name,
+      databaseCode,
+      transactionFailure,
+    );
     ctx.status = status;
     ctx.body = {
       code: status,

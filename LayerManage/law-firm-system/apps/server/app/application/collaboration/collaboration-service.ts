@@ -1,3 +1,4 @@
+import { queryCustomRecords } from './custom-record-query';
 import { LeadService } from '../crm/lead-service';
 import { LeadFollowService, LEAD_FOLLOW_TYPES } from '../crm/lead-follow-service';
 import { LeadAssignmentService } from '../crm/lead-assignment-service';
@@ -7,7 +8,7 @@ import { AuthorizationService } from '../authorization/authorization-service';
 import { LEAD_STATUS, canTransition, LeadStatus, REACTIVATE_ENABLED } from '../../domain/crm/lead-policy';
 import { businessFields, WorkspaceBusinessTable } from '../crm/workspace-business-table';
 import { createHash, randomUUID } from 'node:crypto';
-import { CollabField, CollabRecord, Prisma, PrismaClient } from '@prisma/client';
+import { CollabField, CollabRecord, CollabTable, CollabMember, Prisma, PrismaClient } from '@prisma/client';
 import { PrismaEventOutboxWriter } from '../events/event-outbox-writer';
 import { AuthorizationContext } from '../authorization/authorization-service';
 import {
@@ -16,7 +17,6 @@ import {
   exact,
   fail,
   FIELD_TYPES,
-  fieldExpression,
   CollaborationError,
   fieldOf,
   filterSql,
@@ -37,6 +37,10 @@ import {
 import { accessInput, resourcePolicy } from './resource-access';
 
 type Tx = Prisma.TransactionClient;
+type MemberAccess = Pick<
+  CollabMember,
+  'role' | 'canCreate' | 'rowScope' | 'canManageAccess' | 'hiddenFields' | 'readonlyFields'
+>;
 const levels: Record<string, number> = { READER: 1, EDITOR: 2, MANAGER: 3, OWNER: 4 };
 export interface Access {
   level: number;
@@ -98,6 +102,14 @@ export class CollaborationService {
     const w = await tx.collabWorkspace.findUnique({ where: { id: workspaceId } });
     if (!w) fail('COLLAB_NOT_FOUND', 404);
     const members = await tx.collabMember.findMany({ where: { workspaceId, OR: await this.principals(tx) } });
+    return this.memberAccess(workspaceId, w.organizationId, members, level);
+  }
+  private memberAccess(
+    workspaceId: string,
+    organizationId: string,
+    members: MemberAccess[],
+    level = 1,
+  ): Access {
     // A resource owner is explicit, never inferred from a system administrator flag.
     const effective = Math.max(0, ...members.map((m) => levels[m.role] ?? 0));
     if (effective < level) fail('COLLAB_FORBIDDEN', 403);
@@ -113,13 +125,18 @@ export class CollaborationService {
       hidden: [...new Set(members.flatMap((m) => m.hiddenFields))],
       readonly: [...new Set(members.flatMap((m) => m.readonlyFields))],
       workspaceId,
-      organizationId: w.organizationId,
+      organizationId,
     };
   }
-  private async restrict(parent: Access, raw: unknown, tx: Tx): Promise<Access> {
+  private async restrict(
+    parent: Access,
+    raw: unknown,
+    tx: Tx,
+    currentPrincipals?: Awaited<ReturnType<CollaborationService['principals']>>,
+  ): Promise<Access> {
     if (parent.level === 4) return parent;
     const policy = resourcePolicy(raw);
-    const principals = await this.principals(tx);
+    const principals = currentPrincipals ?? (await this.principals(tx));
     const grants = policy.grants.filter((g) =>
       principals.some((p) => p.principalType === g.principalType && p.principalId === g.principalId),
     );
@@ -144,24 +161,65 @@ export class CollaborationService {
     return { base, access };
   }
   async tableAccess(tableId: string, tx: Tx = this.db, level = 1, allowArchived = false, withFields = true) {
-    const table = await tx.collabTable.findUnique({
-      where: { id: tableId },
-      include: { fields: withFields ? { orderBy: { position: 'asc' } } : false },
-    });
-    if (!table || (table.archived && !allowArchived)) fail('COLLAB_NOT_FOUND', 404);
-    const parent = await this.baseAccess(table.baseId, tx);
-    // Creator management is an inherited capability, never an override of a child ACL.
+    const principals = await this.principals(tx);
+    const principalWhere = principals.length
+      ? Prisma.join(
+          principals.map(
+            (p) =>
+              Prisma.sql`(m."principalType" = ${p.principalType} AND m."principalId" = ${p.principalId})`,
+          ),
+          ' OR ',
+        )
+      : Prisma.sql`FALSE`;
+    const rows = await tx.$queryRaw<
+      Array<
+        CollabTable & {
+          _workspaceId: string;
+          _organizationId: string;
+          _basePolicy: Prisma.JsonValue;
+          _members: MemberAccess[];
+          _fields: CollabField[];
+        }
+      >
+    >(Prisma.sql`
+      SELECT t.*, b."workspaceId" AS "_workspaceId", b."accessPolicy" AS "_basePolicy", w."organizationId" AS "_organizationId",
+        (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+          'role', m.role, 'canCreate', m."canCreate", 'rowScope', m."rowScope", 'canManageAccess', m."canManageAccess",
+          'hiddenFields', m."hiddenFields", 'readonlyFields', m."readonlyFields")), '[]'::jsonb)
+         FROM collab_member m WHERE m."workspaceId" = w.id AND (${principalWhere})) AS "_members",
+        ${
+          withFields
+            ? Prisma.sql`(SELECT COALESCE(jsonb_agg(to_jsonb(f) ORDER BY f.position), '[]'::jsonb) FROM collab_field f WHERE f."tableId" = t.id)`
+            : Prisma.sql`'[]'::jsonb`
+        } AS "_fields"
+      FROM collab_table t JOIN collab_base b ON b.id = t."baseId"
+      JOIN collab_workspace w ON w.id = b."workspaceId" WHERE t.id = ${tableId}
+    `);
+    const row = rows[0];
+    if (!row || (row.archived && !allowArchived)) fail('COLLAB_NOT_FOUND', 404);
+    const { _workspaceId, _organizationId, _basePolicy, _members, _fields, ...definition } = row;
+    const parent = await this.restrict(
+      this.memberAccess(_workspaceId, _organizationId, _members),
+      _basePolicy,
+      tx,
+      principals,
+    );
+    // Creator management is inherited, and can never override a child ACL.
     if (
-      !table.accessPolicy &&
-      !parent.base.accessPolicy &&
-      table.createdBy === this.actor.userId &&
-      parent.access.level >= 2 &&
-      parent.access.canCreate
+      !definition.accessPolicy &&
+      !_basePolicy &&
+      definition.createdBy === this.actor.userId &&
+      parent.level >= 2 &&
+      parent.canCreate
     )
-      parent.access.level = Math.max(parent.access.level, 3);
-    const access = await this.restrict(parent.access, table.accessPolicy, tx);
+      parent.level = Math.max(parent.level, 3);
+    const access = await this.restrict(parent, definition.accessPolicy, tx, principals);
     if (access.level < level) fail('COLLAB_FORBIDDEN', 403);
-    const visible = (table.fields || []).filter((f) => !f.archived && !access.hidden.includes(f.id));
+    const table = {
+      ...definition,
+      fields: _fields,
+    };
+    const visible = table.fields.filter((f) => !f.archived && !access.hidden.includes(f.id));
     return {
       table,
       access,
@@ -270,23 +328,25 @@ export class CollaborationService {
     }
   }
   private async event(tx: Tx, baseId: string, kind: string, targetId: string) {
-    await tx.collabEvent.create({ data: { baseId, kind } });
-    await new PrismaEventOutboxWriter().append(tx, {
-      eventType: 'collaboration.changed',
-      eventVersion: 1,
-      objectType: 'COLLAB_BASE',
-      objectId: baseId,
-      operatorUserId: this.actor.userId,
-      organizationId: null,
-      branchId: null,
-      teamId: null,
-      payload: { baseId },
-      traceId: randomUUID(),
-      occurredAt: new Date(),
-    });
-    await tx.operationLog.create({
-      data: { userId: this.actor.userId, action: kind, targetType: 'COLLAB', targetId },
-    });
+    await Promise.all([
+      tx.collabEvent.create({ data: { baseId, kind } }),
+      new PrismaEventOutboxWriter().append(tx, {
+        eventType: 'collaboration.changed',
+        eventVersion: 1,
+        objectType: 'COLLAB_BASE',
+        objectId: baseId,
+        operatorUserId: this.actor.userId,
+        organizationId: null,
+        branchId: null,
+        teamId: null,
+        payload: { baseId },
+        traceId: randomUUID(),
+        occurredAt: new Date(),
+      }),
+      tx.operationLog.create({
+        data: { userId: this.actor.userId, action: kind, targetType: 'COLLAB', targetId },
+      }),
+    ]);
   }
   async listWorkspaces() {
     const members = await this.db.collabMember.findMany({
@@ -833,13 +893,13 @@ export class CollaborationService {
   private project(record: CollabRecord, fields: CollabField[]) {
     const values: ObjectValue = {};
     const original = object(record.values);
+    const system: ObjectValue = {
+      CREATED_BY: record.createdBy,
+      UPDATED_BY: record.updatedBy,
+      CREATED_AT: record.createdAt.toISOString(),
+      UPDATED_AT: record.updatedAt.toISOString(),
+    };
     for (const f of fields) {
-      const system: ObjectValue = {
-        CREATED_BY: record.createdBy,
-        UPDATED_BY: record.updatedBy,
-        CREATED_AT: record.createdAt.toISOString(),
-        UPDATED_AT: record.updatedAt.toISOString(),
-      };
       values[f.id] = isSystemField(f) ? system[f.type] : (original[f.id] ?? null);
     }
     return { ...record, values };
@@ -900,40 +960,16 @@ export class CollaborationService {
       return { ...result, records: await this.projectReferences(result.records, fields) };
     }
     const where = Prisma.sql`r."tableId" = ${tableId} AND r.archived = false AND ${access.selfOnly ? Prisma.sql`r."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`} AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}`;
-    const ordering = (config.sorts ?? []).map(
-      (s) =>
-        Prisma.sql`${fieldExpression(fieldOf(fields, s.fieldId))} ${s.direction === 'desc' ? Prisma.sql`DESC NULLS LAST` : Prisma.sql`ASC NULLS LAST`}`,
-    );
-    ordering.push(Prisma.sql`r."createdAt" ASC`, Prisma.sql`r.id ASC`);
-    const [records, count] = await this.db.$transaction(
-      [
-        this.db.$queryRaw<CollabRecord[]>(
-          Prisma.sql`SELECT r.* FROM collab_record r WHERE ${where} ORDER BY ${Prisma.join(ordering)} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
-        ),
-        this.db.$queryRaw<Array<{ count: bigint }>>(
-          Prisma.sql`SELECT count(*) FROM collab_record r WHERE ${where}`,
-        ),
-      ],
-      { isolationLevel: 'RepeatableRead' },
-    );
-    let groups: Array<{ keys: unknown[]; count: number }> = [];
-    if (config.groupBy?.length) {
-      const expr = config.groupBy.map((id) => fieldExpression(fieldOf(fields, id)));
-      const rows = await this.db.$queryRaw<Array<{ keys: unknown[]; count: bigint }>>(
-        Prisma.sql`SELECT jsonb_build_array(${Prisma.join(expr)}) as keys, count(*) FROM collab_record r WHERE ${where} GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 201`,
-      );
-      groups = rows.map((r) => ({ keys: r.keys, count: Number(r.count) }));
-    }
+    const result = await queryCustomRecords(this.db, where, config, fields, page, pageSize);
     return {
-      records: await this.projectReferences(records, fields),
-      total: Number(count[0].count),
+      ...result,
+      records: await this.projectReferences(result.records, fields),
       page,
       pageSize,
-      groups: groups.slice(0, 200),
-      groupsTruncated: groups.length > 200,
       schemaVersion: table.schemaVersion,
     };
   }
+
   async record(tableId: string, recordId: string) {
     const { table, access, fields } = await this.tableAccess(tableId);
     if (table.source !== 'CUSTOM') {
@@ -1403,7 +1439,7 @@ export class CollaborationService {
     transaction?: Tx,
   ) {
     const input = exact(raw, ['values', 'version', 'schemaVersion', 'archived']);
-    const initial = await this.tableAccess(tableId, transaction ?? this.db, 2);
+    const initial = await this.tableAccess(tableId, transaction ?? this.db, 2, false, false);
     if (initial.table.source !== 'CUSTOM')
       return this.saveExtension(tableId, recordId, input, key, transaction);
     return this.write(
@@ -1414,12 +1450,12 @@ export class CollaborationService {
         const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
         if (table.source !== 'CUSTOM') fail('COLLAB_USE_BUSINESS_ACTION', 409);
         if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
-        if (recordId)
-          await tx.$queryRaw(
-            Prisma.sql`SELECT id FROM collab_record WHERE id = ${recordId} AND "tableId" = ${tableId} AND ${access.selfOnly ? Prisma.sql`"createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`} FOR UPDATE`,
-          );
         const previous = recordId
-          ? await tx.collabRecord.findFirst({ where: { ...this.rowWhere(tableId, access), id: recordId } })
+          ? (
+              await tx.$queryRaw<CollabRecord[]>(
+                Prisma.sql`SELECT * FROM collab_record WHERE id = ${recordId} AND "tableId" = ${tableId} AND archived = false AND ${access.selfOnly ? Prisma.sql`"createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`} FOR UPDATE`,
+              )
+            )[0]
           : null;
         if (recordId && !previous) fail('COLLAB_NOT_FOUND', 404);
         if (previous && previous.version !== integer(input.version))

@@ -1,4 +1,5 @@
 import * as jwt from 'jsonwebtoken';
+import { createSecretKey, KeyObject } from 'node:crypto';
 import { SecurityError } from './security-errors';
 
 export type AssuranceLevel = 'PASSWORD' | 'MFA';
@@ -14,7 +15,11 @@ export interface SessionAccessClaims extends jwt.JwtPayload {
 const JWT_ALGORITHM = 'HS256';
 
 export class JwtTokenService {
-  constructor(private readonly secret: string) {}
+  private readonly key: KeyObject;
+
+  constructor(secret: string) {
+    this.key = createSecretKey(Buffer.from(secret, 'utf8'));
+  }
 
   signSessionAccess(
     userId: string,
@@ -24,14 +29,14 @@ export class JwtTokenService {
   ): string {
     return jwt.sign(
       { userId, sessionId, credentialVersion, assuranceLevel, tokenType: 'access' },
-      this.secret,
+      this.key,
       { algorithm: JWT_ALGORITHM, expiresIn: '15m' },
     );
   }
 
   verifySessionAccess(token: string): SessionAccessClaims {
     try {
-      const claims = jwt.verify(token, this.secret, { algorithms: [JWT_ALGORITHM] });
+      const claims = jwt.verify(token, this.key, { algorithms: [JWT_ALGORITHM] });
       if (
         typeof claims !== 'object'
         || claims.tokenType !== 'access'

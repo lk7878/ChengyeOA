@@ -26,6 +26,19 @@ test('does not expose legacy refresh, password-change, or sessionless access sig
   assert.equal('signAccess' in tokens, false);
 });
 
+test('preserves HS256 string-secret compatibility and rejects another signing key', () => {
+  const tokens = new JwtTokenService(secret);
+  const payload = {
+    userId: 'user-1', sessionId: 'session-1', tokenType: 'access', credentialVersion: 3, assuranceLevel: 'MFA',
+  };
+  const existing = jwt.sign(payload, secret, { algorithm: 'HS256', expiresIn: '15m' });
+  assert.equal(tokens.verifySessionAccess(existing).sessionId, 'session-1');
+  const issued = tokens.signSessionAccess('user-1', 'session-1', 3, 'MFA');
+  assert.equal((jwt.verify(issued, secret, { algorithms: ['HS256'] }) as jwt.JwtPayload).sessionId, 'session-1');
+  const wrongKey = jwt.sign(payload, 'different-synthetic-signing-key', { algorithm: 'HS256', expiresIn: '15m' });
+  assert.throws(() => tokens.verifySessionAccess(wrongKey), /TOKEN_INVALID/);
+});
+
 test('rejects invalid signatures and access tokens missing any required session claim', () => {
   const tokens = new JwtTokenService(secret);
   const missingSession = jwt.sign(

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { createServer } from 'node:http';
+import { fork } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import path from 'node:path';
-import mm from 'egg-mock';
 import { createTestPrisma, clearTestApplicationData } from '../helpers/test-database';
 import { createApiSession } from '../helpers/auth-session';
 
@@ -47,13 +47,83 @@ test(
     assert.ok(seconds >= 10 && seconds <= 1800, 'duration must be 10..1800 seconds');
     process.env.EGG_TYPESCRIPT = 'true';
     const db = createTestPrisma();
-    const app = mm.app();
-    await app.ready();
-    const server = createServer(app.callback());
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const origin = 'http://127.0.0.1:' + (server.address() as { port: number }).port;
     const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence');
     await mkdir(evidence, { recursive: true });
+    await writeFile(
+      path.join(evidence, 'load-report.json'),
+      JSON.stringify({ status: 'running', stage: 'starting', requestedSeconds: seconds }),
+    );
+    const loop = monitorEventLoopDelay({ resolution: 20 });
+    loop.enable();
+    const server = fork(path.resolve('test/helpers/collaboration-load-server.ts'), [], {
+      execArgv: [
+        '--import',
+        'tsx',
+        ...(process.env.COLLAB_LOAD_CPU_PROFILE === 'true'
+          ? ['--cpu-prof', '--cpu-prof-dir=' + path.resolve('../../var/collaboration-evidence')]
+          : []),
+      ],
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    });
+    server.stdout?.pipe(process.stdout);
+    server.stderr?.pipe(process.stderr);
+    const receive = (type: string) =>
+      new Promise<Record<string, unknown>>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('Load server IPC timeout: ' + type));
+        }, 30000);
+        const onMessage = (message: Record<string, unknown>) => {
+          if (message.type === type) {
+            cleanup();
+            resolve(message);
+          }
+        };
+        const onExit = () => {
+          cleanup();
+          reject(new Error('Load server exited before ' + type));
+        };
+        const onError = () => {
+          cleanup();
+          reject(new Error('Load server process error before ' + type));
+        };
+        const cleanup = () => {
+          clearTimeout(timer);
+          server.off('message', onMessage);
+          server.off('exit', onExit);
+          server.off('error', onError);
+        };
+        server.on('message', onMessage);
+        server.once('exit', onExit);
+        server.once('error', onError);
+      });
+    const ready = await receive('ready').catch(async (error) => {
+      loop.disable();
+      server.kill();
+      await db.$disconnect();
+      await writeFile(
+        path.join(evidence, 'load-report.json'),
+        JSON.stringify(
+          {
+            status: 'aborted',
+            stage: 'starting',
+            requestedSeconds: seconds,
+            measuredSeconds: 0,
+            fullDuration: false,
+            reason: (error as Error).message,
+          },
+          null,
+          2,
+        ),
+      );
+      throw error;
+    });
+    const origin = ready.origin as string;
+    const serverMetrics = async () => {
+      const result = receive('metrics');
+      server.send({ type: 'metrics' });
+      return await result;
+    };
     await writeFile(
       path.join(evidence, 'load-report.json'),
       JSON.stringify({ status: 'running', requestedSeconds: seconds }),
@@ -299,10 +369,10 @@ test(
       assert.equal(clients.filter((c) => c.ready).length, 100, 'all sessions must be ready');
       measuredStart = Date.now();
       workers = clients.slice(0, 20).map(async (client, i) => {
-        await sleep(i * 250);
         let round = 0;
-        while (running && Date.now() - measuredStart < seconds * 1000) {
-          const cycle = Date.now();
+        for (let slot = 0; slot < Math.floor(seconds / 5); slot++) {
+          await sleep(Math.max(0, measuredStart + i * 250 + slot * 5000 - Date.now()));
+          if (!running || Date.now() - measuredStart >= seconds * 1000) break;
           try {
             const current = await request(
               client,
@@ -332,7 +402,6 @@ test(
           } catch {
             fail('save:transport');
           }
-          await sleep(Math.max(0, 5000 - (Date.now() - cycle)));
         }
       });
       let renewed = false;
@@ -356,8 +425,7 @@ test(
               headers: {
                 Cookie: 'chengye_refresh=' + client.refreshToken + '; chengye_csrf=' + client.csrfToken,
                 'x-csrf-token': client.csrfToken,
-                Origin: (app.config as unknown as { identitySecurity: { trustedOrigins: string[] } })
-                  .identitySecurity.trustedOrigins[0],
+                Origin: ready.trustedOrigin as string,
               },
             });
             assert.equal(response.status, 200, 'refresh must succeed');
@@ -386,6 +454,8 @@ test(
       while (!target.revokedAt && Date.now() - revokedStart < 6000) await sleep(50);
       const revocationMs = target.revokedAt ? target.revokedAt - revokedStart : null;
       const report = {
+        serverMetrics: await serverMetrics(),
+        loadGeneratorEventLoopMs: { p95: loop.percentile(95) / 1e6, max: loop.max / 1e6 },
         baseline: {
           tables: 10,
           rows: 10000,
@@ -406,7 +476,8 @@ test(
           logicalCpus: os.cpus().length,
           memoryGiB: Math.round(os.totalmem() / 1024 ** 3),
           database: await db.$queryRaw`SELECT version()`,
-          network: 'same-host loopback; HTTP health latency measured separately',
+          network:
+            'same-host loopback; separate server and load-generator processes; HTTP health latency measured separately',
           databaseIndexes:
             await db.$queryRaw`SELECT indexname, indexdef FROM pg_indexes WHERE tablename IN ('collab_record', 'collab_event', 'collab_presence')`,
         },
@@ -469,6 +540,8 @@ test(
               peakOnline,
               errors,
               metrics: Object.fromEntries(Object.entries(latencies).map(([k, v]) => [k, summary(v)])),
+              serverMetrics: await serverMetrics().catch(() => null),
+              loadGeneratorEventLoopMs: { p95: loop.percentile(95) / 1e6, max: loop.max / 1e6 },
               failure: (error as Error).name,
               reason: (error as Error).message.slice(-300),
             },
@@ -479,17 +552,27 @@ test(
       }
       throw error;
     } finally {
+      loop.disable();
       running = false;
       for (const client of clients) client.abort?.abort();
       await Promise.allSettled(pumps);
       await Promise.allSettled(workers);
       await Promise.allSettled(clients.flatMap((c) => (c.reading ? [c.reading] : [])));
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      await app.close();
+      if (server.exitCode === null && server.connected) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(() => {
+            server.kill();
+            resolve();
+          }, 15000);
+          server.once('exit', () => {
+            clearTimeout(timer);
+            resolve();
+          });
+          server.send({ type: 'stop' });
+        });
+      }
       await clearTestApplicationData(db);
       await db.$disconnect();
-      await mm.restore();
     }
   },
 );

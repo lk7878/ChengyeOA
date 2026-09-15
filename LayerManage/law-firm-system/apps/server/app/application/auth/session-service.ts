@@ -98,19 +98,20 @@ export class SessionService {
 
   async authenticateAccess(token: string): Promise<ActiveSessionClaims> {
     const claims = this.tokens.verifySessionAccess(token);
-    const session = await this.prisma.authSession.findUnique({
-      where: { id: claims.sessionId },
-      include: {
-        user: {
-          select: {
-            status: true,
-            lockedUntil: true,
-            credentialVersion: true,
-            mustChangePassword: true,
-          },
-        },
-      },
-    });
+    // Read the session and account security state together without loading token hashes.
+    const [row] = await this.prisma.$queryRaw<Array<{
+      id: string; userId: string; credentialVersion: number; assuranceLevel: string;
+      revokedAt: Date | null; expiresAt: Date; status: string; lockedUntil: Date | null;
+      mustChangePassword: boolean; userCredentialVersion: number;
+    }>>`
+      SELECT s.id, s."userId", s."credentialVersion", s."assuranceLevel", s."revokedAt", s."expiresAt",
+        u.status, u."lockedUntil", u."mustChangePassword", u."credentialVersion" AS "userCredentialVersion"
+      FROM auth_session s JOIN "user" u ON u.id = s."userId" WHERE s.id = ${claims.sessionId}
+    `;
+    const session = row && { ...row, user: {
+      status: row.status, lockedUntil: row.lockedUntil, mustChangePassword: row.mustChangePassword,
+      credentialVersion: row.userCredentialVersion,
+    } };
     const now = this.clock();
     if (
       !session

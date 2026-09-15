@@ -105,7 +105,7 @@ last_updated: 2026-09-15
 ## 7. 追溯
 - 专项设计: docs/专项设计/动态字段表格与模板配置设计.md
 - 工程规格: [SPEC-COLLAB-20260914](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md)（首批底座已实现，完整验收未完成）
-- 落地 SPEC: SPEC-COLLAB-20260914，前五批底座、资源/岗位授权、CRM 读取/办理、核心扩展字段、分组折叠/列顺序及原子批量粘贴已验收；第六批新增目录排序及断网恢复，AC-15 高负载性能仍未通过；[实施记录](../../superpowers/plans/2026-09-14-feishu-aligned-collaborative-workspace.md)保留未完成项。
+- 落地 SPEC: SPEC-COLLAB-20260914，前六批底座、授权、CRM/扩展字段、表格操作、目录排序及断网恢复已验证；第七批 AC-15 本地 100 会话/900 秒规定负载通过，3600 次保存成功、查询/保存/可见 P95 均小于 2 秒、重连小于 5 秒，撤权后读写 403；真实多设备与备份恢复仍未覆盖。[实施记录](../../superpowers/plans/2026-09-14-feishu-aligned-collaborative-workspace.md)保留环境、历史失败和未完成项。
 - 主要代码: `apps/server/app/application/collaboration/`、`apps/server/app/application/crm/workspace-business-table.ts`、`apps/web/src/pages/Workspaces/`（位于 LayerManage/law-firm-system）。
 - 测试: `apps/server/test/collaboration/`，含真实数据库、HTTP/SSE、双浏览器协作与逐表撤权演练。
 

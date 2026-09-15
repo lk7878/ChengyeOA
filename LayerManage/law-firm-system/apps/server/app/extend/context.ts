@@ -13,7 +13,8 @@ let prisma: PrismaClient;
 export default {
   get prisma(): PrismaClient {
     if (!prisma) {
-      prisma = new PrismaClient();
+      // Keep request diagnostics to the error code/category at the HTTP boundary.
+      prisma = new PrismaClient({ errorFormat: 'minimal' });
     }
     return prisma;
   },
