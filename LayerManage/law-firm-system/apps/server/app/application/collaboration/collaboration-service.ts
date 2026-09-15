@@ -462,7 +462,8 @@ export class CollaborationService {
         queryable:
           table.source === 'CUSTOM' || !['phone', 'wechat'].includes(String(object(f.options).businessKey)),
         writable:
-          table.source === 'CUSTOM' &&
+          (table.source === 'CUSTOM' ||
+            (!object(f.options).businessKey && this.actor.permissionCodes.includes('lead.update'))) &&
           access.level >= 2 &&
           !access.readonly.includes(f.id) &&
           !isSystemField(f),
@@ -584,7 +585,6 @@ export class CollaborationService {
       'version',
     ]);
     const initial = await this.tableAccess(tableId, this.db, 3);
-    if (initial.table.source !== 'CUSTOM') fail('COLLAB_USE_BUSINESS_ACTION', 409);
     return this.write(key, ['field.save', tableId, fieldId, input], async (tx) => {
       await this.lock(tx, initial.access.workspaceId);
       const { table, fields } = await this.tableAccess(tableId, tx, 3);
@@ -592,17 +592,21 @@ export class CollaborationService {
       const previous = fieldId ? table.fields.find((f) => f.id === fieldId) : undefined;
       if (fieldId && !previous) fail('COLLAB_NOT_FOUND', 404);
       if (fieldId && !fields.some((f) => f.id === fieldId)) fail('COLLAB_FORBIDDEN', 403);
+      if (previous && object(previous.options).businessKey) fail('COLLAB_USE_BUSINESS_ACTION', 409);
       const type = choice(input.type ?? previous?.type, FIELD_TYPES);
+      if (table.source !== 'CUSTOM' && isSystemField({ type })) fail('COLLAB_USE_BUSINESS_ACTION', 409);
+      const countValues = (values: Prisma.JsonFilter) =>
+        table.source === 'CUSTOM'
+          ? tx.collabRecord.count({ where: { tableId, values } })
+          : tx.collabExtension.count({ where: { tableId, values } });
       if (
         previous &&
         previous.type !== type &&
-        (await tx.collabRecord.count({
-          where: { tableId, values: { path: [previous.id], not: Prisma.DbNull } },
-        }))
+        (await countValues({ path: [previous.id], not: Prisma.DbNull }))
       )
         fail('COLLAB_FIELD_MIGRATION_REQUIRED', 409);
       const required = input.required === undefined ? (previous?.required ?? false) : boolean(input.required);
-      if (required && !previous?.required) {
+      if (table.source === 'CUSTOM' && required && !previous?.required) {
         const missing = await tx.$queryRaw<Array<{ count: bigint }>>(
           Prisma.sql`SELECT count(*) FROM collab_record WHERE "tableId" = ${tableId} AND archived = false AND ("values" ->> ${fieldId ?? ''} IS NULL OR "values" ->> ${fieldId ?? ''} IN ('', '[]'))`,
         );
@@ -616,22 +620,18 @@ export class CollaborationService {
         );
         for (const option of removed)
           if (
-            await tx.collabRecord.count({
-              where: {
-                tableId,
-                values:
-                  type === 'SINGLE_SELECT'
-                    ? { path: [previous.id], equals: option.id }
-                    : { path: [previous.id], array_contains: [option.id] },
-              },
-            })
+            await countValues(
+              type === 'SINGLE_SELECT'
+                ? { path: [previous.id], equals: option.id }
+                : { path: [previous.id], array_contains: [option.id] },
+            )
           )
             fail('COLLAB_OPTION_IN_USE', 409);
       }
       if (
         previous?.type === 'RELATION' &&
         options.targetTableId !== object(previous.options).targetTableId &&
-        (await tx.collabRelation.count({ where: { fieldId: previous.id } }))
+        (await countValues({ path: [previous.id], not: Prisma.DbNull }))
       )
         fail('COLLAB_FIELD_MIGRATION_REQUIRED', 409);
       if (type === 'RELATION') {
@@ -652,7 +652,7 @@ export class CollaborationService {
         )
           fail('COLLAB_REFERENCED_FIELD', 409);
       }
-      if (!fieldId && fields.length >= 100) fail('COLLAB_FIELD_LIMIT');
+      if (!fieldId && table.fields.filter((f) => !f.archived).length >= 100) fail('COLLAB_FIELD_LIMIT');
       const data = {
         name: text(input.name ?? previous?.name),
         type,
@@ -745,6 +745,29 @@ export class CollaborationService {
     const { access, fields, table } = await this.tableAccess(tableId, tx);
     const file = await tx.collabAttachment.findFirst({ where: { id: fileId, tableId } });
     if (!file) fail('COLLAB_NOT_FOUND', 404);
+    if (table.source !== 'CUSTOM') {
+      const source = await new WorkspaceBusinessTable(this.db, this.actor).sourceSql(table, access, fields);
+      const visible = fields
+        .filter((f) => f.type === 'FILE')
+        .map((f) => Prisma.sql`r."values" -> ${f.id} @> ${JSON.stringify([fileId])}::jsonb`);
+      const permitted = visible.length
+        ? await tx.$queryRaw<Array<{ id: string }>>(
+            Prisma.sql`WITH r AS (${source}) SELECT id FROM r WHERE ${Prisma.join(visible, ' OR ')} LIMIT 1`,
+          )
+        : [];
+      if (!permitted.length) {
+        const referenced = await tx.collabExtension.count({
+          where: {
+            tableId,
+            OR: table.fields
+              .filter((f) => f.type === 'FILE')
+              .map((f) => ({ values: { path: [f.id], array_contains: [fileId] } })),
+          },
+        });
+        if (referenced || file.ownerId !== this.actor.userId) fail('COLLAB_FORBIDDEN', 403);
+      }
+      return file;
+    }
     const references = (items: CollabField[]) =>
       items
         .filter((f) => f.type === 'FILE')
@@ -817,8 +840,8 @@ export class CollaborationService {
     const config = validateView(input.config ?? view?.config ?? {}, fields);
     const page = integer(input.page ?? 1, 1, 100000);
     const pageSize = integer(input.pageSize ?? 50, 1, 200);
-    if (table.source !== 'CUSTOM')
-      return new WorkspaceBusinessTable(this.db, this.actor).query(
+    if (table.source !== 'CUSTOM') {
+      const result = await new WorkspaceBusinessTable(this.db, this.actor).query(
         table,
         access,
         fields,
@@ -826,6 +849,8 @@ export class CollaborationService {
         page,
         pageSize,
       );
+      return { ...result, records: await this.projectReferences(result.records, fields) };
+    }
     const where = Prisma.sql`r."tableId" = ${tableId} AND r.archived = false AND ${access.selfOnly ? Prisma.sql`r."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`} AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}`;
     const ordering = (config.sorts ?? []).map(
       (s) =>
@@ -874,7 +899,23 @@ export class CollaborationService {
         recordId,
       );
       if (!result.records.length) fail('COLLAB_NOT_FOUND', 404);
-      return { record: result.records[0], revisions: [] as never[], comments: [] as never[] };
+      const revisions = await this.db.collabExtensionRevision.findMany({
+        where: { tableId, recordId },
+        orderBy: { version: 'desc' },
+        take: 50,
+      });
+      return {
+        record: (await this.projectReferences(result.records, fields))[0],
+        revisions: revisions.map((r) => ({
+          ...r,
+          changes: Object.fromEntries(
+            Object.entries(object(r.changes)).filter(([id]) =>
+              fields.some((f) => f.id === id && !['FILE', 'RELATION'].includes(f.type)),
+            ),
+          ),
+        })),
+        comments: [] as never[],
+      };
     }
     const record = await this.db.collabRecord.findFirst({
       where: { ...this.rowWhere(tableId, access), id: recordId },
@@ -1168,7 +1209,7 @@ export class CollaborationService {
         if (!org) fail('COLLAB_ORGANIZATION_UNAVAILABLE');
       }
       if (field.type === 'FILE' && Array.isArray(value)) {
-        if (Object.prototype.hasOwnProperty.call(patch, field.id))
+        if (creating || Object.prototype.hasOwnProperty.call(patch, field.id))
           for (const id of value) await this.attachment(tableId, String(id), tx);
       }
       if (field.type === 'RELATION' && Array.isArray(value)) {
@@ -1182,9 +1223,114 @@ export class CollaborationService {
     }
     return result;
   }
+  private async extensionTarget(
+    table: { id: string; source: string },
+    access: Access,
+    recordId: string,
+    tx: Tx,
+  ) {
+    if (!this.actor.permissionCodes.includes('lead.update')) fail('COLLAB_FORBIDDEN', 403);
+    const adapter = new WorkspaceBusinessTable(this.db, this.actor);
+    const scope: Prisma.LeadWhereInput = {
+      AND: [
+        await adapter.scope(access),
+        await buildLeadScopeWhere(
+          this.db,
+          new AuthorizationService(new DataScopeService(this.db)),
+          this.actor,
+          'lead.update',
+        ),
+      ],
+    };
+    const own = access.selfOnly ? { createdBy: this.actor.userId } : {};
+    if (table.source === 'LEADS') {
+      const row = await tx.lead.findFirst({ where: { AND: [scope, { id: recordId, ...own }] } });
+      if (!row) fail('COLLAB_NOT_FOUND', 404);
+      return { version: row.version };
+    }
+    const row = await tx.leadFollow.findFirst({ where: { id: recordId, ...own, lead: scope } });
+    if (!row) fail('COLLAB_NOT_FOUND', 404);
+    return { version: 1 };
+  }
+  private async saveExtension(
+    tableId: string,
+    recordId: string | undefined,
+    input: ObjectValue,
+    key: unknown,
+  ) {
+    if (!recordId || input.archived !== undefined || !Object.keys(object(input.values ?? {})).length)
+      fail('COLLAB_USE_BUSINESS_ACTION', 409);
+    const initial = await this.tableAccess(tableId, this.db, 2);
+    await this.extensionTarget(initial.table, initial.access, recordId, this.db);
+    return this.write(key, ['extension.save', tableId, recordId, input], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId);
+      const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
+      if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
+      await tx.$queryRaw(
+        table.source === 'LEADS'
+          ? Prisma.sql`SELECT id FROM lead WHERE id = ${recordId} FOR UPDATE`
+          : Prisma.sql`SELECT id FROM lead_follow WHERE id = ${recordId} FOR UPDATE`,
+      );
+      const core = await this.extensionTarget(table, access, recordId, tx);
+      const previous = await tx.collabExtension.findUnique({
+        where: { tableId_recordId: { tableId, recordId } },
+      });
+      const version = core.version + (previous?.version ?? 0);
+      if (version !== integer(input.version)) fail('COLLAB_RECORD_CONFLICT', 409);
+      if (
+        Object.keys(object(input.values)).some((id) =>
+          fields.some((f) => f.id === id && object(f.options).businessKey),
+        )
+      )
+        fail('COLLAB_USE_BUSINESS_ACTION', 409);
+      const extensions = fields.filter((f) => !object(f.options).businessKey);
+      const next = await this.values(
+        tx,
+        tableId,
+        extensions,
+        access,
+        input.values,
+        previous ? object(previous.values) : {},
+        !previous,
+      );
+      if (
+        table.fields.some(
+          (f) =>
+            !f.archived &&
+            !object(f.options).businessKey &&
+            f.required &&
+            !extensions.some((v) => v.id === f.id) &&
+            (next[f.id] === undefined || next[f.id] === null || next[f.id] === ''),
+        )
+      )
+        fail('COLLAB_REQUIRED_FIELD_FORBIDDEN', 403);
+      const row = await tx.collabExtension.upsert({
+        where: { tableId_recordId: { tableId, recordId } },
+        create: { tableId, recordId, values: json(next), updatedBy: this.actor.userId },
+        update: { values: json(next), updatedBy: this.actor.userId, version: { increment: 1 } },
+      });
+      const changes = Object.fromEntries(
+        Object.keys(next)
+          .filter(
+            (id) =>
+              JSON.stringify(previous ? object(previous.values)[id] : null) !== JSON.stringify(next[id]),
+          )
+          .map((id) => [
+            id,
+            { before: previous ? (object(previous.values)[id] ?? null) : null, after: next[id] },
+          ]),
+      );
+      await tx.collabExtensionRevision.create({
+        data: { tableId, recordId, version: row.version, actorId: this.actor.userId, changes: json(changes) },
+      });
+      await this.event(tx, table.baseId, 'record.updated', recordId);
+      return { id: recordId, version: core.version + row.version };
+    });
+  }
   async saveRecord(tableId: string, recordId: string | undefined, raw: unknown, key: unknown) {
     const input = exact(raw, ['values', 'version', 'schemaVersion', 'archived']);
     const initial = await this.tableAccess(tableId, this.db, 2);
+    if (initial.table.source !== 'CUSTOM') return this.saveExtension(tableId, recordId, input, key);
     return this.write(key, ['record.save', tableId, recordId, input], async (tx) => {
       await this.lock(tx, initial.access.workspaceId);
       const { table, access, fields } = await this.tableAccess(tableId, tx, 2);

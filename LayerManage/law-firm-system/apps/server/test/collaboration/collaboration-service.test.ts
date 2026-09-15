@@ -250,7 +250,7 @@ test('live CRM tables intersect business scope, organization and resource permis
     hasCode('COLLAB_SENSITIVE_QUERY_UNSUPPORTED'),
   );
   await assert.rejects(
-    ownerCrm.saveField(leads, undefined, { name: 'fake', type: 'TEXT', version: 1 }, randomUUID()),
+    ownerCrm.saveField(leads, field('status').id, { name: 'fake', type: 'TEXT', version: 1 }, randomUUID()),
     hasCode('COLLAB_USE_BUSINESS_ACTION'),
   );
   await assert.rejects(
@@ -260,7 +260,7 @@ test('live CRM tables intersect business scope, organization and resource permis
       { values: { [field('status').id]: 'CONVERTED' }, schemaVersion: 1, version: 1 },
       randomUUID(),
     ),
-    hasCode('COLLAB_USE_BUSINESS_ACTION'),
+    hasCode('COLLAB_FORBIDDEN'),
   );
   await assert.rejects(
     ownerCrm.mutateTable(leads, { duplicate: true, name: 'copy', version: 1 }, randomUUID()),

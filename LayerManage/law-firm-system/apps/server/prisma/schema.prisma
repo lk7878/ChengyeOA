@@ -1637,19 +1637,20 @@ model CollabBase {
 
 model CollabTable {
   accessPolicy  Json?
-  accessVersion Int            @default(1)
-  id            String         @id @default(uuid())
+  accessVersion Int               @default(1)
+  id            String            @id @default(uuid())
   baseId        String
   name          String
-  source        String         @default("CUSTOM")
-  position      Int            @default(0)
-  schemaVersion Int            @default(1)
-  archived      Boolean        @default(false)
+  source        String            @default("CUSTOM")
+  position      Int               @default(0)
+  schemaVersion Int               @default(1)
+  archived      Boolean           @default(false)
   createdBy     String
-  createdAt     DateTime       @default(now())
-  base          CollabBase     @relation(fields: [baseId], references: [id], onDelete: Cascade)
+  createdAt     DateTime          @default(now())
+  base          CollabBase        @relation(fields: [baseId], references: [id], onDelete: Cascade)
   fields        CollabField[]
   views         CollabView[]
+  extensions    CollabExtension[]
   records       CollabRecord[]
   rules         CollabRule[]
 
@@ -1844,4 +1845,33 @@ model CollabPreference {
 
   @@unique([userId, tableId])
   @@map("collab_preference")
+}
+
+model CollabExtension {
+  tableId   String
+  recordId  String
+  values    Json                      @default("{}")
+  version   Int                       @default(1)
+  updatedBy String
+  updatedAt DateTime                  @updatedAt
+  table     CollabTable               @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  revisions CollabExtensionRevision[]
+
+  @@id([tableId, recordId])
+  @@index([values], type: Gin, map: "collab_extension_values_gin")
+  @@map("collab_extension")
+}
+
+model CollabExtensionRevision {
+  id        String          @id @default(uuid())
+  tableId   String
+  recordId  String
+  version   Int
+  actorId   String
+  changes   Json
+  createdAt DateTime        @default(now())
+  extension CollabExtension @relation(fields: [tableId, recordId], references: [tableId, recordId], onDelete: Cascade)
+
+  @@unique([tableId, recordId, version])
+  @@map("collab_extension_revision")
 }

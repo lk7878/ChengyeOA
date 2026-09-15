@@ -416,6 +416,72 @@ test(
       await p2.getByText('无需离开工作区完成跟进', { exact: true }).waitFor();
       assert.equal((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).status, 'SCREENED');
       assert.equal(await db.leadFollow.count({ where: { leadId: lead.id } }), 1);
+      await p1.locator('.ant-drawer:visible .ant-drawer-close').click();
+      await p1.getByRole('button', { name: '新增字段', exact: true }).click();
+      await p1.getByRole('textbox', { name: '名称', exact: true }).fill('业务补充说明');
+      await p1
+        .locator('.ant-modal:visible')
+        .getByRole('button', { name: /确\s*定/ })
+        .click();
+      await p1.getByRole('button', { name: '业务补充说明：空', exact: true }).waitFor();
+      await p1.getByRole('button', { name: '业务补充说明：空', exact: true }).dblclick();
+      await p1.getByRole('textbox', { name: '业务补充说明', exact: true }).fill('扩展字段多人协作');
+      await p1
+        .locator('.workspace-cell-editor')
+        .getByRole('button', { name: /^保\s*存$/ })
+        .click();
+      await p2
+        .getByRole('button', { name: '业务补充说明：扩展字段多人协作', exact: true })
+        .waitFor({ timeout: 10000 });
+      await p2.reload();
+      await p2.getByRole('textbox', { name: '业务补充说明', exact: true }).fill('从记录抽屉保存');
+      await p1.getByRole('button', { name: '业务补充说明：扩展字段多人协作', exact: true }).dblclick();
+      await p1.getByRole('textbox', { name: '业务补充说明', exact: true }).fill('对端并发修改');
+      await p1
+        .locator('.workspace-cell-editor')
+        .getByRole('button', { name: /^保\s*存$/ })
+        .click();
+      await p2
+        .getByRole('button', { name: '业务补充说明：对端并发修改', exact: true })
+        .waitFor({ timeout: 10000 });
+      assert.equal(
+        await p2.getByRole('textbox', { name: '业务补充说明', exact: true }).inputValue(),
+        '从记录抽屉保存',
+      );
+      await p2
+        .locator('.ant-drawer:visible')
+        .getByRole('button', { name: /^保\s*存$/ })
+        .click();
+      await p2.getByRole('button', { name: '保留本地并复核提交', exact: true }).click();
+
+      await p2
+        .locator('.ant-drawer:visible')
+        .getByRole('button', { name: /^保\s*存$/ })
+        .click();
+      await p1
+        .getByRole('button', { name: '业务补充说明：从记录抽屉保存', exact: true })
+        .waitFor({ timeout: 10000 });
+      assert.equal((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).status, 'SCREENED');
+      await p1.reload();
+      await p1.getByRole('button', { name: '业务补充说明：从记录抽屉保存', exact: true }).waitFor();
+      await p1.locator('.workspace-grid').hover({ position: { x: 300, y: 80 } });
+      await p1.mouse.wheel(2000, 0);
+      await p1.waitForFunction(() => {
+        const heading = [...document.querySelectorAll('.workspace-field-heading')]
+          .find((e) => e.textContent === '业务补充说明')
+          ?.closest('th');
+        const cell = [...document.querySelectorAll('.workspace-cell')]
+          .find((e) => e.getAttribute('aria-label') === '业务补充说明：从记录抽屉保存')
+          ?.closest('.ant-table-cell');
+        if (!heading || !cell) return false;
+        const h = heading.getBoundingClientRect(),
+          c = cell.getBoundingClientRect();
+        return h.left < window.innerWidth - 40 && Math.abs(h.left - c.left) < 2;
+      });
+      await p1.screenshot({
+        path: path.resolve(process.cwd(), '../../var/collaboration-evidence/business-extensions.png'),
+        fullPage: true,
+      });
 
       await p1.goto(address);
       await p1.getByRole('button', { name: '添加记录', exact: true }).waitFor();

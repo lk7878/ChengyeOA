@@ -1,12 +1,19 @@
-import { CollabField, CollabTable, Prisma, PrismaClient } from '@prisma/client';
+import { CollabField, CollabTable, CollabRecord, Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
 import { FieldProjectionService } from '../authorization/field-projection-service';
 import { buildLeadScopeWhere } from './lead-scope';
-import { projectLead } from './lead-projection';
+import { maskLeadPhone, maskLeadWechat } from './lead-projection';
 import { auditRawL3Access } from './lead-audit';
 import type { Access } from '../collaboration/collaboration-service';
-import { fail, fieldOf, object, ViewConfig } from '../collaboration/collaboration-policy';
+import {
+  fail,
+  fieldOf,
+  object,
+  ViewConfig,
+  filterSql,
+  fieldExpression,
+} from '../collaboration/collaboration-policy';
 
 const columns = {
   LEADS: [
@@ -130,9 +137,19 @@ export class WorkspaceBusinessTable {
     return { [key]: { [op]: value } };
   }
   validateConfig(source: string, fields: CollabField[], config: ViewConfig) {
-    this.filter(source, fields, config.filter);
-    for (const sort of config.sorts ?? []) this.key(source, fieldOf(fields, sort.fieldId), true);
-    for (const id of config.groupBy ?? []) this.key(source, fieldOf(fields, id), true);
+    const visit = (raw: unknown) => {
+      if (!raw) return;
+      const f = object(raw);
+      if (f.join) {
+        for (const child of f.children as unknown[]) visit(child);
+      } else if (object(fieldOf(fields, f.fieldId).options).businessKey) this.filter(source, fields, f);
+    };
+    filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId);
+    visit(config.filter);
+    for (const id of [...(config.sorts ?? []).map((s) => s.fieldId), ...(config.groupBy ?? [])]) {
+      const f = fieldOf(fields, id);
+      if (object(f.options).businessKey) this.key(source, f, true);
+    }
   }
   async scope(access: Access): Promise<Prisma.LeadWhereInput> {
     this.authorize();
@@ -152,6 +169,64 @@ export class WorkspaceBusinessTable {
       ],
     };
   }
+  /** Compile only the predicates produced by the existing domain scope resolver.
+   * New resolver shapes fail closed until explicitly supported here. */
+  private scopeSql(raw: Prisma.LeadWhereInput, alias: 'b' | 'l'): Prisma.Sql {
+    const parts = Object.entries(raw).map(([key, value]) => {
+      if (key === 'AND' || key === 'OR') {
+        const children = Array.isArray(value) ? value : [value];
+        if (!children.length) return key === 'AND' ? Prisma.sql`TRUE` : Prisma.sql`FALSE`;
+        return Prisma.sql`(${Prisma.join(
+          children.map((c) => this.scopeSql(object(c) as Prisma.LeadWhereInput, alias)),
+          key === 'AND' ? ' AND ' : ' OR ',
+        )})`;
+      }
+      if (!['id', 'assignedTo', 'professionalTeamId', 'branchId', 'deletedAt'].includes(key))
+        fail('COLLAB_UNSUPPORTED_SCOPE', 403);
+      const column = Prisma.raw(alias + '."' + key + '"');
+      if (value === null) return Prisma.sql`${column} IS NULL`;
+      if (typeof value === 'string') return Prisma.sql`${column} = ${value}`;
+      const predicate = object(value);
+      if (
+        Object.keys(predicate).length !== 1 ||
+        !Array.isArray(predicate.in) ||
+        predicate.in.some((v) => typeof v !== 'string')
+      )
+        fail('COLLAB_UNSUPPORTED_SCOPE', 403);
+      return predicate.in.length
+        ? Prisma.sql`${column} IN (${Prisma.join(predicate.in as string[])})`
+        : Prisma.sql`FALSE`;
+    });
+    return parts.length ? Prisma.sql`(${Prisma.join(parts, ' AND ')})` : Prisma.sql`TRUE`;
+  }
+  async sourceSql(table: CollabTable, access: Access, fields: CollabField[]) {
+    const leads = table.source === 'LEADS';
+    const domain = this.scopeSql(await this.scope(access), leads ? 'b' : 'l');
+    const core = leads ? Prisma.sql`lead b` : Prisma.sql`lead_follow b JOIN lead l ON l.id = b."leadId"`;
+    const pairs = fields.flatMap((f) => {
+      const column = object(f.options).businessKey
+        ? Prisma.raw('b."' + this.key(table.source, f) + '"')
+        : null;
+      const value = column
+        ? ['DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(f.type)
+          ? Prisma.sql`to_jsonb(${column} AT TIME ZONE 'UTC')`
+          : Prisma.sql`to_jsonb(${column})`
+        : Prisma.sql`e."values" -> ${f.id}`;
+      return [Prisma.sql`${f.id}::text`, value];
+    });
+    // PostgreSQL allows at most 100 function arguments; a table may expose 100 fields.
+    const chunks: Prisma.Sql[] = [];
+    for (let i = 0; i < pairs.length; i += 100)
+      chunks.push(Prisma.sql`jsonb_build_object(${Prisma.join(pairs.slice(i, i + 100))})`);
+    const values = chunks.length ? Prisma.sql`(${Prisma.join(chunks, ' || ')})` : Prisma.sql`'{}'::jsonb`;
+    return Prisma.sql`SELECT b.id, ${table.id}::text AS "tableId", ${values} AS "values",
+      ${leads ? Prisma.sql`b.version` : Prisma.sql`1`} + COALESCE(e.version, 0) AS version,
+      b."createdBy", b."createdBy" AS "ownerId", b."createdAt", false AS archived,
+      COALESCE(e."updatedBy", b."createdBy") AS "updatedBy",
+      ${leads ? Prisma.sql`b."updatedAt"` : Prisma.sql`b."createdAt"`} AS "updatedAt"
+      FROM ${core} LEFT JOIN collab_extension e ON e."tableId" = ${table.id} AND e."recordId" = b.id
+      WHERE ${domain} AND ${access.selfOnly ? Prisma.sql`b."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`}`;
+  }
   async query(
     table: CollabTable,
     access: Access,
@@ -161,73 +236,55 @@ export class WorkspaceBusinessTable {
     pageSize: number,
     recordId?: string,
   ) {
-    const scope = await this.scope(access);
-    const filter = this.filter(table.source, fields, config.filter);
-    const sorts = (config.sorts ?? []).map((s) => ({
-      [this.key(table.source, fieldOf(fields, s.fieldId), true)]: s.direction,
-    }));
-    const groupKeys = (config.groupBy ?? []).map((id) => this.key(table.source, fieldOf(fields, id), true));
-    const orderBy = [...sorts, { createdAt: 'desc' as const }, { id: 'asc' as const }];
-    let total: number;
-    let records: Array<{
-      id: string;
-      tableId: string;
-      values: Record<string, unknown>;
-      version: number;
-      createdAt: Date;
-      updatedAt: Date;
-      createdBy: string;
-      ownerId: string;
-    }>;
-    let groups: Array<{ keys: unknown[]; count: number }>;
-    const map = (row: Record<string, unknown>) => ({
-      id: String(row.id),
-      tableId: table.id,
-      values: Object.fromEntries(fields.map((f) => [f.id, row[this.key(table.source, f)] ?? null])),
-      version: Number(row.version ?? 1),
-      createdAt: row.createdAt as Date,
-      updatedAt: (row.updatedAt ?? row.createdAt) as Date,
-      createdBy: String(row.createdBy),
-      ownerId: String(row.createdBy),
-    });
+    this.validateConfig(table.source, fields, config);
+    const source = await this.sourceSql(table, access, fields);
+    const where = Prisma.sql`${recordId ? Prisma.sql`r.id = ${recordId}` : Prisma.sql`TRUE`} AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}`;
+    const order = (config.sorts ?? []).map(
+      (s) =>
+        Prisma.sql`${fieldExpression(fieldOf(fields, s.fieldId))} ${s.direction === 'desc' ? Prisma.sql`DESC NULLS LAST` : Prisma.sql`ASC NULLS LAST`}`,
+    );
+    order.push(Prisma.sql`r."createdAt" DESC`, Prisma.sql`r.id ASC`);
+    const group = (config.groupBy ?? []).map((id) => fieldExpression(fieldOf(fields, id)));
+    const result = await this.db.$transaction(
+      async (tx) => {
+        const records = await tx.$queryRaw<CollabRecord[]>(
+          Prisma.sql`WITH r AS (${source}) SELECT * FROM r WHERE ${where} ORDER BY ${Prisma.join(order)} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
+        );
+        const counts = await tx.$queryRaw<Array<{ count: bigint }>>(
+          Prisma.sql`WITH r AS (${source}) SELECT count(*) FROM r WHERE ${where}`,
+        );
+        const groups = group.length
+          ? await tx.$queryRaw<Array<{ keys: unknown[]; count: bigint }>>(
+              Prisma.sql`WITH r AS (${source}) SELECT jsonb_build_array(${Prisma.join(group)}) AS keys, count(*) FROM r WHERE ${where} GROUP BY 1 ORDER BY 1 LIMIT 201`,
+            )
+          : [];
+        return {
+          records,
+          total: Number(counts[0].count),
+          groups: groups.map((g) => ({ keys: g.keys, count: Number(g.count) })),
+        };
+      },
+      { isolationLevel: 'RepeatableRead' },
+    );
     if (table.source === 'LEADS') {
-      const where: Prisma.LeadWhereInput = {
-        AND: [
-          scope,
-          filter,
-          ...(access.selfOnly ? [{ createdBy: this.actor.userId }] : []),
-          ...(recordId ? [{ id: recordId }] : []),
-        ],
-      };
-      const result = await this.db.$transaction(
-        async (tx) => {
-          const total = await tx.lead.count({ where });
-          const rows = await tx.lead.findMany({
-            where,
-            orderBy,
-            skip: (page - 1) * pageSize,
-            take: pageSize,
-          });
-          const grouped = groupKeys.length
-            ? await tx.lead.groupBy({
-                by: groupKeys as Prisma.LeadScalarFieldEnum[],
-                where,
-                _count: { _all: true },
-                orderBy: groupKeys.map((k) => ({
-                  [k]: 'asc' as const,
-                })) as Prisma.LeadOrderByWithAggregationInput[],
-                take: 201,
-              })
-            : ([] as never[]);
-          return { total, rows, grouped };
-        },
-        { isolationLevel: 'RepeatableRead' },
-      );
-      total = result.total;
       const permissions = this.permissions();
-      // Only audit fields actually exposed by the resource schema.
-      if (!fields.some((f) => object(f.options).businessKey === 'phone')) permissions.phone = 'NONE';
-      if (!fields.some((f) => object(f.options).businessKey === 'wechat')) permissions.wechat = 'NONE';
+      for (const key of ['phone', 'wechat'] as const) {
+        const field = fields.find((f) => object(f.options).businessKey === key);
+        if (!field) {
+          permissions[key] = 'NONE';
+          continue;
+        }
+        for (const row of result.records) {
+          const values = object(row.values);
+          if (values[field.id] != null && permissions[key] !== 'READ')
+            values[field.id] =
+              permissions[key] === 'NONE'
+                ? null
+                : key === 'phone'
+                  ? maskLeadPhone(String(values[field.id]))
+                  : maskLeadWechat();
+        }
+      }
       await auditRawL3Access(
         this.db,
         { actorUserId: this.actor.userId },
@@ -235,61 +292,33 @@ export class WorkspaceBusinessTable {
         recordId ?? 'LIST',
         'lead',
         permissions,
-        result.rows.length,
+        result.records.length,
         'workspace.leads',
       );
-      records = result.rows.map((r) => map({ ...projectLead(r, permissions) }));
-      groups = result.grouped.map((g) => ({
-        keys: groupKeys.map((k) => (g as Record<string, unknown>)[k]),
-        count: g._count._all,
-      }));
-    } else {
-      const where: Prisma.LeadFollowWhereInput = {
-        AND: [
-          { lead: scope },
-          filter,
-          ...(access.selfOnly ? [{ createdBy: this.actor.userId }] : []),
-          ...(recordId ? [{ id: recordId }] : []),
-        ],
-      };
-      const result = await this.db.$transaction(
-        async (tx) => {
-          const total = await tx.leadFollow.count({ where });
-          const rows = await tx.leadFollow.findMany({
-            where,
-            orderBy,
-            skip: (page - 1) * pageSize,
-            take: pageSize,
-          });
-          const grouped = groupKeys.length
-            ? await tx.leadFollow.groupBy({
-                by: groupKeys as Prisma.LeadFollowScalarFieldEnum[],
-                where,
-                _count: { _all: true },
-                orderBy: groupKeys.map((k) => ({
-                  [k]: 'asc' as const,
-                })) as Prisma.LeadFollowOrderByWithAggregationInput[],
-                take: 201,
-              })
-            : ([] as never[]);
-          return { total, rows, grouped };
-        },
-        { isolationLevel: 'RepeatableRead' },
-      );
-      total = result.total;
-      records = result.rows.map((r) => map(r));
-      groups = result.grouped.map((g) => ({
-        keys: groupKeys.map((k) => (g as Record<string, unknown>)[k]),
-        count: g._count._all,
-      }));
+    }
+    let editable = new Set<string>();
+    if (access.level >= 2 && this.actor.permissionCodes.includes('lead.update') && result.records.length) {
+      const actionScope = await buildLeadScopeWhere(this.db, this.authorization, this.actor, 'lead.update');
+      const ids = result.records.map((r) => r.id);
+      const rows =
+        table.source === 'LEADS'
+          ? await this.db.lead.findMany({
+              where: { AND: [actionScope, { id: { in: ids } }] },
+              select: { id: true },
+            })
+          : await this.db.leadFollow.findMany({
+              where: { id: { in: ids }, lead: actionScope },
+              select: { id: true },
+            });
+      editable = new Set(rows.map((r) => r.id));
     }
     return {
-      records,
-      total,
+      ...result,
+      records: result.records.map((r) => ({ ...r, writable: editable.has(r.id) })),
+      groups: result.groups.slice(0, 200),
+      groupsTruncated: result.groups.length > 200,
       page,
       pageSize,
-      groups: groups.slice(0, 200),
-      groupsTruncated: groups.length > 200,
       schemaVersion: table.schemaVersion,
     };
   }

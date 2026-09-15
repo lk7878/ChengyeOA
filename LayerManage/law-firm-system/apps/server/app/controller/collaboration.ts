@@ -197,7 +197,6 @@ export default class CollaborationController extends Controller {
           const selected = await current.tableAccess(tableId);
           const snapshot = JSON.stringify({
             access: selected.access,
-            fields: selected.fields.map((f) => f.id),
             grants: authorization.grants,
             fieldRules: authorization.fieldRules,
           });

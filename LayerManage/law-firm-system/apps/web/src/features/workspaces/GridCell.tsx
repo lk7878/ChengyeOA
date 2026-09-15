@@ -30,7 +30,7 @@ export default function GridCell({
   const [draft, setDraft] = useState<{ value: unknown; version: number; schema: number; key: string }>();
   const [saving, setSaving] = useState(false);
   const begin = () => {
-    if (field.writable) {
+    if (field.writable && row.writable !== false) {
       setDraft({
         value: row.values[field.id],
         version: row.version,
@@ -126,7 +126,7 @@ export default function GridCell({
         {(row.values[field.id] as string[]).slice(0, 3).map((id) => (
           <AttachmentItem key={id} tableId={tableId} id={id} />
         ))}
-        <Button size="small" disabled={!field.writable} onClick={begin}>
+        <Button size="small" disabled={!field.writable || row.writable === false} onClick={begin}>
           编辑附件
         </Button>
       </div>

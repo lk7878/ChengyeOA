@@ -73,6 +73,7 @@ export interface TableDetail {
   employeeId: string | null;
 }
 export interface RecordRow {
+  writable?: boolean;
   id: string;
   tableId: string;
   values: Record<string, unknown>;

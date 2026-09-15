@@ -509,7 +509,6 @@ export default function WorkspacesPage() {
     setParams(next, { replace: true });
   };
   const recordTableId = detail?.table.id;
-  const recordSource = detail?.table.source;
   const recordSchemaVersion = detail?.table.schemaVersion;
   useEffect(() => {
     if (!recordId || recordTableId !== tableId) return;
@@ -518,7 +517,7 @@ export default function WorkspacesPage() {
       .then((d) => {
         if (!active) return;
         setEditing((old) =>
-          old?.row?.id === recordId && recordSource === 'CUSTOM'
+          old?.row?.id === recordId
             ? { ...old, detail: d }
             : {
                 row: d.record,
@@ -538,7 +537,7 @@ export default function WorkspacesPage() {
     return () => {
       active = false;
     };
-  }, [recordId, tableId, recordTableId, recordSource, recordSchemaVersion, revision]);
+  }, [recordId, tableId, recordTableId, recordSchemaVersion, revision]);
   const saveRecord = async () => {
     if (!editing || !detail) return;
     setBusy(true);
@@ -814,7 +813,7 @@ export default function WorkspacesPage() {
                     type="info"
                     showIcon
                     title="实时业务表 · 数据来自现有 CRM"
-                    description="视图可以自定义；核心字段由业务动作控制；展开记录可直接跟进、分配负责人和调整状态。"
+                    description="可在字段配置中新增扩展字段并直接编辑；业务字段由原业务动作控制。"
                   />
                 )}
                 <div className="workspace-toolbar">
@@ -935,7 +934,7 @@ export default function WorkspacesPage() {
                                 className="workspace-field-heading"
                                 onClick={() =>
                                   canManage &&
-                                  detail.table.source === 'CUSTOM' &&
+                                  !f.options.businessKey &&
                                   openDialog({ kind: 'field', field: f })
                                 }
                               >
@@ -978,7 +977,7 @@ export default function WorkspacesPage() {
                               <Button
                                 type="text"
                                 aria-label="新增字段"
-                                disabled={!canManage || detail?.table.source !== 'CUSTOM'}
+                                disabled={!canManage}
                                 onClick={() => openDialog({ kind: 'field' })}
                               >
                                 ＋
@@ -1014,29 +1013,32 @@ export default function WorkspacesPage() {
       >
         {settings === 'fields' ? (
           <Space orientation="vertical" style={{ width: '100%' }}>
-            <Button
-              type="primary"
-              disabled={!canManage || detail?.table.source !== 'CUSTOM'}
-              onClick={() => openDialog({ kind: 'field' })}
-            >
+            <Button type="primary" disabled={!canManage} onClick={() => openDialog({ kind: 'field' })}>
               ＋新增字段
             </Button>
             {fields.map((f) => (
               <div key={f.id} className="workspace-field-row">
                 <span>
                   {f.name}
-                  <small>{fieldNames[f.type] || f.type}</small>
+                  <small>
+                    {fieldNames[f.type] || f.type}
+                    {detail?.table.source !== 'CUSTOM'
+                      ? f.options.businessKey
+                        ? ' · 业务字段（只读）'
+                        : ' · 扩展字段'
+                      : ''}
+                  </small>
                 </span>
                 <Space>
                   <Button
-                    disabled={!canManage || detail?.table.source !== 'CUSTOM'}
+                    disabled={!canManage || !!f.options.businessKey}
                     onClick={() => openDialog({ kind: 'field', field: f })}
                   >
                     配置
                   </Button>
                   <Button
                     danger
-                    disabled={!canManage || f.position === 0 || detail?.table.source !== 'CUSTOM'}
+                    disabled={!canManage || f.position === 0 || !!f.options.businessKey}
                     onClick={() =>
                       Modal.confirm({
                         okText: '确定',
@@ -1180,7 +1182,10 @@ export default function WorkspacesPage() {
             type="primary"
             loading={busy}
             disabled={
-              (detail?.access.level || 0) < 2 || detail?.table.source !== 'CUSTOM' || !!editing?.remote
+              (detail?.access.level || 0) < 2 ||
+              !fields.some((f) => f.writable) ||
+              (editing?.detail?.record.writable ?? editing?.row?.writable) === false ||
+              !!editing?.remote
             }
             onClick={() => {
               void saveRecord();
@@ -1237,10 +1242,18 @@ export default function WorkspacesPage() {
                 <Form.Item key={f.id} label={f.name} required={f.required}>
                   <FieldInput
                     field={f}
-                    value={editing.values[f.id]}
+                    value={
+                      f.options.businessKey
+                        ? (editing.detail?.record.values[f.id] ?? editing.values[f.id])
+                        : editing.values[f.id]
+                    }
                     directory={directory}
                     tableId={tableId}
-                    disabled={!f.writable}
+                    disabled={
+                      !f.writable ||
+                      (editing.detail?.record.writable ?? editing.row?.writable) === false ||
+                      busy
+                    }
                     onChange={(value) =>
                       setEditing((old) => (old ? { ...old, values: { ...old.values, [f.id]: value } } : old))
                     }
@@ -1423,10 +1436,20 @@ export default function WorkspacesPage() {
           {dialog?.kind === 'field' && (
             <>
               <Form.Item name="type" label="字段类型" rules={[{ required: true }]}>
-                <Select options={Object.entries(fieldNames).map(([value, label]) => ({ value, label }))} />
+                <Select
+                  options={Object.entries(fieldNames)
+                    .filter(
+                      ([type]) =>
+                        detail?.table.source === 'CUSTOM' ||
+                        !['CREATED_BY', 'UPDATED_BY', 'CREATED_AT', 'UPDATED_AT'].includes(type),
+                    )
+                    .map(([value, label]) => ({ value, label }))}
+                />
               </Form.Item>
               <Form.Item name="required" valuePropName="checked">
-                <Checkbox>必填</Checkbox>
+                <Checkbox>
+                  {detail?.table.source === 'CUSTOM' ? '必填' : '必填（保存扩展信息时校验）'}
+                </Checkbox>
               </Form.Item>
               <Form.Item noStyle shouldUpdate>
                 {() =>

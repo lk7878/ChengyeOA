@@ -196,6 +196,8 @@ export function fieldExpression(field: CollabField): Prisma.Sql {
   };
   if (system[field.type]) return system[field.type];
   const value = Prisma.sql`r."values" ->> ${field.id}`;
+  if (field.type === 'DATETIME') return Prisma.sql`(${value})::timestamptz`;
+  if (field.type === 'DATE') return Prisma.sql`(${value})::date`;
   return ['NUMBER', 'CURRENCY'].includes(field.type) ? Prisma.sql`(${value})::numeric` : value;
 }
 export function fieldOf(fields: CollabField[], id: unknown): CollabField {
@@ -248,13 +250,20 @@ export function filterSql(
   if (['NUMBER', 'CURRENCY'].includes(field.type) && !/^-?\d+(\.\d+)?$/.test(String(value)))
     fail('COLLAB_INVALID_FILTER');
   if (operator === 'contains') return Prisma.sql`strpos(lower((${expr})::text), lower(${String(value)})) > 0`;
-  if (['CREATED_AT', 'UPDATED_AT'].includes(field.type) && !Number.isFinite(Date.parse(String(value))))
+  if (
+    ['DATE', 'DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(field.type) &&
+    !Number.isFinite(Date.parse(String(value)))
+  )
     fail('COLLAB_INVALID_FILTER');
   const comparison = ['NUMBER', 'CURRENCY'].includes(field.type)
     ? Prisma.sql`${String(value)}::numeric`
-    : ['CREATED_AT', 'UPDATED_AT'].includes(field.type)
-      ? Prisma.sql`${String(value)}::timestamp`
-      : Prisma.sql`${String(value)}`;
+    : field.type === 'DATE'
+      ? Prisma.sql`${String(value)}::date`
+      : field.type === 'DATETIME'
+        ? Prisma.sql`${String(value)}::timestamptz`
+        : ['CREATED_AT', 'UPDATED_AT'].includes(field.type)
+          ? Prisma.sql`${String(value)}::timestamp`
+          : Prisma.sql`${String(value)}`;
   switch (operator) {
     case 'eq':
       return Prisma.sql`${expr} = ${comparison}`;
