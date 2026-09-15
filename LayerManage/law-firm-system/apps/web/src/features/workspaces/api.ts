@@ -20,6 +20,8 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  DRIVE_DEPTH_LIMIT: '文件夹最多支持 8 层，请选择上级目录。',
+  DRIVE_VERSION_CONFLICT: '资源已被修改，请重新打开后重试。',
   COLLAB_DIRECTORY_CONFLICT: '目录已被其他成员修改，已重新加载，请核对后重试。',
   COLLAB_INVALID_DIRECTORY_ORDER: '可管理的表已变化，请重新加载目录。',
   COLLAB_USE_DIRECTORY_ORDER: '请通过目录的拖拽或上移/下移操作调整顺序。',

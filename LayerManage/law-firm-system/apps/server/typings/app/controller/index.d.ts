@@ -14,6 +14,7 @@ import ExportContract from '../../../app/controller/contract';
 import ExportCost from '../../../app/controller/cost';
 import ExportCustomer from '../../../app/controller/customer';
 import ExportDashboard from '../../../app/controller/dashboard';
+import ExportDrive from '../../../app/controller/drive';
 import ExportEmployee from '../../../app/controller/employee';
 import ExportEmployeeAccountBinding from '../../../app/controller/employeeAccountBinding';
 import ExportEmployeeAssignment from '../../../app/controller/employeeAssignment';
@@ -47,6 +48,7 @@ declare module 'egg' {
     cost: ExportCost;
     customer: ExportCustomer;
     dashboard: ExportDashboard;
+    drive: ExportDrive;
     employee: ExportEmployee;
     employeeAccountBinding: ExportEmployeeAccountBinding;
     employeeAssignment: ExportEmployeeAssignment;

@@ -168,6 +168,7 @@ model ProfessionalTeamMember {
 // ==================== 用户/权限模块 ====================
 
 model User {
+  driveNodes         DriveNode[]
   collabWorkspaces   CollabWorkspace[] @relation("CollabOwner")
   id                 String            @id @default(uuid())
   username           String            @unique
@@ -1586,6 +1587,7 @@ model InventoryStocktake {
 
 // SPEC-COLLAB-20260914: independent collaboration data, never copies core business truth.
 model CollabWorkspace {
+  driveNodes     DriveNode[]
   organization   Organization   @relation("CollabOrganization", fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "collab_workspace_org_fk")
   owner          User           @relation("CollabOwner", fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "collab_workspace_owner_fk")
   id             String         @id @default(uuid())
@@ -1620,6 +1622,7 @@ model CollabMember {
 }
 
 model CollabBase {
+  driveNode     DriveNode?
   accessPolicy  Json?
   accessVersion Int              @default(1)
   id            String           @id @default(uuid())
@@ -1632,7 +1635,35 @@ model CollabBase {
   presence      CollabPresence[]
 
   @@unique([workspaceId, name])
+  @@unique([workspaceId, id])
   @@map("collab_base")
+}
+
+// SPEC-DRIVE: directory identity only; Base remains the title/content/ACL authority.
+model DriveNode {
+  id           String          @id @default(uuid())
+  workspaceId  String
+  parentId     String?
+  kind         String
+  folderName   String?
+  baseId       String?         @unique
+  ownerId      String
+  accessPolicy Json?
+  version      Int             @default(1)
+  createdAt    DateTime?
+  cataloguedAt DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  workspace    CollabWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner        User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  base         CollabBase?     @relation(fields: [workspaceId, baseId], references: [workspaceId, id], onDelete: Cascade)
+  parent       DriveNode?      @relation("DriveTree", fields: [workspaceId, parentId], references: [workspaceId, id], onDelete: Restrict)
+  children     DriveNode[]     @relation("DriveTree")
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, baseId])
+  @@unique([workspaceId, parentId, folderName])
+  @@index([workspaceId, ownerId])
+  @@map("drive_node")
 }
 
 model CollabTable {

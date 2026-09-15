@@ -1,11 +1,11 @@
 # 云盘 G1 技术契约
 
-日期：2026-09-15。对应 [SPEC-DRIVE-20260915](2026-09-15-feishu-cloud-drive-resource-center.md)。本契约先于实现落盘，实施和验收状态见[计划](../plans/2026-09-15-feishu-cloud-drive-resource-center.md)。当前第七批负载仍在独立运行；本文不改变该次运行结果。
+日期：2026-09-15。对应 [SPEC-DRIVE-20260915](2026-09-15-feishu-cloud-drive-resource-center.md)。本契约先于实现落盘，实施和验收状态见[计划](../plans/2026-09-15-feishu-cloud-drive-resource-center.md)。第七批负载已通过并提交 172f126d；新增文件夹链的 G1 持续验收单独记录。
 
 ## 1. 资源身份及迁移
 
 - 新增统一 `DriveNode` 目录节点，类型首批只开放 `FOLDER` / `BASE`。字段包括稳定 ID、workspaceId、parentId、ownerId、目录元数据版本、创建/目录修改时间，以及 folderName / baseId / accessPolicy 等类型专属字段。
-- BASE 节点 ID 与 baseId 相同，baseId 唯一；标题仅来自 `CollabBase.name`，应用权限仅来自 `CollabBase.accessPolicy/accessVersion`。不得在目录节点复制标题、表、视图、记录或业务权限。FOLDER 使用自身名称、版本和策略，不能关联 Base。
+- BASE 节点 ID 与 baseId 相同，baseId 唯一；标题仅来自 `CollabBase.name`，应用权限仅来自 `CollabBase.accessPolicy/accessVersion`。不得在目录节点复制标题、表、视图、记录或业务权限。FOLDER 使用自身名称、版本和策略，不能关联 Base。沿用既有 Base 名称在工作区内唯一的约束；文件夹名称在同一父级下唯一。
 - parentId 只能指向同工作区的 FOLDER；数据库保留 FK/类型约束，服务在工作区写锁内校验父节点和深度。首批最大 8 层；移动接口不开放，因此无法通过编辑 parentId 形成环。
 - 旧 Base 幂等回填为根目录 BASE 节点，沿用原 ID 和全部 ACL；ownerId 取既有工作区负责人，用于归类，不额外授予权限。历史 Base 没有可信创建时间时保持未知，不伪造原始创建日期。迁移重复执行不得创建重复节点。
 - BASE 列表修改时间取目录元数据与当前应用最新协作事件的较晚值，不在每次记录保存时更新同一目录行，避免将多人写入重新串行化。FOLDER 修改时间只代表目录元数据变化。

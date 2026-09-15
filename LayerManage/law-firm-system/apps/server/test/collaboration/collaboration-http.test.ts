@@ -84,6 +84,19 @@ test.after(async () => {
 
 test('authenticated HTTP writes persist; invalid input and unauthorized access are denied', async () => {
   await app.httpRequest().get('/api/v1/workspaces').expect(401);
+  await app
+    .httpRequest()
+    .get('/api/v1/workspaces/' + workspaceId + '/drive')
+    .expect(401);
+  await app
+    .httpRequest()
+    .post('/api/v1/workspaces/' + workspaceId + '/drive/folders')
+    .send({ name: '未登录' })
+    .expect(401);
+  await app
+    .httpRequest()
+    .get('/api/v1/drive/nodes/' + baseId)
+    .expect(401);
   const created = await app
     .httpRequest()
     .post('/api/v1/tables/' + tableId + '/records')
@@ -724,6 +737,258 @@ test(
           console.error('Browser failure page:', await page.locator('body').innerText());
         }
       throw error;
+    } finally {
+      await browser.close();
+      await vite.close();
+    }
+  },
+);
+
+test(
+  'cloud drive uses one UI for three roles, preserves editor identity and clears ancestor revocation',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 240000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web');
+    const load = new Function('url', 'return import(url)');
+    const { chromium } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const errors: string[] = [];
+    const api = (method: 'get' | 'post' | 'patch', route: string, bearer = token, body?: unknown) => {
+      const request = app.httpRequest();
+      const call = request[method]('/api/v1' + route)
+        .set('Authorization', 'Bearer ' + bearer)
+        .set('Idempotency-Key', randomUUID());
+      return body === undefined ? call : call.send(body);
+    };
+    try {
+      const manager = await db.user.create({
+        data: { username: 'drive-manager', password: 'unused', mustChangePassword: false },
+      });
+      const managerToken = (await createApiSession(db, manager.id)).token;
+      await db.collabMember.create({
+        data: { workspaceId, principalId: manager.id, role: 'MANAGER', rowScope: 'ALL', canCreate: true },
+      });
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: editor },
+        data: { rowScope: 'SELF' },
+      });
+      const pages = [];
+      for (const [id, accessToken] of [
+        [owner, token],
+        [editor, editorToken],
+        [manager.id, managerToken],
+      ]) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          (session: unknown) => {
+            window.collabTestSession = session;
+          },
+          {
+            mode: 'AUTHENTICATED',
+            token: accessToken,
+            csrfToken: 'test',
+            expiresIn: 900,
+            user: { id, username: id, name: '测试成员', roles: [], permissions: [] },
+          },
+        );
+        const page = await context.newPage();
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [p1, p2, p3] = pages;
+      const address = vite.resolvedUrls.local[0] + 'e2e/workspace.html?workspace=' + workspaceId;
+      await Promise.all(pages.map((page) => page.goto(address)));
+      for (const page of pages) await page.getByRole('heading', { name: '云盘', exact: true }).waitFor();
+      assert.equal(await p2.getByRole('button', { name: '新建', exact: true }).isDisabled(), true);
+      await p1.getByRole('button', { name: '新建', exact: true }).click();
+      await p1.getByRole('menuitem', { name: '新建文件夹', exact: true }).click();
+      await p1.getByRole('textbox', { name: '名称', exact: true }).fill('团队资料');
+      await p1
+        .locator('.ant-modal')
+        .getByRole('button', { name: /^保\s*存$/ })
+        .click();
+      await p1.getByRole('button', { name: /团队资料 文件夹/ }).waitFor();
+      assert.equal(await p2.getByRole('button', { name: /团队资料 文件夹/ }).count(), 0);
+      const folder = await db.driveNode.findFirstOrThrow({ where: { workspaceId, folderName: '团队资料' } });
+      // A resource is private at creation; the owner shares it using the actual permission panel.
+      await api('get', '/drive/folders/' + folder.id + '/access', editorToken).expect(403);
+      await p1.getByRole('button', { name: '团队资料操作', exact: true }).click();
+      await p1.getByRole('menuitem', { name: '分享与权限', exact: true }).click();
+      await p1.getByRole('button', { name: '文件夹权限', exact: true }).click();
+      await p1.getByRole('checkbox', { name: '启用独立授权名单', exact: true }).uncheck();
+      let dropped = false;
+      const shareKeys: string[] = [];
+      const shareRoute = '**/api/v1/drive/folders/' + folder.id + '/access';
+      await p1.route(
+        shareRoute,
+        async (route: {
+          request: () => { method: () => string; headers: () => Record<string, string> };
+          fetch: () => Promise<{ status: () => number }>;
+          fulfill: (value: unknown) => Promise<void>;
+          continue: () => Promise<void>;
+        }) => {
+          if (route.request().method() === 'POST') {
+            shareKeys.push(route.request().headers()['idempotency-key']);
+            if (!dropped) {
+              dropped = true;
+              const real = await route.fetch();
+              assert.equal(real.status(), 200);
+              await route.fulfill({
+                status: 503,
+                contentType: 'application/json',
+                body: '{"message":"response_lost"}',
+              });
+              return;
+            }
+          }
+          await route.continue();
+        },
+      );
+      await p1.getByRole('button', { name: '保存权限', exact: true }).click();
+      await p1.locator('.ant-modal').getByText('请求未完成，请检查连接后重试。', { exact: true }).waitFor();
+      await p1.screenshot({
+        path: path.resolve(process.cwd(), '../../var/collaboration-evidence/g1-retry-dialog.png'),
+      });
+      await p1.getByRole('button', { name: '保存权限', exact: true }).click();
+      await p1.getByRole('button', { name: '保存权限', exact: true }).waitFor({ state: 'hidden' });
+      assert.equal(shareKeys.length, 2);
+      assert.ok(shareKeys[0] && shareKeys[0] === shareKeys[1]);
+      assert.equal(
+        await db.operationLog.count({ where: { action: 'drive.folder.access', targetId: folder.id } }),
+        1,
+      );
+      await p1.unroute(shareRoute);
+      await Promise.all(
+        [p2, p3].map((p) => p.getByRole('button', { name: /团队资料 文件夹/ }).waitFor({ timeout: 5000 })),
+      );
+      await p1.getByRole('button', { name: '我的资源', exact: true }).click();
+      await p1.getByRole('button', { name: /团队资料 文件夹/ }).click();
+      await p1.getByRole('button', { name: '卡片布局', exact: true }).click();
+      await p1.getByRole('button', { name: '新建', exact: true }).click();
+      await p1.getByRole('menuitem', { name: '新建多维表格', exact: true }).click();
+      await p1.getByRole('textbox', { name: '名称', exact: true }).fill('共享项目');
+      await p1
+        .locator('.ant-modal')
+        .getByRole('button', { name: /^保\s*存$/ })
+        .click();
+      await p1.getByRole('button', { name: '添加记录', exact: true }).waitFor();
+      const newBase = new URL(p1.url()).searchParams.get('base')!;
+      const newTable = new URL(p1.url()).searchParams.get('table')!;
+      const title = await db.collabField.findFirstOrThrow({ where: { tableId: newTable } });
+      await api('post', '/tables/' + newTable + '/records', token, {
+        values: { [title.id]: '负责人记录' },
+        schemaVersion: 1,
+      }).expect(200);
+      await api('post', '/tables/' + newTable + '/records', editorToken, {
+        values: { [title.id]: '本人记录' },
+        schemaVersion: 1,
+      }).expect(200);
+      await p1.getByRole('button', { name: '承业 · 云盘', exact: true }).click();
+      assert.equal(new URL(p1.url()).searchParams.get('folder'), folder.id);
+      await p1.getByRole('button', { name: '卡片布局', exact: true }).waitFor();
+      assert.equal(
+        await p1.getByRole('button', { name: '卡片布局', exact: true }).getAttribute('aria-pressed'),
+        'true',
+      );
+      for (const page of [p2, p3]) {
+        await page.getByRole('button', { name: '与我共享', exact: true }).click();
+        await page.getByRole('button', { name: /团队资料 文件夹/ }).click();
+        await page.getByRole('button', { name: /共享项目 多维表格/ }).click();
+        await page.waitForURL((url: URL) => url.searchParams.get('base') === newBase);
+        assert.equal(new URL(page.url()).searchParams.get('base'), newBase);
+      }
+      await p2.getByRole('button', { name: '标题：本人记录', exact: true }).waitFor();
+      assert.equal(await p2.getByRole('button', { name: '标题：负责人记录', exact: true }).count(), 0);
+      await p3.getByRole('button', { name: '标题：负责人记录', exact: true }).waitFor();
+      await p3.getByRole('button', { name: '标题：本人记录', exact: true }).waitFor();
+      await p1.getByRole('button', { name: '共享项目操作', exact: true }).click();
+      await p1.getByRole('menuitem', { name: '重命名', exact: true }).click();
+      await p1.getByRole('textbox', { name: '名称', exact: true }).fill('共享项目改名');
+      await p1
+        .locator('.ant-modal')
+        .getByRole('button', { name: /^保\s*存$/ })
+        .click();
+      await p3
+        .locator('.workspace-top')
+        .getByText('共享项目改名', { exact: true })
+        .waitFor({ timeout: 5000 });
+      await p2.getByRole('button', { name: '承业 · 云盘', exact: true }).click();
+      await p2.getByRole('button', { name: '共享项目改名操作', exact: true }).click();
+      await p2.getByRole('menuitem', { name: '分享与权限', exact: true }).click();
+      await p2.locator('.ant-drawer').getByText('仅可查看本人录入的记录。', { exact: true }).waitFor();
+      assert.equal(await p2.getByRole('button', { name: '应用权限', exact: true }).count(), 0);
+      const revokedAt = Date.now();
+      await api('post', '/drive/folders/' + folder.id + '/access', token, {
+        version: 2,
+        policy: { restricted: true, grants: [] },
+      }).expect(200);
+      await Promise.all([
+        p2.getByRole('button', { name: /共享项目改名 多维表格/ }).waitFor({ state: 'hidden', timeout: 5000 }),
+        p3
+          .getByRole('button', { name: '标题：负责人记录', exact: true })
+          .waitFor({ state: 'hidden', timeout: 5000 }),
+      ]);
+      assert.ok(Date.now() - revokedAt < 5000);
+      await p2
+        .locator('.ant-drawer-body')
+        .getByRole('heading', { name: '共享项目改名', exact: true })
+        .waitFor({ state: 'hidden', timeout: 5000 });
+      assert.equal(await p3.locator('.workspace-top').getByText('共享项目改名', { exact: true }).count(), 0);
+      for (const route of ['/drive/nodes/' + newBase, '/bases/' + newBase + '/tables', '/tables/' + newTable])
+        await api('get', route, editorToken).expect(403);
+      await api('post', '/tables/' + newTable + '/records/query', editorToken, {}).expect(403);
+      await api('post', '/tables/' + newTable + '/records', editorToken, {
+        values: { [title.id]: '越权' },
+        schemaVersion: 1,
+      }).expect(403);
+      const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence');
+      await mkdir(evidence, { recursive: true });
+      for (const width of [1440, 1024, 390]) {
+        await p1.setViewportSize({ width, height: 900 });
+        if (width === 390) {
+          await p1.getByRole('button', { name: '目录', exact: true }).click();
+          await p1.locator('.ant-drawer-title').getByText('资源目录', { exact: true }).waitFor();
+          await p1.locator('.ant-drawer-close').click();
+          await p1
+            .locator('.ant-drawer-body')
+            .getByRole('searchbox', { name: '搜索资源', exact: true })
+            .waitFor({ state: 'hidden' });
+        }
+        const overflow = await p1.evaluate(
+          () => document.documentElement.scrollWidth > window.innerWidth + 1,
+        );
+        assert.equal(overflow, false, 'cloud drive overflow at ' + width);
+        await p1.screenshot({ path: path.join(evidence, 'drive-' + width + '.png'), fullPage: true });
+      }
+      // A temporary failure offers an explicit retry and never leaves a stale listing visible.
+      await p1.route(
+        '**/api/v1/workspaces/*/drive?*',
+        (route: { fulfill: (value: unknown) => Promise<void> }) =>
+          route.fulfill({ status: 503, contentType: 'application/json', body: '{"message":"unavailable"}' }),
+      );
+      await p1.getByRole('button', { name: '重试', exact: true }).waitFor({ timeout: 5000 });
+      await p1.unroute('**/api/v1/workspaces/*/drive?*');
+      await p1.getByRole('button', { name: '重试', exact: true }).click();
+      await p1.getByRole('button', { name: /共享项目改名 多维表格/ }).waitFor();
+      await p1.setViewportSize({ width: 1440, height: 1000 });
+      await p1.getByRole('searchbox', { name: '搜索资源', exact: true }).fill('无匹配资源');
+      await p1.getByRole('searchbox', { name: '搜索资源', exact: true }).press('Enter');
+      await p1.getByText('暂无可访问的资源', { exact: true }).waitFor();
+      assert.deepEqual(errors, []);
     } finally {
       await browser.close();
       await vite.close();

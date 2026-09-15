@@ -8,6 +8,14 @@ export default (app: Application) => {
 
   // SPEC-COLLAB: authenticated endpoints; services enforce resource permissions.
   router.get('/api/v1/workspaces', controller.collaboration.index);
+  router.get('/api/v1/workspaces/:workspaceId/drive', controller.drive.index);
+  router.get('/api/v1/workspaces/:workspaceId/drive/folders', controller.drive.folders);
+  router.post('/api/v1/workspaces/:workspaceId/drive/folders', controller.drive.createFolder);
+  router.post('/api/v1/workspaces/:workspaceId/drive/bases', controller.drive.createBase);
+  router.get('/api/v1/drive/nodes/:nodeId', controller.drive.node);
+  router.patch('/api/v1/drive/nodes/:nodeId', controller.drive.rename);
+  router.get('/api/v1/drive/folders/:folderId/access', controller.drive.access);
+  router.post('/api/v1/drive/folders/:folderId/access', controller.drive.saveAccess);
   router.post('/api/v1/workspaces', controller.collaboration.createWorkspace);
   router.get('/api/v1/collaboration/options', controller.collaboration.options);
   router.post('/api/v1/workspaces/:workspaceId/bases', controller.collaboration.createBase);

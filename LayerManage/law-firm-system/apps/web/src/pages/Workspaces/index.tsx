@@ -1,3 +1,4 @@
+import CloudDrivePage from '@/features/drive/CloudDrivePage';
 import { BusinessRecord } from '@/features/workspaces/BusinessRecord';
 import { ResourceAccess } from '@/features/workspaces/ResourceAccess';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -80,6 +81,11 @@ type Editing = {
 };
 
 export default function WorkspacesPage() {
+  const [params] = useSearchParams();
+  return params.get('base') ? <WorkspaceEditor /> : <CloudDrivePage />;
+}
+
+function WorkspaceEditor() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const baseId = params.get('base') || '';
@@ -183,6 +189,8 @@ export default function WorkspacesPage() {
         if (alive) {
           setQueryError(errorMessage(e));
           if (draftRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
+          setBase(undefined);
+          setBaseAccess(undefined);
           setTables([]);
           setDetail(undefined);
           setResult(undefined);
@@ -309,6 +317,11 @@ export default function WorkspacesPage() {
             }
             if (kind === 'presence') setOnline((payload as { users: { id: string; name: string }[] }).users);
             if (kind === 'revoked') {
+              setBase(undefined);
+              setBaseAccess(undefined);
+              setSettings(null);
+              setDialog(undefined);
+              refresh();
               setDetail(undefined);
               setResult(undefined);
               setInlineDirty(false);
@@ -359,6 +372,7 @@ export default function WorkspacesPage() {
     };
   }, [baseId, tableId, refresh]);
   const go = (next: Record<string, string>) => {
+    if (next.base && params.get('driveReturn')) next.driveReturn = params.get('driveReturn')!;
     setAnchor(undefined);
     setPaste(undefined);
     if (configDirty || editing || inlineDirty) {
@@ -830,8 +844,19 @@ export default function WorkspacesPage() {
             OA
           </Button>
           <AppstoreOutlined />
-          <button className="workspace-home" onClick={() => go({})}>
-            承业 · 协作工作区
+          <button
+            className="workspace-home"
+            onClick={() =>
+              go(
+                Object.fromEntries(
+                  new URLSearchParams(
+                    params.get('driveReturn') || (base?.workspaceId ? 'workspace=' + base.workspaceId : ''),
+                  ),
+                ),
+              )
+            }
+          >
+            承业 · 云盘
           </button>
           {base && (
             <>

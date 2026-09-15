@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Checkbox, Modal, Select, Space, Spin, Typography } from 'antd';
 import { errorMessage, get, post } from './api';
 import type { Directory, Field, Member } from './types';
@@ -12,11 +12,13 @@ interface Snapshot {
 export function ResourceAccess({
   baseId,
   tableId,
+  folderId,
   directory,
   fields,
   onSaved,
 }: {
-  baseId: string;
+  baseId?: string;
+  folderId?: string;
   tableId?: string;
   directory: Directory;
   fields: Field[];
@@ -26,6 +28,7 @@ export function ResourceAccess({
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const mutationKey = useRef(crypto.randomUUID());
   useEffect(() => {
     if (!target) return;
     let alive = true;
@@ -41,6 +44,7 @@ export function ResourceAccess({
     };
   }, [target]);
   const open = (url: string) => {
+    mutationKey.current = crypto.randomUUID();
     setSnapshot(undefined);
     setError('');
     setTarget(url);
@@ -56,6 +60,7 @@ export function ResourceAccess({
     ).find((o) => o.id === m.principalId)?.name || m.principalId;
   const update = (member: Member, patch?: Partial<Grant>) => {
     if (!snapshot) return;
+    mutationKey.current = crypto.randomUUID();
     const matches = (g: Grant) =>
       g.principalType === member.principalType && g.principalId === member.principalId;
     const existing = snapshot.policy.grants.find(matches);
@@ -76,10 +81,11 @@ export function ResourceAccess({
   };
   return (
     <>
-      <Button onClick={() => open('/bases/' + baseId + '/access')}>应用权限</Button>
+      {baseId && <Button onClick={() => open('/bases/' + baseId + '/access')}>应用权限</Button>}
+      {folderId && <Button onClick={() => open('/drive/folders/' + folderId + '/access')}>文件夹权限</Button>}
       {tableId && <Button onClick={() => open('/tables/' + tableId + '/access')}>表权限</Button>}
       <Modal
-        title={target?.startsWith('/tables/') ? '数据表权限' : '应用权限'}
+        title={folderId ? '文件夹权限' : target?.startsWith('/tables/') ? '数据表权限' : '应用权限'}
         open={!!target}
         width={720}
         okText="保存权限"
@@ -92,7 +98,7 @@ export function ResourceAccess({
           setSaving(true);
           setError('');
           try {
-            await post(target, { version: snapshot.version, policy: snapshot.policy });
+            await post(target, { version: snapshot.version, policy: snapshot.policy }, mutationKey.current);
             setTarget(undefined);
             onSaved();
           } catch (e) {
@@ -106,7 +112,7 @@ export function ResourceAccess({
           type="info"
           showIcon
           title="权限与上级取交集；禁止访问优先。工作区负责人保留管理权限。"
-          description="名单仅包含工作区已有成员。启用独立名单后，未列入者无法访问；不能在这里扩大上级或 CRM 业务权限。"
+          description="名单包含工作区成员与资源创建者；创建者仍受工作区权限限制。启用独立名单后，未列入者无法访问；不能在这里扩大上级或 CRM 业务权限。"
         />
         {error && <Alert type="error" title={error} />}
         {!snapshot ? (
@@ -116,9 +122,10 @@ export function ResourceAccess({
             <Checkbox
               style={{ margin: '16px 0' }}
               checked={snapshot.policy.restricted}
-              onChange={(e) =>
-                setSnapshot({ ...snapshot, policy: { ...snapshot.policy, restricted: e.target.checked } })
-              }
+              onChange={(e) => {
+                mutationKey.current = crypto.randomUUID();
+                setSnapshot({ ...snapshot, policy: { ...snapshot.policy, restricted: e.target.checked } });
+              }}
             >
               启用独立授权名单
             </Checkbox>
@@ -131,7 +138,10 @@ export function ResourceAccess({
                 return (
                   <div key={member.id} style={{ borderTop: '1px solid #eee', padding: '12px 0' }}>
                     <Space wrap>
-                      <Typography.Text>{name(member)}</Typography.Text>
+                      <Typography.Text>
+                        {name(member)}
+                        {member.id.startsWith('resource-creator:') ? '（资源创建者）' : ''}
+                      </Typography.Text>
                       <Select
                         aria-label={name(member) + '权限'}
                         style={{ width: 150 }}

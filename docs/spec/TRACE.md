@@ -118,6 +118,14 @@ last_updated: 2026-09-15
 
 [客户管理规格](../superpowers/specs/2026-09-14-customer-management-crud.md)与[实施记录](../superpowers/plans/2026-09-14-customer-management-crud.md)：列表查询/修改/删除入口、编辑版本保护和可选字段清空、独立删除权限、业务关联保护及事务软删除，对应 MOD-005。
 
-## SPEC-DRIVE-20260915（G0 契约完成，G1 待实施）
+## SPEC-DRIVE-20260915（G1 云盘最小闭环）
 
-[云盘资源中心规格](../superpowers/specs/2026-09-15-feishu-cloud-drive-resource-center.md)、[G1 资源与权限技术契约](../superpowers/specs/2026-09-15-cloud-drive-g1-contract.md)及[任务计划](../superpowers/plans/2026-09-15-feishu-cloud-drive-resource-center.md)承接统一界面要求，对应 MOD-002 CFG-22、MOD-001 ORG-14 及 FTN-001/003/004/005。目录与 Base/表/视图分层、文件夹共享、旧资源稳定接入和祖先鉴权均已规格化，尚未作为已实现功能验收。原第七批性能提交为 172f126d，100 会话/900 秒负载已通过；该证据不等于新增云盘完成。
+[云盘资源中心规格](../superpowers/specs/2026-09-15-feishu-cloud-drive-resource-center.md)、[G1 资源与权限技术契约](../superpowers/specs/2026-09-15-cloud-drive-g1-contract.md)及[任务计划](../superpowers/plans/2026-09-15-feishu-cloud-drive-resource-center.md)承接统一界面要求，对应 MOD-002 CFG-22、MOD-001 ORG-14 及 FTN-001/003/004/005。目录与 Base/表/视图分层、文件夹共享、旧资源稳定接入和祖先鉴权均已实现。前置提交为 172f126d（B7 性能）及 faa2586（G0 契约）。G1 在 8 层目录下重新通过 100 会话/900 秒持续负载，3,600 次保存全部成功；服务 41/41、相关前端 21 项及真实浏览器流程的证据见实施计划。移动、快捷方式、回收站、上传与文档协作不在 G1 完成范围。
+
+
+| G1 验收 | 代码与验证定位 |
+|---|---|
+| DRIVE-AC-01/02/04/08 | `CloudDrivePage.tsx`、`WorkspaceMembers.tsx` 与原 Workspaces 编辑器；三角色和同资源返回浏览器流程 |
+| DRIVE-AC-03 | `DriveNode`、`20260915120000_cloud_drive_catalog`；旧 Base 接入和重入测试 |
+| DRIVE-AC-05/06 | `resource-access.ts` / `folder-access.ts`、原内容入口；SELF、祖先撤权、附件/关联、HTTP/SSE 验证 |
+| DRIVE-AC-09/10 | `collaboration-load.test.ts`（8 层目录、100 会话、900 秒）及原协作/业务回归；详细环境和限制见实施计划 |

@@ -34,14 +34,19 @@ import {
   ViewConfig,
 } from './collaboration-policy';
 
-import { accessInput, resourcePolicy } from './resource-access';
+import {
+  accessInput,
+  resourcePolicy,
+  resourceLevels as levels,
+  restrictResourceAccess,
+} from './resource-access';
+import { FolderAncestor, folderChainSql, inheritFolders } from './folder-access';
 
 type Tx = Prisma.TransactionClient;
 type MemberAccess = Pick<
   CollabMember,
   'role' | 'canCreate' | 'rowScope' | 'canManageAccess' | 'hiddenFields' | 'readonlyFields'
 >;
-const levels: Record<string, number> = { READER: 1, EDITOR: 2, MANAGER: 3, OWNER: 4 };
 export interface Access {
   level: number;
   canCreate: boolean;
@@ -58,7 +63,7 @@ export class CollaborationService {
     readonly db: PrismaClient,
     readonly actor: AuthorizationContext,
   ) {}
-  private async principals(tx: Tx): Promise<Array<{ principalType: string; principalId: string }>> {
+  protected async principals(tx: Tx): Promise<Array<{ principalType: string; principalId: string }>> {
     const result = [{ principalType: 'USER', principalId: this.actor.userId }];
     if (!this.actor.employeeId) return result;
     const employee = await tx.employee.findFirst({
@@ -135,28 +140,21 @@ export class CollaborationService {
     currentPrincipals?: Awaited<ReturnType<CollaborationService['principals']>>,
   ): Promise<Access> {
     if (parent.level === 4) return parent;
-    const policy = resourcePolicy(raw);
-    const principals = currentPrincipals ?? (await this.principals(tx));
-    const grants = policy.grants.filter((g) =>
-      principals.some((p) => p.principalType === g.principalType && p.principalId === g.principalId),
-    );
-    if (grants.some((g) => g.role === 'DENY') || (policy.restricted && !grants.length))
-      fail('COLLAB_FORBIDDEN', 403);
-    if (!grants.length) return parent;
-    return {
-      ...parent,
-      level: Math.min(parent.level, Math.max(...grants.map((g) => levels[g.role] ?? 0))),
-      canCreate:
-        parent.canCreate && grants.some((g) => levels[g.role] >= 3 || (levels[g.role] >= 2 && g.canCreate)),
-      selfOnly: parent.selfOnly || grants.every((g) => g.rowScope === 'SELF'),
-      hidden: [...new Set([...parent.hidden, ...grants.flatMap((g) => g.hiddenFields)])],
-      readonly: [...new Set([...parent.readonly, ...grants.flatMap((g) => g.readonlyFields)])],
-    };
+    return restrictResourceAccess(parent, raw, currentPrincipals ?? (await this.principals(tx)));
   }
   async baseAccess(baseId: string, tx: Tx = this.db, level = 1) {
     const base = await tx.collabBase.findUnique({ where: { id: baseId } });
     if (!base) fail('COLLAB_NOT_FOUND', 404);
-    const access = await this.restrict(await this.access(base.workspaceId, tx), base.accessPolicy, tx);
+    const parent = await this.access(base.workspaceId, tx);
+    const principals = await this.principals(tx);
+    const [path] = await tx.$queryRaw<Array<{ chain: FolderAncestor[] }>>(
+      Prisma.sql`SELECT ${folderChainSql(Prisma.sql`${baseId}`)} AS chain`,
+    );
+    const access = restrictResourceAccess(
+      inheritFolders(parent, path.chain, principals),
+      base.accessPolicy,
+      principals,
+    );
     if (access.level < level) fail('COLLAB_FORBIDDEN', 403);
     return { base, access };
   }
@@ -179,6 +177,7 @@ export class CollaborationService {
           _basePolicy: Prisma.JsonValue;
           _members: MemberAccess[];
           _fields: CollabField[];
+          _folderChain: FolderAncestor[];
         }
       >
     >(Prisma.sql`
@@ -191,15 +190,17 @@ export class CollaborationService {
           withFields
             ? Prisma.sql`(SELECT COALESCE(jsonb_agg(to_jsonb(f) ORDER BY f.position), '[]'::jsonb) FROM collab_field f WHERE f."tableId" = t.id)`
             : Prisma.sql`'[]'::jsonb`
-        } AS "_fields"
+        } AS "_fields",
+        ${folderChainSql(Prisma.sql`b.id`)} AS "_folderChain"
       FROM collab_table t JOIN collab_base b ON b.id = t."baseId"
       JOIN collab_workspace w ON w.id = b."workspaceId" WHERE t.id = ${tableId}
     `);
     const row = rows[0];
     if (!row || (row.archived && !allowArchived)) fail('COLLAB_NOT_FOUND', 404);
-    const { _workspaceId, _organizationId, _basePolicy, _members, _fields, ...definition } = row;
+    const { _workspaceId, _organizationId, _basePolicy, _members, _fields, _folderChain, ...definition } =
+      row;
     const parent = await this.restrict(
-      this.memberAccess(_workspaceId, _organizationId, _members),
+      inheritFolders(this.memberAccess(_workspaceId, _organizationId, _members), _folderChain, principals),
       _basePolicy,
       tx,
       principals,
@@ -208,6 +209,7 @@ export class CollaborationService {
     if (
       !definition.accessPolicy &&
       !_basePolicy &&
+      _folderChain.every((folder) => !folder.accessPolicy) &&
       definition.createdBy === this.actor.userId &&
       parent.level >= 2 &&
       parent.canCreate
@@ -229,10 +231,32 @@ export class CollaborationService {
           : new WorkspaceBusinessTable(this.db, this.actor).visibleFields(table.source, visible),
     };
   }
-  private async requireAccessAdmin(workspaceId: string, tx: Tx = this.db) {
+  protected async requireAccessAdmin(workspaceId: string, tx: Tx = this.db) {
     const access = await this.access(workspaceId, tx);
     if (!access.canManageAccess) fail('COLLAB_FORBIDDEN', 403);
     return access;
+  }
+  protected async resourceMembers(workspaceId: string, creators: string[], tx: Tx = this.db) {
+    const members = await tx.collabMember.findMany({ where: { workspaceId } });
+    for (const principalId of new Set(creators)) {
+      if (!members.some((m) => m.principalType === 'USER' && m.principalId === principalId)) {
+        // A selector for an existing resource creator, never a new workspace grant.
+        members.push({
+          id: 'resource-creator:' + principalId,
+          workspaceId,
+          principalId,
+          principalType: 'USER',
+          role: 'MANAGER',
+          rowScope: 'SELF',
+          canCreate: true,
+          canManageAccess: false,
+          hiddenFields: [],
+          readonlyFields: [],
+          version: 1,
+        });
+      }
+    }
+    return members;
   }
   private async resource(kind: 'BASE' | 'TABLE', id: string, tx: Tx) {
     const table = kind === 'TABLE' ? await tx.collabTable.findUnique({ where: { id } }) : null;
@@ -241,14 +265,19 @@ export class CollaborationService {
     });
     if (!base || (kind === 'TABLE' && !table)) fail('COLLAB_NOT_FOUND', 404);
     await this.requireAccessAdmin(base.workspaceId, tx);
-    return { target: table ?? base, base };
+    const node = await tx.driveNode.findUnique({ where: { baseId: base.id }, select: { ownerId: true } });
+    return {
+      target: table ?? base,
+      base,
+      creators: [...(node ? [node.ownerId] : []), ...(table ? [table.createdBy] : [])],
+    };
   }
   async resourceAccess(kind: 'BASE' | 'TABLE', id: string) {
-    const { target, base } = await this.resource(kind, id, this.db);
+    const { target, base, creators } = await this.resource(kind, id, this.db);
     return {
       version: target.accessVersion,
       policy: resourcePolicy(target.accessPolicy),
-      members: await this.db.collabMember.findMany({ where: { workspaceId: base.workspaceId } }),
+      members: await this.resourceMembers(base.workspaceId, creators),
     };
   }
   async saveResourceAccess(kind: 'BASE' | 'TABLE', id: string, raw: unknown, key: unknown) {
@@ -256,9 +285,9 @@ export class CollaborationService {
     const initial = await this.resource(kind, id, this.db);
     return this.write(key, ['resource.access', kind, id, input], async (tx) => {
       await this.lock(tx, initial.base.workspaceId);
-      const { target, base } = await this.resource(kind, id, tx);
+      const { target, base, creators } = await this.resource(kind, id, tx);
       if (target.accessVersion !== input.version) fail('COLLAB_ACCESS_CONFLICT', 409);
-      const members = await tx.collabMember.findMany({ where: { workspaceId: base.workspaceId } });
+      const members = await this.resourceMembers(base.workspaceId, creators, tx);
       for (const grant of input.policy.grants) {
         if (
           !members.some(
@@ -286,12 +315,12 @@ export class CollaborationService {
       return { id, version: target.accessVersion + 1 };
     });
   }
-  private async lock(tx: Tx, workspaceId: string, shared = false) {
+  protected async lock(tx: Tx, workspaceId: string, shared = false) {
     await tx.$queryRaw(
       Prisma.sql`SELECT id FROM collab_workspace WHERE id = ${workspaceId} ${shared ? Prisma.sql`FOR SHARE` : Prisma.sql`FOR UPDATE`}`,
     );
   }
-  private async write<T>(
+  protected async write<T>(
     key: unknown,
     payload: unknown,
     callback: (tx: Tx) => Promise<T>,
@@ -327,7 +356,7 @@ export class CollaborationService {
       throw error;
     }
   }
-  private async event(tx: Tx, baseId: string, kind: string, targetId: string) {
+  protected async event(tx: Tx, baseId: string, kind: string, targetId: string) {
     await Promise.all([
       tx.collabEvent.create({ data: { baseId, kind } }),
       new PrismaEventOutboxWriter().append(tx, {
@@ -426,6 +455,16 @@ export class CollaborationService {
       await this.lock(tx, workspaceId);
       await this.access(workspaceId, tx, 3);
       const base = await tx.collabBase.create({ data: { workspaceId, name: text(input.name) } });
+      await tx.driveNode.create({
+        data: {
+          id: base.id,
+          baseId: base.id,
+          workspaceId,
+          kind: 'BASE',
+          ownerId: this.actor.userId,
+          createdAt: new Date(),
+        },
+      });
       await this.event(tx, base.id, 'base.created', base.id);
       return { id: base.id };
     });

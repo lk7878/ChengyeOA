@@ -8,7 +8,7 @@ last_updated: 2026-09-15
 
 # SPEC-DRIVE-20260915：飞书式云盘资源中心与统一协作界面
 
-需求方向已由用户确认并授权交回主会话实施；本规格新增能力尚未实现或验收。技术细节须由主会话结合最新源码补齐后实施，不因本文状态而视为功能已完成。任何后续行为变更先更新规格及验收，再修改实现。
+需求方向已由用户确认并授权实施。G0 契约已完成，G1 云盘最小闭环已实现并通过本地验收；G2/G3 仍为后续范围。最新检查与完成边界见实施计划，不以规格 approved 状态代表全部功能已交付。任何后续行为变更先更新规格及验收，再修改实现。
 
 ## 1. 需求来源、定位和承接关系
 
@@ -96,14 +96,14 @@ G1 的资源身份、迁移回退、权限决策表、API 和验收条件见[云
 
 ## 6. 当前源码事实与性能依赖
 
-本节是侧会话读取时的快照，主会话实施前按最新代码更新，不将分析建议当作现存缺陷证明。
+本节保留侧会话分析来源，以下按 G1 实施更新。
 
 - [现有模型](../../../LayerManage/law-firm-system/apps/server/prisma/schema.prisma)已有 Workspace/Base/Table/Field/View/Record 以及成员、数据范围、字段限制等底座。
-- [工作区前端](../../../LayerManage/law-firm-system/apps/web/src/pages/Workspaces/index.tsx)首页仍以工作区和应用列表为主，缺少统一云盘目录；内部编辑器可复用。
-- [权限服务](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/collaboration-service.ts)已有逐层限制；新增文件夹授权须接入现有规则。
+- [工作区前端](../../../LayerManage/law-firm-system/apps/web/src/pages/Workspaces/index.tsx)入口已拆分为独立云盘壳与原多维表格编辑器，带 Base 参数的历史链接继续可用。
+- [权限服务](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/collaboration-service.ts)已补齐工作区与 Base 之间的文件夹祖先链，目录与内容共用权限规则。
 - 协作事件及前端公共刷新路径需要区分目录、结构、记录和权限变化；SSE 本身不构成更换协议的理由。优化不得引入失效不及时的授权缓存。
 - 既有 Office 文件编辑组件不等同于在线文档多人协同引擎，后者独立分期。
-- [原实施记录](../plans/2026-09-14-feishu-aligned-collaborative-workspace.md)曾记录 100 会话短时复验查询 P95 4475ms、保存 7092ms，负载目标未通过；这是历史记录，不是本次重测或生产容量结论。主会话第七批性能工作正在推进，最新结果由主会话补充，不能重复或打断该批工作。
+- [原实施记录](../plans/2026-09-14-feishu-aligned-collaborative-workspace.md)曾记录 100 会话短时复验查询 P95 4475ms、保存 7092ms，负载目标未通过；这是历史记录，不是本次重测或生产容量结论。第七批已在 172f126d 通过规定 900 秒负载，G1 加入 8 层目录后单独复验，见实施计划。
 - MOD-002 中 CFG-13/CFG-21 的待开发描述与已有拖拽、部分批量实现存在状态粒度差异；须逐项核对，不能将部分实现直接标记全量完成。
 
 ## 7. 分期与验收
@@ -132,4 +132,4 @@ G1 的资源身份、迁移回退、权限决策表、API 和验收条件见[云
 
 ## 8. 执行交接
 
-执行清单见 [云盘资源中心实施与主会话交接](../plans/2026-09-15-feishu-cloud-drive-resource-center.md)。本次侧会话只交付文档，不执行应用代码、数据库迁移、构建、负载测试或 Git 提交。主会话承接现有开发，先规格、后计划、再实现和验证；按其既有授权进行阶段性本地 Git 提交。
+执行清单见 [云盘资源中心实施与主会话交接](../plans/2026-09-15-feishu-cloud-drive-resource-center.md)。侧会话交接阶段只交付文档；主会话已按规格、计划、实现、验证顺序推进，按既有授权进行阶段性本地 Git 提交。开发数据库只做增量迁移，不执行推送或生产部署。

@@ -1,4 +1,30 @@
 import { boolean, choice, exact, fail, integer, strings, text } from './collaboration-policy';
+import type { Access } from './collaboration-service';
+
+export type Principal = { principalType: string; principalId: string };
+export const resourceLevels: Record<string, number> = { READER: 1, EDITOR: 2, MANAGER: 3, OWNER: 4 };
+
+// Shared by directory discovery and every content access path. Request-local inputs only.
+export function restrictResourceAccess(parent: Access, raw: unknown, principals: Principal[]): Access {
+  if (parent.level === 4) return parent;
+  const policy = resourcePolicy(raw);
+  const grants = policy.grants.filter((g) =>
+    principals.some((p) => p.principalType === g.principalType && p.principalId === g.principalId),
+  );
+  if (grants.some((g) => g.role === 'DENY') || (policy.restricted && !grants.length))
+    fail('COLLAB_FORBIDDEN', 403);
+  if (!grants.length) return parent;
+  return {
+    ...parent,
+    level: Math.min(parent.level, Math.max(...grants.map((g) => resourceLevels[g.role] ?? 0))),
+    canCreate:
+      parent.canCreate &&
+      grants.some((g) => resourceLevels[g.role] >= 3 || (resourceLevels[g.role] >= 2 && g.canCreate)),
+    selfOnly: parent.selfOnly || grants.every((g) => g.rowScope === 'SELF'),
+    hidden: [...new Set([...parent.hidden, ...grants.flatMap((g) => g.hiddenFields)])],
+    readonly: [...new Set([...parent.readonly, ...grants.flatMap((g) => g.readonlyFields)])],
+  };
+}
 
 export interface ResourceGrant {
   principalType: string;

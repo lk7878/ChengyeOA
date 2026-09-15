@@ -1,0 +1,234 @@
+.cloud-drive {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  color: #20242c;
+}
+.drive-header {
+  min-height: 72px;
+  padding: 12px 24px;
+  border-bottom: 1px solid #e8ebf0;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+.drive-header h1 {
+  font-size: 21px;
+  margin: 0;
+}
+.drive-header .ant-select {
+  min-width: 180px;
+}
+.drive-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.drive-sidebar {
+  width: 236px;
+  flex-shrink: 0;
+  padding: 20px 14px;
+  background: #f7f8fa;
+  overflow: auto;
+  border-right: 1px solid #e8ebf0;
+}
+.drive-sidebar .ant-tree {
+  background: transparent;
+}
+.drive-nav-title {
+  font-size: 12px;
+  color: #727b8d;
+  padding: 14px 12px;
+}
+.drive-sidebar .ant-btn {
+  justify-content: flex-start;
+  margin-bottom: 5px;
+}
+.drive-main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 24px 32px;
+}
+.drive-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.drive-toolbar .ant-input-search {
+  max-width: 420px;
+}
+.drive-toolbar .ant-select {
+  min-width: 125px;
+}
+.drive-toolbar .ant-breadcrumb button {
+  background: none;
+  border: 0;
+  color: #455776;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+.drive-caption {
+  color: #778194;
+  font-size: 13px;
+}
+.drive-resources {
+  margin-bottom: 24px;
+}
+.drive-resource {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid #edf0f4;
+  padding: 16px 8px;
+}
+.drive-resource:hover {
+  background: #f7f9ff;
+}
+.drive-resource-open {
+  background: none;
+  border: 0;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex: 1;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.drive-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  font-size: 23px;
+  background: #eaf1ff;
+  color: #3772df;
+}
+.drive-icon-folder {
+  background: #fff5dd;
+  color: #dca92e;
+}
+.drive-resource-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.drive-resource-name small {
+  display: block;
+  color: #7c8596;
+  font-size: 12px;
+  margin-top: 5px;
+  font-weight: 400;
+}
+.drive-date {
+  color: #7c8596;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.drive-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(245px, 1fr));
+  gap: 16px;
+}
+.drive-cards .drive-resource {
+  border: 1px solid #e8ebf0;
+  border-radius: 10px;
+  flex-wrap: wrap;
+  padding: 20px;
+}
+.drive-cards .drive-resource-open {
+  flex-basis: calc(100% - 55px);
+}
+.drive-cards .drive-date {
+  order: 3;
+  padding-left: 56px;
+}
+.drive-mobile-nav {
+  display: none !important;
+}
+.cloud-drive button:focus-visible {
+  outline: 2px solid #3979ed;
+  outline-offset: 2px;
+}
+@media (max-width: 1100px) {
+  .drive-header {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+  }
+  .drive-sidebar {
+    width: 200px;
+  }
+  .drive-main {
+    padding: 20px;
+  }
+  .drive-toolbar {
+    flex-wrap: wrap;
+  }
+  .drive-toolbar .ant-input-search {
+    max-width: 100%;
+  }
+}
+@media (max-width: 700px) {
+  .drive-sidebar {
+    display: none;
+  }
+  .drive-mobile-nav {
+    display: inline-flex !important;
+  }
+  .drive-main {
+    padding: 16px;
+  }
+  .drive-header {
+    gap: 10px;
+  }
+  .drive-header .ant-space {
+    flex-wrap: wrap;
+  }
+  .drive-header .ant-select {
+    min-width: 155px;
+  }
+  .drive-date {
+    display: none;
+  }
+  .drive-resource {
+    gap: 8px;
+    padding: 14px 0;
+  }
+  .drive-cards .drive-date {
+    display: block;
+  }
+  .drive-toolbar {
+    gap: 12px;
+  }
+  .drive-resources {
+    margin-bottom: 16px;
+  }
+}
+
+.drive-sidebar > .ant-select,
+.drive-navigation-drawer .ant-drawer-body > .ant-select {
+  width: 100%;
+  margin-bottom: 14px;
+}
+.drive-sidebar > .ant-input-search {
+  margin-bottom: 8px;
+}
+
+.drive-cards .drive-resource {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.drive-cards .drive-date {
+  grid-column: 1 / -1;
+}

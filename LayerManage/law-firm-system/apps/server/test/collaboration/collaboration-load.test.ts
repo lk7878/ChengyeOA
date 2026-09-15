@@ -308,6 +308,33 @@ test(
       });
       const workspaceId = workspace.id;
       baseId = (await db.collabBase.create({ data: { workspaceId, name: '十表应用' } })).id;
+      // Exercise the maximum supported folder inheritance depth in the same sustained workload.
+      let parentId: string | null = null;
+      for (let depth = 1; depth <= 8; depth++) {
+        const folder = await db.driveNode.create({
+          data: {
+            workspaceId,
+            parentId,
+            kind: 'FOLDER',
+            folderName: '负载目录' + depth,
+            ownerId: workspace.ownerId,
+            createdAt: new Date(),
+            accessPolicy: { restricted: false, grants: [] },
+          },
+        });
+        parentId = folder.id;
+      }
+      await db.driveNode.create({
+        data: {
+          id: baseId,
+          baseId,
+          workspaceId,
+          parentId,
+          kind: 'BASE',
+          ownerId: workspace.ownerId,
+          createdAt: new Date(),
+        },
+      });
       for (let i = 0; i < 10; i++) {
         const table = await db.collabTable.create({
           data: { baseId, name: '负载表-' + i, position: i, createdBy: clients[0].id },
@@ -457,6 +484,7 @@ test(
         serverMetrics: await serverMetrics(),
         loadGeneratorEventLoopMs: { p95: loop.percentile(95) / 1e6, max: loop.max / 1e6 },
         baseline: {
+          folderDepth: 8,
           tables: 10,
           rows: 10000,
           fields: 50,
