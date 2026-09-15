@@ -192,7 +192,7 @@ test('SSE delivers real changes and revokes an already connected member without 
 
 test(
   'two real browser sessions create tables, edit shared records, retain personal views and fit three widths',
-  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 120000 },
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
   async () => {
     const webRoot = path.resolve(process.cwd(), '../web');
     const load = new Function('url', 'return import(url)');
@@ -548,6 +548,119 @@ test(
         path: path.resolve(process.cwd(), '../../var/collaboration-evidence/grid-operations.png'),
         fullPage: true,
       });
+      // Directory changes persist and are invalidated in the other session.
+      const directoryNames = () => p1.locator('.workspace-table-item > button:first-child').allTextContents();
+      const originalDirectory = await directoryNames();
+      await p1.getByRole('button', { name: '管理员工自主创建', exact: true }).click();
+      await p1.getByRole('menuitem', { name: '上移', exact: true }).click();
+      await p1.getByText('目录顺序已保存', { exact: true }).waitFor();
+      const reorderedDirectory = await directoryNames();
+      assert.notDeepEqual(reorderedDirectory, originalDirectory);
+      await p1.reload();
+      await p1.getByRole('button', { name: '拖动排序员工自主创建', exact: true }).waitFor();
+      assert.deepEqual(await directoryNames(), reorderedDirectory);
+      await p2.waitForFunction(
+        (expected) =>
+          JSON.stringify(
+            [...document.querySelectorAll('.workspace-table-item > button:first-child')].map(
+              (e) => e.textContent,
+            ),
+          ) === JSON.stringify(expected),
+        reorderedDirectory,
+      );
+      await p1.getByRole('searchbox', { name: '搜索数据表', exact: true }).fill('员工');
+      assert.equal(
+        await p1.getByRole('button', { name: '拖动排序员工自主创建', exact: true }).isDisabled(),
+        true,
+      );
+      await p1.getByRole('searchbox', { name: '搜索数据表', exact: true }).fill('');
+      const dragResponse = p1.waitForResponse(
+        (r) => r.url().endsWith('/tables/reorder') && r.request().method() === 'POST',
+      );
+      await p1
+        .getByRole('button', { name: '拖动排序员工自主创建', exact: true })
+        .dragTo(
+          p1
+            .locator('.workspace-table-item')
+            .filter({ has: p1.getByRole('button', { name: '协作表', exact: true }) }),
+        );
+      assert.equal((await dragResponse).status(), 200);
+      await p1.reload();
+      await p1.getByRole('button', { name: '标题：粘贴第二行', exact: true }).waitFor();
+
+      // Offline drafts survive; ready reloads the current state changed by another member.
+      await p1.getByRole('button', { name: '标题：粘贴第二行', exact: true }).dblclick();
+      await p1.getByRole('textbox', { name: '标题', exact: true }).fill('断网保留后提交');
+      await a.setOffline(true);
+      await p1.getByText('网络已断开，未提交草稿已保留', { exact: true }).waitFor();
+      await p2.getByRole('button', { name: '标题：对端先提交', exact: true }).dblclick();
+      await p2.getByRole('textbox', { name: '标题', exact: true }).fill('离线期间对端修改');
+      await p2
+        .locator('.workspace-cell-editor')
+        .getByRole('button', { name: /^保\s*存$/ })
+        .click();
+      const recoveredQuery = p1.waitForResponse(
+        (r) => r.url().endsWith('/records/query') && r.status() === 200,
+      );
+      await a.setOffline(false);
+      await recoveredQuery;
+      assert.equal(
+        await p1.getByRole('textbox', { name: '标题', exact: true }).inputValue(),
+        '断网保留后提交',
+      );
+      await p1
+        .locator('.workspace-cell-editor')
+        .getByRole('button', { name: /^保\s*存$/ })
+        .click();
+      await p2.getByRole('button', { name: '标题：断网保留后提交', exact: true }).waitFor({ timeout: 10000 });
+      await p1
+        .getByRole('button', { name: '标题：离线期间对端修改', exact: true })
+        .waitFor({ timeout: 10000 });
+
+      // Drop the response AFTER commit, then prove retry reuses the key and writes once.
+      const customTableId = new URL(p1.url()).searchParams.get('table')!;
+      const customTitle = await db.collabField.findFirstOrThrow({
+        where: { tableId: customTableId, name: '标题' },
+      });
+      const beforeRetry = await db.collabRecord.findFirstOrThrow({
+        where: { tableId: customTableId, values: { path: [customTitle.id], equals: '断网保留后提交' } },
+      });
+      const pasteCell = p1.getByRole('button', { name: '标题：断网保留后提交', exact: true });
+      await pasteCell.focus();
+      await pasteCell.evaluate((element) => {
+        const data = new DataTransfer();
+        data.setData('text/plain', '响应丢失仅写一次');
+        element.dispatchEvent(
+          new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
+        );
+      });
+      await p1.getByRole('textbox', { name: '粘贴表格内容', exact: true }).waitFor();
+      let lostKey = '';
+      const lostResponse = async (route) => {
+        lostKey = route.request().headers()['idempotency-key'];
+        const response = await route.fetch();
+        assert.equal(response.status(), 200);
+        await route.abort('failed');
+      };
+      await p1.route('**/records/batch', lostResponse);
+      await p1.getByRole('button', { name: '提交 1 行', exact: true }).click();
+      await p1.waitForFunction(() => !!document.querySelector('.ant-modal .ant-alert-error'));
+      assert.equal(
+        await p1.getByRole('textbox', { name: '粘贴表格内容', exact: true }).inputValue(),
+        '响应丢失仅写一次',
+      );
+      await p1.unroute('**/records/batch', lostResponse);
+      const retried = p1.waitForRequest((r) => r.url().endsWith('/records/batch'));
+      await p1.getByRole('button', { name: '提交 1 行', exact: true }).click();
+      assert.equal((await retried).headers()['idempotency-key'], lostKey);
+      await p2
+        .getByRole('button', { name: '标题：响应丢失仅写一次', exact: true })
+        .waitFor({ timeout: 10000 });
+      assert.equal(
+        (await db.collabRecord.findUniqueOrThrow({ where: { id: beforeRetry.id } })).version,
+        beforeRetry.version + 1,
+      );
+      await p1.locator('.ant-modal:visible').waitFor({ state: 'hidden' });
       const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence');
       await mkdir(evidence, { recursive: true });
       for (const width of [1440, 1024, 390]) {
@@ -562,6 +675,48 @@ test(
           await p1.locator('.ant-drawer').getByRole('button', { name: '新建数据表', exact: true }).waitFor();
         }
       }
+      // A real 10k x 50 dataset is fetched by page and rendered through the virtual grid.
+      await p1.setViewportSize({ width: 1440, height: 1000 });
+      const large = await db.collabTable.create({ data: { baseId, name: '万行表格验收', createdBy: owner } });
+      const largeFields = Array.from({ length: 50 }, () => randomUUID());
+      await db.collabField.createMany({
+        data: largeFields.map((id, position) => ({
+          id,
+          tableId: large.id,
+          name: '大表字段' + position,
+          type: 'TEXT',
+          position,
+        })),
+      });
+      await db.collabView.create({
+        data: { tableId: large.id, name: '总表', shared: true, isDefault: true, ownerId: owner },
+      });
+      for (let offset = 0; offset < 10000; offset += 250) {
+        await db.collabRecord.createMany({
+          data: Array.from({ length: 250 }, (_, n) => ({
+            id: 'browser-large-' + (offset + n),
+            tableId: large.id,
+            ownerId: owner,
+            createdBy: owner,
+            updatedBy: owner,
+            createdAt: new Date(Date.UTC(2025, 0, 1) + (offset + n) * 1000),
+            values: Object.fromEntries(largeFields.map((id, f) => [id, '行' + (offset + n) + '列' + f])),
+          })),
+        });
+      }
+      const largeResponse = p1.waitForResponse((r) =>
+        r.url().includes('/tables/' + large.id + '/records/query'),
+      );
+      await p1.goto(address.replace('table=' + tableId, 'table=' + large.id));
+      const firstPage = (await (await largeResponse).json()).data;
+      assert.equal(firstPage.total, 10000);
+      assert.equal(firstPage.records.length, 50);
+      await p1.getByRole('button', { name: '大表字段0：行0列0', exact: true }).waitFor();
+      const rendered = await p1.locator('.ant-table-row').count();
+      assert.ok(rendered > 0 && rendered < 50, 'virtual grid must mount only visible rows');
+      await p1.locator('.ant-pagination-next button').click();
+      await p1.getByRole('button', { name: '大表字段0：行50列0', exact: true }).waitFor();
+      await p1.screenshot({ path: path.join(evidence, 'large-grid.png'), fullPage: true });
       assert.deepEqual(errors, []);
     } catch (error) {
       for (const context of browser.contexts())

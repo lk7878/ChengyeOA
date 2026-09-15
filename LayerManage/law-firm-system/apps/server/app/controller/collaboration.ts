@@ -6,6 +6,7 @@ import path from 'node:path';
 import { AuthorizationContext } from '../application/authorization/authorization-service';
 import { createAuthorizationContextLoader } from '../application/authorization/authorization-factory';
 import { createAuthenticationService } from '../application/auth/authentication-factory';
+import { basePulse } from '../application/collaboration/base-pulse';
 import { CollaborationService } from '../application/collaboration/collaboration-service';
 import { exact, fail, text } from '../application/collaboration/collaboration-policy';
 
@@ -75,6 +76,15 @@ export default class CollaborationController extends Controller {
   async tables() {
     this.respond(await this.collaborationService().listTables(this.ctx.params.baseId));
   }
+  async reorderTables() {
+    this.respond(
+      await this.collaborationService().reorderTables(
+        this.ctx.params.baseId,
+        this.ctx.request.body,
+        this.key(),
+      ),
+    );
+  }
   async createTable() {
     this.respond(
       await this.collaborationService().createTable(
@@ -140,7 +150,13 @@ export default class CollaborationController extends Controller {
     );
   }
   async saveRecords() {
-    this.respond(await this.collaborationService().saveRecords(this.ctx.params.tableId, this.ctx.request.body, this.key()));
+    this.respond(
+      await this.collaborationService().saveRecords(
+        this.ctx.params.tableId,
+        this.ctx.request.body,
+        this.key(),
+      ),
+    );
   }
   async saveRecord() {
     this.respond(
@@ -169,6 +185,9 @@ export default class CollaborationController extends Controller {
     let running = false;
     let businessRefreshAt = 0;
     let permissionSnapshot = '';
+    let presenceSnapshot = '';
+    let heartbeatAt = 0;
+    let pingAt = 0;
     const latest = await ctx.prisma.collabEvent.findFirst({
       where: { baseId },
       orderBy: { id: 'desc' },
@@ -195,9 +214,9 @@ export default class CollaborationController extends Controller {
         await createAuthenticationService(ctx).authenticate(token);
         const authorization = await createAuthorizationContextLoader(ctx).load(userId);
         const current = new CollaborationService(ctx.prisma, authorization);
-        await current.baseAccess(baseId);
+        if (!tableId) await current.baseAccess(baseId);
         if (tableId) {
-          const selected = await current.tableAccess(tableId);
+          const selected = await current.tableAccess(tableId, ctx.prisma, 1, false, false);
           const snapshot = JSON.stringify({
             access: selected.access,
             grants: authorization.grants,
@@ -213,35 +232,30 @@ export default class CollaborationController extends Controller {
             emit('invalidate', { baseId, kind: 'business.refresh' });
           }
         }
-        await ctx.prisma.collabPresence.upsert({
-          where: { baseId_connectionId: { baseId, connectionId } },
-          create: { baseId, connectionId, userId },
-          update: { seenAt: new Date() },
-        });
-        const event = await ctx.prisma.collabEvent.findFirst({
-          where: { baseId, id: { gt: cursor } },
-          orderBy: { id: 'desc' },
-          select: { id: true, kind: true },
-        });
-        // No record IDs or values are broadcast: the client re-queries with current authorization.
-        if (event) {
-          const accessChanged = await ctx.prisma.collabEvent.count({
-            where: { baseId, id: { gt: cursor }, kind: 'access.updated' },
+        if (Date.now() - heartbeatAt >= 2000) {
+          await ctx.prisma.collabPresence.upsert({
+            where: { baseId_connectionId: { baseId, connectionId } },
+            create: { baseId, connectionId, userId },
+            update: { seenAt: new Date() },
           });
-          cursor = event.id;
-          emit('invalidate', { baseId, kind: accessChanged ? 'access.updated' : event.kind });
+          heartbeatAt = Date.now();
         }
-        const presence = await ctx.prisma.collabPresence.findMany({
-          where: { baseId, seenAt: { gt: new Date(Date.now() - 6000) } },
-          distinct: ['userId'],
-          select: { userId: true },
-        });
-        const users = await ctx.prisma.user.findMany({
-          where: { id: { in: presence.map((p) => p.userId) }, status: 'ENABLED' },
-          select: { id: true, username: true, employee: { select: { name: true } } },
-        });
-        if (!closed)
-          emit('presence', { users: users.map((u) => ({ id: u.id, name: u.employee?.name || u.username })) });
+        const pulse = await basePulse(ctx.prisma, baseId);
+        // Broadcast invalidations only; readers fetch their own authorized state.
+        if (pulse.event && pulse.event.id > cursor) {
+          const kind = pulse.accessId > cursor ? 'access.updated' : pulse.event.kind;
+          cursor = pulse.event.id;
+          emit('invalidate', { baseId, kind });
+        }
+        const presence = JSON.stringify(pulse.users);
+        if (!closed && presence !== presenceSnapshot) {
+          presenceSnapshot = presence;
+          emit('presence', { users: pulse.users });
+        }
+        if (!closed && Date.now() - pingAt >= 15000) {
+          stream.write(': heartbeat\n\n');
+          pingAt = Date.now();
+        }
       } catch (error) {
         const code = (error as { code?: string }).code || '';
         if (

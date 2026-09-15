@@ -255,6 +255,12 @@ export function filterSql(
     !Number.isFinite(Date.parse(String(value)))
   )
     fail('COLLAB_INVALID_FILTER');
+  // String equality can use the existing JSONB GIN index, preserving scalar semantics.
+  if (
+    operator === 'eq' &&
+    ['TEXT', 'LONG_TEXT', 'PHONE', 'URL', 'SINGLE_SELECT', 'USER', 'ORGANIZATION'].includes(field.type)
+  )
+    return Prisma.sql`r."values" @> ${JSON.stringify({ [field.id]: String(value) })}::jsonb`;
   const comparison = ['NUMBER', 'CURRENCY'].includes(field.type)
     ? Prisma.sql`${String(value)}::numeric`
     : field.type === 'DATE'

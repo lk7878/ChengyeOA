@@ -89,6 +89,8 @@ export default function WorkspacesPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [canCreate, setCanCreate] = useState(false);
   const [tables, setTables] = useState<DataTable[]>([]);
+  const [orderToken, setOrderToken] = useState('');
+  const [directoryBusy, setDirectoryBusy] = useState(false);
   const [base, setBase] = useState<Base>();
   const [baseAccess, setBaseAccess] = useState<Access>();
   const [detail, setDetail] = useState<TableDetail>();
@@ -124,10 +126,12 @@ export default function WorkspacesPage() {
   const mutationKey = useRef(crypto.randomUUID());
   const dirtyRef = useRef(false);
   const inlineDirtyRef = useRef(false);
+  const draftRef = useRef(false);
   useEffect(() => {
     dirtyRef.current = configDirty;
     inlineDirtyRef.current = inlineDirty;
-  }, [configDirty, inlineDirty]);
+    draftRef.current = inlineDirty || !!editing || !!paste;
+  }, [configDirty, inlineDirty, editing, paste]);
   useEffect(() => {
     // Route identity changes invalidate the paste target, including browser back/forward navigation.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -164,18 +168,21 @@ export default function WorkspacesPage() {
   useEffect(() => {
     let alive = true;
     if (!baseId) return;
-    void get<{ base: Base; access: Access; tables: DataTable[] }>('/bases/' + baseId + '/tables')
+    void get<{ base: Base; access: Access; tables: DataTable[]; orderToken: string }>(
+      '/bases/' + baseId + '/tables',
+    )
       .then((r) => {
         if (alive) {
           setBase(r.base);
           setBaseAccess(r.access);
           setTables(r.tables);
+          setOrderToken(r.orderToken);
         }
       })
       .catch((e) => {
         if (alive) {
           setQueryError(errorMessage(e));
-          if (inlineDirtyRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
+          if (draftRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
           setTables([]);
           setDetail(undefined);
           setResult(undefined);
@@ -214,7 +221,7 @@ export default function WorkspacesPage() {
       .catch((e) => {
         if (alive) {
           setQueryError(errorMessage(e));
-          if (inlineDirtyRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
+          if (draftRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
           setDetail(undefined);
           setResult(undefined);
           setInlineDirty(false);
@@ -246,7 +253,7 @@ export default function WorkspacesPage() {
       .catch((e) => {
         if (alive) {
           setQueryError(errorMessage(e));
-          if (inlineDirtyRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
+          if (draftRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
           setResult(undefined);
           setInlineDirty(false);
           inlineDirtyRef.current = false;
@@ -262,17 +269,27 @@ export default function WorkspacesPage() {
   }, [tableId, detail, view?.id, config, page, revision]);
   useEffect(() => {
     if (!baseId) return;
-    const abort = new AbortController();
+    let stopped = false,
+      connecting = false;
+    let attempt: AbortController | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = (delay: number) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void connect();
+      }, delay);
+    };
     const connect = async () => {
-      if (abort.signal.aborted) return;
+      if (stopped || connecting || !navigator.onLine) return;
+      connecting = true;
+      attempt = new AbortController();
       setConnection('连接中');
       try {
         await streamEvents(
           baseId,
-          abort.signal,
+          attempt.signal,
           (kind, payload) => {
-            if (abort.signal.aborted) return;
+            if (stopped) return;
             if (kind === 'ready') {
               setConnection('实时同步已连接');
               refresh();
@@ -303,25 +320,42 @@ export default function WorkspacesPage() {
               setOnline([]);
               setQueryError('访问权限或会话已失效，请重新打开工作区。');
               setConnection('连接已失效');
-              abort.abort();
+              stopped = true;
+              attempt?.abort();
             }
           },
           tableId,
         );
       } catch {
-        /* Network state is shown below; pending edits remain in the component. */
-      }
-      if (!abort.signal.aborted) {
-        setConnection('连接中断，正在重连');
-        timer = setTimeout(() => {
-          void connect();
-        }, 2000);
+        // A failed stream never changes saved data or an editor's mutation key.
+      } finally {
+        connecting = false;
+        if (!stopped) {
+          setOnline([]);
+          setConnection(navigator.onLine ? '连接中断，正在重连' : '网络已断开，未提交草稿已保留');
+          if (navigator.onLine) schedule(2000);
+        }
       }
     };
-    void connect();
+    const offline = () => {
+      clearTimeout(timer);
+      attempt?.abort();
+      setOnline([]);
+      setConnection('网络已断开，未提交草稿已保留');
+    };
+    const online = () => {
+      if (!stopped) schedule(0);
+    };
+    window.addEventListener('offline', offline);
+    window.addEventListener('online', online);
+    if (navigator.onLine) void connect();
+    else offline();
     return () => {
-      abort.abort();
-      if (timer) clearTimeout(timer);
+      stopped = true;
+      clearTimeout(timer);
+      attempt?.abort();
+      window.removeEventListener('offline', offline);
+      window.removeEventListener('online', online);
     };
   }, [baseId, tableId, refresh]);
   const go = (next: Record<string, string>) => {
@@ -572,9 +606,10 @@ export default function WorkspacesPage() {
       })
       .catch((e) => {
         if (active) {
+          setQueryError(errorMessage(e));
+          if (![401, 403, 404].includes(errorStatus(e) || 0)) return;
           setEditing(undefined);
           setPaste(undefined);
-          setQueryError(errorMessage(e));
         }
       });
     return () => {
@@ -641,6 +676,25 @@ export default function WorkspacesPage() {
       ? fields
       : config.visibleFields.flatMap((id) => fields.find((f) => f.id === id) || []);
   const canManage = (detail?.access.level || 0) >= 3;
+  const movableTables = tables.filter((t) => t.canManage && !t.archived);
+  const moveTable = async (from: string, to: string) => {
+    if (directoryBusy || search || !orderToken || from === to) return;
+    const order = movableTables.map((t) => t.id);
+    const source = order.indexOf(from),
+      target = order.indexOf(to);
+    if (source < 0 || target < 0) return;
+    order.splice(target, 0, order.splice(source, 1)[0]);
+    setDirectoryBusy(true);
+    try {
+      await post('/bases/' + baseId + '/tables/reorder', { order, orderToken });
+      message.success('目录顺序已保存');
+    } catch (e) {
+      message.error(errorMessage(e));
+    } finally {
+      setDirectoryBusy(false);
+      refresh();
+    }
+  };
   const tableNav = (
     <div className="workspace-directory">
       <Input.Search
@@ -653,7 +707,17 @@ export default function WorkspacesPage() {
         {tables
           .filter((t) => t.name.includes(search))
           .map((t) => (
-            <div className={'workspace-table-item ' + (t.id === tableId ? 'selected' : '')} key={t.id}>
+            <div
+              className={'workspace-table-item ' + (t.id === tableId ? 'selected' : '')}
+              key={t.id}
+              onDragOver={(e) => {
+                if (t.canManage && !t.archived && !search && !directoryBusy) e.preventDefault();
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                void moveTable(e.dataTransfer.getData('application/x-chengye-table'), t.id);
+              }}
+            >
               <button onClick={() => !t.archived && go({ base: baseId, table: t.id })} disabled={t.archived}>
                 <TableOutlined aria-hidden="true" />
                 <span>
@@ -661,15 +725,54 @@ export default function WorkspacesPage() {
                   {t.archived ? '（已归档）' : ''}
                 </span>
               </button>
-              {(baseAccess?.level || 0) >= 3 && (
+              {t.canManage && !t.archived && (
+                <button
+                  className="workspace-table-drag"
+                  aria-label={'拖动排序' + t.name}
+                  title="拖动排序，或使用菜单上移/下移"
+                  draggable={!search && !directoryBusy}
+                  disabled={!!search || directoryBusy}
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('application/x-chengye-table', t.id);
+                  }}
+                >
+                  ⠿
+                </button>
+              )}
+              {t.canManage && (
                 <Dropdown
                   menu={{
                     items: [
+                      {
+                        key: 'move-up',
+                        label: '上移',
+                        disabled:
+                          !!search ||
+                          directoryBusy ||
+                          t.archived ||
+                          movableTables.findIndex((item) => item.id === t.id) <= 0,
+                      },
+                      {
+                        key: 'move-down',
+                        label: '下移',
+                        disabled:
+                          !!search ||
+                          directoryBusy ||
+                          t.archived ||
+                          movableTables.findIndex((item) => item.id === t.id) >= movableTables.length - 1,
+                      },
                       { key: 'rename', label: '重命名' },
                       { key: 'duplicate', label: '复制结构' },
                       { key: t.archived ? 'restore' : 'archive', label: t.archived ? '恢复' : '归档' },
                     ],
-                    onClick: (e) => tableAction(t, e.key),
+                    onClick: (e) => {
+                      if (e.key === 'move-up' || e.key === 'move-down') {
+                        const index = movableTables.findIndex((item) => item.id === t.id);
+                        const target = movableTables[index + (e.key === 'move-up' ? -1 : 1)];
+                        if (target) void moveTable(t.id, target.id);
+                      } else tableAction(t, e.key);
+                    },
                   }}
                 >
                   <Button type="text" aria-label={'管理' + t.name}>
@@ -1133,7 +1236,13 @@ export default function WorkspacesPage() {
                   ? ' · ' + (result.groupsTruncated ? '超过 200' : result.groups.length) + ' 个分组'
                   : ''}
               </span>
-              <span>{inlineDirty ? '单元格编辑中，结束编辑后刷新协作变化' : saveState || connection}</span>
+              <span>
+                {connection !== '实时同步已连接'
+                  ? connection
+                  : inlineDirty
+                    ? '单元格编辑中，结束编辑后刷新协作变化'
+                    : saveState || connection}
+              </span>
             </footer>
           </main>
         </div>

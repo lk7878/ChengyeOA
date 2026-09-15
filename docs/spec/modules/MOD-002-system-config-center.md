@@ -99,13 +99,13 @@ last_updated: 2026-09-15
 - 接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。（源自 §14.1.2）
 
 - 多维协作验收：[SPEC-COLLAB-20260914 §10](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md) 的 AC-01～18；P1 必须从空白建表走到两账号协作，不能仅测试固定线索表或列宽。
-- UI 验收：左下建表入口持续可达，右侧视图/字段配置真实生效，桌面/小窗口/手机布局和键盘操作可用。
+- UI 验收：左下建表入口持续可达，右侧视图/字段配置真实生效，桌面/小窗口/手机布局和键盘操作可用。目录排序仅移动有管理权限的表，搜索时禁用；断网提示优先于历史保存状态，草稿保留与重新鉴权同步执行。
 - 阶段优先级：P1 自建表＋基础字段与个人/共享视图＋同步防覆盖；P2 计算、多类型视图、讨论与自动化；P3 深业务适配与迁移。P1 首批底座已实现，余项及 P2/P3 待实施。
 
 ## 7. 追溯
 - 专项设计: docs/专项设计/动态字段表格与模板配置设计.md
 - 工程规格: [SPEC-COLLAB-20260914](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md)（首批底座已实现，完整验收未完成）
-- 落地 SPEC: SPEC-COLLAB-20260914，前五批底座、资源/岗位授权、CRM 读取/办理、核心扩展字段、分组折叠/列顺序及原子批量粘贴已验收；[实施记录](../../superpowers/plans/2026-09-14-feishu-aligned-collaborative-workspace.md)保留未完成项。
+- 落地 SPEC: SPEC-COLLAB-20260914，前五批底座、资源/岗位授权、CRM 读取/办理、核心扩展字段、分组折叠/列顺序及原子批量粘贴已验收；第六批新增目录排序及断网恢复，AC-15 高负载性能仍未通过；[实施记录](../../superpowers/plans/2026-09-14-feishu-aligned-collaborative-workspace.md)保留未完成项。
 - 主要代码: `apps/server/app/application/collaboration/`、`apps/server/app/application/crm/workspace-business-table.ts`、`apps/web/src/pages/Workspaces/`（位于 LayerManage/law-firm-system）。
 - 测试: `apps/server/test/collaboration/`，含真实数据库、HTTP/SSE、双浏览器协作与逐表撤权演练。
 

@@ -742,3 +742,93 @@ test('batch validates types and limits, and never bypasses SELF or field restric
   );
   await assert.rejects(editor.saveRecords(tableId, payload, replayKey), hasCode('COLLAB_READONLY_FIELD'));
 });
+
+test('directory reorder preserves protected slots, rejects stale snapshots and replays once', async () => {
+  const hidden = (await admin.createTable(baseId, { name: 'hidden-slot' }, randomUUID())).id;
+  const last = (await admin.createTable(baseId, { name: 'last' }, randomUUID())).id;
+  const position = await db.collabTable.findUniqueOrThrow({ where: { id: hidden } });
+  await db.collabMember.updateMany({
+    where: { workspaceId, principalId: editor.actor.userId },
+    data: { role: 'MANAGER', rowScope: 'ALL' },
+  });
+  await admin.saveResourceAccess(
+    'TABLE',
+    hidden,
+    { version: 1, policy: { restricted: true, grants: [] } },
+    randomUUID(),
+  );
+  const directory = await editor.listTables(baseId);
+  assert.deepEqual(
+    directory.tables.map((t) => t.id),
+    [tableId, last],
+  );
+  const payload = { orderToken: directory.orderToken, order: [last, tableId] };
+  const key = randomUUID();
+  const schemas = await db.collabTable.findMany({
+    orderBy: { id: 'asc' },
+    select: { id: true, schemaVersion: true },
+  });
+  const result = await editor.reorderTables(baseId, payload, key);
+  assert.deepEqual(await editor.reorderTables(baseId, payload, key), result);
+  assert.equal(
+    (await db.collabTable.findUniqueOrThrow({ where: { id: hidden } })).position,
+    position.position,
+  );
+  assert.deepEqual(
+    (await admin.listTables(baseId)).tables.map((t) => t.id),
+    [last, hidden, tableId],
+  );
+  assert.deepEqual(
+    await db.collabTable.findMany({ orderBy: { id: 'asc' }, select: { id: true, schemaVersion: true } }),
+    schemas,
+  );
+  await assert.rejects(
+    editor.reorderTables(baseId, payload, randomUUID()),
+    hasCode('COLLAB_DIRECTORY_CONFLICT'),
+  );
+  await assert.rejects(reader.reorderTables(baseId, payload, randomUUID()), hasCode('COLLAB_FORBIDDEN'));
+  await assert.rejects(
+    editor.reorderTables(baseId, { ...payload, order: [last, hidden, tableId] }, randomUUID()),
+    hasCode('COLLAB_INVALID_DIRECTORY_ORDER'),
+  );
+  await assert.rejects(
+    admin.mutateTable(tableId, { position: 1, version: 1 }, randomUUID()),
+    hasCode('COLLAB_USE_DIRECTORY_ORDER'),
+  );
+  const current = await editor.listTables(baseId);
+  const outcomes = await Promise.allSettled([
+    editor.reorderTables(baseId, { orderToken: current.orderToken, order: [tableId, last] }, randomUUID()),
+    editor.reorderTables(baseId, { orderToken: current.orderToken, order: [tableId, last] }, randomUUID()),
+  ]);
+  assert.equal(outcomes.filter((r) => r.status === 'fulfilled').length, 1);
+});
+
+test('maximum 100-row / 1000-cell batch commits atomically and rejects one extra cell', async () => {
+  const fieldIds = [titleId];
+  for (let n = 1; n < 10; n++) {
+    const field = await admin.saveField(
+      tableId,
+      undefined,
+      { name: '批量字段' + n, type: 'TEXT', version: n },
+      randomUUID(),
+    );
+    fieldIds.push(field.id);
+  }
+  const records = Array.from({ length: 100 }, (_, n) => ({
+    values: Object.fromEntries(fieldIds.map((id) => [id, '行' + n])),
+  }));
+  const payload = { schemaVersion: 10, records };
+  const key = randomUUID();
+  const result = await editor.saveRecords(tableId, payload, key);
+  assert.equal(await db.collabRecord.count({ where: { tableId } }), 100);
+  assert.deepEqual(await editor.saveRecords(tableId, payload, key), result);
+  const extra = await admin.saveField(tableId, undefined, { name: '额外一列', type: 'TEXT', version: 10 }, randomUUID());
+  const tooMany = records.map((row, n) =>
+    n === 0 ? { values: { ...row.values, [extra.id]: '超限' } } : row,
+  );
+  await assert.rejects(
+    editor.saveRecords(tableId, { schemaVersion: 11, records: tooMany }, randomUUID()),
+    hasCode('COLLAB_BATCH_LIMIT'),
+  );
+  assert.equal(await db.collabRecord.count({ where: { tableId } }), 100);
+});

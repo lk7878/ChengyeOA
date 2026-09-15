@@ -143,10 +143,10 @@ export class CollaborationService {
     if (access.level < level) fail('COLLAB_FORBIDDEN', 403);
     return { base, access };
   }
-  async tableAccess(tableId: string, tx: Tx = this.db, level = 1, allowArchived = false) {
+  async tableAccess(tableId: string, tx: Tx = this.db, level = 1, allowArchived = false, withFields = true) {
     const table = await tx.collabTable.findUnique({
       where: { id: tableId },
-      include: { fields: { orderBy: { position: 'asc' } } },
+      include: { fields: withFields ? { orderBy: { position: 'asc' } } : false },
     });
     if (!table || (table.archived && !allowArchived)) fail('COLLAB_NOT_FOUND', 404);
     const parent = await this.baseAccess(table.baseId, tx);
@@ -161,7 +161,7 @@ export class CollaborationService {
       parent.access.level = Math.max(parent.access.level, 3);
     const access = await this.restrict(parent.access, table.accessPolicy, tx);
     if (access.level < level) fail('COLLAB_FORBIDDEN', 403);
-    const visible = table.fields.filter((f) => !f.archived && !access.hidden.includes(f.id));
+    const visible = (table.fields || []).filter((f) => !f.archived && !access.hidden.includes(f.id));
     return {
       table,
       access,
@@ -228,8 +228,10 @@ export class CollaborationService {
       return { id, version: target.accessVersion + 1 };
     });
   }
-  private async lock(tx: Tx, workspaceId: string) {
-    await tx.$queryRaw(Prisma.sql`SELECT id FROM collab_workspace WHERE id = ${workspaceId} FOR UPDATE`);
+  private async lock(tx: Tx, workspaceId: string, shared = false) {
+    await tx.$queryRaw(
+      Prisma.sql`SELECT id FROM collab_workspace WHERE id = ${workspaceId} ${shared ? Prisma.sql`FOR SHARE` : Prisma.sql`FOR UPDATE`}`,
+    );
   }
   private async write<T>(
     key: unknown,
@@ -368,24 +370,62 @@ export class CollaborationService {
       return { id: base.id };
     });
   }
-  async listTables(baseId: string) {
-    const { base, access } = await this.baseAccess(baseId);
-    const tables = await this.db.collabTable.findMany({
+  async listTables(baseId: string, tx: Tx = this.db) {
+    const { base, access } = await this.baseAccess(baseId, tx);
+    const tables = await tx.collabTable.findMany({
       where: { baseId },
       orderBy: [{ position: 'asc' }, { id: 'asc' }],
       select: { id: true, name: true, source: true, position: true, schemaVersion: true, archived: true },
     });
-    const visible = [] as typeof tables;
+    const visible: Array<(typeof tables)[number] & { canManage: boolean }> = [];
     for (const table of tables) {
       try {
-        const result = await this.tableAccess(table.id, this.db, 1, true);
-        if (!table.archived || result.access.level >= 3) visible.push(table);
+        const result = await this.tableAccess(table.id, tx, 1, true);
+        if (!table.archived || result.access.level >= 3)
+          visible.push({ ...table, canManage: access.level >= 3 && result.access.level >= 3 });
       } catch (error) {
         if (!['COLLAB_FORBIDDEN', 'COLLAB_NOT_FOUND'].includes((error as { code?: string }).code ?? ''))
           throw error;
       }
     }
-    return { base: { ...base, accessPolicy: null as null }, access, tables: visible };
+    const orderToken = createHash('sha256')
+      .update(JSON.stringify(tables.map((t) => [t.id, t.position, t.archived])))
+      .digest('hex');
+    return { base: { ...base, accessPolicy: null as null }, access, tables: visible, orderToken };
+  }
+  async reorderTables(baseId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['order', 'orderToken']);
+    const order = strings(input.order, 1000);
+    if (!order.length || order.length !== (input.order as unknown[]).length)
+      fail('COLLAB_INVALID_DIRECTORY_ORDER');
+    const orderToken = text(input.orderToken);
+    const verify = (directory: Awaited<ReturnType<CollaborationService['listTables']>>) => {
+      if (directory.access.level < 3) fail('COLLAB_FORBIDDEN', 403);
+      const movable = directory.tables.filter((t) => t.canManage && !t.archived).map((t) => t.id);
+      if (order.length !== movable.length || order.some((id) => !movable.includes(id)))
+        fail('COLLAB_INVALID_DIRECTORY_ORDER', 403);
+    };
+    const initial = await this.listTables(baseId);
+    verify(initial);
+    return this.write(key, ['directory.reorder', baseId, input], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId);
+      const current = await this.listTables(baseId, tx);
+      verify(current);
+      if (orderToken !== current.orderToken) fail('COLLAB_DIRECTORY_CONFLICT', 409);
+      const all = await tx.collabTable.findMany({
+        where: { baseId },
+        orderBy: [{ position: 'asc' }, { id: 'asc' }],
+        select: { id: true },
+      });
+      const movable = new Set(order);
+      let index = 0;
+      for (const [position, slot] of all.entries()) {
+        const id = movable.has(slot.id) ? order[index++] : slot.id;
+        await tx.collabTable.update({ where: { id }, data: { position } });
+      }
+      await this.event(tx, baseId, 'directory.updated', baseId);
+      return { order };
+    });
   }
   async createTable(baseId: string, raw: unknown, key: unknown) {
     const input = exact(raw, ['name', 'template', 'source']);
@@ -507,6 +547,7 @@ export class CollaborationService {
   }
   async mutateTable(tableId: string, raw: unknown, key: unknown) {
     const input = exact(raw, ['name', 'position', 'archived', 'duplicate', 'version']);
+    if (input.position !== undefined) fail('COLLAB_USE_DIRECTORY_ORDER');
     const initial = await this.tableAccess(tableId, this.db, 3, true);
     return this.write(key, ['table.update', tableId, input], async (tx) => {
       await this.lock(tx, initial.access.workspaceId);
@@ -1279,7 +1320,7 @@ export class CollaborationService {
       key,
       ['extension.save', tableId, recordId, input],
       async (tx) => {
-        await this.lock(tx, initial.access.workspaceId);
+        await this.lock(tx, initial.access.workspaceId, true);
         const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
         if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
         await tx.$queryRaw(
@@ -1369,10 +1410,14 @@ export class CollaborationService {
       key,
       ['record.save', tableId, recordId, input],
       async (tx) => {
-        await this.lock(tx, initial.access.workspaceId);
+        await this.lock(tx, initial.access.workspaceId, true);
         const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
         if (table.source !== 'CUSTOM') fail('COLLAB_USE_BUSINESS_ACTION', 409);
         if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
+        if (recordId)
+          await tx.$queryRaw(
+            Prisma.sql`SELECT id FROM collab_record WHERE id = ${recordId} AND "tableId" = ${tableId} AND ${access.selfOnly ? Prisma.sql`"createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`} FOR UPDATE`,
+          );
         const previous = recordId
           ? await tx.collabRecord.findFirst({ where: { ...this.rowWhere(tableId, access), id: recordId } })
           : null;

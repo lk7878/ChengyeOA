@@ -20,6 +20,9 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  COLLAB_DIRECTORY_CONFLICT: '目录已被其他成员修改，已重新加载，请核对后重试。',
+  COLLAB_INVALID_DIRECTORY_ORDER: '可管理的表已变化，请重新加载目录。',
+  COLLAB_USE_DIRECTORY_ORDER: '请通过目录的拖拽或上移/下移操作调整顺序。',
   COLLAB_BATCH_LIMIT: '每批最多 100 行、1000 个单元格，请缩小粘贴范围。',
   COLLAB_BATCH_EMPTY: '粘贴记录不能为空。',
   COLLAB_BATCH_DUPLICATE: '同一批次不能重复修改同一记录。',

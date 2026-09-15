@@ -41,6 +41,7 @@ export interface View extends Option {
   config: ViewConfig;
 }
 export interface DataTable extends Option {
+  canManage?: boolean;
   baseId?: string;
   source: string;
   position: number;

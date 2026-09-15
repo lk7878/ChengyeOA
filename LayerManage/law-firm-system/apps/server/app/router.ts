@@ -18,6 +18,7 @@ export default (app: Application) => {
   router.get('/api/v1/tables/:tableId/access', controller.collaboration.resourceAccess);
   router.post('/api/v1/tables/:tableId/access', controller.collaboration.saveResourceAccess);
   router.get('/api/v1/bases/:baseId/tables', controller.collaboration.tables);
+  router.post('/api/v1/bases/:baseId/tables/reorder', controller.collaboration.reorderTables);
   router.post('/api/v1/bases/:baseId/tables', controller.collaboration.createTable);
   router.get('/api/v1/tables/:tableId', controller.collaboration.table);
   router.patch('/api/v1/tables/:tableId', controller.collaboration.mutateTable);

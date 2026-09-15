@@ -337,3 +337,16 @@
   outline: 2px solid #3370ff;
   outline-offset: -2px;
 }
+
+.workspace-table-drag {
+  flex: 0 0 22px;
+  border: 0;
+  background: transparent;
+  color: #667085;
+  cursor: grab;
+  padding: 8px 2px;
+}
+.workspace-table-drag:disabled {
+  cursor: default;
+  opacity: 0.4;
+}

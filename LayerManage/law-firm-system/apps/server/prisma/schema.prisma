@@ -1709,9 +1709,10 @@ model CollabRecord {
   revisions         CollabRevision[]
   comments          CollabComment[]
 
-  @@index([values], type: Gin, map: "collab_record_values_gin")
+  @@index([values(ops: JsonbPathOps)], type: Gin, map: "collab_record_values_path_gin")
   @@index([tableId, archived, createdAt, id])
   @@index([tableId, ownerId])
+  @@index([tableId, createdBy, archived, createdAt, id], map: "collab_record_creator_page_idx")
   @@map("collab_record")
 }
 
