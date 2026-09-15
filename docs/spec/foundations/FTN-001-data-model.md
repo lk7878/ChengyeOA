@@ -193,3 +193,8 @@ G2-B [导航元数据](../../superpowers/specs/2026-09-15-cloud-drive-g2b-shortc
 ### 全站统一框架（2026-09-15）
 
 本批仅迁移前端框架和页面归属，不新增模型、迁移或复制业务记录；数据库保持 90 模型/55 迁移。所有旧记录 ID、关联与审计引用不变。实现前契约见[U0/U1 导航与迁移矩阵](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。
+
+
+### U4 线索业务工作区
+
+U4 不新增模型或迁移；Lead/LeadFollow 仍是权威事实，目录连接仅存元数据，返回的关联显示标签不替代原 Lead.id。 工程契约见[线索与跟进统一](../../superpowers/specs/2026-09-15-u4-lead-workspace.md)，验收记录见全站统一计划第 7 节。

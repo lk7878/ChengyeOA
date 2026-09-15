@@ -28,6 +28,18 @@ export default class CollaborationController extends Controller {
   async index() {
     this.respond(await this.collaborationService().listWorkspaces());
   }
+  async businessTables() {
+    this.respond(await this.collaborationService().businessTables(this.ctx.query));
+  }
+  async createBusinessRecord() {
+    this.respond(
+      await this.collaborationService().createBusinessRecord(
+        this.ctx.params.tableId,
+        this.ctx.request.body,
+        this.key(),
+      ),
+    );
+  }
   async createWorkspace() {
     this.respond(await this.collaborationService().createWorkspace(this.ctx.request.body, this.key()));
   }

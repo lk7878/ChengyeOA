@@ -17,7 +17,7 @@ import type { Option } from './types';
 
 interface BusinessDetail {
   version: number;
-  capabilities: { follow: boolean; status: boolean; assign: boolean };
+  capabilities: { follow: boolean; status: boolean; assign: boolean; claim: boolean; recycle: boolean };
   statuses: string[];
   assignees: Option[];
   follows: {
@@ -56,6 +56,7 @@ const historyNames: Record<string, string> = {
   LEAD_REASSIGN: '改派负责人',
   LEAD_POOL_CLAIM: '领取线索',
   LEAD_POOL_RECYCLE: '回收线索',
+  LEAD_RECYCLE: '回收线索',
 };
 
 export function BusinessRecord({
@@ -73,7 +74,7 @@ export function BusinessRecord({
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
   const [command, setCommand] = useState<{
-    action: 'FOLLOW' | 'STATUS' | 'ASSIGN';
+    action: 'FOLLOW' | 'STATUS' | 'ASSIGN' | 'CLAIM' | 'RECYCLE';
     version: number;
     key: string;
   }>();
@@ -102,7 +103,7 @@ export function BusinessRecord({
       active = false;
     };
   }, [endpoint, revision, page]);
-  const open = (action: 'FOLLOW' | 'STATUS' | 'ASSIGN') => {
+  const open = (action: 'FOLLOW' | 'STATUS' | 'ASSIGN' | 'CLAIM' | 'RECYCLE') => {
     if (!data) return;
     form.resetFields();
     form.setFieldsValue({ type: 'PHONE' });
@@ -127,6 +128,12 @@ export function BusinessRecord({
               onClick={() => open('STATUS')}
             >
               调整状态
+            </Button>
+            <Button disabled={!data.capabilities.claim} onClick={() => open('CLAIM')}>
+              领取线索
+            </Button>
+            <Button disabled={!data.capabilities.recycle} onClick={() => open('RECYCLE')}>
+              回收线索
             </Button>
           </Space>
           <Tabs
@@ -182,7 +189,11 @@ export function BusinessRecord({
             ? '新增跟进'
             : command?.action === 'STATUS'
               ? '调整线索状态'
-              : '分配负责人'
+              : command?.action === 'CLAIM'
+                ? '领取线索'
+                : command?.action === 'RECYCLE'
+                  ? '回收线索'
+                  : '分配负责人'
         }
         open={!!command}
         forceRender
@@ -206,7 +217,11 @@ export function BusinessRecord({
                   }
                 : command.action === 'STATUS'
                   ? { status: values.status, reason: values.reason }
-                  : { employeeId: values.employeeId, reason: values.reason };
+                  : command.action === 'ASSIGN'
+                    ? { employeeId: values.employeeId, reason: values.reason }
+                    : command.action === 'RECYCLE'
+                      ? { reason: values.reason }
+                      : {};
             await post(endpoint, { action: command.action, version: command.version, ...body }, command.key);
             setCommand(undefined);
             setPage(1);
@@ -243,7 +258,13 @@ export function BusinessRecord({
           />
         )}
         <Form name="workspace-business-command" layout="vertical" form={form} preserve={false}>
-          {command?.action === 'FOLLOW' ? (
+          {command?.action === 'CLAIM' ? (
+            <p>确认领取这条线索到自己负责的私海？创建人及历史记录保持不变。</p>
+          ) : command?.action === 'RECYCLE' ? (
+            <Form.Item name="reason" label="回收原因" rules={[{ required: true, whitespace: true }]}>
+              <Input.TextArea aria-label="回收原因" maxLength={500} />
+            </Form.Item>
+          ) : command?.action === 'FOLLOW' ? (
             <>
               <Form.Item name="type" label="跟进方式" rules={[{ required: true }]}>
                 <Select aria-label="跟进方式" options={followTypes} />

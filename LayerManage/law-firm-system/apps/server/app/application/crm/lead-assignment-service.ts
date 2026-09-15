@@ -112,7 +112,7 @@ export class LeadAssignmentService {
    * poolStatus ∈ {PUBLIC, RECYCLED} → PRIVATE + owner=actor 员工 + assignedAt=now()；
    * status=NEW 时推进 ASSIGNED（写 lead.status_changed）；PRIVATE 抛 LEAD_NOT_IN_POOL(409)。
    */
-  async claimFromPool(leadId: string): Promise<LeadView> {
+  async claimFromPool(leadId: string, transaction?: Prisma.TransactionClient): Promise<LeadView> {
     this.authorization.requireAction(this.authorizationContext, 'lead.pool.claim');
     const id = normalizeRequiredText(leadId, 1, 100);
     const employeeId = this.authorizationContext.employeeId;
@@ -135,7 +135,7 @@ export class LeadAssignmentService {
         assignedAt: new Date(),
         auditAction: 'LEAD_POOL_CLAIM',
       };
-    });
+    }, transaction);
   }
 
   /**
@@ -177,7 +177,7 @@ export class LeadAssignmentService {
    * LEAD_STATE_TRANSITION_INVALID 409）→ RECYCLED + assignedTo=null + assignedAt=null；
    * status 不动（poolStatus 与 status 正交）。
    */
-  async recycle(leadId: string, reason?: string): Promise<LeadView> {
+  async recycle(leadId: string, reason?: string, transaction?: Prisma.TransactionClient): Promise<LeadView> {
     this.authorization.requireAction(this.authorizationContext, 'lead.recycle');
     const id = normalizeRequiredText(leadId, 1, 100);
     const note = normalizeOptionalText(reason, 500);
@@ -197,7 +197,7 @@ export class LeadAssignmentService {
         assignedAt: null,
         auditAction: 'LEAD_RECYCLE',
       };
-    });
+    }, transaction);
   }
 
   /**

@@ -1,3 +1,4 @@
+import CreateBusinessLead from '@/features/crm/CreateBusinessLead';
 import { useUnifiedShell } from '@/features/navigation/shell-context';
 import CloudDrivePage from '@/features/drive/CloudDrivePage';
 import { BusinessRecord } from '@/features/workspaces/BusinessRecord';
@@ -86,7 +87,8 @@ export default function WorkspacesPage() {
   return params.get('base') ? <WorkspaceEditor /> : <CloudDrivePage />;
 }
 
-function WorkspaceEditor() {
+export function WorkspaceEditor({ businessMode = false }: { businessMode?: boolean }) {
+  const [creatingLead, setCreatingLead] = useState(false);
   const unifiedShell = useUnifiedShell();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -145,6 +147,7 @@ function WorkspaceEditor() {
     // Route identity changes invalidate the paste target, including browser back/forward navigation.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPaste(undefined);
+    setCreatingLead(false);
     setAnchor(undefined);
     setInlineDirty(false);
     inlineDirtyRef.current = false;
@@ -869,7 +872,7 @@ function WorkspaceEditor() {
               )
             }
           >
-            承业 · 云盘
+            {businessMode ? '选择业务工作表' : '承业 · 云盘'}
           </button>
           {base && (
             <>
@@ -879,6 +882,24 @@ function WorkspaceEditor() {
           )}
         </Space>
         <Space>
+          {businessMode && (
+            <Button
+              onClick={() => {
+                const open = () => navigate('/workspaces?' + params.toString());
+                if (configDirty || editing || inlineDirty)
+                  Modal.confirm({
+                    title: '有尚未保存的修改',
+                    content: '切换入口将放弃当前草稿。',
+                    okText: '放弃并切换',
+                    cancelText: '取消',
+                    onOk: open,
+                  });
+                else open();
+              }}
+            >
+              在云盘中打开
+            </Button>
+          )}
           <Avatar.Group>
             {online.slice(0, 5).map((u) => (
               <Tooltip key={u.id} title={u.name}>
@@ -1034,12 +1055,16 @@ function WorkspaceEditor() {
                   <Button
                     type="primary"
                     icon={<PlusOutlined aria-hidden="true" />}
-                    disabled={detail.access.level < 2 || detail.table.source !== 'CUSTOM'}
+                    disabled={
+                      detail.access.level < 2 ||
+                      (detail.table.source !== 'CUSTOM' && !detail.canCreateBusiness)
+                    }
                     onClick={() => {
-                      void openRecord();
+                      if (detail.table.source === 'LEADS') setCreatingLead(true);
+                      else void openRecord();
                     }}
                   >
-                    添加记录
+                    {detail.table.source === 'LEADS' ? '新建线索' : '添加记录'}
                   </Button>
                   <Button
                     disabled={
@@ -1049,6 +1074,39 @@ function WorkspaceEditor() {
                   >
                     批量粘贴
                   </Button>
+                  {detail.table.source !== 'CUSTOM' && (
+                    <Button
+                      disabled={busy || configDirty || inlineDirty || !!editing}
+                      onClick={async () => {
+                        const key = detail.table.source === 'LEADS' ? 'assignedTo' : 'createdBy';
+                        const field = fields.find((f) => f.options.businessKey === key);
+                        if (!field) {
+                          message.info('当前未授权个人筛选字段');
+                          return;
+                        }
+                        try {
+                          setBusy(true);
+                          const created = await post<{ id: string }>('/tables/' + tableId + '/views', {
+                            name: detail.table.source === 'LEADS' ? '我负责的' : '我的跟进',
+                            type: 'GRID',
+                            shared: false,
+                            config: {
+                              ...config,
+                              filter: { fieldId: field.id, operator: 'eq', value: '$currentUser' },
+                            },
+                          });
+                          go({ base: baseId, table: tableId, view: created.id });
+                          refresh();
+                        } catch (e) {
+                          message.error(errorMessage(e));
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      创建个人视图
+                    </Button>
+                  )}
                   <Button onClick={() => setSettings('fields')}>字段配置</Button>
                   <Button onClick={() => setSettings('view')}>视图配置</Button>
                   <Button icon={<FilterOutlined />} onClick={() => setSettings('filter')}>
@@ -1304,6 +1362,24 @@ function WorkspaceEditor() {
       <Drawer title="数据表" open={mobileNav} onClose={() => setMobileNav(false)} placement="left">
         {tableNav}
       </Drawer>
+      {creatingLead && detail?.canCreateBusiness && (
+        <CreateBusinessLead
+          key={tableId}
+          tableId={tableId}
+          allowedFields={fields
+            .filter((f) => !detail.access.readonly.includes(f.id))
+            .map((f) => String(f.options.businessKey))}
+          onCancel={() => setCreatingLead(false)}
+          onCreated={(id, duplicates) => {
+            setCreatingLead(false);
+            message.success(
+              duplicates ? '创建成功，有 ' + duplicates + ' 条可访问的疑似重复线索' : '线索已创建',
+            );
+            go({ base: baseId, table: tableId, record: id });
+            refresh();
+          }}
+        />
+      )}
       <Drawer
         title={settings === 'fields' ? '字段配置' : settings === 'filter' ? '筛选条件' : '视图配置'}
         open={!!settings}
@@ -1567,6 +1643,7 @@ function WorkspaceEditor() {
               {(editing.field ? [editing.field] : fields).map((f) => (
                 <Form.Item key={f.id} label={f.name} required={f.required}>
                   <FieldInput
+                    displayText={(editing.detail?.record ?? editing.row)?.displayValues?.[f.id]}
                     field={f}
                     value={
                       f.options.businessKey

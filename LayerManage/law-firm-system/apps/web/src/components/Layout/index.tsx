@@ -38,7 +38,9 @@ const icons = {
 };
 
 export default function MainLayout({ children }: { children: ReactNode }) {
-  const { pathname } = useLocation();
+  const { pathname, search: locationSearch } = useLocation();
+  const businessEditor =
+    ['/leads', '/leads/follows'].includes(pathname) && !!new URLSearchParams(locationSearch).get('base');
   const [expanded, setExpanded] = useState(false);
   const [contextHidden, setContextHidden] = useState(false);
   const [drawer, setDrawer] = useState(false);
@@ -50,7 +52,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   const area = areas.find((item) => item.id === current?.area) || areas[0];
   const available = visibleEntries(authorization, area.id).filter((item) => item.path !== area.path);
   const groups = [...new Set(available.map((item) => item.group))];
-  const context = current && current.area !== 'drive' && !current.global;
+  const context = current && current.area !== 'drive' && !current.global && !businessEditor;
   const closeNavigation = () => setDrawer(false);
   const globalNav = (
     <nav aria-label="全局导航" className="unified-global-nav">
@@ -223,7 +225,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
               id="unified-main"
               tabIndex={-1}
               className={
-                current?.area === 'drive' && valid
+                (current?.area === 'drive' || businessEditor) && valid
                   ? 'unified-main unified-workspace'
                   : 'unified-main unified-page'
               }

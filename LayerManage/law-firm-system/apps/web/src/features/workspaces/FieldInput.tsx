@@ -1,3 +1,4 @@
+import { displayValue } from './display-value';
 import { useEffect, useState } from 'react';
 import { Button, Checkbox, Input, InputNumber, Select, Space, Upload, message } from 'antd';
 import { post, errorMessage } from './api';
@@ -11,6 +12,7 @@ export default function FieldInput({
   directory,
   tableId,
   disabled,
+  displayText,
 }: {
   field: Field;
   value: unknown;
@@ -18,6 +20,7 @@ export default function FieldInput({
   directory: Directory;
   tableId: string;
   disabled?: boolean;
+  displayText?: string;
 }) {
   const [relations, setRelations] = useState<{ value: string; label: string }[]>([]);
   useEffect(() => {
@@ -40,6 +43,8 @@ export default function FieldInput({
       alive = false;
     };
   }, [field.type, field.options.targetTableId]);
+  if (disabled && field.options.businessKey)
+    return <Input disabled value={displayText ?? displayValue(field, value, directory)} />;
   if (field.type === 'BOOLEAN')
     return (
       <Checkbox disabled={disabled} checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)}>

@@ -1,3 +1,4 @@
+import { BusinessTableLinks } from '@/features/crm/BusinessWorkspacePage';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -181,6 +182,7 @@ const LeadDetailPage: React.FC = () => {
         title={
           <Space wrap>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>返回</Button>
+            <BusinessTableLinks recordId={id} />
             <span>{lead.name}</span>
             <Tag color={statusMeta.color}>{statusMeta.text}</Tag>
             <Tag color={poolMeta.color}>{poolMeta.text}</Tag>

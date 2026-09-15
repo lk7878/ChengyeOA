@@ -139,7 +139,11 @@ export default function GridCell({
       data-record-id={row.id}
       data-field-id={field.id}
       style={{ minHeight: height }}
-      aria-label={field.name + '：' + (displayValue(field, row.values[field.id], directory) || '空')}
+      aria-label={
+        field.name +
+        '：' +
+        ((row.displayValues?.[field.id] ?? displayValue(field, row.values[field.id], directory)) || '空')
+      }
       onDoubleClick={begin}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -166,7 +170,9 @@ export default function GridCell({
         }
       }}
     >
-      {displayValue(field, row.values[field.id], directory) || <span className="workspace-muted">—</span>}
+      {(row.displayValues?.[field.id] ?? displayValue(field, row.values[field.id], directory)) || (
+        <span className="workspace-muted">—</span>
+      )}
     </button>
   );
 }

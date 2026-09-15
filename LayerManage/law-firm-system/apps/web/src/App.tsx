@@ -17,7 +17,7 @@ import Dashboard from './pages/Dashboard';
 import AreaPage from './features/navigation/AreaPage';
 import { legacyRedirects } from './features/navigation/catalog';
 import WorkspacesPage from './pages/Workspaces';
-import LeadListPage from './pages/leads/LeadListPage';
+import BusinessWorkspacePage from './features/crm/BusinessWorkspacePage';
 import LeadDetailPage from './pages/leads/LeadDetailPage';
 import PublicPoolPage from './pages/leads/PublicPoolPage';
 import VisitCalendarPage from './pages/leads/VisitCalendarPage';
@@ -149,7 +149,7 @@ function SessionBootstrap() {
             path="/leads"
             element={
               <AuthorizedPage permission="menu.lead_crm">
-                <LeadListPage />
+                <BusinessWorkspacePage />
               </AuthorizedPage>
             }
           />
@@ -158,6 +158,14 @@ function SessionBootstrap() {
             element={
               <AuthorizedPage permission="menu.lead_crm">
                 <PublicPoolPage />
+              </AuthorizedPage>
+            }
+          />
+          <Route
+            path="/leads/follows"
+            element={
+              <AuthorizedPage permission="menu.lead_crm">
+                <BusinessWorkspacePage source="FOLLOWS" />
               </AuthorizedPage>
             }
           />

@@ -164,3 +164,8 @@ G2-B 最终验收：完整服务 59/59、严格输入追加服务 8/8、完整 H
 [路由矩阵与导航契约](../superpowers/specs/2026-09-15-unified-navigation-contract.md)覆盖全站 MOD-001–013。U0/U1 已明确全部实际路由、权威数据、授权、受控动作、旧链接及 Wiki/Harness 保护边界；U2/U3 已完成本批框架实现与验收。导航目录 catalog.ts、持久 MainLayout、区域首页 AreaPage、App 嵌套路由与受保护内容守卫共同承接 UNIFY-AC-01/02/03/07/08/09/10。本批不宣告 U4–U7 或 UNIFY-AC-04/05/06 全站业务整合完成。
 
 U0–U3 验收：前端相关 11 文件 51/51；完整 HTTP/SSE/Edge 7/7（290.525 秒）；两端 lint/类型、前端构建及 baseline/bootstrap/文档检查通过。真实 App 三角色、持久框架、键盘、三宽度、直链/撤权/重试、资源返回均覆盖。桌面桥使用测试替身，未复验真实 Electron 全办案链路；完整业务整合与 UNIFY-AC-07 剩余项仍待后续阶段，详见[实施计划](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。
+
+
+## SPEC-UNIFIED-OA U4
+
+[U4 契约](../superpowers/specs/2026-09-15-u4-lead-workspace.md)对应 MOD-004 与 FTN-001/003/004/005：BusinessWorkspacePage / WorkspaceEditor 提供同源入口；CollaborationService.businessTables/createBusinessRecord/businessAction 提供权限过滤目录、幂等创建及受控池动作；WorkspaceBusinessTable 提供授权内关联标签。新业务浏览器流程、权限/回滚服务测试和创建重试单测已通过。U4 最终验收：相关服务 80/80、补充断言后业务/扩展复验 17/17；前端 35 项与浏览器 8 项均有通过记录（初次失败与目标复验经过见全站计划第 7 节）；两端 lint/类型/构建、契约/文档检查通过。100 会话 / 900 秒保存 3600/3600，查询/保存/可见 P95 1196/1336/1356ms，重连 P95 4562ms，撤权 949ms 后读写均 403；原始证据 u4-load-report.json。无新迁移或开发库重置，U5–U7 仍待实施。

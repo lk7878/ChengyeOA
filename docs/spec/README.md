@@ -65,7 +65,7 @@ flowchart LR
 - 知识库、智慧办案尽量仅做入口和外层适配，保留云端 Wiki、本地 Harness、原生会话与个人材料不自动同步的架构边界。
 - 首批优先全局框架及左侧导航，然后按模块持续完成业务整合。任何实现变更从规格与验收开始，不以首批导航调整宣告全站完成。
 
-完整规格见 [SPEC-UNIFIED-OA-20260915](../superpowers/specs/2026-09-15-feishu-unified-oa-refactor.md)，[实施计划](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)交由原主会话推进；U0/U1 契约和 U2 框架已实现，U3 已完成本批框架验收，U4–U7 业务深度整合仍待执行。
+完整规格见 [SPEC-UNIFIED-OA-20260915](../superpowers/specs/2026-09-15-feishu-unified-oa-refactor.md)，[实施计划](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)交由原主会话推进；U0/U1 契约和 U2 框架已实现，U3 已完成本批框架验收，U4 线索/跟进同源工作区、详情和受控动作已实现并验收，详见 [U4 契约](../superpowers/specs/2026-09-15-u4-lead-workspace.md)；U5–U7 其余业务整合与全站收敛仍待执行。
 
 ### 1.2 智能化桌面方案（实施中）
 

@@ -1,13 +1,28 @@
+import { LEAD_STATUS_META, POOL_STATUS_META, FOLLOW_TYPE_META } from '@/pages/leads/meta';
 import type { Directory, Field } from './types';
 
 export function displayValue(field: Field, value: unknown, directory: Directory): string {
   if (value === null || value === undefined || value === '') return '';
+  const labels: Record<string, string> = Object.fromEntries(
+    Object.entries(
+      field.options.businessKey === 'status'
+        ? LEAD_STATUS_META
+        : field.options.businessKey === 'poolStatus'
+          ? POOL_STATUS_META
+          : {},
+    ).map(([key, value]) => [key, value.text]),
+  );
+  if (labels[String(value)]) return labels[String(value)];
+  if (field.options.businessKey === 'type')
+    return (FOLLOW_TYPE_META as Record<string, string>)[String(value)] || String(value);
   const options =
     field.type === 'USER'
       ? directory.employees
       : field.type === 'ORGANIZATION'
         ? directory.organizations
-        : field.options.choices || [];
+        : ['CREATED_BY', 'UPDATED_BY'].includes(field.type)
+          ? directory.users
+          : field.options.choices || [];
   if (field.type === 'BOOLEAN') return value ? '已勾选' : '未勾选';
   if (field.type === 'FILE') return Array.isArray(value) ? value.length + ' 个附件' : '';
   if (field.type === 'RELATION') return Array.isArray(value) ? value.length + ' 条关联记录' : '';

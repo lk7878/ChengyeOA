@@ -93,7 +93,7 @@ export class LeadService {
     this.outbox = outbox ?? new PrismaEventOutboxWriter();
   }
 
-  async createLead(input: CreateLeadInput, idempotencyKey?: string): Promise<CreateLeadResult> {
+  async createLead(input: CreateLeadInput, idempotencyKey?: string, transaction?: Prisma.TransactionClient): Promise<CreateLeadResult> {
     this.authorization.requireAction(this.authorizationContext, 'lead.create');
     assertExactKeys(input, [
       'name', 'phone', 'wechat', 'channelId', 'sourceDetail', 'sourceType',
@@ -132,7 +132,7 @@ export class LeadService {
     }
 
     // 去重只读探测在创建事务之前（设计 §9：phoneHash/wechatHash 精确匹配，无全表正则）。
-    const candidates = await this.prisma.lead.findMany({
+    const candidates = await (transaction ?? this.prisma).lead.findMany({
       where: {
         deletedAt: null,
         OR: [
@@ -163,7 +163,7 @@ export class LeadService {
       status: 'NEW',
       poolStatus: 'PUBLIC',
       createdBy: this.actor.actorUserId,
-    });
+    }, transaction);
 
     const result: CreateLeadResult = {
       lead: projectLead(created, this.leadFieldPermissions()),
@@ -391,10 +391,11 @@ export class LeadService {
 
   private async createLeadWithBusinessNoRetry(
     data: Omit<Prisma.LeadUncheckedCreateInput, 'leadNo'>,
+    transaction?: Prisma.TransactionClient,
   ): Promise<Lead> {
     for (let attempt = 0; attempt < BUSINESS_NO_RETRY_LIMIT; attempt += 1) {
       try {
-        return await this.prisma.$transaction(async tx => {
+        return await crmTransaction(this.prisma, transaction, async tx => {
           const lead = await tx.lead.create({ data: { ...data, leadNo: makeBusinessNo('L') } });
           await this.outbox.append(tx, this.envelope('LEAD', lead.id, {
             leadId: lead.id,
@@ -423,7 +424,7 @@ export class LeadService {
           return lead;
         });
       } catch (error) {
-        if (attempt + 1 < BUSINESS_NO_RETRY_LIMIT && isUniqueConflictOn(error, 'leadNo')) continue;
+        if (!transaction && attempt + 1 < BUSINESS_NO_RETRY_LIMIT && isUniqueConflictOn(error, 'leadNo')) continue;
         throw error;
       }
     }

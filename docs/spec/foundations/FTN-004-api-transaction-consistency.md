@@ -157,3 +157,8 @@ G2-B [导航事务](../../superpowers/specs/2026-09-15-cloud-drive-g2b-shortcuts
 ### 全站统一框架（2026-09-15）
 
 页面跳转不发起领域写操作；原业务 API、版本、幂等与事务保持。旧路径与 query/hash 保留，只有原首页统计移至明确分析入口。实现前契约见[U0/U1 导航与迁移矩阵](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。
+
+
+### U4 线索业务工作区
+
+U4 创建、领取和回收可组合到既有协作幂等事务，工作区/Lead 锁与版本验证后执行 CRM 领域命令；Lead、审计、outbox 和刷新事件同事务提交。 工程契约见[线索与跟进统一](../../superpowers/specs/2026-09-15-u4-lead-workspace.md)，验收记录见全站统一计划第 7 节。

@@ -51,6 +51,7 @@ export const entries: NavigationEntry[] = [
   },
   { path: '/security/account', title: '账号安全', area: 'home', group: '个人设置' },
   { path: '/leads', title: '线索列表', area: 'apps', group: '客户经营', required: lead },
+  { path: '/leads/follows', title: '跟进工作表', area: 'apps', group: '客户经营', required: lead },
   { path: '/leads/pool', title: '公海池', area: 'apps', group: '客户经营', required: lead },
   {
     path: '/leads/calendar',

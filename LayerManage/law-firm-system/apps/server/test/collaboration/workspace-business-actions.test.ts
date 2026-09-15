@@ -392,3 +392,259 @@ test('business actions reject missing action rights, protected fields, outside a
   );
   assert.equal((await db.lead.findUniqueOrThrow({ where: { id: leadId } })).status, 'CONTACTED');
 });
+
+function commands(service: CollaborationService) {
+  for (const permissionCode of ['lead.create', 'lead.pool.claim', 'lead.recycle'] as const) {
+    service.actor.permissionCodes.push(permissionCode);
+    service.actor.grants.push({
+      sourceType: 'ROLE',
+      sourceId: 'u4',
+      resource: 'lead',
+      permissionCode,
+      scopeIds: ['ALL'],
+      validUntil: null,
+    });
+  }
+  return service;
+}
+test('U4 directory reveals only authorized sources and locates canonical records across entries', async () => {
+  const follows = await owner.createTable(base, { name: '正式跟进', source: 'FOLLOWS' }, key());
+  const directory = await employee.businessTables({ source: 'LEADS', recordId: leadId });
+  assert.deepEqual(
+    directory.tables.map((t) => t.id),
+    [table],
+  );
+  assert.equal(directory.targets.length, 0);
+  assert.deepEqual(
+    (await manager.businessTables({ source: 'FOLLOWS' })).tables.map((t) => t.id),
+    [follows.id],
+  );
+  assert.equal((await owner.businessTables()).targets[0].id, base);
+  await employee.businessAction(
+    table,
+    leadId,
+    { action: 'FOLLOW', version: 1, type: 'PHONE', content: '关联标签验证' },
+    key(),
+  );
+  const followResult = await employee.query(follows.id, {});
+  assert.equal(JSON.stringify(followResult.records).includes('本人录入但由他人负责'), true);
+  const linkedField = (await owner.describe(follows.id)).fields.find(
+    (f) => (f.options as { businessKey: string }).businessKey === 'leadId',
+  )!;
+  await owner.saveResourceAccess(
+    'TABLE',
+    follows.id,
+    {
+      version: 1,
+      policy: {
+        restricted: true,
+        grants: [
+          {
+            principalType: 'POSITION',
+            principalId: position,
+            role: 'EDITOR',
+            rowScope: 'SELF',
+            hiddenFields: [linkedField.id],
+            readonlyFields: [],
+          },
+        ],
+      },
+    },
+    key(),
+  );
+  assert.equal(JSON.stringify(await employee.query(follows.id, {})).includes('本人录入但由他人负责'), false);
+  await assert.rejects(employee.businessTables({ source: 'CUSTOM' }), code('COLLAB_INVALID_OPTION'));
+  await owner.saveResourceAccess(
+    'TABLE',
+    table,
+    { version: 1, policy: { restricted: true, grants: [] } },
+    key(),
+  );
+  assert.equal((await employee.businessTables()).tables.length, 0);
+  assert.equal((await owner.businessTables()).tables.length, 1);
+});
+test('U4 creates canonical CRM rows atomically and retries without duplicate records or leaking duplicate identities', async () => {
+  commands(employee);
+  const body = { name: '表格中新建', phone: '13900009991', intentionLevel: 3 };
+  const idempotency = key();
+  const first = await employee.createBusinessRecord(table, body, idempotency);
+  assert.deepEqual(await employee.createBusinessRecord(table, body, idempotency), first);
+  const lead = await db.lead.findUniqueOrThrow({ where: { id: first.id } });
+  assert.equal(lead.branchId, org);
+  assert.equal(lead.createdBy, employee.actor.userId);
+  assert.equal(lead.poolStatus, 'PUBLIC');
+  assert.equal(lead.status, 'NEW');
+  assert.equal(await db.collabRecord.count(), 0);
+  assert.equal(
+    (await employee.query(table, {})).records.some((r) => r.id === lead.id),
+    true,
+  );
+  assert.equal(
+    (await new LeadService(db, { actorUserId: employee.actor.userId }, employee.actor).getLead(lead.id)).id,
+    lead.id,
+  );
+  assert.equal(await db.operationLog.count({ where: { action: 'LEAD_CREATE', targetId: lead.id } }), 1);
+  assert.equal(await db.collabEvent.count({ where: { kind: 'business.changed', baseId: base } }), 1);
+  await assert.rejects(
+    employee.createBusinessRecord(table, { ...body, branchId: key() }, key()),
+    code('COLLAB_UNKNOWN_PROPERTY'),
+  );
+  await assert.rejects(manager.createBusinessRecord(table, body, key()), code('COLLAB_FORBIDDEN'));
+  const other = await commands(manager).createBusinessRecord(table, { ...body, name: '他人重复' }, key());
+  assert.equal(other.duplicates, 1);
+  const ownAgain = await employee.createBusinessRecord(table, body, key());
+  assert.equal(ownAgain.duplicates, 1); // other creator remains outside SELF
+  assert.notEqual(ownAgain.id, first.id);
+  const service = employee as unknown as { event: (...args: unknown[]) => Promise<void> };
+  const original = service.event;
+  service.event = async () => {
+    throw new Error('u4 event rollback');
+  };
+  try {
+    await assert.rejects(
+      employee.createBusinessRecord(table, { ...body, phone: '13900009992' }, key()),
+      /u4 event rollback/,
+    );
+  } finally {
+    service.event = original;
+  }
+  assert.equal(await db.lead.count({ where: { phone: '13900009992' } }), 0);
+});
+test('U4 pool commands enforce fields, scopes, optimistic version and atomic rollback', async () => {
+  commands(employee);
+  commands(manager);
+  const row = await employee.createBusinessRecord(table, { name: '领取与回收', phone: '13900009993' }, key());
+  assert.equal((await employee.businessDetail(table, row.id)).capabilities.claim, true);
+  const claimKey = key();
+  const claimed = await employee.businessAction(table, row.id, { action: 'CLAIM', version: 1 }, claimKey);
+  assert.deepEqual(
+    await employee.businessAction(table, row.id, { action: 'CLAIM', version: 1 }, claimKey),
+    claimed,
+  );
+  assert.equal(claimed.version, 2);
+  assert.equal(
+    (await db.lead.findUniqueOrThrow({ where: { id: row.id } })).assignedTo,
+    employee.actor.employeeId,
+  );
+  await assert.rejects(
+    manager.businessAction(table, row.id, { action: 'RECYCLE', version: 1, reason: '过期版本' }, key()),
+    code('COLLAB_RECORD_CONFLICT'),
+  );
+  const service = manager as unknown as { event: (...args: unknown[]) => Promise<void> };
+  const original = service.event;
+  service.event = async () => {
+    throw new Error('pool rollback');
+  };
+  try {
+    await assert.rejects(
+      manager.businessAction(table, row.id, { action: 'RECYCLE', version: 2, reason: '应回滚' }, key()),
+      /pool rollback/,
+    );
+  } finally {
+    service.event = original;
+  }
+  assert.equal((await db.lead.findUniqueOrThrow({ where: { id: row.id } })).poolStatus, 'PRIVATE');
+  await manager.businessAction(
+    table,
+    row.id,
+    { action: 'RECYCLE', version: 2, reason: '重新分配前回收' },
+    key(),
+  );
+  const current = await db.lead.findUniqueOrThrow({ where: { id: row.id } });
+  assert.equal(current.createdBy, employee.actor.userId);
+  assert.equal(current.assignedTo, null);
+  assert.equal(current.poolStatus, 'RECYCLED');
+  assert.equal((await employee.businessDetail(table, row.id)).capabilities.claim, true);
+  const racing = await employee.createBusinessRecord(
+    table,
+    { name: '并发领取', phone: '13900009994' },
+    key(),
+  );
+  const outcomes = await Promise.allSettled([
+    employee.businessAction(table, racing.id, { action: 'CLAIM', version: 1 }, key()),
+    manager.businessAction(table, racing.id, { action: 'CLAIM', version: 1 }, key()),
+  ]);
+  assert.equal(outcomes.filter((o) => o.status === 'fulfilled').length, 1);
+  assert.equal((await db.lead.findUniqueOrThrow({ where: { id: racing.id } })).version, 2);
+  assert.equal(await db.leadPoolRecord.count({ where: { leadId: racing.id, action: 'CLAIM' } }), 1);
+  const assignedField = (await owner.describe(table)).fields.find(
+    (f) => (f.options as { businessKey: string }).businessKey === 'assignedTo',
+  )!;
+  await owner.saveResourceAccess(
+    'TABLE',
+    table,
+    {
+      version: 1,
+      policy: {
+        restricted: true,
+        grants: [
+          {
+            principalType: 'POSITION',
+            principalId: position,
+            role: 'EDITOR',
+            rowScope: 'SELF',
+            readonlyFields: [assignedField.id],
+            hiddenFields: [],
+          },
+        ],
+      },
+    },
+    key(),
+  );
+  assert.equal((await employee.businessDetail(table, row.id)).capabilities.claim, false);
+  await assert.rejects(
+    employee.businessAction(table, row.id, { action: 'CLAIM', version: current.version }, key()),
+    code('COLLAB_FORBIDDEN'),
+  );
+});
+
+test('U4 creation fails closed for hidden required fields, creator-only CRM read scopes and outside create scopes', async () => {
+  commands(employee);
+  const originalGrants = employee.actor.grants;
+  employee.actor.grants = originalGrants.map((g) =>
+    g.permissionCode === 'lead.read' ? { ...g, scopeIds: ['SELF'] } : g,
+  );
+  assert.equal((await employee.describe(table)).canCreateBusiness, false);
+  await assert.rejects(
+    employee.createBusinessRecord(table, { name: '无范围', phone: '13900007771' }, key()),
+    code('COLLAB_FORBIDDEN'),
+  );
+  employee.actor.grants = originalGrants.map((g) =>
+    g.permissionCode === 'lead.create' ? { ...g, scopeIds: [] } : g,
+  );
+  await assert.rejects(
+    employee.createBusinessRecord(table, { name: '无创建范围', phone: '13900007772' }, key()),
+    code('COLLAB_FORBIDDEN'),
+  );
+  employee.actor.grants = originalGrants;
+  const phone = (await owner.describe(table)).fields.find(
+    (f) => (f.options as { businessKey: string }).businessKey === 'phone',
+  )!;
+  await owner.saveResourceAccess(
+    'TABLE',
+    table,
+    {
+      version: 1,
+      policy: {
+        restricted: true,
+        grants: [
+          {
+            principalType: 'POSITION',
+            principalId: position,
+            role: 'EDITOR',
+            rowScope: 'SELF',
+            hiddenFields: [phone.id],
+            readonlyFields: [],
+          },
+        ],
+      },
+    },
+    key(),
+  );
+  assert.equal((await employee.describe(table)).canCreateBusiness, false);
+  await assert.rejects(
+    employee.createBusinessRecord(table, { name: '隐藏必填字段', phone: '13900007773' }, key()),
+    code('COLLAB_FORBIDDEN'),
+  );
+  assert.equal(await db.lead.count(), 1);
+});

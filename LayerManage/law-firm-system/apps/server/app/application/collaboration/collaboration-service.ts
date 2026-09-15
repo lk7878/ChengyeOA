@@ -1,7 +1,9 @@
 import { queryCustomRecords } from './custom-record-query';
+import { LEAD_SOURCE_TYPES } from '../crm/lead-types';
 import { LeadService } from '../crm/lead-service';
 import { LeadFollowService, LEAD_FOLLOW_TYPES } from '../crm/lead-follow-service';
 import { LeadAssignmentService } from '../crm/lead-assignment-service';
+import { buildOrganizationScopeWhere } from '../authorization/resource-scope-resolvers';
 import { buildLeadScopeWhere } from '../crm/lead-scope';
 import { DataScopeService } from '../authorization/data-scope-service';
 import { AuthorizationService } from '../authorization/authorization-service';
@@ -431,6 +433,164 @@ export class CollaborationService {
         this.actor.permissionCodes.some((p) => String(p) === 'workspace.create'),
     };
   }
+  async businessTables(raw: unknown = {}) {
+    const input = exact(raw, ['source', 'recordId']);
+    const source = choice(input.source ?? 'LEADS', ['LEADS', 'FOLLOWS']);
+    const recordId = input.recordId === undefined ? undefined : text(input.recordId);
+    if (recordId && source !== 'LEADS') fail('COLLAB_INVALID_SOURCE');
+    new WorkspaceBusinessTable(this.db, this.actor).authorize();
+    const tables: { id: string; name: string; baseId: string; baseName: string; workspaceName: string }[] =
+      [];
+    const targets: { id: string; name: string; workspaceName: string }[] = [];
+    const { workspaces } = await this.listWorkspaces();
+    for (const workspace of workspaces)
+      for (const base of workspace.bases) {
+        try {
+          const directory = await this.listTables(base.id);
+          if (!recordId && directory.access.level === 4 && directory.access.canCreate && targets.length < 200)
+            targets.push({ id: base.id, name: base.name, workspaceName: workspace.name });
+          for (const table of directory.tables) {
+            if (table.source !== source || table.archived || tables.length >= 200) continue;
+            if (recordId) {
+              try {
+                await this.businessLead(table.id, recordId);
+              } catch (e) {
+                if (['COLLAB_NOT_FOUND', 'COLLAB_FORBIDDEN'].includes((e as { code?: string }).code ?? ''))
+                  continue;
+                throw e;
+              }
+            }
+            tables.push({
+              id: table.id,
+              name: table.name,
+              baseId: base.id,
+              baseName: base.name,
+              workspaceName: workspace.name,
+            });
+          }
+        } catch (e) {
+          if (!['COLLAB_NOT_FOUND', 'COLLAB_FORBIDDEN'].includes((e as { code?: string }).code ?? ''))
+            throw e;
+        }
+      }
+    return { tables, targets };
+  }
+  private async canCreateBusiness(
+    table: CollabTable,
+    access: Access,
+    fields: CollabField[],
+    tx: Tx = this.db,
+  ) {
+    if (table.source !== 'LEADS' || access.level < 2 || !this.actor.permissionCodes.includes('lead.create'))
+      return false;
+    if (
+      ['name', 'phone'].some(
+        (key) =>
+          !fields.some((f) => object(f.options).businessKey === key && !access.readonly.includes(f.id)),
+      )
+    )
+      return false;
+    const authorization = new AuthorizationService(new DataScopeService(this.db));
+    const reads = await authorization.resolveScopeTargets(this.actor, 'lead', 'lead.read');
+    if (
+      !reads.all &&
+      !(
+        reads.organizationTargets.length &&
+        (await tx.organization.findFirst({
+          where: {
+            AND: [{ id: access.organizationId, status: 'ENABLED' }, buildOrganizationScopeWhere(reads)],
+          },
+          select: { id: true },
+        }))
+      )
+    )
+      return false;
+    const targets = await authorization.resolveScopeTargets(this.actor, 'lead', 'lead.create');
+    if (targets.all) return true;
+    if (
+      targets.organizationTargets.length &&
+      (await tx.organization.findFirst({
+        where: {
+          AND: [{ id: access.organizationId, status: 'ENABLED' }, buildOrganizationScopeWhere(targets)],
+        },
+        select: { id: true },
+      }))
+    )
+      return true;
+    return (
+      !!this.actor.employeeId &&
+      targets.employeeIds.includes(this.actor.employeeId) &&
+      (await this.principals(tx)).some(
+        (p) => p.principalType === 'ORG' && p.principalId === access.organizationId,
+      )
+    );
+  }
+  async createBusinessRecord(tableId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, [
+      'name',
+      'phone',
+      'wechat',
+      'intentionLevel',
+      'sourceType',
+      'sourceDetail',
+      'tags',
+    ]);
+    const initial = await this.tableAccess(tableId);
+    if (!(await this.canCreateBusiness(initial.table, initial.access, initial.fields)))
+      fail('COLLAB_FORBIDDEN', 403);
+    return this.write(key, ['business.create', tableId, input], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId);
+      const current = await this.tableAccess(tableId, tx, 2);
+      if (!(await this.canCreateBusiness(current.table, current.access, current.fields, tx)))
+        fail('COLLAB_FORBIDDEN', 403);
+      for (const fieldName of ['wechat', 'intentionLevel'])
+        if (
+          input[fieldName] !== undefined &&
+          !current.fields.some(
+            (f) => object(f.options).businessKey === fieldName && !current.access.readonly.includes(f.id),
+          )
+        )
+          fail('COLLAB_FORBIDDEN', 403);
+      const created = await new LeadService(
+        this.db,
+        { actorUserId: this.actor.userId },
+        this.actor,
+      ).createLead(
+        {
+          name: text(input.name, 100),
+          phone: text(input.phone, 100),
+          wechat: input.wechat === undefined ? undefined : text(input.wechat, 100),
+          intentionLevel:
+            input.intentionLevel === undefined ? undefined : integer(input.intentionLevel, 1, 5),
+          sourceDetail: input.sourceDetail === undefined ? undefined : text(input.sourceDetail, 200),
+          sourceType:
+            input.sourceType === undefined ? undefined : choice(input.sourceType, LEAD_SOURCE_TYPES),
+          tags: input.tags === undefined ? undefined : text(input.tags, 500),
+          branchId: current.access.organizationId,
+        },
+        undefined,
+        tx,
+      );
+      // Creating a record never grants a new read scope. Unreadable results roll back with the command.
+      await this.businessLead(tableId, created.lead.id, tx);
+      const scope = await new WorkspaceBusinessTable(this.db, this.actor).scope(current.access);
+      const visibleDuplicates = await tx.lead.count({
+        where: {
+          AND: [
+            scope,
+            { id: { in: created.duplicates.map((d) => d.leadId) } },
+            ...(current.access.selfOnly ? [{ createdBy: this.actor.userId }] : []),
+          ],
+        },
+      });
+      const bases = await tx.collabBase.findMany({
+        where: { workspaceId: current.access.workspaceId },
+        select: { id: true },
+      });
+      for (const base of bases) await this.event(tx, base.id, 'business.changed', created.lead.id);
+      return { id: created.lead.id, version: created.lead.version, duplicates: visibleDuplicates };
+    });
+  }
   async createWorkspace(raw: unknown, key: unknown) {
     const input = exact(raw, ['name', 'organizationId']);
     if (
@@ -628,8 +788,13 @@ export class CollaborationService {
     return {
       table: { ...table, accessPolicy: null as null, fields: [] as CollabField[] },
       access,
+      canCreateBusiness: await this.canCreateBusiness(table, access, fields),
       fields: fields.map((f) => ({
         ...f,
+        name:
+          table.source === 'FOLLOWS' && object(f.options).businessKey === 'leadId' && f.name === '线索 ID'
+            ? '关联线索'
+            : f.name,
         queryable:
           table.source === 'CUSTOM' || !['phone', 'wechat'].includes(String(object(f.options).businessKey)),
         writable:
@@ -1110,7 +1275,7 @@ export class CollaborationService {
   private async businessCapabilities(tableId: string, recordId: string, tx: Tx = this.db) {
     const result = await this.businessLead(tableId, recordId, tx);
     const { lead, access, fields } = result;
-    const permitted = async (code: 'lead.update' | 'lead.assign') =>
+    const permitted = async (code: 'lead.update' | 'lead.assign' | 'lead.pool.claim' | 'lead.recycle') =>
       access.level >= 2 &&
       this.actor.permissionCodes.includes(code) &&
       !!(await tx.lead.findFirst({
@@ -1132,9 +1297,27 @@ export class CollaborationService {
     const update = await permitted('lead.update');
     const assign = await permitted('lead.assign');
     const stateWritable = writable('status');
+    const poolWritable = writable('assignedTo') && writable('poolStatus');
+    const activeEmployee = this.actor.employeeId
+      ? await tx.employee.findFirst({
+          where: { id: this.actor.employeeId, status: { not: 'LEAVED' }, deletedAt: null },
+          select: { id: true },
+        })
+      : null;
+    const poolPermissions = {
+      claim:
+        !!activeEmployee &&
+        poolWritable &&
+        (lead.status !== 'NEW' || stateWritable) &&
+        (await permitted('lead.pool.claim')),
+      recycle: poolWritable && (await permitted('lead.recycle')),
+    };
     return {
       ...result,
+      poolPermissions,
       capabilities: {
+        claim: lead.poolStatus !== 'PRIVATE' && poolPermissions.claim,
+        recycle: lead.poolStatus === 'PRIVATE' && poolPermissions.recycle,
         follow: update && (lead.status !== 'ASSIGNED' || stateWritable),
         status: update && stateWritable,
         assign:
@@ -1161,6 +1344,7 @@ export class CollaborationService {
           'LEAD_REASSIGN',
           'LEAD_POOL_CLAIM',
           'LEAD_POOL_RECYCLE',
+          'LEAD_RECYCLE',
         ],
       },
       ...(access.selfOnly ? { userId: this.actor.userId } : {}),
@@ -1217,7 +1401,7 @@ export class CollaborationService {
       'employeeId',
       'reason',
     ]);
-    const action = choice(input.action, ['FOLLOW', 'STATUS', 'ASSIGN']);
+    const action = choice(input.action, ['FOLLOW', 'STATUS', 'ASSIGN', 'CLAIM', 'RECYCLE']);
     // Reject unrelated fields so a retry fingerprint always describes exactly one command.
     exact(
       input,
@@ -1225,11 +1409,28 @@ export class CollaborationService {
         ? ['action', 'version', 'type', 'content', 'nextPlan', 'nextTime']
         : action === 'STATUS'
           ? ['action', 'version', 'status', 'reason']
-          : ['action', 'version', 'employeeId', 'reason'],
+          : action === 'ASSIGN'
+            ? ['action', 'version', 'employeeId', 'reason']
+            : action === 'RECYCLE'
+              ? ['action', 'version', 'reason']
+              : ['action', 'version'],
     );
     const initial = await this.businessCapabilities(tableId, recordId);
-    const capability = action === 'FOLLOW' ? 'follow' : action === 'STATUS' ? 'status' : 'assign';
-    if (!initial.capabilities[capability]) fail('COLLAB_FORBIDDEN', 403);
+    const capability =
+      action === 'FOLLOW'
+        ? 'follow'
+        : action === 'STATUS'
+          ? 'status'
+          : action === 'ASSIGN'
+            ? 'assign'
+            : action === 'CLAIM'
+              ? 'claim'
+              : 'recycle';
+    if (
+      !initial.capabilities[capability] &&
+      !((capability === 'claim' || capability === 'recycle') && initial.poolPermissions[capability])
+    )
+      fail('COLLAB_FORBIDDEN', 403);
     return this.write(key, ['business.action', tableId, recordId, input], async (tx) => {
       await this.lock(tx, initial.access.workspaceId);
       await tx.$queryRaw(Prisma.sql`SELECT id FROM lead WHERE id = ${recordId} FOR UPDATE`);
@@ -1256,6 +1457,14 @@ export class CollaborationService {
         await new LeadService(this.db, actor, this.actor).transitionStatus(
           recordId,
           status,
+          text(input.reason, 500),
+          tx,
+        );
+      } else if (action === 'CLAIM') {
+        await new LeadAssignmentService(this.db, actor, this.actor).claimFromPool(recordId, tx);
+      } else if (action === 'RECYCLE') {
+        await new LeadAssignmentService(this.db, actor, this.actor).recycle(
+          recordId,
           text(input.reason, 500),
           tx,
         );

@@ -65,6 +65,7 @@ export interface Access {
   workspaceId: string;
 }
 export interface TableDetail {
+  canCreateBusiness?: boolean;
   table: DataTable;
   fields: Field[];
   views: View[];
@@ -74,6 +75,7 @@ export interface TableDetail {
   employeeId: string | null;
 }
 export interface RecordRow {
+  displayValues?: Record<string, string>;
   writable?: boolean;
   id: string;
   tableId: string;

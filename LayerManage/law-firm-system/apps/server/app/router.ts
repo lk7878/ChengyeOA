@@ -7,6 +7,8 @@ export default (app: Application) => {
   const { router, controller } = app;
 
   // SPEC-COLLAB: authenticated endpoints; services enforce resource permissions.
+  router.get('/api/v1/collaboration/business-tables', controller.collaboration.businessTables);
+  router.post('/api/v1/tables/:tableId/business-records', controller.collaboration.createBusinessRecord);
   router.get('/api/v1/workspaces', controller.collaboration.index);
   router.get('/api/v1/workspaces/:workspaceId/drive', controller.drive.index);
   router.get('/api/v1/workspaces/:workspaceId/drive/folders', controller.drive.folders);

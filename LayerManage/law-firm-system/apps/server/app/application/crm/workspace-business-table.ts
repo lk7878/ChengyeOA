@@ -296,6 +296,17 @@ export class WorkspaceBusinessTable {
         'workspace.leads',
       );
     }
+    // Reference labels are projected only for the already-authorized result and visible link field.
+    const leadField =
+      table.source === 'FOLLOWS' ? fields.find((f) => object(f.options).businessKey === 'leadId') : undefined;
+    const labels = new Map<string, string>();
+    if (leadField && result.records.length) {
+      const follows = await this.db.leadFollow.findMany({
+        where: { id: { in: result.records.map((r) => r.id) }, lead: await this.scope(access) },
+        select: { id: true, lead: { select: { leadNo: true, name: true } } },
+      });
+      for (const follow of follows) labels.set(follow.id, follow.lead.leadNo + ' · ' + follow.lead.name);
+    }
     let editable = new Set<string>();
     if (access.level >= 2 && this.actor.permissionCodes.includes('lead.update') && result.records.length) {
       const actionScope = await buildLeadScopeWhere(this.db, this.authorization, this.actor, 'lead.update');
@@ -314,7 +325,11 @@ export class WorkspaceBusinessTable {
     }
     return {
       ...result,
-      records: result.records.map((r) => ({ ...r, writable: editable.has(r.id) })),
+      records: result.records.map((r) => ({
+        ...r,
+        writable: editable.has(r.id),
+        ...(leadField && labels.has(r.id) ? { displayValues: { [leadField.id]: labels.get(r.id)! } } : {}),
+      })),
       groups: result.groups.slice(0, 200),
       groupsTruncated: result.groups.length > 200,
       page,

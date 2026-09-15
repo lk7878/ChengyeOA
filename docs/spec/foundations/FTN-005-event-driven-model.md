@@ -228,3 +228,8 @@ G2-B [个人访问与引用](../../superpowers/specs/2026-09-15-cloud-drive-g2b-
 ### 全站统一框架（2026-09-15）
 
 导航授权每 15 秒及恢复焦点刷新，不新增业务事件，不修改记录查询/保存、tableAccess/folderChain 或 SSE 热路径；知识库桥与 CaseWorkbench 根保持在业务路由之外。实现前契约见[U0/U1 导航与迁移矩阵](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。
+
+
+### U4 线索业务工作区
+
+U4 复用 CRM 领域事件和 collaboration.changed 通知，无记录值广播；业务入口与云盘共用订阅，原接口写入继续由既有 5 秒业务刷新捕获。 工程契约见[线索与跟进统一](../../superpowers/specs/2026-09-15-u4-lead-workspace.md)，验收记录见全站统一计划第 7 节。

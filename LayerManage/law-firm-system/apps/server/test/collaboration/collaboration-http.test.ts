@@ -649,7 +649,7 @@ test(
         .getByRole('button', { name: /确\s*定/ })
         .click();
       await p1.getByText('真实业务来源演练', { exact: true }).waitFor();
-      assert.equal(await p1.getByRole('button', { name: '添加记录', exact: true }).isDisabled(), true);
+      assert.equal(await p1.getByRole('button', { name: '新建线索', exact: true }).isDisabled(), true);
       await p1.getByText('138****1234', { exact: true }).waitFor();
       await db.lead.update({
         where: { id: lead.id },
@@ -694,7 +694,7 @@ test(
         .locator('.ant-modal:visible')
         .getByRole('button', { name: '提交业务操作', exact: true })
         .click();
-      await p2.getByRole('button', { name: '业务状态：SCREENED', exact: true }).waitFor({ timeout: 10000 });
+      await p2.getByRole('button', { name: '业务状态：已筛选', exact: true }).waitFor({ timeout: 10000 });
       await p2.reload();
       await p2.getByText('无需离开工作区完成跟进', { exact: true }).waitFor();
       assert.equal((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).status, 'SCREENED');
@@ -1738,7 +1738,7 @@ test(
       await applicationsLink.focus();
       await applicationsLink.press('Enter');
       await staff.locator('.unified-app-card').filter({ hasText: '线索列表' }).click();
-      await staff.getByRole('button', { name: /新建线索/ }).waitFor();
+      await staff.getByRole('heading', { name: '线索工作表', exact: true }).waitFor();
       assert.equal(new URL(staff.url()).pathname, '/leads');
       await leader
         .getByRole('navigation', { name: '全局导航', exact: true })
@@ -1809,7 +1809,7 @@ test(
       await staff.goto(address + 'inventory/not-a-page');
       await staff.getByText('页面不存在', { exact: true }).waitFor();
       await staff.goto(address + 'leads');
-      await staff.getByRole('button', { name: /新建线索/ }).waitFor();
+      await staff.getByRole('heading', { name: '线索工作表', exact: true }).waitFor();
       await db.rolePermission.deleteMany({ where: { roleId: staffRole, permission: { code: 'lead.read' } } });
       const revokedAt = Date.now();
       await staff.getByText('无权访问此页面', { exact: true }).waitFor({ timeout: 18000 });
@@ -1833,6 +1833,214 @@ test(
       await staff.getByRole('button', { name: '重试授权', exact: true }).click();
       await staff.locator('.unified-app-card').filter({ hasText: '渠道管理' }).waitFor();
       assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await vite.close();
+    }
+  },
+);
+
+test(
+  'U4 real business routes share CRM truth, views, controlled actions and three-role permissions',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web');
+    const load = new Function('url', 'return import(url)');
+    const { chromium } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'u4-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    try {
+      const manager = await db.user.create({
+        data: { username: 'u4-browser-manager', password: 'unused', mustChangePassword: false },
+      });
+      const ids = [owner, editor, manager.id];
+      for (const id of ids) {
+        const employee = await db.employee.create({
+          data: {
+            name: id === editor ? '普通员工' : '负责人',
+            employeeNo: randomUUID(),
+            phone: '13800000000',
+            type: 'SALES',
+            status: 'FORMAL',
+            entryDate: new Date('2025-01-01'),
+          },
+        });
+        await db.user.update({ where: { id }, data: { employeeId: employee.id } });
+        const role = await db.role.create({
+          data: {
+            name: 'U4 ' + id,
+            code: 'U4_' + id,
+            type: 'BUSINESS',
+            permissions: {
+              create: [
+                'menu.lead_crm',
+                'lead.read',
+                'lead.create',
+                'lead.update',
+                'lead.assign',
+                'lead.pool.claim',
+                'lead.recycle',
+              ].map((code) => ({ permission: { connect: { code } } })),
+            },
+          },
+        });
+        const scope = await db.dataScope.create({ data: { name: 'U4 CRM scope', scopeType: 'ALL' } });
+        await db.roleDataScope.create({ data: { roleId: role.id, resource: 'lead', dataScopeId: scope.id } });
+        await db.userRole.create({ data: { userId: id, roleId: role.id } });
+      }
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: editor },
+        data: { rowScope: 'SELF' },
+      });
+      await db.collabMember.create({
+        data: { workspaceId, principalId: manager.id, role: 'MANAGER', rowScope: 'ALL' },
+      });
+      const managerToken = (await createApiSession(db, manager.id)).token;
+      const tokens = [token, editorToken, managerToken];
+      const pages = [];
+      for (let i = 0; i < ids.length; i++) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          `window.unifiedTestSession = ${JSON.stringify({ mode: 'AUTHENTICATED', token: tokens[i], csrfToken: 'test', expiresIn: 900, user: { id: ids[i], username: ids[i], name: '业务验收成员', roles: [], permissions: [] } })};`,
+        );
+        pages.push(await context.newPage());
+      }
+      const [admin, staff, leader] = pages;
+      const address = vite.resolvedUrls.local[0];
+      const api = (method: 'get' | 'post', route: string, bearer = token, body?: unknown) => {
+        const request = app.httpRequest();
+        const call = request[method]('/api/v1' + route)
+          .set('Authorization', 'Bearer ' + bearer)
+          .set('Idempotency-Key', randomUUID());
+        return body === undefined ? call : call.send(body);
+      };
+      await api('get', '/collaboration/business-tables', 'invalid').expect(401);
+      await admin.goto(address + 'leads');
+      await admin.getByRole('button', { name: '连接业务数据', exact: true }).click();
+      await admin.getByRole('combobox', { name: '连接到应用', exact: true }).click();
+      await admin
+        .locator('.ant-select-item-option-content')
+        .getByText('接口工作区 / 业务台账', { exact: true })
+        .click();
+      await admin
+        .getByRole('dialog')
+        .getByRole('button', { name: /^连\s*接$/ })
+        .click();
+      await admin.getByRole('button', { name: '新建线索', exact: true }).waitFor();
+      const businessTable = new URL(admin.url()).searchParams.get('table')!;
+      await admin.goto(address + 'leads/follows');
+      await admin.getByRole('button', { name: '连接业务数据', exact: true }).click();
+      await admin.getByRole('combobox', { name: '连接到应用', exact: true }).click();
+      await admin
+        .locator('.ant-select-item-option-content')
+        .getByText('接口工作区 / 业务台账', { exact: true })
+        .click();
+      await admin
+        .getByRole('dialog')
+        .getByRole('button', { name: /^连\s*接$/ })
+        .click();
+      await admin.getByRole('button', { name: '字段配置', exact: true }).waitFor();
+      const followTable = new URL(admin.url()).searchParams.get('table')!;
+      const other = (
+        await api('post', '/tables/' + businessTable + '/business-records', token, {
+          name: '负责人录入记录',
+          phone: '13900008881',
+        }).expect(200)
+      ).body.data;
+      await staff.goto(address + 'leads');
+      await staff.locator('.unified-app-card').filter({ hasText: '线索工作表' }).click();
+      await staff.getByRole('button', { name: '新建线索', exact: true }).click();
+      await staff.getByRole('textbox', { name: '线索姓名', exact: true }).fill('统一业务线索');
+      await staff.getByRole('textbox', { name: '线索联系电话', exact: true }).fill('13900008882');
+      await staff.getByRole('dialog').getByRole('button', { name: '创建线索', exact: true }).click();
+      await staff.getByRole('button', { name: '领取线索', exact: true }).waitFor();
+      const lead = await db.lead.findFirstOrThrow({ where: { name: '统一业务线索' } });
+      assert.equal(new URL(staff.url()).searchParams.get('record'), lead.id);
+      assert.equal(lead.createdBy, editor);
+      assert.equal(await db.collabRecord.count(), 0);
+      await api('get', '/tables/' + businessTable + '/records/' + other.id, editorToken).expect(404);
+      await api('post', '/tables/' + businessTable + '/records/' + other.id + '/business', editorToken, {
+        action: 'CLAIM',
+        version: 1,
+      }).expect(404);
+      await staff.getByRole('button', { name: '领取线索', exact: true }).click();
+      await staff.getByRole('button', { name: '提交业务操作', exact: true }).click();
+      await staff.getByRole('dialog', { name: '领取线索', exact: true }).waitFor({ state: 'hidden' });
+      await staff.getByRole('button', { name: '新增跟进', exact: true }).click();
+      await staff.getByRole('textbox', { name: '跟进内容', exact: true }).fill('统一工作区首次联系');
+      await staff.getByRole('button', { name: '提交业务操作', exact: true }).click();
+      await staff.getByText('统一工作区首次联系', { exact: true }).waitFor();
+      await leader.goto(address + 'leads?base=' + baseId + '&table=' + businessTable + '&record=' + lead.id);
+      await leader.getByText('统一工作区首次联系', { exact: true }).waitFor();
+      assert.equal(
+        (await api('post', '/tables/' + businessTable + '/records/query', managerToken, {}).expect(200)).body
+          .data.total,
+        2,
+      );
+      await staff.getByRole('button', { name: '打开线索业务详情', exact: true }).click();
+      await staff.getByRole('link', { name: '在「线索工作表」中打开', exact: true }).click();
+      await staff.getByRole('button', { name: '领取线索', exact: true }).waitFor();
+      assert.equal(new URL(staff.url()).searchParams.get('record'), lead.id);
+      // Close record before saving a personal view; the query string retains resource identity.
+      await staff.locator('.ant-drawer-close').click();
+      await staff.getByRole('button', { name: '创建个人视图', exact: true }).click();
+      await staff.getByRole('tab', { name: '我负责的 · 个人', exact: true }).waitFor();
+      const ownView = new URL(staff.url()).searchParams.get('view');
+      await staff.reload();
+      await staff.getByRole('tab', { name: '我负责的 · 个人', exact: true }).waitFor();
+      assert.equal(new URL(staff.url()).searchParams.get('view'), ownView);
+      assert.equal((await db.collabView.findUniqueOrThrow({ where: { id: ownView! } })).ownerId, editor);
+      await staff.getByRole('button', { name: '在云盘中打开', exact: true }).click();
+      await staff.getByRole('tab', { name: '我负责的 · 个人', exact: true }).waitFor();
+      assert.equal(new URL(staff.url()).pathname, '/workspaces');
+      assert.equal(new URL(staff.url()).searchParams.get('table'), businessTable);
+      await staff.goto(address + 'leads/follows');
+      await staff.locator('.unified-app-card').filter({ hasText: '跟进工作表' }).click();
+      await staff.getByRole('button', { name: '跟进内容：统一工作区首次联系', exact: true }).waitFor();
+      assert.equal(new URL(staff.url()).searchParams.get('table'), followTable);
+      const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence');
+      for (const width of [1440, 1024, 390]) {
+        await staff.setViewportSize({ width, height: 900 });
+        assert.equal(
+          await staff.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
+          false,
+        );
+        await staff.screenshot({ path: path.join(evidence, 'u4-follow-' + width + '.png'), fullPage: true });
+      }
+      await staff.setViewportSize({ width: 1440, height: 1000 });
+      await api('post', '/tables/' + businessTable + '/access', token, {
+        version: 1,
+        policy: { restricted: true, grants: [] },
+      }).expect(200);
+      const hidden = (
+        await api('get', '/collaboration/business-tables?source=LEADS', editorToken).expect(200)
+      ).body.data;
+      assert.equal(hidden.tables.length, 0);
+      await api('post', '/tables/' + businessTable + '/business-records', editorToken, {
+        name: '不应创建',
+        phone: '13900008883',
+      }).expect(403);
+      await staff.goto(address + 'leads?base=' + baseId + '&table=' + businessTable + '&record=' + lead.id);
+      await staff.getByText('你没有此项操作权限。').first().waitFor();
     } finally {
       await browser.close();
       await vite.close();
