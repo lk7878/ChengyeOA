@@ -34,6 +34,9 @@ const show = (path = '/') =>
   );
 
 test('uses exactly five global destinations and one contextual directory', () => {
+  useAuthStore.setState({
+    authorization: { ...authorization, menus: ['menu.channel'], permissions: ['channel.read'] },
+  });
   show('/apps');
   const global = within(screen.getByRole('navigation', { name: '全局导航' }));
   expect(global.getAllByRole('link').map((link) => link.textContent)).toEqual([
@@ -97,4 +100,20 @@ test('unknown paths produce an explicit missing-page state', () => {
   show('/inventory/not-a-real-page');
   expect(screen.getByText('页面不存在')).toBeInTheDocument();
   expect(screen.queryByRole('textbox', { name: '业务草稿' })).not.toBeInTheDocument();
+});
+
+test.each([
+  '/channels',
+  '/payments',
+  '/invoices',
+  '/refunds',
+  '/costs',
+  '/inventory/items',
+  '/inventory/movements',
+  '/inventory/stocktakes',
+  '/performances',
+])('a business Base at %s has one table directory instead of stacked navigation', (path) => {
+  show(path + '?base=original-base');
+  expect(screen.getByRole('navigation', { name: '全局导航' })).toBeInTheDocument();
+  expect(screen.queryByRole('navigation', { name: '当前区域目录' })).not.toBeInTheDocument();
 });

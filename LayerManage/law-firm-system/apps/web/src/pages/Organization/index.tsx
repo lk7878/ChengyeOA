@@ -71,7 +71,7 @@ export default function OrganizationPage() {
         <Input.Search allowClear aria-label="搜索组织" placeholder="搜索名称、编码或负责人" value={keyword} onChange={event => setKeyword(event.target.value)} style={{ marginBottom: 16 }} />
         {visibleTree.length ? <OrganizationTree collapsedIds={collapsedIds} forceExpanded={Boolean(keyword.trim())} onToggle={id => setCollapsedIds(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} nodes={visibleTree} selectedId={selected?.id} onSelect={node => { if (!submitting) setSelectedId(node.id); }} /> : !loading && <Empty description={keyword ? '没有匹配的组织' : '暂无组织'} />}
       </aside>
-      <main className="md-detail-pane">{selected ? <>
+      <section className="md-detail-pane">{selected ? <>
         <div className="md-detail-heading" style={{ flexDirection: 'column' }}><div><h2>{selected.name}</h2><Space><Tag>{selected.code}</Tag><Tag color={selected.status === 'ENABLED' ? 'green' : 'default'}>{selected.status === 'ENABLED' ? '启用' : '停用'}</Tag></Space></div>
           <Space wrap>
             <Tooltip title={selected.status !== 'ENABLED' ? '停用组织不能新增下级' : !allowedChildTypes(selected.type).length ? '工作组不能再新增下级组织' : undefined}>
@@ -99,7 +99,7 @@ export default function OrganizationPage() {
           { key: 'manager', label: '部门负责人', children: selected.manager ? selected.manager.name + '（' + selected.manager.employeeNo + '）' + (selected.manager.status === 'LEAVED' ? ' · 已离职，请更换' : '') : '未设置' },
         ]} />
         <Button type="link" disabled={submitting} onClick={() => setFormMode('edit')}>{selected.manager ? '更换部门负责人' : '设置部门负责人'}</Button>
-      </> : <Empty description="请选择组织" />}</main>
+      </> : <Empty description="请选择组织" />}</section>
     </div></Spin>
     <OrganizationForm open={formMode !== null} tree={tree}
       parent={formMode === 'copy' ? all.find(node => node.id === selected?.parentId) ?? null : selected}

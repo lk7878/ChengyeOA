@@ -1,3 +1,4 @@
+import RecordAccessBoundary from './features/crm/RecordAccessBoundary';
 import IntelligencePage from './pages/Intelligence';
 import DesktopKnowledgeBridge from './features/intelligence/DesktopKnowledgeBridge';
 import SmartCaseLauncher from './pages/Intelligence/SmartCaseLauncher';
@@ -195,7 +196,9 @@ function SessionBootstrap() {
             path="/leads/:id"
             element={
               <AuthorizedPage permission="menu.lead_crm">
-                <LeadDetailPage />
+                <RecordAccessBoundary kind="lead">
+                  <LeadDetailPage />
+                </RecordAccessBoundary>
               </AuthorizedPage>
             }
           />
@@ -227,7 +230,9 @@ function SessionBootstrap() {
             path="/negotiations/:id"
             element={
               <AuthorizedPage permission="menu.contract">
-                <NegotiationRecordPage />
+                <RecordAccessBoundary kind="negotiation">
+                  <NegotiationRecordPage />
+                </RecordAccessBoundary>
               </AuthorizedPage>
             }
           />
@@ -235,7 +240,9 @@ function SessionBootstrap() {
             path="/customers/:id"
             element={
               <AuthorizedPage permission="menu.customer">
-                <CustomerDetailPage />
+                <RecordAccessBoundary kind="customer">
+                  <CustomerDetailPage />
+                </RecordAccessBoundary>
               </AuthorizedPage>
             }
           />
@@ -267,7 +274,9 @@ function SessionBootstrap() {
             path="/contracts/:id"
             element={
               <AuthorizedPage permission="menu.contract">
-                <ContractDetailPage />
+                <RecordAccessBoundary kind="contract">
+                  <ContractDetailPage />
+                </RecordAccessBoundary>
               </AuthorizedPage>
             }
           />

@@ -114,3 +114,6 @@ OBJECT_STORAGE_SECRET_KEY=
 ### U5-B 案件材料边界（2026-09-15）
 
 案件详情、文件列表、下载均执行 case.file.read 的案件范围；上传、删除、受理表单附件变更另执行 case.file.manage 范围及终态限制。文件元数据、案件版本和审计同事务，上传失败清理本次文件，删除在数据库提交后清理文件。详情后台复查授权，失败清除已加载案件或材料；不改变 Wiki/Harness 会话、个人目录或模型调用。[实施契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
+
+
+2026-09-16 U7保护边界验收：真实Electron完整本地目录/读写/Wiki/技能/窗口与重启恢复/跨账号隔离通过，浏览器维护/只读Wiki及办案会话保留通过；测试模型、外部服务和OA授权为夹具，未验证生产模型质量。12桌面单元、2集成脚本与9267导入源文件核对通过，未重写Wiki/Harness核心。详见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。

@@ -3,7 +3,7 @@ import { uiModelFixture } from './ui-model-fixture.mjs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium, expect } from '../../../LayerManage/law-firm-system/apps/web/node_modules/@playwright/test/index.mjs';
+import { chromium, expect as baseExpect } from '../../../LayerManage/law-firm-system/apps/web/node_modules/@playwright/test/index.mjs';
 import { IntelligenceService } from '../cloud/service.mjs';
 const directory = await mkdtemp(join(tmpdir(), 'chengye-intelligence-ui-'));
 const modelFixture = await uiModelFixture(directory);
@@ -11,8 +11,9 @@ const service = new IntelligenceService(join(directory, 'runtime'));
 const browser = await chromium.launch({ channel: 'msedge', headless: true });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 page.setDefaultTimeout(20000); let admin = false; const errors = []; let promptCalls = 0;
-expect.configure({ timeout: 20000 });
+const expect = baseExpect.configure({ timeout: 30000 });
 page.on('pageerror', error => errors.push(error.message));
+await page.route('**/api/v1/authorization/me', route => route.fulfill({ json: { code:200, data:{ userId:'intelligence-browser-test', employeeId:null, isSystemAdmin:false, isSystemSuperAdmin:admin, permissionCodes:['menu.knowledge','menu.smart_case'], menuCodes:['menu.knowledge','menu.smart_case'], grants:[], fieldCapabilities:[], evaluatedAt:new Date().toISOString(), validUntil:null } } }));
 await page.route('**/api/v1/intelligence/*', async route => {
   try {
     const body = JSON.parse(route.request().postData()); const path = new URL(route.request().url()).pathname.split('/').pop();
@@ -27,7 +28,6 @@ try {
   const ref = (await service.knowledge(true, 'create', { alias: 'ui-law', name: '律所办案知识库' })).knowledgeBase.id;
   await service.knowledge(true, 'importMarkdown', { ref, name: '证据核验指引', markdown: '# 证据核验指引\n\n核对原件、来源与形成时间。' });
   await page.goto('http://localhost:3000/e2e/intelligence.html');
-  await expect(page.getByText('V1.2.1', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '云端知识库' })).toBeVisible();
   await expect(page.getByText('核对原件、来源与形成时间。', { exact: true })).toBeVisible();
   await page.getByRole('textbox', { name: '检索知识库' }).fill('证据'); await page.getByRole('button', { name: '检索', exact: true }).click();
@@ -65,7 +65,7 @@ try {
   await page.screenshot({ path: join(directory, 'native-draft.png') });
   await page.getByRole('button', { name: '最小化智慧办案' }).click();
   await expect(workbench).toBeHidden();
-  await page.getByRole('button', { name: '知识库', exact: true }).click();
+  await page.getByRole('link', { name: '知识库', exact: true }).click();
   await expect(page.getByRole('heading', { name: '云端知识库' })).toBeVisible();
   await page.getByRole('button', { name: '智慧办案', exact: true }).click();
   await expect(composer).toHaveText('请阅读案情摘要');

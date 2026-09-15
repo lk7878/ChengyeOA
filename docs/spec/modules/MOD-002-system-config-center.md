@@ -128,3 +128,6 @@ G2-B 见[快捷方式与最近访问契约](../../superpowers/specs/2026-09-15-c
 
 
 全站统一 U0–U3 的真实路由、五区布局、菜单/读取交集与 Wiki/Harness 边界见[统一导航契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)，实施与验收见[全站统一计划](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。本批是全站框架接入，原业务共同视图与受控动作继续按 U4–U7 分批整合。
+
+
+2026-09-16 U7：U7按全部businessSources识别已打开的业务Base，统一窄全局导航与单一表目录，移除重复宽导航和开发来源提示；无独立实现的规划模块不生成占位入口。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。

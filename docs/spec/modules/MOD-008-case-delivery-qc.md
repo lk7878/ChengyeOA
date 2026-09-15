@@ -89,3 +89,6 @@ MAT-04B 遵循 [SPEC-AI-DESKTOP-20260913 §7](../../superpowers/specs/2026-09-13
 ### U5-B 案件工作表与交付（2026-09-15）
 
 /cases 接入 CASES 正式来源，受理字段、个人/共享视图和扩展字段读取同一 Case；/cases/new、/cases/:id 保留建档、任务、沟通、材料、结案及受控归档。创建人取实际操作者，主办律师不等于创建人。所有原案件与子对象 API 落实对应动作的数据范围，普通 SELF 不可通过直链绕过。旧 caseNo 链接和新建客户往返草稿保留。历史归属缺失记录进入待补录队列，只有 case.update 全量范围可以选择真实归属、填写依据并审计，不覆写已有身份。具体迁移、验证与未实现的质控/SOP 边界见 [U5–U7 契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)及[阶段记录](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。本批不等于尚未实现的完整质控、复盘或 Harness 主动归档。
+
+
+2026-09-16 U7：U7历史案件身份补录的候选和提交独立核验账户/组织读取权限及范围；不能借补录扩权，不自动修复未知历史组织。旧未路由案件列表移除，受理精度/字段清空/附件确认保留于现行详情回归；独立质检和SOP仍未实现。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。

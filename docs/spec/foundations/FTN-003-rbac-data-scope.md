@@ -157,3 +157,6 @@ Case 原 API 使用真实创建人/组织/团队解析对应 case.* 动作范围
 ### U6-C 实施补充（2026-09-16）
 
 渠道5个菜单/动作权限及channel资源可由原岗位角色配置；渠道按创建人/组织范围，与工作区和协作SELF交集。经营分析按各domain read及scope独立计算，缺权限为null；客户/合同/谈案员工目标映射真实账户。身份补录候选另校验账户和组织读取。 阶段未完成，验证与限制见[实施计划](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)第12节。
+
+
+2026-09-16 U7：U7 requireAnyPermission只吞当前候选动作的PERMISSION_DENIED；授权成功后next仅调用一次，下游版本/事务错误原样传播。案件历史补录同时校验账户与组织目录范围。四类CRM详情增加每5秒/焦点恢复记录权限复核，失败清除详情及草稿；菜单可见性不能替代记录授权。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。

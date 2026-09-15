@@ -1280,7 +1280,7 @@ const ApprovalCenterPage: React.FC<{ initialInstanceId?: string; initialRole?: A
         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}
       >
         <div style={{ fontWeight: 600, fontSize: 16 }}>
-          审批中心 <a href="/approval-ledger">业务台账 / 同步状态</a>
+          审批中心 <Link to="/approval-ledger">业务台账 / 同步状态</Link>
         </div>
         {canApply && (
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
@@ -1326,7 +1326,7 @@ const ApprovalCenterPage: React.FC<{ initialInstanceId?: string; initialRole?: A
             />
           </Form.Item>
           <p>
-            工资表审批请从 <a href="/performances">绩效管理 → 工资表</a> 发起。
+            工资表审批请从 <Link to="/payroll">工资表与审批</Link> 发起。
           </p>
           <Button
             style={{ marginBottom: 16 }}

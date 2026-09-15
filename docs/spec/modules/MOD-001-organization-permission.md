@@ -95,3 +95,6 @@ G2-B [导航授权边界](../../superpowers/specs/2026-09-15-cloud-drive-g2b-sho
 ### 全站统一迁移（U0/U1，2026-09-15）
 
 组织、岗位、员工、团队与身份授权进入管理中心；我的权限/账号安全进入工作台。导航按菜单与读取权限取交集，组织架构保留超级管理员额外限制，后端行/列范围及治理审批不变。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。
+
+
+2026-09-16 U7：U7继续复用组织、岗位、人员、角色与权限管理专用页面；旧未路由Role列表移除。案件历史补录另核验user.read/organization.read和候选范围，case.update ALL不隐含人员目录授权。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。

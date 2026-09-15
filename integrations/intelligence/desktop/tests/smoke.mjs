@@ -119,6 +119,12 @@ async function launch() {
       await route.fulfill({ json: { code: 200, data: { value, frames: [] } } });
     } catch (error) { errors.push(error.message); await route.fulfill({ status: 403, json: { code: 403, message: 'fixture denied' } }); }
   });
+  // The isolated OA fixture has synthetic credentials; keep background navigation
+  // authorization on the same test identity instead of reaching the developer DB.
+  await oa.route('**/api/v1/authorization/me', route => {
+    const userId = route.request().headers().authorization === 'Bearer desktop-other-test-only' ? 'other-desktop-account' : 'intelligence-browser-test';
+    return route.fulfill({ json: { code: 200, data: { userId, employeeId: null, isSystemAdmin: false, isSystemSuperAdmin: false, permissionCodes: ['menu.knowledge', 'menu.smart_case'], menuCodes: ['menu.knowledge', 'menu.smart_case'], grants: [], fieldCapabilities: [], evaluatedAt: new Date().toISOString(), validUntil: null } } });
+  });
   await oa.evaluate(() => sessionStorage.setItem('desktop-test-credentials', JSON.stringify({ userId: 'intelligence-browser-test', token: 'desktop-oa-test-only', csrfToken: 'desktop-csrf-test-only', expiresIn: 600 })));
   await oa.goto('http://localhost:3000/e2e/intelligence.html?desktop-test');
   await expect(oa.getByRole('button', { name: '智慧办案', exact: true })).toBeVisible();
@@ -126,6 +132,8 @@ async function launch() {
   const next = app.waitForEvent('window', { timeout: 90000 });
   await oa.getByRole('button', { name: '智慧办案', exact: true }).click();
   agent = await next; agent.setDefaultTimeout(30000); await agent.waitForLoadState();
+  // Host display scaling may otherwise collapse the native sidebar labels.
+  await (await app.browserWindow(agent)).evaluate(window => window.setBounds({ width: 1440, height: 1000 }));
   if (launches++ === 0) await agent.getByRole('button', { name: '继续', exact: true }).click();
   await expect(agent.getByText('新会话', { exact: true }).first()).toBeVisible({ timeout: 60000 });
   console.log('Native UI ready.');

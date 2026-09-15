@@ -89,7 +89,7 @@
 
 ## 无现存独立路由的规划能力
 
-MOD-007 SOP、MOD-009 满意度/复购转介绍、MOD-003 内容获客、MOD-008 质检等尚无独立页面，保持对应模块规格与 U5/U6 待办，不生成假入口；已有案件、团队、渠道功能按上表进入。上传、模板及 G3 协作能力仍按原规格单列，优先级低于本次全站整合。
+MOD-007 独立 SOP 引擎、MOD-009 完整满意度经营闭环、MOD-003 内容获客、MOD-008 独立质检仍为产品待办，不属于本轮已有业务整合交付；已有案件结案满意度、客户复购转介绍字段、团队及渠道入口按实际能力保留，不将它们计为整个规划模块完成。上传、模板及 G3 协作能力仍按原规格单列，优先级低于本次全站整合。
 
 ## U3 验证契约
 
@@ -137,3 +137,22 @@ U6-A：四种财务来源使用共同工作表；new 额外要求对应 create�
 ## U6-C 增量映射
 
 /channels替换为CHANNELS共同工作表；/channels/new、/:id分别登记/详情，menu.channel与channel.read/create按正式目录叠加；原表中“无channel.read”是U0历史状态，本阶段已由新目录取代。/analytics/overview六类指标读取各自业务范围，无授权值null，不再全库聚合。/notifications只列本人通知；/approvals?instance=原ID、/security/admin-governance?operationId=原ID支持正式记录定位，授权守卫和后端记录权限共同生效。/approval-ledger保留正式审批ID与同步状态，提供办理返回。
+
+
+## U7 路由与清理落地
+
+所有 businessSources 正式来源在已选 Base 时使用同一表目录；移除重复宽业务侧栏及开发来源提示。线索、客户、谈案、合同详情每5秒/恢复焦点复核原记录权限，失败卸载详情及草稿；只有显式重试成功后恢复，成功复核不改已捕获版本。员工、审批、台账和财务原记录往返使用站内路由及原ID。
+
+13个未路由的旧全量列表已在关键办理回归迁移后移除：案件、渠道、库存、绩效、线索、客户、谈案、合同、收款、发票、退款、成本、旧角色页面。其11个旧页面测试改由现行详情/同源表及真实App场景承接；不是逐条机械复制旧列表断言。原业务服务、接口、状态机和辅助工具保留，独立Harness适配器保留。
+
+| 原覆盖 | 存续验证位置 |
+| --- | --- |
+| 合同状态动作矩阵 | contracts/__tests__/contract-actions.test.ts及ContractDetailPage |
+| 财务状态/动作权限、原因、失败草稿 | finance/__tests__/FinanceRecordPage.actions.test.tsx |
+| 退款真实Step-Up成功/取消/失败 | finance/__tests__/FinanceRecordPage.step-up.test.tsx |
+| 案件受理字段精度/清空/附件确认 | Case/__tests__/CaseRecordPage.test.tsx及U5-B真实App |
+| 客户掩码/版本/字段清空 | customers/__tests__/CustomerDetailPage.test.tsx及U5-A真实App |
+| 各旧列表的共同查询/视图/三角色与专属动作 | collaboration-http.test.ts U4/U5/U6及现行工作表测试 |
+| 旧角色维护入口 | security/roles现行页面测试及U7管理入口真实App |
+
+案件历史补录同时要求user.read/organization.read，候选与提交分别执行独立范围校验；不能凭case.update ALL读取整个组织目录。U7无新迁移，不改变历史身份事实。最终验收及未覆盖条件见阶段计划第13节。

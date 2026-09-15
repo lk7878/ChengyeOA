@@ -1108,7 +1108,14 @@ test(
       const [p1, p2, p3] = pages;
       const address = vite.resolvedUrls.local[0] + 'e2e/workspace.html?workspace=' + workspaceId;
       await Promise.all(pages.map((page) => page.goto(address)));
-      for (const page of pages) await page.getByRole('heading', { name: '云盘', exact: true }).waitFor();
+      for (const [index, page] of pages.entries()) {
+        try {
+          await page.getByRole('heading', { name: '云盘', exact: true }).waitFor();
+        } catch (error) {
+          console.error('Drive initial page', index, await page.locator('body').innerText(), errors);
+          throw error;
+        }
+      }
       assert.equal(await p2.getByRole('button', { name: '新建', exact: true }).isDisabled(), true);
       await p1.getByRole('button', { name: '新建', exact: true }).click();
       await p1.getByRole('menuitem', { name: '新建文件夹', exact: true }).click();
@@ -1762,6 +1769,24 @@ test(
         .getByRole('link', { name: '管理中心', exact: true })
         .click();
       await admin.locator('.unified-app-card').filter({ hasText: '组织架构' }).waitFor();
+      for (const [route, heading, apiPath] of [
+        ['org/tree', '组织架构', '/organizations/tree'],
+        ['org/positions', '岗位管理', '/positions'],
+        ['org/employees', '员工与任职', '/employees'],
+        ['security/roles', '角色与权限', '/roles'],
+      ]) {
+        await api('get', apiPath).expect(200);
+        await admin.goto(address + route);
+        await admin.getByRole('heading', { name: heading, exact: true }).waitFor();
+        assert.equal(await admin.locator('main').count(), 1);
+      }
+      await admin.getByRole('button', { name: /新建角色/ }).click();
+      const roleDialog = admin.getByRole('dialog', { name: '新建业务角色' });
+      await roleDialog.getByLabel('角色名称', { exact: true }).fill('U7 自定义岗位角色');
+      await roleDialog.getByLabel('角色代码', { exact: true }).fill('u7_custom_role');
+      await roleDialog.getByRole('button', { name: /OK|确\s*定/ }).click();
+      await roleDialog.waitFor({ state: 'hidden' });
+      assert.equal((await db.role.findUniqueOrThrow({ where: { code: 'U7_CUSTOM_ROLE' } })).type, 'BUSINESS');
       await staff
         .getByRole('navigation', { name: '全局导航', exact: true })
         .getByRole('link', { name: '管理中心', exact: true })
@@ -2405,6 +2430,8 @@ test(
             type: 'BUSINESS',
             permissions: {
               create: [
+                'user.read',
+                'organization.read',
                 'case.read',
                 'case.create',
                 'case.update',
@@ -2434,7 +2461,7 @@ test(
         const caseScope = await db.dataScope.create({
           data: { name: '案件范围', scopeType: id === editor ? 'SELF' : 'ALL' },
         });
-        for (const resource of ['customer', 'negotiation', 'contract', 'case'])
+        for (const resource of ['customer', 'negotiation', 'contract', 'case', 'user', 'organization'])
           await db.roleDataScope.create({
             data: { roleId: role.id, resource, dataScopeId: resource === 'case' ? caseScope.id : scope.id },
           });
@@ -3624,9 +3651,12 @@ test(
       for (const width of [1440, 1024, 390]) {
         await staff.setViewportSize({ width, height: 1000 });
         await staff.screenshot({
-          path: path.join(evidence, 'u6c-channels-' + width + '.png'),
+          path: path.join(evidence, 'u7-channels-' + width + '.png'),
           fullPage: true,
         });
+        assert.equal(await staff.getByRole('navigation', { name: '当前区域目录', exact: true }).count(), 0);
+        assert.equal(await staff.locator('main').count(), 1);
+        assert.equal(await staff.getByText('实时业务表 · 数据来自正式业务', { exact: true }).count(), 0);
         assert.equal(
           await staff.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
           false,
@@ -3902,7 +3932,14 @@ test(
       await page.unroute('**/api/v1/notifications?*');
       await page.getByRole('button', { name: /^重\s*试$/ }).click();
       await page.locator('.ant-table-tbody').getByText('审批通知验收', { exact: true }).waitFor();
+      const readAllResponse = page.waitForResponse(
+        (response: { url: () => string; request: () => { method: () => string }; status: () => number }) =>
+          response.url().includes('/notifications/read-all') &&
+          response.request().method() === 'POST' &&
+          response.status() === 200,
+      );
       await page.getByRole('button', { name: '全部标为已读', exact: true }).click();
+      await readAllResponse;
       await page.waitForFunction(() =>
         Array.from(document.querySelectorAll('button')).some(
           (e) => e.textContent === '全部标为已读' && e.disabled,

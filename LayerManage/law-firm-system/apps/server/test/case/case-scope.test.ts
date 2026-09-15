@@ -25,6 +25,8 @@ const permissions: AuthorizationContext['permissionCodes'] = [
   'case.task.manage',
   'case.communication.create',
   'customer.read',
+  'user.read',
+  'organization.read',
 ];
 const context = async (scopeId: string): Promise<AuthorizationContext> => {
   const employee = await db.employee.create({
@@ -265,13 +267,59 @@ test('explicit audited identity repair makes unknown cases addressable without g
   const queue = await services(manager).cases.identityGaps({});
   assert.equal(queue.total, 1);
   assert.equal(queue.canRepair, true);
-  const values = { createdBy: staff.userId, branchId: org, reason: '核对原建档审计与组织资料', version: row.version };
+  const values = {
+    createdBy: staff.userId,
+    branchId: org,
+    reason: '核对原建档审计与组织资料',
+    version: row.version,
+  };
   await assert.rejects(services(staff).cases.repairIdentity(row.id, values), code('PERMISSION_DENIED'));
   await services(manager).cases.repairIdentity(row.id, values);
   assert.equal((await services(staff).cases.getCase(row.id)).createdBy, staff.userId);
   await assert.rejects(services(manager).cases.repairIdentity(row.id, values), code('VERSION_CONFLICT'));
-  await assert.rejects(services(manager).cases.repairIdentity(row.id, { ...values, version: row.version + 1 }), code('VALIDATION_FAILED'));
+  await assert.rejects(
+    services(manager).cases.repairIdentity(row.id, { ...values, version: row.version + 1 }),
+    code('VALIDATION_FAILED'),
+  );
   assert.equal((await services(manager).cases.identityGaps({})).total, 0);
-  const audit = await db.operationLog.findFirstOrThrow({ where: { targetId: row.id, action: 'CASE_IDENTITY_REPAIR' } });
+  const audit = await db.operationLog.findFirstOrThrow({
+    where: { targetId: row.id, action: 'CASE_IDENTITY_REPAIR' },
+  });
   assert.equal(JSON.parse(audit.newValues!).reason, values.reason);
+});
+
+test('case identity repair requires independent directory grants and filters candidate scopes', async () => {
+  const row = await seed(null);
+  const values = { createdBy: staff.userId, reason: '核对原登记资料', version: row.version };
+  const denied = {
+    ...manager,
+    permissionCodes: manager.permissionCodes.filter((code) => code !== 'user.read'),
+  };
+  const queue = await services(denied).cases.identityGaps({});
+  assert.equal(queue.canRepair, false);
+  assert.deepEqual(queue.users, []);
+  assert.deepEqual(queue.organizations, []);
+  await assert.rejects(services(denied).cases.repairIdentity(row.id, values), code('PERMISSION_DENIED'));
+  const self = await db.dataScope.create({ data: { name: key(), scopeType: 'SELF' } });
+  const restricted = {
+    ...manager,
+    grants: manager.grants.map((grant) =>
+      grant.resource === 'user' ? { ...grant, scopeIds: [self.id] } : grant,
+    ),
+  };
+  const choices = await services(restricted).cases.identityGaps({});
+  assert.equal(
+    choices.users.some((user) => user.id === staff.userId),
+    false,
+  );
+  assert.equal(
+    choices.users.some((user) => user.id === manager.userId),
+    true,
+  );
+  await assert.rejects(services(restricted).cases.repairIdentity(row.id, values), code('VALIDATION_FAILED'));
+  assert.equal((await db.case.findUniqueOrThrow({ where: { id: row.id } })).createdBy, null);
+  assert.equal(
+    await db.operationLog.count({ where: { targetId: row.id, action: 'CASE_IDENTITY_REPAIR' } }),
+    0,
+  );
 });

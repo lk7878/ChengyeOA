@@ -432,7 +432,7 @@ export default function AdminGovernancePage({ initialOperationId }: { initialOpe
   ];
 
   return (
-    <main className="governance-page">
+    <section className="governance-page">
       <div className="governance-heading">
         <div>
           <h1>管理员治理</h1>
@@ -568,7 +568,7 @@ export default function AdminGovernancePage({ initialOperationId }: { initialOpe
         }}
       />
       <StepUpDialog {...stepUp.dialogProps} />
-    </main>
+    </section>
   );
 }
 

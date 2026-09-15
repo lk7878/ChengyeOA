@@ -190,3 +190,6 @@ U4 创建、领取和回收可组合到既有协作幂等事务，工作区/Lead
 ### U6-C 实施补充（2026-09-16）
 
 渠道创建复用DomainMutation持久化重试；更新/删除/身份补录要求版本及行锁，原审批同步渠道引用无权时保留审批决定并记录FAILED，不写成本。 阶段未完成，验证与限制见[实施计划](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)第12节。
+
+
+2026-09-16 U7：U7修复requireAnyPermission误重试下游处理的问题：授权检查与next分离，409和数据库失败保持原异常语义，避免重复调用业务事务。既有领域版本/审计/幂等键保持，布局清理不变更协作查询保存热路径。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。

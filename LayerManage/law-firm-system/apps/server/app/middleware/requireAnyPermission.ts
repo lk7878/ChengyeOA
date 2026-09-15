@@ -18,11 +18,13 @@ export function requireAnyPermission(permissionCodes: readonly PermissionCode[])
     for (const permissionCode of permissionCodes) {
       try {
         service.requireAction(authorization, permissionCode);
-        await next();
-        return;
-      } catch {
-        // 尝试下一码；全部失败 → 403。
+      } catch (error) {
+        if (!(error instanceof AuthorizationError) || error.code !== AUTHORIZATION_CODES.permission)
+          throw error;
+        continue;
       }
+      await next();
+      return;
     }
     throw new AuthorizationError(AUTHORIZATION_CODES.permission, 403);
   };

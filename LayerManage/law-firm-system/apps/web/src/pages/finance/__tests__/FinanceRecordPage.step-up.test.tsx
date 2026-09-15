@@ -1,52 +1,95 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { authApi } from '@/api/auth';
 import { refundApi } from '@/api/refund';
 import { useAuthStore } from '@/stores/authStore';
-import { useRefundStore } from '@/stores/refund-store';
-import RefundListPage from './RefundListPage';
+import { MemoryRouter, Routes, Route } from 'react-router';
+import FinanceRecordPage from '../FinanceRecordPage';
+vi.mock('@/features/crm/BusinessWorkspacePage', () => ({ BusinessTableLinks: () => null }));
 
 vi.mock('@/api/auth', () => ({ authApi: { stepUp: vi.fn() } }));
 vi.mock('@/api/refund', () => ({
-  refundApi: { create: vi.fn(), list: vi.fn(), detail: vi.fn(), approve: vi.fn(), reject: vi.fn(), execute: vi.fn() },
+  refundApi: {
+    create: vi.fn(),
+    list: vi.fn(),
+    detail: vi.fn(),
+    approve: vi.fn(),
+    reject: vi.fn(),
+    execute: vi.fn(),
+  },
   REFUND_STATUSES: ['PENDING', 'APPROVED', 'REJECTED', 'EXECUTED'],
   REFUND_TYPES: ['REFUND', 'WAIVER'],
 }));
 
 const pendingRefund = {
-  id: 'rf-1', requestNo: 'RF000001-ABC123', type: 'REFUND' as const, contractId: 'c-1', customerId: 'cu-1',
-  paymentId: 'p-1', planId: null, amount: '1000.00', reason: 'StepUp 测试申请', status: 'PENDING' as const,
-  approvedBy: null, approvedAt: null, approvalComment: null, executedBy: null, executedAt: null,
-  createdBy: 'u1', updatedBy: null, version: 1,
-  createdAt: '2026-07-01T08:00:00.000Z', updatedAt: '2026-07-01T08:00:00.000Z',
+  id: 'rf-1',
+  requestNo: 'RF000001-ABC123',
+  type: 'REFUND' as const,
+  contractId: 'c-1',
+  customerId: 'cu-1',
+  paymentId: 'p-1',
+  planId: null,
+  amount: '1000.00',
+  reason: 'StepUp 测试申请',
+  status: 'PENDING' as const,
+  approvedBy: null,
+  approvedAt: null,
+  approvalComment: null,
+  executedBy: null,
+  executedAt: null,
+  createdBy: 'u1',
+  updatedBy: null,
+  version: 1,
+  createdAt: '2026-07-01T08:00:00.000Z',
+  updatedAt: '2026-07-01T08:00:00.000Z',
 };
 
 function setPermissions(permissions: string[]): void {
-  useAuthStore.setState({ authorization: {
-    userId: 'u1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: false,
-    permissions, menus: [], fieldCapabilities: {}, validUntil: new Date(Date.now() + 86_400_000).toISOString(),
-  } } as never);
+  useAuthStore.setState({
+    authorization: {
+      userId: 'u1',
+      employeeId: null,
+      isSystemSuperAdmin: false,
+      isSystemAdmin: false,
+      permissions,
+      menus: [],
+      fieldCapabilities: {},
+      validUntil: new Date(Date.now() + 86_400_000).toISOString(),
+    },
+  } as never);
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useRefundStore.getState().reset();
+  vi.mocked(refundApi.detail).mockResolvedValue({ code: 200, message: 'OK', data: pendingRefund });
   setPermissions(['refund.read', 'refund.create', 'refund.approve', 'refund.execute']);
   vi.mocked(refundApi.list).mockResolvedValue({
-    code: 200, message: 'OK', data: { list: [pendingRefund], page: 1, pageSize: 10, total: 1 },
+    code: 200,
+    message: 'OK',
+    data: { list: [pendingRefund], page: 1, pageSize: 10, total: 1 },
   } as never);
   vi.mocked(refundApi.approve).mockResolvedValue({
-    code: 200, message: 'OK', data: { ...pendingRefund, status: 'APPROVED', version: 2 },
+    code: 200,
+    message: 'OK',
+    data: { ...pendingRefund, status: 'APPROVED', version: 2 },
   } as never);
   vi.mocked(authApi.stepUp).mockResolvedValue({
-    code: 200, message: 'OK', data: { stepUpToken: 'fresh-one-time-grant', expiresIn: 300 },
+    code: 200,
+    message: 'OK',
+    data: { stepUpToken: 'fresh-one-time-grant', expiresIn: 300 },
   } as never);
 });
 
 async function openApproveDialog(): Promise<void> {
-  render(<RefundListPage />);
+  render(
+    <MemoryRouter initialEntries={['/refunds/rf-1']}>
+      <Routes>
+        <Route path="/refunds/:id" element={<FinanceRecordPage kind="refund" />} />
+      </Routes>
+    </MemoryRouter>,
+  );
   fireEvent.click(await screen.findByRole('button', { name: '审批通过' }));
-  fireEvent.click(await screen.findByRole('button', { name: '确认批准' }));
+  fireEvent.click(await screen.findByRole('button', { name: '确认办理' }));
 }
 
 test('approve button opens a REFUND_APPROVE step-up challenge before any API call', async () => {
@@ -82,7 +125,11 @@ test('cancelling the step-up challenge does not call approve', async () => {
   await openApproveDialog();
   // StepUpDialog cancelText="取消"（动作 Modal 未设 cancelText → 默认英文 Cancel，无歧义）；
   // AntD 两字按钮自动插空格 → 实际可访问名 "取 消"。
-  fireEvent.click(await screen.findByRole('button', { name: /取\s*消/ }));
+  fireEvent.click(
+    within(
+      (await screen.findByLabelText('当前六位验证码')).closest('[role="dialog"]') as HTMLElement,
+    ).getByRole('button', { name: /取\s*消/ }),
+  );
 
   await waitFor(() => expect(screen.queryByLabelText('当前六位验证码')).not.toBeInTheDocument());
   expect(authApi.stepUp).not.toHaveBeenCalled();

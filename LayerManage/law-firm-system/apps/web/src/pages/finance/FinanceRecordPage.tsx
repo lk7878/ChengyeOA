@@ -379,6 +379,26 @@ function FinanceDetail({ id, kind }: { id: string; kind: FinanceKind }) {
                   ...('voidReason' in record
                     ? [{ key: 'voidReason', label: '冲销原因', children: record.voidReason || '—' }]
                     : []),
+                  ...('sourceApprovalId' in record &&
+                  record.sourceApprovalId &&
+                  hasPermission('approval.read')
+                    ? [
+                        {
+                          key: 'sourceApproval',
+                          label: '来源审批',
+                          children: (
+                            <Link
+                              to={
+                                '/approvals?' +
+                                new URLSearchParams({ instance: record.sourceApprovalId, role: 'APPLIED' })
+                              }
+                            >
+                              打开原审批记录
+                            </Link>
+                          ),
+                        },
+                      ]
+                    : []),
                   {
                     key: 'created',
                     label: '创建时间',

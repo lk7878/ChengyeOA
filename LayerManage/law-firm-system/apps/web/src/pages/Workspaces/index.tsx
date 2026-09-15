@@ -994,7 +994,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       ) : (
         <div className="workspace-body">
           <aside className="workspace-sidebar">{tableNav}</aside>
-          <main className="workspace-main">
+          <section className="workspace-main">
             <div className="workspace-heading">
               <Button className="workspace-mobile-nav" onClick={() => setMobileNav(true)}>
                 数据表
@@ -1069,14 +1069,6 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     <Button aria-label="视图菜单" icon={<DownOutlined />} />
                   </Dropdown>
                 </div>
-                {detail.table.source !== 'CUSTOM' && (
-                  <Alert
-                    type="info"
-                    showIcon
-                    title="实时业务表 · 数据来自正式业务"
-                    description="可在字段配置中新增扩展字段并直接编辑；业务字段由原业务动作控制。"
-                  />
-                )}
                 <div className="workspace-toolbar">
                   <Button
                     type="primary"
@@ -1398,7 +1390,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     : saveState || connection}
               </span>
             </footer>
-          </main>
+          </section>
         </div>
       )}
       {paste && paste.snapshot.tableId === tableId && detail && (

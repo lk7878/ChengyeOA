@@ -141,7 +141,7 @@ export default function SecuritySettingsPage() {
   ];
 
   return (
-    <main>
+    <section>
       <Typography.Title level={2}>账号安全</Typography.Title>
       <Space orientation="vertical" size="large" style={{ width: '100%' }}>
         <Card title="多因素验证" loading={loading}>
@@ -228,6 +228,6 @@ export default function SecuritySettingsPage() {
         停用后，其他活动会话将被撤销。
       </Modal>
       <StepUpDialog {...stepUp.dialogProps} />
-    </main>
+    </section>
   );
 }

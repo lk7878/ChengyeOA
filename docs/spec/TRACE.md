@@ -190,3 +190,6 @@ U5-B 最终证据：案件三角色 App 冒烟通过；事件批量写入后案�
 CHANNELS → channel-service/channel-scope、channel_dashboard_workspaces与Channel独立办理；Dashboard → dashboard-service 六类获权聚合；通知/审批/治理 → notification-target、App记录定位和原控制器。147个服务/范围/迁移/原业务用例、47个原HTTP用例及通知5项通过记录分别见u6c-services-full-1/recheck、u6c-api-1/recheck、u6c-notification-api。完整浏览器原13项均有通过记录，管理跳转新增1项通过u6c-management-smoke-3。前端101个不同用例均有通过记录（u6c-management-front、u6c-event-front-recheck）。此时负载/开发库/最终提交尚待完成，不将过程记录作为全阶段验收。
 
 U6-C最终补充：第60项权限目录增量与SQL重入通过；开发库60迁移、原业务数量保持。100会话/900秒完整负载通过，条件与指标见阶段计划§12/u6c-load-report.json；最终构建/静态检查通过。服务/迁移不同用例共148项均有通过证据，未将重复复验相加。
+
+
+2026-09-16 U7（本轮实现与验收完成）：全来源单一表目录、记录权限失效卸载、案件归属候选范围、requireAnyPermission单次下游语义、原审批/成本链接与旧列表清理，对应MOD-001/002/004/005/006/008、FTN-003/004。[统一导航契约](../superpowers/specs/2026-09-15-unified-navigation-contract.md)补清理与回归映射；[阶段计划第13节](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)逐项核对UNIFY-AC-01–10及未实现边界。权限9/9、完整前端303/303、最后布局相关40/40，14个不同真实App场景均有通过记录；完整桌面和浏览器Wiki/Harness流程通过（OA认证、模型及外部响应为夹具），桌面12单元、2集成脚本及9267源文件完整性核对通过。构建/契约检查通过，U7沿用U6-C有条件通用协作负载。各轮失败及限制不因最终通过而删除。U5–U7已有业务整合完成，不代表独立SOP/质检/获客/满意度与G3全部规划能力完成。

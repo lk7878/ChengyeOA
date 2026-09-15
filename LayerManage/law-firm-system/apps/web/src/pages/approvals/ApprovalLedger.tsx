@@ -1,3 +1,4 @@
+import { canOpen, findEntry } from '@/features/navigation/catalog';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Descriptions, Select, Space, Tag, message } from 'antd';
 import Modal from '@/components/DraggableModal';
@@ -29,6 +30,7 @@ export default function ApprovalLedger() {
     [detail, setDetail] = useState<LedgerRow>();
   const [rules, setRules] = useState<SyncRule[]>([]),
     [configure, setConfigure] = useState(false);
+  const authorization = useAuthStore((s) => s.authorization);
   const manage = useAuthStore((s) => s.hasPermission('approval.manage'));
   const load = useCallback(async () => {
     setBusy(true);
@@ -148,6 +150,13 @@ export default function ApprovalLedger() {
                 <Link to={'/approvals?' + new URLSearchParams({ instance: r.id, role: 'APPLIED' })}>
                   办理审批
                 </Link>
+                {r.sync?.target === 'COST' &&
+                  r.sync.status === 'SYNCED' &&
+                  r.sync.targetId &&
+                  canOpen(findEntry('/costs/' + r.sync.targetId)!, authorization) && (
+                    <Link to={'/costs/' + encodeURIComponent(r.sync.targetId)}>打开成本单据</Link>
+                  )}
+
                 <Button type="link" onClick={() => setDetail(r)}>
                   查看资料
                 </Button>

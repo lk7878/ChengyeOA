@@ -1,6 +1,6 @@
 // SPEC-031 Task 2: 客户详情页「经营分析」区块测试（复购/转介绍指标渲染，非恒真）。
 // SPEC-039 Task 2: +转介绍登记/列表/权限门控用例。
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, expect, test, vi } from 'vitest';
 import CustomerDetailPage from '../CustomerDetailPage';
@@ -21,7 +21,7 @@ const customerApiMock = vi.hoisted(() => ({
   createReferral: vi.fn(),
   listReferrals: vi.fn(),
 }));
-vi.mock('@/api/customer', async importOriginal => {
+vi.mock('@/api/customer', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/api/customer')>();
   return { ...original, customerApi: customerApiMock };
 });
@@ -184,7 +184,8 @@ test('renders the customer referral list with lead data (SPEC-039)', async () =>
     detail: { customer: customerFixture(), contacts: [], loading: false, error: null },
   });
   customerApiMock.listReferrals.mockResolvedValue({
-    code: 200, message: 'success',
+    code: 200,
+    message: 'success',
     data: { list: [referralFixture()], page: 1, pageSize: 50, total: 1 },
   });
   renderDetail();
@@ -199,8 +200,16 @@ test('registers a referral lead from the customer detail modal (SPEC-039)', asyn
   useCustomerStore.setState({
     detail: { customer: customerFixture(), contacts: [], loading: false, error: null },
   });
-  customerApiMock.createReferral.mockResolvedValue({ code: 200, message: 'success', data: referralFixture() });
-  customerApiMock.listReferrals.mockResolvedValue({ code: 200, message: 'success', data: { list: [], page: 1, pageSize: 50, total: 0 } });
+  customerApiMock.createReferral.mockResolvedValue({
+    code: 200,
+    message: 'success',
+    data: referralFixture(),
+  });
+  customerApiMock.listReferrals.mockResolvedValue({
+    code: 200,
+    message: 'success',
+    data: { list: [], page: 1, pageSize: 50, total: 0 },
+  });
   renderDetail();
 
   fireEvent.click(await screen.findByRole('button', { name: /登记转介绍/ }));
@@ -209,10 +218,12 @@ test('registers a referral lead from the customer detail modal (SPEC-039)', asyn
   fireEvent.change(screen.getByRole('textbox', { name: '电话' }), { target: { value: '13900001111' } });
   fireEvent.click(screen.getByRole('button', { name: /确\s*定/ }));
 
-  await waitFor(() => expect(customerApiMock.createReferral).toHaveBeenCalledWith(
-    'cust-1',
-    expect.objectContaining({ name: '王五', phone: '13900001111', intentionLevel: 3 }),
-  ));
+  await waitFor(() =>
+    expect(customerApiMock.createReferral).toHaveBeenCalledWith(
+      'cust-1',
+      expect.objectContaining({ name: '王五', phone: '13900001111', intentionLevel: 3 }),
+    ),
+  );
 });
 
 test('hides the register referral button without lead.create permission (SPEC-039)', async () => {
@@ -223,4 +234,33 @@ test('hides the register referral button without lead.create permission (SPEC-03
 
   expect(await screen.findByTestId('customer-analytics')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /登记转介绍/ })).not.toBeInTheDocument();
+});
+
+test('editing a customer keeps sensitive masks out of the payload and preserves the captured version', async () => {
+  grantPermissions(['customer.read', 'customer.update']);
+  const customer = customerFixture({ version: 7, email: 'old@example.test' });
+  customerApiMock.detail.mockResolvedValue({ data: customer });
+  customerApiMock.listContacts.mockResolvedValue({ data: [] });
+  customerApiMock.update.mockResolvedValue({ data: { ...customer, version: 8 } });
+  render(
+    <MemoryRouter initialEntries={['/customers/cust-1']}>
+      <Routes>
+        <Route path="/customers/:id" element={<CustomerDetailPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: /编辑档案/ }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByLabelText('电话（留空则不修改）')).toHaveValue('');
+  fireEvent.change(within(dialog).getByLabelText('邮箱'), { target: { value: '' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /OK|确\s*定/ }));
+  await waitFor(() =>
+    expect(customerApiMock.update).toHaveBeenCalledWith(
+      'cust-1',
+      expect.objectContaining({ version: 7, email: '' }),
+    ),
+  );
+  const payload = customerApiMock.update.mock.calls[0][1];
+  expect(payload).not.toHaveProperty('phone');
+  expect(payload).not.toHaveProperty('wechat');
 });
