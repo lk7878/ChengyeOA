@@ -158,6 +158,7 @@ test(
     );
     const vite = await createViteServer({
       root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
       configFile: path.join(webRoot, 'vite.config.ts'),
       server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
     });
@@ -484,6 +485,7 @@ test(
     );
     const vite = await createViteServer({
       root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
       configFile: path.join(webRoot, 'vite.config.ts'),
       server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
     });
@@ -930,9 +932,11 @@ test(
         '响应丢失仅写一次',
       );
       await p1.unroute('**/records/batch', lostResponse);
-      const retried = p1.waitForRequest((r) => r.url().endsWith('/records/batch'));
-      await p1.getByRole('button', { name: '提交 1 行', exact: true }).click();
-      assert.equal((await retried).headers()['idempotency-key'], lostKey);
+      const [retried] = await Promise.all([
+        p1.waitForRequest((r) => r.url().endsWith('/records/batch'), { timeout: 20000 }),
+        p1.getByRole('button', { name: '提交 1 行', exact: true }).click({ timeout: 10000 }),
+      ]);
+      assert.equal(retried.headers()['idempotency-key'], lostKey);
       await p2
         .getByRole('button', { name: '标题：响应丢失仅写一次', exact: true })
         .waitFor({ timeout: 10000 });
@@ -1025,6 +1029,7 @@ test(
     );
     const vite = await createViteServer({
       root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
       configFile: path.join(webRoot, 'vite.config.ts'),
       server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
     });
@@ -1277,6 +1282,7 @@ test(
     );
     const vite = await createViteServer({
       root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
       configFile: path.join(webRoot, 'vite.config.ts'),
       server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
     });
@@ -1588,6 +1594,7 @@ test(
     );
     const vite = await createViteServer({
       root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
       configFile: path.join(webRoot, 'vite.config.ts'),
       plugins: [
         {
@@ -1854,6 +1861,7 @@ test(
     );
     const vite = await createViteServer({
       root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
       configFile: path.join(webRoot, 'vite.config.ts'),
       plugins: [
         {
@@ -2062,6 +2070,7 @@ test(
     );
     const vite = await createViteServer({
       root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
       configFile: path.join(webRoot, 'vite.config.ts'),
       plugins: [
         {
@@ -2271,6 +2280,303 @@ test(
       }).expect(200);
       await api('get', '/tables/' + tables.contracts + '/records/' + contract.id, editorToken).expect(403);
       assert.equal(await db.collabRecord.count(), 0);
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await vite.close();
+    }
+  },
+);
+
+test(
+  'U5-B smoke: case workspace delivers canonical lifecycle and enforces creator and file scopes',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web');
+    const load = new Function('url', 'return import(url)');
+    const { chromium } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'u5b-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    try {
+      const org = (await db.collabWorkspace.findUniqueOrThrow({ where: { id: workspaceId } })).organizationId;
+      const position = await db.position.create({
+        data: { organizationId: org, code: randomUUID(), name: 'U5B 岗位', categoryCode: 'SALES' },
+      });
+      const manager = await db.user.create({
+        data: { username: 'u5b-manager', password: 'unused', mustChangePassword: false },
+      });
+      const ids = [owner, editor, manager.id];
+      for (const id of ids) {
+        const employee = await db.employee.create({
+          data: {
+            name: id === editor ? 'U5B 员工' : 'U5B 负责人',
+            employeeNo: randomUUID(),
+            phone: '13800000000',
+            type: 'SALES',
+            status: 'FORMAL',
+            entryDate: new Date('2025-01-01'),
+          },
+        });
+        await db.user.update({ where: { id }, data: { employeeId: employee.id } });
+        await db.employeeAssignment.create({
+          data: {
+            employeeId: employee.id,
+            organizationId: org,
+            positionId: position.id,
+            assignmentType: 'PRIMARY',
+            startedAt: new Date('2025-01-01'),
+          },
+        });
+        const role = await db.role.create({
+          data: {
+            name: 'U5B ' + id,
+            code: 'U5B_' + id,
+            type: 'BUSINESS',
+            permissions: {
+              create: [
+                'case.read',
+                'case.create',
+                'case.update',
+                'case.delete',
+                'case.close',
+                'case.task.manage',
+                'case.communication.create',
+                'case.file.read',
+                'case.file.manage',
+                'menu.customer',
+                'menu.contract',
+                'customer.read',
+                'customer.create',
+                'customer.update',
+                'negotiation.read',
+                'negotiation.create',
+                'negotiation.update',
+                'contract.read',
+                'contract.create',
+                'contract.submit',
+                'contract.sign',
+              ].map((code) => ({ permission: { connect: { code } } })),
+            },
+          },
+        });
+        const scope = await db.dataScope.create({ data: { name: 'U5B scope', scopeType: 'ALL' } });
+        const caseScope = await db.dataScope.create({
+          data: { name: '案件范围', scopeType: id === editor ? 'SELF' : 'ALL' },
+        });
+        for (const resource of ['customer', 'negotiation', 'contract', 'case'])
+          await db.roleDataScope.create({
+            data: { roleId: role.id, resource, dataScopeId: resource === 'case' ? caseScope.id : scope.id },
+          });
+        await db.userRole.create({ data: { userId: id, roleId: role.id } });
+      }
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: editor },
+        data: { rowScope: 'SELF' },
+      });
+      await db.collabMember.create({
+        data: { workspaceId, principalId: manager.id, role: 'MANAGER', rowScope: 'ALL' },
+      });
+      const managerToken = (await createApiSession(db, manager.id)).token;
+      const tokens = [token, editorToken, managerToken],
+        pages = [],
+        errors: string[] = [];
+      for (let i = 0; i < ids.length; i++) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          `window.unifiedTestSession = ${JSON.stringify({ mode: 'AUTHENTICATED', token: tokens[i], csrfToken: 'test', expiresIn: 900, user: { id: ids[i], username: ids[i], name: '业务验收成员', roles: [], permissions: [] } })};`,
+        );
+        const page = await context.newPage();
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [admin, staff, leader] = pages,
+        address = vite.resolvedUrls.local[0];
+      const api = (method: 'get' | 'post', route: string, bearer = token, body?: unknown) => {
+        const request = app.httpRequest();
+        const call = request[method]('/api/v1' + route)
+          .set('Authorization', 'Bearer ' + bearer)
+          .set('Idempotency-Key', randomUUID());
+        return body === undefined ? call : call.send(body);
+      };
+      await admin.goto(address + 'cases');
+      await admin.getByRole('button', { name: '连接业务数据', exact: true }).click();
+      await admin.getByRole('combobox', { name: '连接到应用', exact: true }).click();
+      await admin
+        .locator('.ant-select-item-option-content')
+        .getByText('接口工作区 / 业务台账', { exact: true })
+        .click();
+      await admin
+        .getByRole('dialog')
+        .getByRole('button', { name: /^连\s*接$/ })
+        .click();
+      await admin.getByRole('button', { name: '字段配置', exact: true }).waitFor();
+      const casesTable = new URL(admin.url()).searchParams.get('table')!;
+      const customer = (
+        await api('post', '/customers', editorToken, { name: 'U5B 客户', phone: '13900007771' }).expect(200)
+      ).body.data;
+      const employee = await db.user.findUniqueOrThrow({ where: { id: editor } });
+      const other = (
+        await api('post', '/cases', token, {
+          title: '负责人案件',
+          caseType: '民事',
+          customerId: customer.id,
+          branchId: org,
+          lawyerId: employee.employeeId,
+        }).expect(200)
+      ).body.data;
+      await staff.goto(address + 'cases/new');
+      await staff.getByLabel('案件标题', { exact: true }).fill('U5B 交付案件');
+      await staff.getByLabel('所属组织', { exact: true }).click();
+      await staff
+        .locator('.ant-select-item-option-content')
+        .getByText('协作接口测试', { exact: true })
+        .click();
+      await staff.getByLabel('客户', { exact: true }).fill('U5B 往返客户');
+      await staff.getByRole('button', { name: '新建客户：U5B 往返客户', exact: true }).click();
+      await staff.getByLabel('电话', { exact: true }).fill('13900007772');
+      await staff.getByRole('button', { name: '创建客户', exact: true }).click();
+      await staff.getByLabel('案件标题', { exact: true }).waitFor();
+      assert.equal(await staff.getByLabel('案件标题', { exact: true }).inputValue(), 'U5B 交付案件');
+      await staff.getByText('U5B 往返客户', { exact: true }).first().waitFor();
+      await staff.getByLabel('主办律师', { exact: true }).click();
+      await staff.locator('.ant-select-item-option-content').getByText('U5B 员工', { exact: true }).click();
+      await staff.getByLabel('案由', { exact: true }).fill('民事');
+      await staff
+        .getByRole('dialog')
+        .getByRole('button', { name: /^确\s*定$/ })
+        .click();
+      await staff.getByRole('button', { name: '受理案件', exact: true }).waitFor();
+      const record = await db.case.findFirstOrThrow({ where: { title: 'U5B 交付案件' } });
+      assert.equal(record.createdBy, editor);
+      assert.equal(record.branchId, org);
+      await staff.getByRole('button', { name: '受理案件', exact: true }).click();
+      await staff.getByRole('button', { name: '开始办理', exact: true }).click();
+      await staff.getByRole('button', { name: /新建任务$/ }).click();
+      await staff.getByLabel('任务名称', { exact: true }).fill('核对交付材料');
+      await staff.getByLabel('节点类型', { exact: true }).click();
+      await staff.locator('.ant-select-item-option-content').first().click();
+      await staff
+        .getByRole('dialog')
+        .getByRole('button', { name: /^确\s*定$/ })
+        .click();
+      await staff.getByText('核对交付材料', { exact: true }).waitFor();
+      await staff.getByRole('button', { name: '开始办理', exact: true }).click();
+      await staff.getByRole('button', { name: '完成', exact: true }).click();
+      await staff.getByRole('button', { name: /新增沟通$/ }).click();
+      await staff.getByLabel('沟通内容', { exact: true }).fill('已确认交付计划');
+      await staff
+        .getByRole('dialog')
+        .getByRole('button', { name: /^确\s*定$/ })
+        .click();
+      await staff.getByText('已确认交付计划', { exact: true }).waitFor();
+      await staff.locator('input[type=file]').setInputFiles({
+        name: 'u5b-evidence.txt',
+        mimeType: 'text/plain',
+        buffer: Buffer.from('synthetic case evidence'),
+      });
+      await staff.getByText('u5b-evidence.txt', { exact: true }).waitFor();
+      const file = await db.caseFile.findFirstOrThrow({ where: { caseId: record.id } });
+      await api('get', '/cases/' + other.id, editorToken).expect(404);
+      await api('get', '/tables/' + casesTable + '/records/' + other.id, editorToken).expect(404);
+      await leader.goto(address + 'cases?base=' + baseId + '&table=' + casesTable);
+      await leader.getByRole('button', { name: '案件名称：负责人案件', exact: true }).waitFor();
+      await staff.getByRole('button', { name: /结案$/ }).first().click();
+      await staff
+        .getByRole('dialog')
+        .getByRole('button', { name: /^结\s*案$/ })
+        .click();
+      await staff.getByRole('button', { name: '归档案件', exact: true }).click();
+      await staff.getByText('已归档', { exact: true }).waitFor();
+      await leader.getByRole('button', { name: '案件状态：已归档', exact: true }).waitFor();
+      await staff.getByRole('link', { name: '在「案件工作表」中打开', exact: true }).click();
+      await staff.getByRole('button', { name: '案件名称：U5B 交付案件', exact: true }).waitFor();
+      assert.equal(new URL(staff.url()).searchParams.get('record'), record.id);
+      await staff.locator('.ant-drawer-close').click();
+      await staff.getByRole('button', { name: '创建个人视图', exact: true }).click();
+      await staff.getByRole('tab', { name: '我创建的案件 · 个人', exact: true }).waitFor();
+      await staff.reload();
+      await staff.getByRole('tab', { name: '我创建的案件 · 个人', exact: true }).waitFor();
+      await staff.locator('.ant-spin-spinning').waitFor({ state: 'hidden' });
+      for (const width of [1440, 1024, 390]) {
+        await staff.setViewportSize({ width, height: 900 });
+        assert.equal(
+          await staff.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
+          false,
+        );
+        await staff.screenshot({
+          path: path.resolve(process.cwd(), '../../var/collaboration-evidence/u5b-case-' + width + '.png'),
+          fullPage: true,
+        });
+      }
+      await staff.goto(address + 'cases?caseNo=' + encodeURIComponent(record.caseNo) + '#legacy');
+      await staff.getByText('已归档', { exact: true }).waitFor();
+      assert.equal(new URL(staff.url()).pathname, '/cases/' + record.id);
+      assert.equal(new URL(staff.url()).hash, '#legacy');
+      assert.equal(await staff.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+      const gap = (
+        await api('post', '/cases', token, {
+          title: '待补组织案件',
+          caseType: '民事',
+          customerId: customer.id,
+          lawyerId: employee.employeeId,
+        }).expect(200)
+      ).body.data;
+      await api('post', '/cases/' + gap.id + '/identity', editorToken, {
+        branchId: org,
+        reason: '无权补录',
+        version: gap.version,
+      }).expect(403);
+      await admin.goto(address + 'cases');
+      await admin.getByRole('button', { name: '待补录案件', exact: true }).click();
+      await admin
+        .getByRole('dialog')
+        .getByRole('button', { name: /^补\s*录$/ })
+        .click();
+      await admin.getByLabel('确认所属组织', { exact: true }).click();
+      await admin
+        .locator('.ant-select-item-option-content')
+        .getByText('协作接口测试', { exact: true })
+        .click();
+      await admin.getByLabel('补录依据', { exact: true }).fill('冒烟夹具中人工确认的归属');
+      await admin.getByRole('button', { name: '保存归属并记录审计', exact: true }).click();
+      await admin.getByText('没有待补录案件', { exact: true }).waitFor();
+      assert.equal((await db.case.findUniqueOrThrow({ where: { id: gap.id } })).branchId, org);
+      assert.equal(
+        await db.operationLog.count({ where: { targetId: gap.id, action: 'CASE_IDENTITY_REPAIR' } }),
+        1,
+      );
+      await api('post', '/cases/' + gap.id + '/identity', token, {
+        branchId: org,
+        reason: '不许覆盖',
+        version: gap.version + 1,
+      }).expect(400);
+      // Revocation while the detail remains open clears the cached record on its bounded refresh.
+      await db.userRole.deleteMany({ where: { userId: editor } });
+      await api('get', '/files/' + file.id + '/download', editorToken).expect(403);
+      await staff
+        .getByText('U5B 交付案件', { exact: false })
+        .first()
+        .waitFor({ state: 'hidden', timeout: 25000 });
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

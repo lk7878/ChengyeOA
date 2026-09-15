@@ -164,6 +164,8 @@ export interface Customer {
 // 字符串数组、lawyerId 可空。customer/lawyer 保留可选嵌套：CaseView 投影不返回（前端用 ID），
 // dashboard alerts urgentCases 为原始 Prisma include 会返回嵌套 customer/lawyer。）
 export interface Case {
+  createdBy?: string | null;
+  branchId?: string | null;
   customerName?: string;
   lawyerName?: string | null;
   files?: CaseFile[];

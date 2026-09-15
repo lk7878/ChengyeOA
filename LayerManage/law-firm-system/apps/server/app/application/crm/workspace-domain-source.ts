@@ -1,3 +1,5 @@
+import { INTAKE_FIELDS } from '../case/intake-contract';
+import { buildCaseScopeWhere } from '../case/case-scope';
 import { CollabField, CollabRecord, CollabTable, Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
@@ -14,6 +16,40 @@ import { maskLeadPhone, maskLeadWechat } from './lead-projection';
 import { auditRawL3Access } from './lead-audit';
 
 export const domainSources = {
+  CASES: {
+    resource: 'case',
+    edit: 'case.update',
+    table: '"case"',
+    columns: [
+      ['caseNo', '案件编号', 'TEXT'],
+      ['title', '案件名称', 'TEXT'],
+      ['caseType', '案由', 'TEXT'],
+      ['status', '案件状态', 'TEXT'],
+      ['priority', '优先级', 'TEXT'],
+      ['customerId', '关联客户', 'TEXT'],
+      ['contractId', '关联合同', 'TEXT'],
+      ['lawyerId', '主办律师', 'USER'],
+      ['fee', '案件费用', 'CURRENCY'],
+      ...INTAKE_FIELDS.map(
+        ([key, label, kind]) =>
+          [
+            'intake.' + key,
+            label,
+            kind === 'money'
+              ? 'CURRENCY'
+              : kind === 'date'
+                ? 'DATE'
+                : kind === 'department'
+                  ? 'ORGANIZATION'
+                  : 'TEXT',
+          ] as const,
+      ),
+      ['branchId', '所属组织', 'ORGANIZATION'],
+      ['createdBy', '创建人', 'CREATED_BY'],
+      ['createdAt', '创建时间', 'CREATED_AT'],
+      ['updatedAt', '更新时间', 'UPDATED_AT'],
+    ],
+  },
   CUSTOMERS: {
     resource: 'customer',
     edit: 'customer.update',
@@ -143,11 +179,13 @@ export class WorkspaceDomainSource {
   async scope(source: DomainSource, access: Access, action = 'read') {
     const permission = this.authorize(source, action);
     const domain =
-      source === 'CUSTOMERS'
-        ? await buildCustomerVisibilityWhere(this.db, this.authorization, this.actor, permission)
-        : source === 'NEGOTIATIONS'
-          ? await buildNegotiationScopeWhere(this.db, this.authorization, this.actor, permission)
-          : await buildContractScopeWhere(this.db, this.authorization, this.actor, permission);
+      source === 'CASES'
+        ? await buildCaseScopeWhere(this.db, this.actor, permission)
+        : source === 'CUSTOMERS'
+          ? await buildCustomerVisibilityWhere(this.db, this.authorization, this.actor, permission)
+          : source === 'NEGOTIATIONS'
+            ? await buildNegotiationScopeWhere(this.db, this.authorization, this.actor, permission)
+            : await buildContractScopeWhere(this.db, this.authorization, this.actor, permission);
     const root = await this.db.organization.findUnique({ where: { id: access.organizationId } });
     if (!root || root.status !== 'ENABLED') fail('COLLAB_FORBIDDEN', 403);
     const organizations = await this.db.organization.findMany({
@@ -182,7 +220,7 @@ export class WorkspaceDomainSource {
       organization = Prisma.sql`(l."branchId" IN (${Prisma.join(ids)}) OR
         (b."sourceLeadId" IS NULL AND ${creators.length ? Prisma.sql`b."createdBy" IN (${Prisma.join(creators.map((u) => u.id))})` : Prisma.sql`FALSE`}))`;
     }
-    return Prisma.sql`${this.compile(domain)} AND b."deletedAt" IS NULL AND ${organization}
+    return Prisma.sql`${this.compile(domain)} AND ${source === 'CASES' ? Prisma.sql`TRUE` : Prisma.sql`b."deletedAt" IS NULL`} AND ${organization}
       AND ${access.selfOnly ? Prisma.sql`b."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`}`;
   }
   from(source: DomainSource) {
@@ -196,7 +234,12 @@ export class WorkspaceDomainSource {
     const pairs = fields.flatMap((f) => {
       const key = object(f.options).businessKey;
       if (key && !definition.columns.some((c) => c[0] === key)) fail('COLLAB_INVALID_FIELD');
-      const column = key ? Prisma.raw('b."' + key + '"') : null;
+      const column =
+        typeof key === 'string' && table.source === 'CASES' && key.startsWith('intake.')
+          ? Prisma.sql`b."intakeData" ->> ${key.slice(7)}`
+          : key
+            ? Prisma.raw('b."' + key + '"')
+            : null;
       const value = column
         ? ['DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(f.type)
           ? Prisma.sql`to_jsonb(${column} AT TIME ZONE 'UTC')`

@@ -203,3 +203,7 @@ U4 不新增模型或迁移；Lead/LeadFollow 仍是权威事实，目录连接�
 ### U5-A 正式来源扩展
 
 CUSTOMERS / NEGOTIATIONS / CONTRACTS 直接读取 Customer / Negotiation / Contract，复用 CollabExtension，稳定业务 ID 不变；无新模型和迁移，基线仍 90/55。字段元数据带 businessSource 用于准确显示状态；核心金额保留 Decimal 字符串。详见[U5–U7 契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
+
+### U5-B 案件身份增量（2026-09-15）
+
+迁移 20260915210000_case_creator_organization 为 Case 增加 nullable createdBy/branchId/updatedBy 和前两列索引；模型总数仍 90，迁移数 56。历史创建人仅恢复无歧义 CASE_CREATE 审计，组织仅使用明确合同或已校验受理部门；保留全部原 ID 与关联，缺失事实留空并通过审计补录。CASES 多维来源与受理列直接回源，无新业务副本。[迁移及验收契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。

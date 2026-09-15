@@ -1,3 +1,4 @@
+import { requireCaseAccess } from './case-scope';
 // SPEC-033 Task 2: case-communication-service —— 案件沟通记录（create）。
 // 同 case-service 形态（3 参构造 + requireAction + assertExactKeys + 审计）。
 
@@ -34,13 +35,17 @@ export class CaseCommunicationService {
     const content = normalizeRequiredText(input.content, 1, 2000);
     const isKey = input.isKey ?? false;
 
-    const existing = await this.prisma.case.findFirst({ where: { id } });
+    const existing = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.communication.create');
     if (!existing) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
     if (existing.status === 'CLOSED' || existing.status === 'ARCHIVED') {
       throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
     }
 
     return this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+      const currentCase = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.communication.create', tx);
+      if (['CLOSED', 'ARCHIVED'].includes(currentCase.status)) throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
+      await tx.case.update({ where: { id }, data: { version: { increment: 1 }, updatedBy: this.actor.actorUserId } });
       const communication = await tx.communication.create({
         data: { caseId: id, type, content, isKey, createdBy: this.actor.actorUserId },
       });

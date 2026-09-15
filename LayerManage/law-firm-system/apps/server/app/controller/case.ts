@@ -15,7 +15,7 @@ import {
 import { MasterDataError } from '../domain/master-data/master-data-errors';
 import { assertExactKeys } from '../domain/master-data/master-data-validation';
 
-const CREATE_CASE_BODY_KEYS = ['intakeData', 'attachments', 'title', 'customerId', 'contractId', 'lawyerId', 'teamIds', 'caseType', 'priority', 'fee', 'description'] as const;
+const CREATE_CASE_BODY_KEYS = ['branchId', 'intakeData', 'attachments', 'title', 'customerId', 'contractId', 'lawyerId', 'teamIds', 'caseType', 'priority', 'fee', 'description'] as const;
 const UPDATE_CASE_BODY_KEYS = ['customerId', 'fee', 'intakeData', 'attachments', 'removeAttachmentIds', 'title', 'lawyerId', 'teamIds', 'caseType', 'priority', 'description', 'result', 'satisfaction', 'isReferrable', 'version'] as const;
 const CLOSE_CASE_BODY_KEYS = ['result', 'satisfaction'] as const;
 const CREATE_TASK_BODY_KEYS = ['name', 'nodeType', 'dueDate', 'remark'] as const;
@@ -27,6 +27,14 @@ const FILE_LIST_QUERY_KEYS = ['page', 'pageSize'] as const;
 
 export default class CaseController extends Controller {
   /** GET /api/v1/cases（case.read）：案件列表（过滤 + 分页）。 */
+  async identityGaps() {
+    assertExactKeys(this.ctx.query, ['page']);
+    this.respond(await caseService(this.ctx).identityGaps({ page: this.ctx.query.page === undefined ? undefined : parseQueryInteger(this.ctx.query.page) }));
+  }
+  async repairIdentity() {
+    this.respond(await caseService(this.ctx).repairIdentity(this.ctx.params.id, this.ctx.request.body as never));
+  }
+
   async index() {
     this.respond(await caseService(this.ctx).listCases(parseCaseListQuery(this.ctx.query) as never));
   }
@@ -48,6 +56,10 @@ export default class CaseController extends Controller {
     const body = this.ctx.request.body;
     assertExactKeys(body, UPDATE_CASE_BODY_KEYS);
     this.respond(await caseService(this.ctx).updateCase(this.ctx.params.id, body as never));
+  }
+
+  async transition() {
+    this.respond(await caseService(this.ctx).transitionCase(this.ctx.params.id, this.ctx.request.body as never));
   }
 
   async destroy() {
@@ -113,11 +125,12 @@ export default class CaseController extends Controller {
 
 /** 案件列表查询解析：page/pageSize/过滤透传（枚举/数字服务层校验）。 */
 function parseCaseListQuery(input: unknown): Record<string, unknown> {
-  assertExactKeys(input, ['page', 'pageSize', 'keyword', 'status', 'lawyerId', 'priority', 'customerId']);
+  assertExactKeys(input, ['page', 'pageSize', 'keyword', 'status', 'lawyerId', 'priority', 'customerId', 'caseNo']);
   const query: Record<string, unknown> = {};
   if (input.page !== undefined) query.page = parseQueryInteger(input.page);
   if (input.pageSize !== undefined) query.pageSize = parseQueryInteger(input.pageSize);
   if (input.keyword !== undefined) query.keyword = input.keyword;
+  if (input.caseNo !== undefined) query.caseNo = input.caseNo;
   if (input.status !== undefined) query.status = input.status;
   if (input.lawyerId !== undefined) query.lawyerId = input.lawyerId;
   if (input.priority !== undefined) query.priority = input.priority;

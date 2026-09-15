@@ -85,3 +85,7 @@ MAT-04B 遵循 [SPEC-AI-DESKTOP-20260913 §7](../../superpowers/specs/2026-09-13
 ### 全站统一迁移（U0/U1，2026-09-15）
 
 案件业务管理进入业务应用的签约交付，case.read 控制入口与直链；任务、沟通、文件、结案的原业务权限与校验保持，U5 深度整合。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。
+
+### U5-B 案件工作表与交付（2026-09-15）
+
+/cases 接入 CASES 正式来源，受理字段、个人/共享视图和扩展字段读取同一 Case；/cases/new、/cases/:id 保留建档、任务、沟通、材料、结案及受控归档。创建人取实际操作者，主办律师不等于创建人。所有原案件与子对象 API 落实对应动作的数据范围，普通 SELF 不可通过直链绕过。旧 caseNo 链接和新建客户往返草稿保留。历史归属缺失记录进入待补录队列，只有 case.update 全量范围可以选择真实归属、填写依据并审计，不覆写已有身份。具体迁移、验证与未实现的质控/SOP 边界见 [U5–U7 契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)及[阶段记录](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。本批不等于尚未实现的完整质控、复盘或 Harness 主动归档。

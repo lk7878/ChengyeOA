@@ -16,6 +16,7 @@ import { CASE_ERROR_CODES, CaseError } from '../../app/domain/case/case-errors';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 
 const CASE_PERMISSIONS: PermissionCode[] = [
+  'customer.read', 'contract.read',
   'case.delete',
   'case.read',
   'case.create',
@@ -177,10 +178,11 @@ test('deletion rolls back on audit failure and removes only the selected case wi
   const id = await seedCase(), otherId = await seedCase('保留案件');
   await taskServiceFor('delete', actor('delete')).createTask(id, { name: '本案任务', nodeType: '立案准备' });
   await commServiceFor('delete', actor('delete')).createCommunication(id, { type: 'PHONE', content: '本案沟通' });
+  const version = (await service.getCase(id)).version;
   const failing = prisma.$extends({ query: { operationLog: { create: async () => { throw new Error('injected delete audit failure'); } } } });
-  await assert.rejects(() => new CaseService(failing as typeof prisma, actor('delete'), caseContext('delete')).deleteCase(id, { version: 1 }), /injected delete audit failure/);
+  await assert.rejects(() => new CaseService(failing as typeof prisma, actor('delete'), caseContext('delete')).deleteCase(id, { version }), /injected delete audit failure/);
   assert.equal((await service.getCase(id)).tasks.length, 1);
-  await service.deleteCase(id, { version: 1 });
+  await service.deleteCase(id, { version });
   await assert.rejects(() => service.getCase(id), { code: 'CASE_NOT_FOUND' });
   assert.equal(await prisma.caseTask.count({ where: { caseId: id } }), 0);
   assert.equal(await prisma.communication.count({ where: { caseId: id } }), 0);

@@ -174,3 +174,7 @@ U0–U3 验收：前端相关 11 文件 51/51；完整 HTTP/SSE/Edge 7/7（290.5
 ## SPEC-UNIFIED-OA U5-A
 
 [U5–U7 契约](../superpowers/specs/2026-09-15-u5-u7-business-unification.md)对应 MOD-005/006、FTN-001/003/004/005：WorkspaceDomainSource 白名单查询正式客户/谈案/合同；BusinessWorkspacePage 与 WorkspaceEditor 提供同源视图和有权详情往返，原领域事务保持。新增 6 项来源/边界测试、原业务 94 项及协作 30 项通过；前端 45 个不同用例、浏览器 9 个不同用例均有通过记录（首次波动与目标复验经过见[计划第 8 节](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)）。构建与契约检查通过；100 会话/900 秒（实际 901.906 秒）负载通过，3,600 次保存全部成功且可见，查询/保存/可见 P95 1188/1339/1369ms，重连 P95 4452ms，撤权 271ms 后读写 403；u5-load-report.json。U5-A 本批阶段提交，U5-B/U6/U7 未完成。
+
+2026-09-15 U5-B：案件同源工作表、身份增量、交付动作和子对象权限对应 MOD-008/010、FTN-001/003/004/005；实现与验证追溯见 [U5–U7 契约](../superpowers/specs/2026-09-15-u5-u7-business-unification.md)和[阶段计划](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。完整质控/SOP、MAT-04B 主动归档与 U6/U7 不因本批自动完成。
+
+U5-B 最终证据：案件三角色 App 冒烟通过；事件批量写入后案件主链路及原双会话目标复验通过。100 会话/900 秒、3600/3600 保存成功且可见，查询/保存/可见 P95 1116/1182/1202ms；限定测试进程 affinity=0xffff，默认调度失败仍保留。事务回滚、构建与检查及全部中间结果见阶段计划第 9 节。

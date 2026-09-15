@@ -1,3 +1,4 @@
+import { requireCaseAccess } from './case-scope';
 // SPEC-042 Task 2: case-file-service —— 案件文件/证据台账（upload/list/download/remove）。
 // 形态镜像 case-service：3 参构造 (prisma, actor, authorizationContext)；requireAction 每公开
 // 方法第一行；assertExactKeys 入参白名单；同事务 OperationLog 审计。
@@ -52,7 +53,7 @@ export class CaseFileService {
     const fileType = normalizeRequiredText(input.fileType, 1, 100);
     const buffer = decodeBase64(input.base64);
 
-    const existing = await this.prisma.case.findFirst({ where: { id } });
+    const existing = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.file.manage');
     if (!existing) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
     if (existing.status === 'CLOSED' || existing.status === 'ARCHIVED') {
       throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
@@ -62,27 +63,26 @@ export class CaseFileService {
     const storedPath = path.join(storageRoot(), storedFileName);
     fs.writeFileSync(storedPath, buffer);
 
-    const created = await this.prisma.caseFile.create({
-      data: {
-        caseId: id,
-        fileName,
-        fileType,
-        filePath: storedFileName,
-        fileSize: buffer.length,
-        uploadedBy: this.actor.actorUserId,
-      },
-    });
-    await this.prisma.operationLog.create({
-      data: {
-        userId: this.actor.actorUserId,
-        action: 'CASE_FILE_UPLOAD',
-        targetType: 'CASE_FILE',
-        targetId: created.id,
-        newValues: JSON.stringify({ caseId: id, fileId: created.id, fileName, fileSize: buffer.length }),
-        ip: this.actor.ip,
-      },
-    });
-    return projectCaseFile(created);
+    try {
+      return await this.prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+        const parent = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.file.manage', tx);
+        if (['CLOSED', 'ARCHIVED'].includes(parent.status)) throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
+        const created = await tx.caseFile.create({ data: {
+          caseId: id, fileName, fileType, filePath: storedFileName, fileSize: buffer.length,
+          uploadedBy: this.actor.actorUserId,
+        } });
+        await tx.case.update({ where: { id }, data: { version: { increment: 1 }, updatedBy: this.actor.actorUserId } });
+        await tx.operationLog.create({ data: {
+          userId: this.actor.actorUserId, action: 'CASE_FILE_UPLOAD', targetType: 'CASE_FILE', targetId: created.id,
+          newValues: JSON.stringify({ caseId: id, fileId: created.id, fileName, fileSize: buffer.length }), ip: this.actor.ip,
+        } });
+        return projectCaseFile(created);
+      });
+    } catch (error) {
+      try { fs.unlinkSync(storedPath); } catch { /* Preserve the original transaction error. */ }
+      throw error;
+    }
   }
 
   /** 文件列表：case.file.read → 案件存在（404）→ 分页 createdAt DESC。 */
@@ -97,7 +97,7 @@ export class CaseFileService {
     if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
       throw new MasterDataError('VALIDATION_FAILED', 400);
     }
-    const existing = await this.prisma.case.findFirst({ where: { id } });
+    const existing = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.file.read');
     if (!existing) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
 
     const where = { caseId: id };
@@ -120,6 +120,7 @@ export class CaseFileService {
     const record = await this.prisma.caseFile.findUnique({ where: { id } });
     if (!record) throw new CaseError(CASE_ERROR_CODES.CASE_FILE_NOT_FOUND, 404, 'case file not found');
 
+    await requireCaseAccess(this.prisma, this.authorizationContext, record.caseId, 'case.file.read');
     const storedPath = path.join(storageRoot(), record.filePath);
     let buffer: Buffer;
     try {
@@ -134,28 +135,26 @@ export class CaseFileService {
   async remove(fileId: string): Promise<CaseFileView> {
     this.authorization.requireAction(this.authorizationContext, 'case.file.manage');
     const id = normalizeRequiredText(fileId, 1, 100);
-    const record = await this.prisma.caseFile.findUnique({ where: { id } });
-    if (!record) throw new CaseError(CASE_ERROR_CODES.CASE_FILE_NOT_FOUND, 404, 'case file not found');
-
-    const storedPath = path.join(storageRoot(), record.filePath);
-    try {
-      fs.unlinkSync(storedPath);
-    } catch {
-      // 磁盘文件已缺失时仍清理 DB 记录（台账一致优先）。
-    }
-    await this.prisma.caseFile.delete({ where: { id } });
-    await this.prisma.operationLog.create({
-      data: {
-        userId: this.actor.actorUserId,
-        action: 'CASE_FILE_DELETE',
-        targetType: 'CASE_FILE',
-        targetId: id,
-        newValues: JSON.stringify({ caseId: record.caseId, fileId: id, fileName: record.fileName }),
-        ip: this.actor.ip,
-      },
+    const target = await this.prisma.caseFile.findUnique({ where: { id } });
+    if (!target) throw new CaseError(CASE_ERROR_CODES.CASE_FILE_NOT_FOUND, 404, 'case file not found');
+    const record = await this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${target.caseId} FOR UPDATE`;
+      const parent = await requireCaseAccess(this.prisma, this.authorizationContext, target.caseId, 'case.file.manage', tx);
+      if (['CLOSED', 'ARCHIVED'].includes(parent.status)) throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
+      const current = await tx.caseFile.findUnique({ where: { id } });
+      if (!current) throw new CaseError(CASE_ERROR_CODES.CASE_FILE_NOT_FOUND, 404, 'case file not found');
+      await tx.caseFile.delete({ where: { id } });
+      await tx.case.update({ where: { id: parent.id }, data: { version: { increment: 1 }, updatedBy: this.actor.actorUserId } });
+      await tx.operationLog.create({ data: {
+        userId: this.actor.actorUserId, action: 'CASE_FILE_DELETE', targetType: 'CASE_FILE', targetId: id,
+        newValues: JSON.stringify({ caseId: current.caseId, fileId: id, fileName: current.fileName }), ip: this.actor.ip,
+      } });
+      return current;
     });
+    try { fs.unlinkSync(path.join(storageRoot(), record.filePath)); } catch { /* A missing disk file does not restore an already committed row. */ }
     return projectCaseFile(record);
   }
+
 }
 
 /** base64 解码校验：非法 base64 / 超限（>10MB）→ 400 CASE_FILE_INVALID。 */

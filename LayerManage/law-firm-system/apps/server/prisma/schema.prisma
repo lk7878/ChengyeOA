@@ -1099,6 +1099,9 @@ model CostEntry {
 // ==================== 案件模块 ====================
 
 model Case {
+  createdBy String? // U5-B: unknown historical creators remain null
+  branchId String?
+  updatedBy String?
   id           String    @id @default(uuid())
   caseNo       String    @unique
   title        String
@@ -1130,6 +1133,8 @@ model Case {
 
   @@index([status])
   @@index([lawyerId])
+  @@index([createdBy])
+  @@index([branchId])
   @@map("case")
 }
 

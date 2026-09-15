@@ -1,4 +1,5 @@
 export const businessSources = {
+  CASES: { title: '案件工作表', path: '/cases', personal: '我创建的案件' },
   LEADS: { title: '线索工作表', path: '/leads', personal: '我负责的' },
   FOLLOWS: { title: '跟进工作表', path: '/leads/follows', personal: '我的跟进' },
   CUSTOMERS: { title: '客户工作表', path: '/customers', personal: '我创建的客户' },
@@ -11,6 +12,7 @@ export function isBusinessSource(source: string): source is BusinessSource {
 }
 
 export const domainCreates = {
+  CASES: { label: '新建案件', path: '/cases/new', permission: 'case.create' },
   CUSTOMERS: { label: '新建客户', path: '/customers/new', permission: 'customer.create' },
   NEGOTIATIONS: { label: '新建谈案', path: '/negotiations/new', permission: 'negotiation.create' },
   CONTRACTS: { label: '新建合同', path: '/contracts/new', permission: 'contract.create' },

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { DriveNavigationService as DriveService } from '../../app/application/collaboration/drive-navigation-service';
-import { PrismaEventOutboxWriter } from '../../app/application/events/event-outbox-writer';
+import { withFailingCollaborationOutbox } from '../helpers/collaboration-outbox-failure';
 import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 
@@ -232,7 +232,7 @@ test('ownership does not override a downgraded parent, while the workspace owner
   assert.equal((await manager.describe(app.tableId)).access.level, 1);
 });
 
-test('directory writes keep idempotency, version checks and rollback every created object on outbox failure', async (t) => {
+test('directory writes keep idempotency, version checks and rollback every created object on outbox failure', async () => {
   const mutation = key(),
     body = { name: '幂等目录' };
   const folder = await owner.createFolder(workspace, body, mutation);
@@ -262,15 +262,13 @@ test('directory writes keep idempotency, version checks and rollback every creat
       db.collabMutation.count(),
     ]);
   const before = await counts();
-  const append = t.mock.method(PrismaEventOutboxWriter.prototype, 'append', async () => {
-    throw new Error('synthetic catalog outbox failure');
+  await withFailingCollaborationOutbox(db, async () => {
+    await assert.rejects(
+      owner.createDriveBase(workspace, { name: '原子创建' }, key()),
+      /collab_test_outbox_failure/,
+    );
+    assert.deepEqual(await counts(), before);
   });
-  await assert.rejects(
-    owner.createDriveBase(workspace, { name: '原子创建' }, key()),
-    /synthetic catalog outbox failure/,
-  );
-  assert.deepEqual(await counts(), before);
-  append.mock.restore();
 });
 
 test('parent type, workspace and eight-level boundaries cannot be bypassed', async () => {
@@ -360,14 +358,12 @@ test('500 resources including eight levels filter counts and pages before return
   console.log('drive directory 500-resource P95 ms:', Math.round(p95));
   assert.ok(p95 <= 2000, 'directory P95 > 2s');
   await db.driveShortcut.createMany({
-    data: bases
-      .slice(0, 200)
-      .map((targetId) => ({
-        workspaceId: workspace,
-        parentId: folders[0],
-        targetId,
-        ownerId: owner.actor.userId,
-      })),
+    data: bases.slice(0, 200).map((targetId) => ({
+      workspaceId: workspace,
+      parentId: folders[0],
+      targetId,
+      ownerId: owner.actor.userId,
+    })),
   });
   await db.driveVisit.createMany({
     data: bases

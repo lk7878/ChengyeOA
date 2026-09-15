@@ -32,7 +32,8 @@ import ApprovalLedger from './pages/approvals/ApprovalLedger';
 
 import CostListPage from './pages/costs/CostListPage';
 import AnomalyListPage from './pages/anomalies/AnomalyListPage';
-import CasePage from './pages/Case';
+import CaseWorkspacePage from './pages/Case/CaseWorkspacePage';
+import CaseRecordPage from './pages/Case/CaseRecordPage';
 import EmployeePage from './pages/Employee';
 import UserPage from './pages/User';
 import SecurityRolePage from './pages/SecurityRole';
@@ -257,7 +258,9 @@ function SessionBootstrap() {
               </AuthorizedPage>
             }
           />
-          <Route path="/cases" element={<CasePage />} />
+          <Route path="/cases" element={<CaseWorkspacePage />} />
+          <Route path="/cases/new" element={<CaseRecordPage />} />
+          <Route path="/cases/:id" element={<CaseRecordPage />} />
           <Route
             path="/payments"
             element={

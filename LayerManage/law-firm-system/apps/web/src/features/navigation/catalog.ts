@@ -212,6 +212,22 @@ export const entries: NavigationEntry[] = [
     hidden: true,
     parent: '/inventory/dashboard',
   },
+  {
+    path: '/cases/new',
+    title: '新建案件',
+    area: 'apps',
+    group: '签约交付',
+    required: ['case.read', 'case.create', 'customer.read'],
+    hidden: true,
+  },
+  {
+    path: '/cases/:id',
+    title: '案件详情与交付',
+    area: 'apps',
+    group: '签约交付',
+    required: ['case.read'],
+    hidden: true,
+  },
   { path: '/analytics/overview', title: '经营概览', area: 'analytics', group: '经营分析' },
   {
     path: '/performances',

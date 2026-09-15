@@ -12,7 +12,7 @@ import { LEAD_STATUS, canTransition, LeadStatus, REACTIVATE_ENABLED } from '../.
 import { businessFields, WorkspaceBusinessTable } from '../crm/workspace-business-table';
 import { createHash, randomUUID } from 'node:crypto';
 import { CollabField, CollabRecord, CollabTable, CollabMember, Prisma, PrismaClient } from '@prisma/client';
-import { PrismaEventOutboxWriter } from '../events/event-outbox-writer';
+import { appendCollaborationChange } from './collaboration-change';
 import { AuthorizationContext } from '../authorization/authorization-service';
 import {
   boolean,
@@ -385,26 +385,9 @@ export class CollaborationService {
     }
   }
   protected async event(tx: Tx, baseId: string, kind: string, targetId: string) {
-    await Promise.all([
-      tx.collabEvent.create({ data: { baseId, kind } }),
-      new PrismaEventOutboxWriter().append(tx, {
-        eventType: 'collaboration.changed',
-        eventVersion: 1,
-        objectType: 'COLLAB_BASE',
-        objectId: baseId,
-        operatorUserId: this.actor.userId,
-        organizationId: null,
-        branchId: null,
-        teamId: null,
-        payload: { baseId },
-        traceId: randomUUID(),
-        occurredAt: new Date(),
-      }),
-      tx.operationLog.create({
-        data: { userId: this.actor.userId, action: kind, targetType: 'COLLAB', targetId },
-      }),
-    ]);
+    await appendCollaborationChange(tx, this.actor.userId, baseId, kind, targetId);
   }
+
   async listWorkspaces() {
     const members = await this.db.collabMember.findMany({
       where: { OR: await this.principals(this.db) },

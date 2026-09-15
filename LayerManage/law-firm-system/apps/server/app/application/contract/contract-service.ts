@@ -438,6 +438,7 @@ export class ContractService {
         const createdCase = await tx.case.create({
           data: {
             caseNo: nextCaseNo(),
+            createdBy: this.actor.actorUserId, updatedBy: this.actor.actorUserId, branchId: contract.branchId,
             title: `${customer.name}-${contract.title}`,
             customerId: contract.customerId,
             contractId: contract.id,

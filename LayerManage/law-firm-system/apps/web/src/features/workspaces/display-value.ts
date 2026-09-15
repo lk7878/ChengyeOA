@@ -13,19 +13,32 @@ export function displayValue(field: Field, value: unknown, directory: Directory)
   const labels: Record<string, string> = Object.fromEntries(
     Object.entries(
       field.options.businessKey === 'status'
-        ? field.options.businessSource === 'CUSTOMERS'
-          ? CUSTOMER_STATUS_META
-          : field.options.businessSource === 'CONTRACTS'
-            ? CONTRACT_STATUS_META
-            : field.options.businessSource === 'NEGOTIATIONS'
-              ? NEGOTIATION_STATUS_META
-              : LEAD_STATUS_META
+        ? field.options.businessSource === 'CASES'
+          ? {
+              PENDING: { text: '待受理' },
+              ACCEPTED: { text: '已受理' },
+              PROCESSING: { text: '办理中' },
+              CLOSED: { text: '已结案' },
+              ARCHIVED: { text: '已归档' },
+            }
+          : field.options.businessSource === 'CUSTOMERS'
+            ? CUSTOMER_STATUS_META
+            : field.options.businessSource === 'CONTRACTS'
+              ? CONTRACT_STATUS_META
+              : field.options.businessSource === 'NEGOTIATIONS'
+                ? NEGOTIATION_STATUS_META
+                : LEAD_STATUS_META
         : field.options.businessKey === 'poolStatus'
           ? POOL_STATUS_META
           : {},
     ).map(([key, value]) => [key, value.text]),
   );
   if (labels[String(value)]) return labels[String(value)];
+  if (field.options.businessKey === 'priority' && field.options.businessSource === 'CASES')
+    return (
+      ({ LOW: '低', NORMAL: '普通', HIGH: '高', URGENT: '紧急' } as Record<string, string>)[String(value)] ||
+      String(value)
+    );
   if (field.options.businessKey === 'customerType')
     return (CUSTOMER_TYPE_META as Record<string, string>)[String(value)] || String(value);
   if (field.options.businessKey === 'contractType')

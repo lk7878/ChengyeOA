@@ -108,3 +108,10 @@ MOD-007 SOP、MOD-009 满意度/复购转介绍、MOD-003 内容获客、MOD-008
 ## U5-A 增量映射
 
 /customers、/negotiations、/contracts 接入业务连接目录和共同编辑器；带 base/table 时使用表目录。新增 /customers/new（customer.create）、/negotiations/new（negotiation.create）、/negotiations/:id（negotiation.read），均叠加原菜单权限；原合同新建/详情、客户详情保持。/customers 的案件往返 location.state 由独立创建表单承接。参见[U5–U7 契约](2026-09-15-u5-u7-business-unification.md)。
+
+
+## U5-B 增量映射
+
+`/cases` 已接入 CASES 连接目录与共同 WorkspaceEditor；`/cases/new` 使用 case.create + customer.read，`/cases/:id` 使用 case.read，均沿用原菜单门控。详情承接受理、办理、结案归档、任务、沟通及材料动作，各动作继续独立鉴权。原 caseNo 链接通过精确编号查询定位正式案件 ID，保留查询和片段；不存在或无权时显式反馈。
+
+案件目录提供“待补录案件”：仅显示当前 case.read 范围内缺少身份的历史行，case.update ALL 可逐条补齐空白创建人/组织，必须说明依据并记录版本和审计，不能覆写已有事实。新增案件选择获权工作区组织；从案件往返新建客户保留草稿。验收状态及限制以实施计划第 9 节为准。

@@ -10,6 +10,7 @@ import type { PagedResult } from './types';
 type QueryParams = Record<string, unknown>;
 
 export const caseApi = {
+  transition: (id: string, data: { status: string; version: number }) => request.post<ApiResponse<Case>>(`/v1/cases/${id}/status`, data),
   list: (params?: QueryParams) => request.get<ApiResponse<PagedResult<Case>>>('/v1/cases', { params }),
   detail: (id: string) => request.get<ApiResponse<Case>>(`/v1/cases/${id}`),
   create: (data: Partial<Case> & { attachments?: import('@/pages/Case/intake-contract').IntakeAttachment[] }) => request.post<ApiResponse<Case>>('/v1/cases', data),

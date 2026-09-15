@@ -1071,9 +1071,9 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                             content: '前往新建页面将放弃当前未保存的修改。',
                             okText: '放弃并前往',
                             cancelText: '取消',
-                            onOk: () => navigate(creation.path),
+                            onOk: () => navigate(creation.path + (base?.workspaceId ? '?workspace=' + encodeURIComponent(base.workspaceId) : '')),
                           });
-                        else navigate(creation.path);
+                        else navigate(creation.path + (base?.workspaceId ? '?workspace=' + encodeURIComponent(base.workspaceId) : ''));
                       } else if (detail.table.source === 'LEADS') setCreatingLead(true);
                       else void openRecord();
                     }}
@@ -1642,7 +1642,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               <Button onClick={() => navigate('/leads/' + editing.row!.id)}>打开线索业务详情</Button>
             )}
             {detail &&
-              ['CUSTOMERS', 'CONTRACTS', 'NEGOTIATIONS'].includes(detail.table.source) &&
+              ['CUSTOMERS', 'CONTRACTS', 'NEGOTIATIONS', 'CASES'].includes(detail.table.source) &&
               editing.row && (
                 <Button
                   onClick={() =>
@@ -1860,7 +1860,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     label: '现有 CRM · 跟进表（负责人配置）',
                     disabled: baseAccess?.level !== 4,
                   },
-                  ...(['CUSTOMERS', 'NEGOTIATIONS', 'CONTRACTS'] as const).map((source) => ({
+                  ...(['CUSTOMERS', 'NEGOTIATIONS', 'CONTRACTS', 'CASES'] as const).map((source) => ({
                     value: source,
                     label: '连接业务 · ' + businessSources[source].title,
                     disabled: (baseAccess?.level || 0) < 4,

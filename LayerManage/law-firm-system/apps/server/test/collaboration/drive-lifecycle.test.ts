@@ -3,7 +3,7 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { DriveNavigationService as DriveService } from '../../app/application/collaboration/drive-navigation-service';
-import { PrismaEventOutboxWriter } from '../../app/application/events/event-outbox-writer';
+import { withFailingCollaborationOutbox } from '../helpers/collaboration-outbox-failure';
 import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 
@@ -353,7 +353,7 @@ test('trash search, pagination and totals contain only manageable explicit tombs
   assert.equal((await owner.list(workspace, { scope: 'trash' })).total, 2);
 });
 
-test('outbox failure rolls back move/trash/restore, versions, audit, events and mutation receipt', async (t) => {
+test('outbox failure rolls back move/trash/restore, versions, audit, events and mutation receipt', async () => {
   const parent = await folder('原子目录'),
     target = await folder('原子目标');
   const app = await owner.createDriveBase(workspace, { name: '原子表格', parentId: parent }, key());
@@ -369,15 +369,13 @@ test('outbox failure rolls back move/trash/restore, versions, audit, events and 
     if (body.action === 'RESTORE') await apply(parent, { action: 'TRASH' });
     const preview = await owner.previewLifecycle(parent, body),
       before = await snapshot();
-    const append = t.mock.method(PrismaEventOutboxWriter.prototype, 'append', async () => {
-      throw new Error('synthetic lifecycle outbox failure');
+    await withFailingCollaborationOutbox(db, async () => {
+      await assert.rejects(
+        owner.applyLifecycle(parent, { ...body, previewToken: preview.previewToken }, key()),
+        /collab_test_outbox_failure/,
+      );
+      assert.deepEqual(await snapshot(), before);
     });
-    await assert.rejects(
-      owner.applyLifecycle(parent, { ...body, previewToken: preview.previewToken }, key()),
-      /synthetic lifecycle outbox failure/,
-    );
-    assert.deepEqual(await snapshot(), before);
-    append.mock.restore();
   }
   assert.equal(await db.collabTable.count({ where: { baseId: app.id } }), 1);
 });

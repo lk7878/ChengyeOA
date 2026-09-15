@@ -17,6 +17,7 @@ const app = mm.app();
 let prisma: PrismaClient;
 
 const FULL_CASE_PERMISSIONS = [
+  'customer.read', 'contract.read',
   'case.read', 'case.create', 'case.update', 'case.close', 'case.task.manage', 'case.communication.create',
 ];
 

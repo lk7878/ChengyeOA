@@ -29,6 +29,7 @@ export const CASE_COMMUNICATION_TYPES = ['PHONE', 'MEETING', 'WECHAT', 'EMAIL', 
 export type CaseCommunicationType = (typeof CASE_COMMUNICATION_TYPES)[number];
 
 export interface CreateCaseInput {
+  branchId?: string;
   intakeData?: CaseIntake;
   attachments?: IntakeAttachment[];
   title: string;
@@ -66,6 +67,7 @@ export interface CloseCaseInput {
 }
 
 export interface CaseListQuery {
+  caseNo?: string;
   page?: number;
   pageSize?: number;
   keyword?: string;
@@ -133,6 +135,8 @@ export function projectCaseFileDownload(row: CaseFile, base64: string): CaseFile
 }
 
 export interface CaseView {
+  createdBy: string | null;
+  branchId: string | null;
   customerName?: string;
   lawyerName?: string | null;
   files?: CaseFileView[];
@@ -193,6 +197,8 @@ export function projectCase(
   },
 ): CaseView {
   return {
+    createdBy: caseRow.createdBy,
+    branchId: caseRow.branchId,
     ...(caseRow.customer ? { customerName: caseRow.customer.name } : {}),
     ...(caseRow.lawyer !== undefined ? { lawyerName: caseRow.lawyer?.name ?? null } : {}),
     ...(caseRow.files ? { files: caseRow.files.map(projectCaseFile) } : {}),

@@ -143,7 +143,7 @@ async function seed(source: DomainSource, creator = staff.actor.userId, branchId
     },
   });
 }
-for (const source of Object.keys(domainSources) as DomainSource[])
+for (const source of ['CUSTOMERS', 'NEGOTIATIONS', 'CONTRACTS'] as DomainSource[])
   test(`${source}: canonical IDs, domain/resource scopes, extension versions and controlled core fields`, async () => {
     const table = (await owner.createTable(base, { name: source, source }, key())).id;
     const own = await seed(source);

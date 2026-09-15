@@ -502,6 +502,8 @@ test(
           node: process.version,
           cpu: os.cpus()[0].model,
           logicalCpus: os.cpus().length,
+          availableParallelism: os.availableParallelism(),
+          requestedProcessorAffinity: process.env.COLLAB_LOAD_PROCESSOR_AFFINITY ?? 'inherited',
           memoryGiB: Math.round(os.totalmem() / 1024 ** 3),
           database: await db.$queryRaw`SELECT version()`,
           network:

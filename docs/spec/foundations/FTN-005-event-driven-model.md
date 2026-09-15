@@ -240,3 +240,9 @@ U4 复用 CRM 领域事件和 collaboration.changed 通知，无记录值广播�
 客户/谈案/合同同源表的扩展编辑复用协作事件；原业务命令保留原事件与事务，不复制核心事实，不新增第二套结算或签约事件。本批原领域动作回表时回源刷新，未声称全部旧领域事件已接入协作 SSE 推送。详见[U5–U7 契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
 
 原业务动作的多人可见性复用既有 collaboration.events：选中非 CUSTOM 表时每 5 秒发 business.refresh 失效通知，接收端重新按自身授权读取；消息不携带业务字段。直接协作扩展事件保持原机制。该边界是有界回源刷新，不等同于为全部旧领域命令新增即时 outbox 事件。
+
+### U5-B 多人案件刷新（2026-09-15）
+
+CASES 沿用非 CUSTOM 表每 5 秒 business.refresh 失效通知，客户端按当前范围回源读取；任务、材料和状态动作更新父案件版本。详情路由在焦点恢复及每 5 秒复查，保留编辑草稿但清除撤权后的展示数据。不把该机制声明为全领域即时 outbox 广播。[详细契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
+
+协作事件写入使用 appendCollaborationChange，在调用方事务内以一个参数化 SQL CTE 写入 collab_event、event_log 和 operation_log；仍经原 registry 信封验证，不广播记录值、不绕过权限与版本。真实数据库约束故障覆盖任一写入失败时领域变更、事件、审计和幂等结果全量回滚；具体性能条件见全站计划 U5-B。

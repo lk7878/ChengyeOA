@@ -287,6 +287,8 @@ export default (app: Application) => {
   router.get('/api/v1/finance/anomalies/paid-no-case', requirePermission('anomaly.read'), controller.anomaly.paidNoCase);
 
   // 案件模块（SPEC-033：+requirePermission 门禁；移除 destroy——案件业务不可删，归档替代；路由 15→22）
+  router.get('/api/v1/cases/identity-gaps', requirePermission('case.read'), controller.case.identityGaps);
+  router.post('/api/v1/cases/:id/identity', requirePermission('case.update'), controller.case.repairIdentity);
   router.get('/api/v1/cases', requirePermission('case.read'), controller.case.index);
   router.get('/api/v1/cases/:id', requirePermission('case.read'), controller.case.show);
   router.post('/api/v1/cases', requirePermission('case.create'), controller.case.create);
@@ -295,6 +297,7 @@ export default (app: Application) => {
   router.post('/api/v1/cases/:id/tasks', requirePermission('case.task.manage'), controller.case.createTask);
   router.patch('/api/v1/cases/:id/tasks/:taskId', requirePermission('case.task.manage'), controller.case.updateTask);
   router.post('/api/v1/cases/:id/communications', requirePermission('case.communication.create'), controller.case.createCommunication);
+  router.post('/api/v1/cases/:id/status', requirePermission('case.read'), controller.case.transition);
   router.post('/api/v1/cases/:id/close', requirePermission('case.close'), controller.case.close);
   // SPEC-042：案件文件/证据——listFiles/uploadFile 挂 /cases/:id/files；download/remove 挂 /files/:id。
   router.get('/api/v1/cases/:id/files', requirePermission('case.file.read'), controller.case.listFiles);

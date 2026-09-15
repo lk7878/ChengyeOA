@@ -40,7 +40,7 @@ const icons = {
 export default function MainLayout({ children }: { children: ReactNode }) {
   const { pathname, search: locationSearch } = useLocation();
   const businessEditor =
-    ['/leads', '/leads/follows', '/customers', '/negotiations', '/contracts'].includes(pathname) && !!new URLSearchParams(locationSearch).get('base');
+    ['/leads', '/leads/follows', '/customers', '/negotiations', '/contracts', '/cases'].includes(pathname) && !!new URLSearchParams(locationSearch).get('base');
   const [expanded, setExpanded] = useState(false);
   const [contextHidden, setContextHidden] = useState(false);
   const [drawer, setDrawer] = useState(false);

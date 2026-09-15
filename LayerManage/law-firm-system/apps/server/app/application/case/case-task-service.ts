@@ -1,3 +1,4 @@
+import { requireCaseAccess } from './case-scope';
 // SPEC-033 Task 2: case-task-service —— 案件任务状态机（PENDING → IN_PROGRESS → COMPLETED）。
 // 同 case-service 形态（3 参构造 + requireAction + assertExactKeys + 审计）。
 
@@ -43,13 +44,17 @@ export class CaseTaskService {
     const dueDate = input.dueDate === undefined ? null : parseIsoDate(input.dueDate);
     const remark = normalizeOptionalText(input.remark, 500);
 
-    const existing = await this.prisma.case.findFirst({ where: { id } });
+    const existing = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.task.manage');
     if (!existing) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
     if (existing.status === 'CLOSED' || existing.status === 'ARCHIVED') {
       throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
     }
 
     return this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+      const currentCase = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.task.manage', tx);
+      if (['CLOSED', 'ARCHIVED'].includes(currentCase.status)) throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
+      await tx.case.update({ where: { id }, data: { version: { increment: 1 }, updatedBy: this.actor.actorUserId } });
       const task = await tx.caseTask.create({
         data: { caseId: id, name, nodeType, dueDate, remark },
       });
@@ -76,6 +81,7 @@ export class CaseTaskService {
     const nextStatus = normalizeAllowedValue(input.status, CASE_TASK_STATUSES);
     const remark = normalizeOptionalText(input.remark, 500);
 
+    await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.task.manage');
     const task = await this.prisma.caseTask.findFirst({ where: { id: tid, caseId: id } });
     if (!task) throw new CaseError(CASE_ERROR_CODES.CASE_TASK_NOT_FOUND, 404, 'case task not found');
     assertTaskTransition(task.status, nextStatus);
@@ -86,6 +92,13 @@ export class CaseTaskService {
       ...(nextStatus === 'COMPLETED' ? { completedAt: new Date() } : {}),
     };
     return this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+      const currentCase = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.task.manage', tx);
+      if (['CLOSED', 'ARCHIVED'].includes(currentCase.status)) throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
+      await tx.case.update({ where: { id }, data: { version: { increment: 1 }, updatedBy: this.actor.actorUserId } });
+      const currentTask = await tx.caseTask.findFirst({ where: { id: tid, caseId: id } });
+      if (!currentTask) throw new CaseError(CASE_ERROR_CODES.CASE_TASK_NOT_FOUND, 404, 'case task not found');
+      assertTaskTransition(currentTask.status, nextStatus);
       await tx.caseTask.updateMany({ where: { id: tid, caseId: id }, data });
       const row = await tx.caseTask.findUniqueOrThrow({ where: { id: tid } });
       await tx.operationLog.create({

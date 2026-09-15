@@ -1,9 +1,9 @@
+import { withFailingCollaborationOutbox } from '../helpers/collaboration-outbox-failure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { CollaborationService } from '../../app/application/collaboration/collaboration-service';
-import { PrismaEventOutboxWriter } from '../../app/application/events/event-outbox-writer';
 import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
 import { createTestPrisma, clearTestApplicationData } from '../helpers/test-database';
 
@@ -379,7 +379,7 @@ test('concurrent writes prevent silent lost updates, and transaction failure emi
   assert.equal(await db.collabRevision.count({ where: { recordId: r.id } }), 2);
   assert.ok((await db.eventLog.count({ where: { eventType: 'collaboration.changed' } })) > 0);
 });
-test('an outbox failure rolls back the row, revision, audit, event and idempotency result', async (t) => {
+test('an outbox failure rolls back the row, revision, audit, event and idempotency result', async () => {
   const snapshot = () =>
     Promise.all([
       db.collabRecord.count(),
@@ -390,14 +390,12 @@ test('an outbox failure rolls back the row, revision, audit, event and idempoten
       db.collabMutation.count(),
     ]);
   const before = await snapshot();
-  const append = t.mock.method(PrismaEventOutboxWriter.prototype, 'append', async () => {
-    throw new Error('synthetic outbox failure');
-  });
   const key = randomUUID();
   const body = { values: { [titleId]: 'atomic' }, schemaVersion: 1 };
-  await assert.rejects(editor.saveRecord(tableId, undefined, body, key), /synthetic outbox failure/);
-  assert.deepEqual(await snapshot(), before);
-  append.mock.restore();
+  await withFailingCollaborationOutbox(db, async () => {
+    await assert.rejects(editor.saveRecord(tableId, undefined, body, key), /collab_test_outbox_failure/);
+    assert.deepEqual(await snapshot(), before);
+  });
   const saved = await editor.saveRecord(tableId, undefined, body, key);
   assert.equal(saved.version, 1);
   assert.deepEqual(await editor.saveRecord(tableId, undefined, body, key), saved);
