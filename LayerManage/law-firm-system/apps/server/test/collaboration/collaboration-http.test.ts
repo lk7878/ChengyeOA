@@ -293,6 +293,8 @@ test(
       await p2.getByRole('button', { name: '自定义备注', exact: true }).waitFor();
       await p2.goto(address);
       await p2.getByRole('button', { name: '标题：另一成员已更新', exact: true }).waitFor();
+      await p2.getByRole('button', { name: '标题：另一成员已更新', exact: true }).dblclick();
+      await p2.getByRole('textbox', { name: '标题', exact: true }).fill('撤权时丢弃未提交草稿');
       await p1.getByRole('button', { name: '表权限', exact: true }).click();
       await p1.getByRole('checkbox', { name: '启用独立授权名单', exact: true }).check();
       await p1.getByRole('button', { name: '保存权限', exact: true }).click();
@@ -386,7 +388,7 @@ test(
       await p1.getByRole('textbox', { name: '原因', exact: true }).fill('交由录入专员跟进');
       await p1
         .locator('.ant-modal:visible')
-        .getByRole('button', { name: /^提\s*交$/ })
+        .getByRole('button', { name: '提交业务操作', exact: true })
         .click();
       await p1.locator('.ant-modal:visible').waitFor({ state: 'hidden' });
       const assignedDeadline = Date.now() + 10000;
@@ -400,16 +402,17 @@ test(
       await p2.getByRole('textbox', { name: '跟进内容', exact: true }).fill('无需离开工作区完成跟进');
       await p2
         .locator('.ant-modal:visible')
-        .getByRole('button', { name: /^提\s*交$/ })
+        .getByRole('button', { name: '提交业务操作', exact: true })
         .click();
       await p1.getByText('无需离开工作区完成跟进', { exact: true }).waitFor({ timeout: 10000 });
       await p1.getByRole('button', { name: '调整状态', exact: true }).click();
       await p1.getByRole('combobox', { name: '目标状态', exact: true }).click();
       await p1.getByText('已筛选', { exact: true }).click();
       await p1.getByRole('textbox', { name: '原因', exact: true }).fill('负责人完成复核');
+
       await p1
         .locator('.ant-modal:visible')
-        .getByRole('button', { name: /^提\s*交$/ })
+        .getByRole('button', { name: '提交业务操作', exact: true })
         .click();
       await p2.getByRole('button', { name: '业务状态：SCREENED', exact: true }).waitFor({ timeout: 10000 });
       await p2.reload();
@@ -485,6 +488,66 @@ test(
 
       await p1.goto(address);
       await p1.getByRole('button', { name: '添加记录', exact: true }).waitFor();
+
+      await p1.getByRole('button', { name: '员工自主创建', exact: true }).click();
+      await p1.getByRole('button', { name: '自定义备注', exact: true }).waitFor();
+      await p2.goto(p1.url());
+      await p1.getByRole('button', { name: '批量粘贴', exact: true }).click();
+      await p1
+        .getByRole('textbox', { name: '粘贴表格内容', exact: true })
+        .fill('粘贴第一行\t同组\n粘贴第二行\t同组');
+      await p1.getByRole('button', { name: '提交 2 行', exact: true }).click();
+      await p2.getByRole('button', { name: '标题：粘贴第二行', exact: true }).waitFor({ timeout: 10000 });
+      await p1.getByRole('button', { name: '视图配置', exact: true }).click();
+      await p1.getByRole('button', { name: '上移自定义备注', exact: true }).click();
+      await p1.getByRole('combobox', { name: '分组字段', exact: true }).click();
+      await p1.locator('.ant-select-dropdown:visible').getByText('自定义备注', { exact: true }).click();
+      await p1.keyboard.press('Escape');
+      await p1.locator('.ant-drawer:visible .ant-drawer-close').click();
+      await p1.getByRole('button', { name: '保存视图', exact: true }).click();
+      await p1.getByText('视图配置已保存', { exact: true }).waitFor();
+      await p1.reload();
+      await p1.locator('.workspace-group').waitFor();
+      assert.equal(await p1.locator('.workspace-field-heading').first().innerText(), '自定义备注');
+      assert.match(await p1.locator('.workspace-group').innerText(), /本页 2 条 \/ 共 2 条/);
+      await p1.locator('.workspace-group').click();
+      assert.equal(await p1.getByRole('button', { name: '标题：粘贴第一行', exact: true }).count(), 0);
+      await p1.locator('.workspace-group').click();
+      await p1.getByRole('button', { name: '标题：粘贴第一行', exact: true }).waitFor();
+      await p2.locator('.workspace-group').waitFor();
+      // Native paste anchors to the focused cell after reordering; the snapshot survives SSE updates.
+      const firstCell = p1.getByRole('button', { name: '标题：粘贴第一行', exact: true });
+      await firstCell.focus();
+      await firstCell.evaluate((element) => {
+        const data = new DataTransfer();
+        data.setData('text/plain', '保留粘贴草稿');
+        element.dispatchEvent(
+          new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
+        );
+      });
+      await p1.getByRole('textbox', { name: '粘贴表格内容', exact: true }).waitFor();
+      await p2.getByRole('button', { name: '标题：粘贴第一行', exact: true }).dblclick();
+      await p2.getByRole('textbox', { name: '标题', exact: true }).fill('对端先提交');
+      await p2
+        .locator('.workspace-cell-editor')
+        .getByRole('button', { name: /^保\s*存$/ })
+        .click();
+      await p1.getByRole('button', { name: '标题：对端先提交', exact: true }).waitFor({ timeout: 10000 });
+      await p1.getByRole('button', { name: '提交 1 行', exact: true }).click();
+      await p1.getByText(/第 1 行：这条记录已被其他成员修改/).waitFor();
+      assert.equal(
+        await p1.getByRole('textbox', { name: '粘贴表格内容', exact: true }).inputValue(),
+        '保留粘贴草稿',
+      );
+      await p1
+        .locator('.ant-modal:visible')
+        .getByRole('button', { name: /^关\s*闭$/ })
+        .last()
+        .click();
+      await p1.screenshot({
+        path: path.resolve(process.cwd(), '../../var/collaboration-evidence/grid-operations.png'),
+        fullPage: true,
+      });
       const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence');
       await mkdir(evidence, { recursive: true });
       for (const width of [1440, 1024, 390]) {

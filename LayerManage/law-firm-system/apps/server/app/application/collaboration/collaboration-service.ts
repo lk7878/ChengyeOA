@@ -17,6 +17,7 @@ import {
   fail,
   FIELD_TYPES,
   fieldExpression,
+  CollaborationError,
   fieldOf,
   filterSql,
   integer,
@@ -230,7 +231,13 @@ export class CollaborationService {
   private async lock(tx: Tx, workspaceId: string) {
     await tx.$queryRaw(Prisma.sql`SELECT id FROM collab_workspace WHERE id = ${workspaceId} FOR UPDATE`);
   }
-  private async write<T>(key: unknown, payload: unknown, callback: (tx: Tx) => Promise<T>): Promise<T> {
+  private async write<T>(
+    key: unknown,
+    payload: unknown,
+    callback: (tx: Tx) => Promise<T>,
+    transaction?: Tx,
+  ): Promise<T> {
+    if (transaction) return callback(transaction);
     const mutationKey = text(key, 120);
     const fingerprint = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
     try {
@@ -1175,9 +1182,14 @@ export class CollaborationService {
       }
     }
     for (const field of fields.filter((f) => !isSystemField(f))) {
-      if (creating && result[field.id] === undefined && field.defaultValue !== null)
-        result[field.id] = validateValue(field, field.defaultValue);
-      if (field.required) validateValue(field, result[field.id]);
+      try {
+        if (creating && result[field.id] === undefined && field.defaultValue !== null)
+          result[field.id] = validateValue(field, field.defaultValue);
+        if (field.required) validateValue(field, result[field.id]);
+      } catch (error) {
+        if (error instanceof CollaborationError) fail(error.code, error.status, { fieldId: field.id });
+        throw error;
+      }
       const value = result[field.id];
       if (value === null || value === undefined) continue;
       if (field.type === 'USER') {
@@ -1257,146 +1269,253 @@ export class CollaborationService {
     recordId: string | undefined,
     input: ObjectValue,
     key: unknown,
+    transaction?: Tx,
   ) {
     if (!recordId || input.archived !== undefined || !Object.keys(object(input.values ?? {})).length)
       fail('COLLAB_USE_BUSINESS_ACTION', 409);
-    const initial = await this.tableAccess(tableId, this.db, 2);
-    await this.extensionTarget(initial.table, initial.access, recordId, this.db);
-    return this.write(key, ['extension.save', tableId, recordId, input], async (tx) => {
-      await this.lock(tx, initial.access.workspaceId);
-      const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
-      if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
-      await tx.$queryRaw(
-        table.source === 'LEADS'
-          ? Prisma.sql`SELECT id FROM lead WHERE id = ${recordId} FOR UPDATE`
-          : Prisma.sql`SELECT id FROM lead_follow WHERE id = ${recordId} FOR UPDATE`,
-      );
-      const core = await this.extensionTarget(table, access, recordId, tx);
-      const previous = await tx.collabExtension.findUnique({
-        where: { tableId_recordId: { tableId, recordId } },
-      });
-      const version = core.version + (previous?.version ?? 0);
-      if (version !== integer(input.version)) fail('COLLAB_RECORD_CONFLICT', 409);
-      if (
-        Object.keys(object(input.values)).some((id) =>
-          fields.some((f) => f.id === id && object(f.options).businessKey),
-        )
-      )
-        fail('COLLAB_USE_BUSINESS_ACTION', 409);
-      const extensions = fields.filter((f) => !object(f.options).businessKey);
-      const next = await this.values(
-        tx,
-        tableId,
-        extensions,
-        access,
-        input.values,
-        previous ? object(previous.values) : {},
-        !previous,
-      );
-      if (
-        table.fields.some(
-          (f) =>
-            !f.archived &&
-            !object(f.options).businessKey &&
-            f.required &&
-            !extensions.some((v) => v.id === f.id) &&
-            (next[f.id] === undefined || next[f.id] === null || next[f.id] === ''),
-        )
-      )
-        fail('COLLAB_REQUIRED_FIELD_FORBIDDEN', 403);
-      const row = await tx.collabExtension.upsert({
-        where: { tableId_recordId: { tableId, recordId } },
-        create: { tableId, recordId, values: json(next), updatedBy: this.actor.userId },
-        update: { values: json(next), updatedBy: this.actor.userId, version: { increment: 1 } },
-      });
-      const changes = Object.fromEntries(
-        Object.keys(next)
-          .filter(
-            (id) =>
-              JSON.stringify(previous ? object(previous.values)[id] : null) !== JSON.stringify(next[id]),
+    const initial = await this.tableAccess(tableId, transaction ?? this.db, 2);
+    await this.extensionTarget(initial.table, initial.access, recordId, transaction ?? this.db);
+    return this.write(
+      key,
+      ['extension.save', tableId, recordId, input],
+      async (tx) => {
+        await this.lock(tx, initial.access.workspaceId);
+        const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
+        if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
+        await tx.$queryRaw(
+          table.source === 'LEADS'
+            ? Prisma.sql`SELECT id FROM lead WHERE id = ${recordId} FOR UPDATE`
+            : Prisma.sql`SELECT id FROM lead_follow WHERE id = ${recordId} FOR UPDATE`,
+        );
+        const core = await this.extensionTarget(table, access, recordId, tx);
+        const previous = await tx.collabExtension.findUnique({
+          where: { tableId_recordId: { tableId, recordId } },
+        });
+        const version = core.version + (previous?.version ?? 0);
+        if (version !== integer(input.version)) fail('COLLAB_RECORD_CONFLICT', 409);
+        if (
+          Object.keys(object(input.values)).some((id) =>
+            fields.some((f) => f.id === id && object(f.options).businessKey),
           )
-          .map((id) => [
+        )
+          fail('COLLAB_USE_BUSINESS_ACTION', 409);
+        const extensions = fields.filter((f) => !object(f.options).businessKey);
+        const next = await this.values(
+          tx,
+          tableId,
+          extensions,
+          access,
+          input.values,
+          previous ? object(previous.values) : {},
+          !previous,
+        );
+        if (
+          table.fields.some(
+            (f) =>
+              !f.archived &&
+              !object(f.options).businessKey &&
+              f.required &&
+              !extensions.some((v) => v.id === f.id) &&
+              (next[f.id] === undefined || next[f.id] === null || next[f.id] === ''),
+          )
+        )
+          fail('COLLAB_REQUIRED_FIELD_FORBIDDEN', 403);
+        const row = await tx.collabExtension.upsert({
+          where: { tableId_recordId: { tableId, recordId } },
+          create: { tableId, recordId, values: json(next), updatedBy: this.actor.userId },
+          update: { values: json(next), updatedBy: this.actor.userId, version: { increment: 1 } },
+        });
+        const changes = Object.fromEntries(
+          Object.keys(next)
+            .filter(
+              (id) =>
+                JSON.stringify(previous ? object(previous.values)[id] : null) !== JSON.stringify(next[id]),
+            )
+            .map((id) => [
+              id,
+              { before: previous ? (object(previous.values)[id] ?? null) : null, after: next[id] },
+            ]),
+        );
+        await tx.collabExtensionRevision.create({
+          data: {
+            tableId,
+            recordId,
+            version: row.version,
+            actorId: this.actor.userId,
+            changes: json(changes),
+          },
+        });
+        await this.event(tx, table.baseId, 'record.updated', recordId);
+        return { id: recordId, version: core.version + row.version };
+      },
+      transaction,
+    );
+  }
+  async saveRecord(tableId: string, recordId: string | undefined, raw: unknown, key: unknown) {
+    return this.saveRecordInTransaction(tableId, recordId, raw, key);
+  }
+  private async saveRecordInTransaction(
+    tableId: string,
+    recordId: string | undefined,
+    raw: unknown,
+    key: unknown,
+    transaction?: Tx,
+  ) {
+    const input = exact(raw, ['values', 'version', 'schemaVersion', 'archived']);
+    const initial = await this.tableAccess(tableId, transaction ?? this.db, 2);
+    if (initial.table.source !== 'CUSTOM')
+      return this.saveExtension(tableId, recordId, input, key, transaction);
+    return this.write(
+      key,
+      ['record.save', tableId, recordId, input],
+      async (tx) => {
+        await this.lock(tx, initial.access.workspaceId);
+        const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
+        if (table.source !== 'CUSTOM') fail('COLLAB_USE_BUSINESS_ACTION', 409);
+        if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
+        const previous = recordId
+          ? await tx.collabRecord.findFirst({ where: { ...this.rowWhere(tableId, access), id: recordId } })
+          : null;
+        if (recordId && !previous) fail('COLLAB_NOT_FOUND', 404);
+        if (previous && previous.version !== integer(input.version))
+          fail('COLLAB_RECORD_CONFLICT', 409, { recordId, version: previous.version });
+        const next = await this.values(
+          tx,
+          tableId,
+          fields,
+          access,
+          input.values ?? {},
+          previous ? object(previous.values) : {},
+          !previous,
+        );
+        if (
+          !previous &&
+          table.fields.some(
+            (f) => !f.archived && f.required && !fields.some((visible) => visible.id === f.id),
+          )
+        )
+          fail('COLLAB_REQUIRED_FIELD_FORBIDDEN', 403);
+        const data = {
+          values: json(next),
+          updatedBy: this.actor.userId,
+          archived: input.archived === undefined ? false : boolean(input.archived),
+        };
+        const record = previous
+          ? await tx.collabRecord.update({
+              where: { id: recordId },
+              data: { ...data, version: { increment: 1 } },
+            })
+          : await tx.collabRecord.create({
+              data: { ...data, tableId, createdBy: this.actor.userId, ownerId: this.actor.userId },
+            });
+        const changes = Object.fromEntries(
+          Object.keys(object(input.values ?? {})).map((id) => [
             id,
             { before: previous ? (object(previous.values)[id] ?? null) : null, after: next[id] },
           ]),
-      );
-      await tx.collabExtensionRevision.create({
-        data: { tableId, recordId, version: row.version, actorId: this.actor.userId, changes: json(changes) },
-      });
-      await this.event(tx, table.baseId, 'record.updated', recordId);
-      return { id: recordId, version: core.version + row.version };
-    });
+        );
+        await tx.collabRevision.create({
+          data: {
+            recordId: record.id,
+            version: record.version,
+            actorId: this.actor.userId,
+            changes: json(changes),
+          },
+        });
+        for (const field of fields.filter((f) => f.type === 'RELATION')) {
+          await tx.collabRelation.deleteMany({ where: { fieldId: field.id, sourceRecordId: record.id } });
+          const targets = next[field.id];
+          if (Array.isArray(targets) && targets.length)
+            await tx.collabRelation.createMany({
+              data: targets.map((target) => ({
+                fieldId: field.id,
+                sourceRecordId: record.id,
+                targetRecordId: String(target),
+              })),
+            });
+        }
+        await this.event(tx, table.baseId, previous ? 'record.updated' : 'record.created', record.id);
+        return { id: record.id, version: record.version };
+      },
+      transaction,
+    );
   }
-  async saveRecord(tableId: string, recordId: string | undefined, raw: unknown, key: unknown) {
-    const input = exact(raw, ['values', 'version', 'schemaVersion', 'archived']);
-    const initial = await this.tableAccess(tableId, this.db, 2);
-    if (initial.table.source !== 'CUSTOM') return this.saveExtension(tableId, recordId, input, key);
-    return this.write(key, ['record.save', tableId, recordId, input], async (tx) => {
-      await this.lock(tx, initial.access.workspaceId);
-      const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
-      if (table.source !== 'CUSTOM') fail('COLLAB_USE_BUSINESS_ACTION', 409);
-      if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
-      const previous = recordId
-        ? await tx.collabRecord.findFirst({ where: { ...this.rowWhere(tableId, access), id: recordId } })
-        : null;
-      if (recordId && !previous) fail('COLLAB_NOT_FOUND', 404);
-      if (previous && previous.version !== integer(input.version))
-        fail('COLLAB_RECORD_CONFLICT', 409, { recordId, version: previous.version });
-      const next = await this.values(
-        tx,
-        tableId,
-        fields,
-        access,
-        input.values ?? {},
-        previous ? object(previous.values) : {},
-        !previous,
-      );
-      if (
-        !previous &&
-        table.fields.some((f) => !f.archived && f.required && !fields.some((visible) => visible.id === f.id))
-      )
-        fail('COLLAB_REQUIRED_FIELD_FORBIDDEN', 403);
-      const data = {
-        values: json(next),
-        updatedBy: this.actor.userId,
-        archived: input.archived === undefined ? false : boolean(input.archived),
-      };
-      const record = previous
-        ? await tx.collabRecord.update({
-            where: { id: recordId },
-            data: { ...data, version: { increment: 1 } },
-          })
-        : await tx.collabRecord.create({
-            data: { ...data, tableId, createdBy: this.actor.userId, ownerId: this.actor.userId },
-          });
-      const changes = Object.fromEntries(
-        Object.keys(object(input.values ?? {})).map((id) => [
-          id,
-          { before: previous ? (object(previous.values)[id] ?? null) : null, after: next[id] },
-        ]),
-      );
-      await tx.collabRevision.create({
-        data: {
-          recordId: record.id,
-          version: record.version,
-          actorId: this.actor.userId,
-          changes: json(changes),
-        },
+  private batchFailure(error: unknown, index: number): never {
+    if (error instanceof CollaborationError) {
+      const details = error.errors as { fieldId?: string } | undefined;
+      fail(error.code, error.status, {
+        row: index + 1,
+        ...(details?.fieldId ? { fieldId: details.fieldId } : {}),
       });
-      for (const field of fields.filter((f) => f.type === 'RELATION')) {
-        await tx.collabRelation.deleteMany({ where: { fieldId: field.id, sourceRecordId: record.id } });
-        const targets = next[field.id];
-        if (Array.isArray(targets) && targets.length)
-          await tx.collabRelation.createMany({
-            data: targets.map((target) => ({
-              fieldId: field.id,
-              sourceRecordId: record.id,
-              targetRecordId: String(target),
-            })),
-          });
+    }
+    throw error;
+  }
+  async saveRecords(tableId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['schemaVersion', 'records']);
+    const schemaVersion = integer(input.schemaVersion);
+    if (!Array.isArray(input.records) || !input.records.length || input.records.length > 100)
+      fail('COLLAB_BATCH_LIMIT');
+    const records = input.records.map((rawRow) => {
+      const row = exact(rawRow, ['id', 'version', 'values']);
+      const values = object(row.values);
+      if (!Object.keys(values).length) fail('COLLAB_BATCH_EMPTY');
+      return {
+        id: row.id === undefined ? undefined : text(row.id),
+        version: row.id === undefined ? undefined : integer(row.version),
+        values,
+      };
+    });
+    const ids = records.flatMap((r) => (r.id ? [r.id] : []));
+    if (new Set(ids).size !== ids.length) fail('COLLAB_BATCH_DUPLICATE');
+    if (records.reduce((n, r) => n + Object.keys(r.values).length, 0) > 1000) fail('COLLAB_BATCH_LIMIT');
+    // Recheck current access before returning a cached result; stale versions remain replayable.
+    const initial = await this.tableAccess(tableId, this.db, 2);
+    for (const [index, row] of records.entries()) {
+      try {
+        if (initial.table.source !== 'CUSTOM') {
+          if (!row.id) fail('COLLAB_USE_BUSINESS_ACTION', 409);
+          await this.extensionTarget(initial.table, initial.access, row.id, this.db);
+        } else if (
+          row.id &&
+          !(await this.db.collabRecord.findFirst({
+            where: { ...this.rowWhere(tableId, initial.access), id: row.id },
+            select: { id: true },
+          }))
+        ) {
+          fail('COLLAB_NOT_FOUND', 404);
+        }
+        for (const id of Object.keys(row.values)) {
+          if (!initial.fields.some((f) => f.id === id))
+            fail('COLLAB_FIELD_UNAVAILABLE', 403, { fieldId: id });
+          const field = fieldOf(initial.fields, id);
+          if (initial.table.source !== 'CUSTOM' && object(field.options).businessKey)
+            fail('COLLAB_USE_BUSINESS_ACTION', 409, { fieldId: id });
+          if (initial.access.readonly.includes(id) || isSystemField(field))
+            fail('COLLAB_READONLY_FIELD', 403, { fieldId: id });
+        }
+      } catch (error) {
+        this.batchFailure(error, index);
       }
-      await this.event(tx, table.baseId, previous ? 'record.updated' : 'record.created', record.id);
-      return { id: record.id, version: record.version };
+    }
+    return this.write(key, ['records.batch', tableId, input], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId);
+      const result: Array<{ id: string; version: number }> = [];
+      for (const [index, row] of records.entries()) {
+        try {
+          result.push(
+            await this.saveRecordInTransaction(
+              tableId,
+              row.id,
+              { values: row.values, version: row.version, schemaVersion },
+              key,
+              tx,
+            ),
+          );
+        } catch (error) {
+          this.batchFailure(error, index);
+        }
+      }
+      return { records: result };
     });
   }
   async options(workspaceId?: string) {

@@ -190,7 +190,7 @@ export function BusinessRecord({
         cancelText="取消"
         onCancel={() => setCommand(undefined)}
         confirmLoading={busy}
-        okButtonProps={{ disabled: !data || conflict }}
+        okButtonProps={{ disabled: !data || conflict, 'aria-label': '提交业务操作' }}
         onOk={async () => {
           if (!command) return;
           try {

@@ -88,6 +88,7 @@ export interface QueryResult {
   total: number;
   page: number;
   pageSize: number;
+  groupsTruncated?: boolean;
   groups: { keys: unknown[]; count: number }[];
   schemaVersion: number;
 }

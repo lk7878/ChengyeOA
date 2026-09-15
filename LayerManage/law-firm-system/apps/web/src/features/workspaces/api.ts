@@ -20,6 +20,10 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  COLLAB_BATCH_LIMIT: '每批最多 100 行、1000 个单元格，请缩小粘贴范围。',
+  COLLAB_BATCH_EMPTY: '粘贴记录不能为空。',
+  COLLAB_BATCH_DUPLICATE: '同一批次不能重复修改同一记录。',
+  COLLAB_FIELD_UNAVAILABLE: '字段已不可用或没有访问权限，请重新加载。',
   LEAD_STATE_TRANSITION_INVALID: '当前状态不能转为目标状态，请核对最新记录。',
   LEAD_NOT_FOUND: '线索不存在或不在你的业务权限范围内。',
   LEAD_ASSIGN_TARGET_NOT_FOUND: '该负责人已不可用，请重新选择。',

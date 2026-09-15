@@ -14,6 +14,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Pagination,
   Select,
   Space,
   Spin,
@@ -52,6 +53,9 @@ import type {
 import { fieldNames } from '@/features/workspaces/types';
 import FieldInput from '@/features/workspaces/FieldInput';
 import { displayValue } from '@/features/workspaces/display-value';
+import PasteDialog from '@/features/workspaces/PasteDialog';
+import type { PasteSnapshot } from '@/features/workspaces/clipboard';
+import { groupedRows, type GridRow } from '@/features/workspaces/grouping';
 import GridCell from '@/features/workspaces/GridCell';
 import { changedValues, rebaseDraft } from '@/features/workspaces/editing';
 import FilterEditor from '@/features/workspaces/FilterEditor';
@@ -94,6 +98,9 @@ export default function WorkspacesPage() {
   const [configDirty, setConfigDirty] = useState(false);
   const [revision, setRevision] = useState(0);
   const [page, setPage] = useState(1);
+  const [folds, setFolds] = useState<{ scope: string; keys: Set<string> }>({ scope: '', keys: new Set() });
+  const [anchor, setAnchor] = useState<{ rowId: string; fieldId: string }>();
+  const [paste, setPaste] = useState<{ snapshot: PasteSnapshot; text: string }>();
   const [queryError, setQueryError] = useState('');
   const [loading, setLoading] = useState(false);
   const [connection, setConnection] = useState('连接中');
@@ -116,9 +123,19 @@ export default function WorkspacesPage() {
   const currentView = useRef('');
   const mutationKey = useRef(crypto.randomUUID());
   const dirtyRef = useRef(false);
+  const inlineDirtyRef = useRef(false);
   useEffect(() => {
     dirtyRef.current = configDirty;
-  }, [configDirty]);
+    inlineDirtyRef.current = inlineDirty;
+  }, [configDirty, inlineDirty]);
+  useEffect(() => {
+    // Route identity changes invalidate the paste target, including browser back/forward navigation.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPaste(undefined);
+    setAnchor(undefined);
+    setInlineDirty(false);
+    inlineDirtyRef.current = false;
+  }, [tableId, baseId]);
   const refresh = useCallback(() => setRevision((n) => n + 1), []);
   const loadWorkspaces = useCallback(
     () =>
@@ -158,9 +175,12 @@ export default function WorkspacesPage() {
       .catch((e) => {
         if (alive) {
           setQueryError(errorMessage(e));
+          if (inlineDirtyRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
           setTables([]);
           setDetail(undefined);
           setResult(undefined);
+          setInlineDirty(false);
+          inlineDirtyRef.current = false;
         }
       });
     return () => {
@@ -178,12 +198,12 @@ export default function WorkspacesPage() {
           setDetail(undefined);
           return;
         }
-        setDetail(r);
+        if (!inlineDirtyRef.current) setDetail(r);
         const v =
           r.views.find((v) => v.id === selectedViewId) ||
           r.views.find((v) => v.id === r.preferredViewId) ||
           r.views.find((v) => v.isDefault);
-        if (v && (currentView.current !== v.id || !dirtyRef.current)) {
+        if (v && (currentView.current !== v.id || (!dirtyRef.current && !inlineDirtyRef.current))) {
           if (currentView.current !== v.id) setPage(1);
           currentView.current = v.id;
           setConfig(v.config);
@@ -194,9 +214,13 @@ export default function WorkspacesPage() {
       .catch((e) => {
         if (alive) {
           setQueryError(errorMessage(e));
+          if (inlineDirtyRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
           setDetail(undefined);
           setResult(undefined);
+          setInlineDirty(false);
+          inlineDirtyRef.current = false;
           setEditing(undefined);
+          setPaste(undefined);
         }
       });
     return () => {
@@ -217,11 +241,15 @@ export default function WorkspacesPage() {
       pageSize: 50,
     })
       .then((r) => {
-        if (alive) setResult(r);
+        if (alive && !inlineDirtyRef.current) setResult(r);
       })
       .catch((e) => {
         if (alive) {
+          setQueryError(errorMessage(e));
+          if (inlineDirtyRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
           setResult(undefined);
+          setInlineDirty(false);
+          inlineDirtyRef.current = false;
           setQueryError(errorMessage(e));
         }
       })
@@ -253,7 +281,10 @@ export default function WorkspacesPage() {
               if ((payload as { kind?: string }).kind === 'access.updated') {
                 setDetail(undefined);
                 setResult(undefined);
+                setInlineDirty(false);
+                inlineDirtyRef.current = false;
                 setEditing(undefined);
+                setPaste(undefined);
                 setSettings(null);
                 setDialog(undefined);
               }
@@ -263,8 +294,11 @@ export default function WorkspacesPage() {
             if (kind === 'revoked') {
               setDetail(undefined);
               setResult(undefined);
+              setInlineDirty(false);
+              inlineDirtyRef.current = false;
               setTables([]);
               setEditing(undefined);
+              setPaste(undefined);
               setDirectory(emptyDirectory);
               setOnline([]);
               setQueryError('访问权限或会话已失效，请重新打开工作区。');
@@ -291,6 +325,8 @@ export default function WorkspacesPage() {
     };
   }, [baseId, tableId, refresh]);
   const go = (next: Record<string, string>) => {
+    setAnchor(undefined);
+    setPaste(undefined);
     if (configDirty || editing || inlineDirty) {
       Modal.confirm({
         cancelText: '取消',
@@ -300,6 +336,7 @@ export default function WorkspacesPage() {
         onOk: () => {
           setConfigDirty(false);
           setEditing(undefined);
+          setPaste(undefined);
           setInlineDirty(false);
           if (next.base !== baseId) {
             setBase(undefined);
@@ -308,6 +345,8 @@ export default function WorkspacesPage() {
           }
           setDetail(undefined);
           setResult(undefined);
+          setInlineDirty(false);
+          inlineDirtyRef.current = false;
           setQueryError('');
           setParams(next);
           setMobileNav(false);
@@ -321,6 +360,8 @@ export default function WorkspacesPage() {
       }
       setDetail(undefined);
       setResult(undefined);
+      setInlineDirty(false);
+      inlineDirtyRef.current = false;
       setQueryError('');
       setParams(next);
       setMobileNav(false);
@@ -504,6 +545,7 @@ export default function WorkspacesPage() {
   };
   const closeRecord = () => {
     setEditing(undefined);
+    setPaste(undefined);
     const next = new URLSearchParams(params);
     next.delete('record');
     setParams(next, { replace: true });
@@ -531,6 +573,7 @@ export default function WorkspacesPage() {
       .catch((e) => {
         if (active) {
           setEditing(undefined);
+          setPaste(undefined);
           setQueryError(errorMessage(e));
         }
       });
@@ -650,6 +693,32 @@ export default function WorkspacesPage() {
     </div>
   );
   const records = result?.records || [];
+  const groupingFields = (config.groupBy || []).flatMap((id) => fields.find((f) => f.id === id) || []);
+  const foldScope = JSON.stringify([tableId, view?.id, config.groupBy]);
+  const collapsed = folds.scope === foldScope ? folds.keys : new Set<string>();
+  const gridRows = groupedRows(records, groupingFields, result?.groups || [], collapsed);
+  const pasteRows = gridRows.filter((r) => !r.group);
+  const startPaste = (text = '', target = anchor) => {
+    if (!detail || inlineDirty || editing || loading) return;
+    const start = target ? pasteRows.findIndex((r) => r.id === target.rowId) : 0;
+    const column = target ? visibleFields.findIndex((f) => f.id === target.fieldId) : 0;
+    if (start < 0 || column < 0) {
+      message.info('请重新选择起始单元格。');
+      return;
+    }
+    setPaste({
+      text,
+      snapshot: {
+        tableId,
+        schemaVersion: detail.table.schemaVersion,
+        rows: pasteRows.slice(start),
+        fields: visibleFields.slice(column),
+        directory,
+        allowAppend:
+          detail.table.source === 'CUSTOM' && page * 50 >= (result?.total || 0) && collapsed.size === 0,
+      },
+    });
+  };
   return (
     <div className="collab-workspace">
       <header className="workspace-top">
@@ -827,6 +896,14 @@ export default function WorkspacesPage() {
                   >
                     添加记录
                   </Button>
+                  <Button
+                    disabled={
+                      detail.access.level < 2 || inlineDirty || !!editing || loading || !visibleFields.length
+                    }
+                    onClick={() => startPaste()}
+                  >
+                    批量粘贴
+                  </Button>
                   <Button onClick={() => setSettings('fields')}>字段配置</Button>
                   <Button onClick={() => setSettings('view')}>视图配置</Button>
                   <Button icon={<FilterOutlined />} onClick={() => setSettings('filter')}>
@@ -888,9 +965,25 @@ export default function WorkspacesPage() {
             ) : (
               detail && (
                 <Spin spinning={loading}>
-                  <div className="workspace-grid">
+                  <div
+                    className="workspace-grid"
+                    onFocusCapture={(e) => {
+                      const cell = (e.target as HTMLElement).closest<HTMLElement>('.workspace-cell');
+                      if (cell?.dataset.recordId && cell.dataset.fieldId)
+                        setAnchor({ rowId: cell.dataset.recordId, fieldId: cell.dataset.fieldId });
+                    }}
+                    onPaste={(e) => {
+                      const cell = (e.target as HTMLElement).closest<HTMLElement>('.workspace-cell');
+                      if (!cell?.dataset.recordId || !cell.dataset.fieldId) return;
+                      e.preventDefault();
+                      startPaste(e.clipboardData.getData('text/plain'), {
+                        rowId: cell.dataset.recordId,
+                        fieldId: cell.dataset.fieldId,
+                      });
+                    }}
+                  >
                     {
-                      <Table<RecordRow>
+                      <Table<GridRow>
                         size="small"
                         virtual
                         scroll={{
@@ -901,14 +994,8 @@ export default function WorkspacesPage() {
                           y: 520,
                         }}
                         rowKey="id"
-                        dataSource={records}
-                        pagination={{
-                          current: page,
-                          pageSize: 50,
-                          total: result?.total || 0,
-                          onChange: setPage,
-                          showSizeChanger: false,
-                        }}
+                        dataSource={gridRows}
+                        pagination={false}
                         locale={{ emptyText: '没有符合条件的记录，可新增记录或调整筛选。' }}
                         columns={[
                           {
@@ -916,17 +1003,47 @@ export default function WorkspacesPage() {
                             key: 'row',
                             width: 64,
                             fixed: 'left',
-                            render: (_, row, index) => (
-                              <Button
-                                type="text"
-                                aria-label={'展开第' + (index + 1) + '条记录'}
-                                onClick={() => {
-                                  void openRecord(row);
-                                }}
-                              >
-                                {(page - 1) * 50 + index + 1}
-                              </Button>
-                            ),
+                            onCell: (row) => (row.group ? { colSpan: visibleFields.length + 2 } : {}),
+                            render: (_, row) =>
+                              row.group ? (
+                                <button
+                                  className="workspace-group"
+                                  disabled={inlineDirty}
+                                  aria-expanded={!collapsed.has(row.group.key)}
+                                  onClick={() => {
+                                    const keys = new Set(collapsed);
+                                    if (keys.has(row.group!.key)) keys.delete(row.group!.key);
+                                    else keys.add(row.group!.key);
+                                    setFolds({ scope: foldScope, keys });
+                                  }}
+                                >
+                                  {collapsed.has(row.group.key) ? '▸' : '▾'}{' '}
+                                  {groupingFields
+                                    .map(
+                                      (f, i) =>
+                                        f.name +
+                                        '：' +
+                                        (displayValue(f, row.group!.keys[i], directory) || '空'),
+                                    )
+                                    .join(' / ')}
+                                  {' · 本页 ' +
+                                    row.group.loaded +
+                                    ' 条' +
+                                    (row.group.count === undefined ? '' : ' / 共 ' + row.group.count + ' 条')}
+                                </button>
+                              ) : (
+                                <Button
+                                  type="text"
+                                  aria-label={
+                                    '展开第' + (records.findIndex((r) => r.id === row.id) + 1) + '条记录'
+                                  }
+                                  onClick={() => {
+                                    void openRecord(row);
+                                  }}
+                                >
+                                  {(page - 1) * 50 + records.findIndex((r) => r.id === row.id) + 1}
+                                </Button>
+                              ),
                           },
                           ...visibleFields.map((f, index) => ({
                             title: (
@@ -945,34 +1062,42 @@ export default function WorkspacesPage() {
                             key: f.id,
                             width: config.widths?.[f.id] || 180,
                             fixed: index < (config.frozen || 0) ? ('left' as const) : undefined,
-                            render: (_: unknown, row: RecordRow) => (
-                              <GridCell
-                                row={row}
-                                field={f}
-                                directory={directory}
-                                tableId={tableId}
-                                schemaVersion={detail.table.schemaVersion}
-                                height={config.rowHeight || 40}
-                                onDirty={setInlineDirty}
-                                onSaved={() => {
-                                  setSaveState('已保存');
-                                  refresh();
-                                }}
-                                onConflict={(draft, remote) =>
-                                  setEditing({
-                                    schemaVersion: detail.table.schemaVersion,
-                                    row,
-                                    field: f,
-                                    values: { ...row.values, [f.id]: draft },
-                                    remote,
-                                    key: crypto.randomUUID(),
-                                  })
-                                }
-                              />
-                            ),
+                            onCell: (row: GridRow) => (row.group ? { colSpan: 0 } : {}),
+                            render: (_: unknown, row: GridRow) =>
+                              row.group ? null : (
+                                <GridCell
+                                  row={row}
+                                  canBegin={!inlineDirty}
+                                  field={f}
+                                  directory={directory}
+                                  tableId={tableId}
+                                  schemaVersion={detail.table.schemaVersion}
+                                  height={config.rowHeight || 40}
+                                  onDirty={(dirty) => {
+                                    inlineDirtyRef.current = dirty;
+                                    setInlineDirty(dirty);
+                                    if (!dirty) refresh();
+                                  }}
+                                  onSaved={() => {
+                                    setSaveState('已保存');
+                                    refresh();
+                                  }}
+                                  onConflict={(draft, remote) =>
+                                    setEditing({
+                                      schemaVersion: detail.table.schemaVersion,
+                                      row,
+                                      field: f,
+                                      values: { ...row.values, [f.id]: draft },
+                                      remote,
+                                      key: crypto.randomUUID(),
+                                    })
+                                  }
+                                />
+                              ),
                           })),
                           {
                             key: 'add-field',
+                            onCell: (row) => (row.group ? { colSpan: 0 } : {}),
                             title: (
                               <Button
                                 type="text"
@@ -989,18 +1114,41 @@ export default function WorkspacesPage() {
                       />
                     }
                   </div>
+                  <Pagination
+                    className="workspace-pagination"
+                    disabled={inlineDirty}
+                    current={page}
+                    pageSize={50}
+                    total={result?.total || 0}
+                    onChange={setPage}
+                    showSizeChanger={false}
+                  />
                 </Spin>
               )
             )}
             <footer className="workspace-status" role="status">
               <span>
                 {result?.total ?? 0} 条可访问记录{' '}
-                {result?.groups?.length ? ' · ' + result.groups.length + ' 个分组' : ''}
+                {result?.groups?.length
+                  ? ' · ' + (result.groupsTruncated ? '超过 200' : result.groups.length) + ' 个分组'
+                  : ''}
               </span>
-              <span>{saveState || connection}</span>
+              <span>{inlineDirty ? '单元格编辑中，结束编辑后刷新协作变化' : saveState || connection}</span>
             </footer>
           </main>
         </div>
+      )}
+      {paste && paste.snapshot.tableId === tableId && detail && (
+        <PasteDialog
+          snapshot={paste.snapshot}
+          initialText={paste.text}
+          onClose={() => setPaste(undefined)}
+          onSaved={() => {
+            setPaste(undefined);
+            setSaveState('批量保存成功');
+            refresh();
+          }}
+        />
       )}
       <Drawer title="数据表" open={mobileNav} onClose={() => setMobileNav(false)} placement="left">
         {tableNav}
@@ -1072,7 +1220,7 @@ export default function WorkspacesPage() {
             onChange={(filter) => updateConfig({ filter })}
           />
         ) : (
-          <Form layout="vertical">
+          <Form layout="vertical" disabled={inlineDirty}>
             <Form.Item label="显示字段与顺序">
               <Select
                 mode="multiple"
@@ -1081,9 +1229,36 @@ export default function WorkspacesPage() {
                 onChange={(visibleFields) => updateConfig({ visibleFields })}
               />
             </Form.Item>
-            <Form.Item label="分组字段">
+            <div className="workspace-column-order" aria-label="调整列顺序">
+              {visibleFields.map((f, index) => (
+                <div key={f.id} className="workspace-field-row">
+                  <span>
+                    {index + 1}. {f.name}
+                  </span>
+                  <Space>
+                    {([-1, 1] as const).map((offset) => (
+                      <Button
+                        key={offset}
+                        size="small"
+                        aria-label={(offset < 0 ? '上移' : '下移') + f.name}
+                        disabled={index + offset < 0 || index + offset >= visibleFields.length}
+                        onClick={() => {
+                          const order = visibleFields.map((field) => field.id);
+                          [order[index], order[index + offset]] = [order[index + offset], order[index]];
+                          updateConfig({ visibleFields: order });
+                        }}
+                      >
+                        {offset < 0 ? '↑' : '↓'}
+                      </Button>
+                    ))}
+                  </Space>
+                </div>
+              ))}
+            </div>
+            <Form.Item label="分组字段" htmlFor="workspace-group-fields">
               <Select
                 mode="multiple"
+                id="workspace-group-fields"
                 maxCount={3}
                 value={config.groupBy || []}
                 options={fields

@@ -25,6 +25,7 @@ export default (app: Application) => {
   router.patch('/api/v1/tables/:tableId/fields/:fieldId', controller.collaboration.field);
   router.post('/api/v1/tables/:tableId/views', controller.collaboration.view);
   router.patch('/api/v1/tables/:tableId/views/:viewId', controller.collaboration.view);
+  router.post('/api/v1/tables/:tableId/records/batch', controller.collaboration.saveRecords);
   router.post('/api/v1/tables/:tableId/records/query', controller.collaboration.query);
   router.get('/api/v1/tables/:tableId/records/:recordId/business', controller.collaboration.businessDetail);
   router.post('/api/v1/tables/:tableId/records/:recordId/business', controller.collaboration.businessAction);

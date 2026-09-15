@@ -314,3 +314,26 @@
 .workspace-cell-editor > .ant-space {
   margin-top: 4px;
 }
+
+.workspace-group {
+  border: 0;
+  background: transparent;
+  color: #344054;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  padding: 10px 8px;
+  white-space: normal;
+}
+.workspace-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 16px;
+}
+.workspace-column-order {
+  margin-bottom: 20px;
+}
+.workspace-cell:focus-visible {
+  outline: 2px solid #3370ff;
+  outline-offset: -2px;
+}

@@ -13,6 +13,7 @@ export default function GridCell({
   tableId,
   schemaVersion,
   height,
+  canBegin = true,
   onDirty,
   onSaved,
   onConflict,
@@ -23,6 +24,7 @@ export default function GridCell({
   tableId: string;
   schemaVersion: number;
   height: number;
+  canBegin?: boolean;
   onDirty(dirty: boolean): void;
   onSaved(): void;
   onConflict(draft: unknown, remote: RecordRow): void;
@@ -30,7 +32,7 @@ export default function GridCell({
   const [draft, setDraft] = useState<{ value: unknown; version: number; schema: number; key: string }>();
   const [saving, setSaving] = useState(false);
   const begin = () => {
-    if (field.writable && row.writable !== false) {
+    if (canBegin && field.writable && row.writable !== false) {
       setDraft({
         value: row.values[field.id],
         version: row.version,
@@ -134,6 +136,8 @@ export default function GridCell({
   return (
     <button
       className="workspace-cell"
+      data-record-id={row.id}
+      data-field-id={field.id}
       style={{ minHeight: height }}
       aria-label={field.name + '：' + (displayValue(field, row.values[field.id], directory) || '空')}
       onDoubleClick={begin}

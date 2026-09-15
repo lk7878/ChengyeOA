@@ -621,3 +621,124 @@ test('relation targets and revision payloads do not reveal records outside the c
     hasCode('COLLAB_REFERENCE_FILTER_UNSUPPORTED'),
   );
 });
+
+test('batch append and update are atomic, versioned and idempotent', async () => {
+  const payload = {
+    schemaVersion: 1,
+    records: [{ values: { [titleId]: 'batch-a' } }, { values: { [titleId]: 'batch-b' } }],
+  };
+  const key = randomUUID();
+  const created = await editor.saveRecords(tableId, payload, key);
+  assert.equal(created.records.length, 2);
+  assert.deepEqual(await editor.saveRecords(tableId, payload, key), created);
+  assert.equal((await editor.query(tableId, {})).total, 2);
+  const beforeEvents = await db.collabEvent.count();
+  const beforeHistory = await db.collabRevision.count();
+  const updates = {
+    schemaVersion: 1,
+    records: created.records.map((r) => ({ ...r, values: { [titleId]: 'changed' } })),
+  };
+  updates.records[1].version = 999;
+  await assert.rejects(editor.saveRecords(tableId, updates, randomUUID()), (e: unknown) => {
+    assert.equal((e as { code: string }).code, 'COLLAB_RECORD_CONFLICT');
+    assert.equal((e as { errors: { row: number } }).errors.row, 2);
+    return true;
+  });
+  assert.equal((await editor.record(tableId, created.records[0].id)).record.values[titleId], 'batch-a');
+  assert.equal(await db.collabEvent.count(), beforeEvents);
+  assert.equal(await db.collabRevision.count(), beforeHistory);
+  updates.records[1].version = 1;
+  const results = await Promise.allSettled([
+    editor.saveRecords(tableId, updates, randomUUID()),
+    editor.saveRecords(tableId, updates, randomUUID()),
+  ]);
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  assert.equal((await editor.record(tableId, created.records[0].id)).record.version, 2);
+});
+
+test('batch validates types and limits, and never bypasses SELF or field restrictions', async () => {
+  const numeric = await admin.saveField(
+    tableId,
+    undefined,
+    { name: '数字', type: 'NUMBER', version: 1 },
+    randomUUID(),
+  );
+  await assert.rejects(
+    editor.saveRecords(
+      tableId,
+      {
+        schemaVersion: 2,
+        records: [
+          { values: { [titleId]: 'valid', [numeric.id]: 1 } },
+          { values: { [titleId]: 'invalid', [numeric.id]: 'bad' } },
+        ],
+      },
+      randomUUID(),
+    ),
+    hasCode('COLLAB_INVALID_NUMBER'),
+  );
+  assert.equal(await db.collabRecord.count(), 0);
+  await assert.rejects(
+    editor.saveRecords(
+      tableId,
+      {
+        schemaVersion: 2,
+        records: Array.from({ length: 101 }, () => ({ values: { [titleId]: 'too many' } })),
+      },
+      randomUUID(),
+    ),
+    hasCode('COLLAB_BATCH_LIMIT'),
+  );
+  const mine = await editor.saveRecord(
+    tableId,
+    undefined,
+    { schemaVersion: 2, values: { [titleId]: 'mine' } },
+    randomUUID(),
+  );
+  const other = await admin.saveRecord(
+    tableId,
+    undefined,
+    { schemaVersion: 2, values: { [titleId]: 'other' } },
+    randomUUID(),
+  );
+  const edit = (row: { id: string; version: number }) => ({ ...row, values: { [titleId]: 'updated' } });
+  await assert.rejects(
+    editor.saveRecords(tableId, { schemaVersion: 2, records: [edit(mine), edit(mine)] }, randomUUID()),
+    hasCode('COLLAB_BATCH_DUPLICATE'),
+  );
+  await admin.saveResourceAccess(
+    'TABLE',
+    tableId,
+    {
+      version: 1,
+      policy: {
+        restricted: true,
+        grants: [resourceGrant(editor.actor.userId, 'EDITOR', { rowScope: 'SELF' })],
+      },
+    },
+    randomUUID(),
+  );
+  await assert.rejects(
+    editor.saveRecords(tableId, { schemaVersion: 2, records: [edit(mine), edit(other)] }, randomUUID()),
+    hasCode('COLLAB_NOT_FOUND'),
+  );
+  assert.equal((await editor.record(tableId, mine.id)).record.values[titleId], 'mine');
+  const replayKey = randomUUID();
+  const payload = { schemaVersion: 2, records: [edit(mine)] };
+  await editor.saveRecords(tableId, payload, replayKey);
+  await admin.saveResourceAccess(
+    'TABLE',
+    tableId,
+    {
+      version: 2,
+      policy: {
+        restricted: true,
+        grants: [
+          resourceGrant(editor.actor.userId, 'EDITOR', { rowScope: 'SELF', readonlyFields: [titleId] }),
+        ],
+      },
+    },
+    randomUUID(),
+  );
+  await assert.rejects(editor.saveRecords(tableId, payload, replayKey), hasCode('COLLAB_READONLY_FIELD'));
+});

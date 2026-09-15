@@ -139,6 +139,9 @@ export default class CollaborationController extends Controller {
       ),
     );
   }
+  async saveRecords() {
+    this.respond(await this.collaborationService().saveRecords(this.ctx.params.tableId, this.ctx.request.body, this.key()));
+  }
   async saveRecord() {
     this.respond(
       await this.collaborationService().saveRecord(

@@ -543,3 +543,57 @@ test('simultaneous first writes have one winner, including a wide extension sche
   assert.equal(Object.keys((await employee.record(table, leadId)).record.values).length, 71);
   assert.equal(await db.collabExtensionRevision.count(), 1);
 });
+
+test('batch extensions share one transaction and preserve business action boundaries', async () => {
+  const field = await owner.saveField(
+    table,
+    undefined,
+    { name: '批量扩展', type: 'TEXT', version: 1 },
+    key(),
+  );
+  const second = await db.lead.create({
+    data: {
+      name: '第二条',
+      leadNo: key(),
+      phone: '13800001234',
+      phoneHash: key(),
+      branchId: org,
+      createdBy: employee.actor.userId,
+    },
+  });
+  const payload = {
+    schemaVersion: 2,
+    records: [
+      { id: leadId, version: 1, values: { [field.id]: 'first' } },
+      { id: second.id, version: 99, values: { [field.id]: 'second' } },
+    ],
+  };
+  await assert.rejects(employee.saveRecords(table, payload, key()), code('COLLAB_RECORD_CONFLICT'));
+  assert.equal(await db.collabExtension.count(), 0);
+  assert.equal(await db.collabExtensionRevision.count(), 0);
+  payload.records[1].version = 1;
+  const mutationKey = key();
+  const result = await employee.saveRecords(table, payload, mutationKey);
+  assert.deepEqual(await employee.saveRecords(table, payload, mutationKey), result);
+  assert.equal(await db.collabExtension.count(), 2);
+  const core = (await owner.describe(table)).fields.find(
+    (f) => f.options && (f.options as { businessKey?: string }).businessKey === 'name',
+  )!;
+  await assert.rejects(
+    employee.saveRecords(
+      table,
+      { schemaVersion: 2, records: [{ id: leadId, version: 2, values: { [core.id]: 'forbidden' } }] },
+      key(),
+    ),
+    code('COLLAB_USE_BUSINESS_ACTION'),
+  );
+  await assert.rejects(
+    employee.saveRecords(
+      table,
+      { schemaVersion: 2, records: [{ values: { [field.id]: 'no core creation' } }] },
+      key(),
+    ),
+    code('COLLAB_USE_BUSINESS_ACTION'),
+  );
+  assert.equal((await db.lead.findUniqueOrThrow({ where: { id: leadId } })).name, '本人录入但由他人负责');
+});
