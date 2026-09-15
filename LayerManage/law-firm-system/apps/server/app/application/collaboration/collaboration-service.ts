@@ -143,8 +143,13 @@ export class CollaborationService {
     return restrictResourceAccess(parent, raw, currentPrincipals ?? (await this.principals(tx)));
   }
   async baseAccess(baseId: string, tx: Tx = this.db, level = 1) {
-    const base = await tx.collabBase.findUnique({ where: { id: baseId } });
-    if (!base) fail('COLLAB_NOT_FOUND', 404);
+    const stored = await tx.collabBase.findUnique({
+      where: { id: baseId },
+      include: { driveNode: { select: { deletedAt: true } } },
+    });
+    if (!stored) fail('COLLAB_NOT_FOUND', 404);
+    const { driveNode, ...base } = stored;
+    if (driveNode?.deletedAt) fail('COLLAB_FORBIDDEN', 403);
     const parent = await this.access(base.workspaceId, tx);
     const principals = await this.principals(tx);
     const [path] = await tx.$queryRaw<Array<{ chain: FolderAncestor[] }>>(
@@ -178,6 +183,7 @@ export class CollaborationService {
           _members: MemberAccess[];
           _fields: CollabField[];
           _folderChain: FolderAncestor[];
+          _driveDeletedAt: Date | null;
         }
       >
     >(Prisma.sql`
@@ -191,14 +197,25 @@ export class CollaborationService {
             ? Prisma.sql`(SELECT COALESCE(jsonb_agg(to_jsonb(f) ORDER BY f.position), '[]'::jsonb) FROM collab_field f WHERE f."tableId" = t.id)`
             : Prisma.sql`'[]'::jsonb`
         } AS "_fields",
-        ${folderChainSql(Prisma.sql`b.id`)} AS "_folderChain"
+        ${folderChainSql(Prisma.sql`b.id`)} AS "_folderChain", dn."deletedAt" AS "_driveDeletedAt"
       FROM collab_table t JOIN collab_base b ON b.id = t."baseId"
+      LEFT JOIN drive_node dn ON dn.id = b.id
       JOIN collab_workspace w ON w.id = b."workspaceId" WHERE t.id = ${tableId}
     `);
     const row = rows[0];
     if (!row || (row.archived && !allowArchived)) fail('COLLAB_NOT_FOUND', 404);
-    const { _workspaceId, _organizationId, _basePolicy, _members, _fields, _folderChain, ...definition } =
-      row;
+    if (row._driveDeletedAt) fail('COLLAB_FORBIDDEN', 403);
+    const {
+      _workspaceId,
+      _organizationId,
+      _basePolicy,
+      _members,
+      _fields,
+      _folderChain,
+      _driveDeletedAt: _ignoredDeletion,
+      ...definition
+    } = row;
+    void _ignoredDeletion;
     const parent = await this.restrict(
       inheritFolders(this.memberAccess(_workspaceId, _organizationId, _members), _folderChain, principals),
       _basePolicy,
@@ -230,6 +247,13 @@ export class CollaborationService {
           ? visible
           : new WorkspaceBusinessTable(this.db, this.actor).visibleFields(table.source, visible),
     };
+  }
+  protected async assertActiveNode(nodeId: string, tx: Tx = this.db) {
+    const [node] = await tx.$queryRaw<Array<{ deletedAt: Date | null; chain: FolderAncestor[] }>>(Prisma.sql`
+      SELECT n."deletedAt", ${folderChainSql(Prisma.sql`${nodeId}`)} AS chain FROM drive_node n WHERE n.id = ${nodeId}
+    `);
+    if (node && (node.deletedAt || node.chain.some((folder) => folder.deletedAt)))
+      fail('COLLAB_FORBIDDEN', 403);
   }
   protected async requireAccessAdmin(workspaceId: string, tx: Tx = this.db) {
     const access = await this.access(workspaceId, tx);
@@ -265,6 +289,7 @@ export class CollaborationService {
     });
     if (!base || (kind === 'TABLE' && !table)) fail('COLLAB_NOT_FOUND', 404);
     await this.requireAccessAdmin(base.workspaceId, tx);
+    await this.assertActiveNode(base.id, tx);
     const node = await tx.driveNode.findUnique({ where: { baseId: base.id }, select: { ownerId: true } });
     return {
       target: table ?? base,

@@ -14,6 +14,8 @@ export default (app: Application) => {
   router.post('/api/v1/workspaces/:workspaceId/drive/bases', controller.drive.createBase);
   router.get('/api/v1/drive/nodes/:nodeId', controller.drive.node);
   router.patch('/api/v1/drive/nodes/:nodeId', controller.drive.rename);
+  router.post('/api/v1/drive/nodes/:nodeId/lifecycle/preview', controller.drive.previewLifecycle);
+  router.post('/api/v1/drive/nodes/:nodeId/lifecycle', controller.drive.applyLifecycle);
   router.get('/api/v1/drive/folders/:folderId/access', controller.drive.access);
   router.post('/api/v1/drive/folders/:folderId/access', controller.drive.saveAccess);
   router.post('/api/v1/workspaces', controller.collaboration.createWorkspace);

@@ -40,6 +40,14 @@ export default class DriveController extends Controller {
   async rename() {
     this.respond(await this.drive().rename(this.ctx.params.nodeId, this.ctx.request.body, this.key()));
   }
+  async previewLifecycle() {
+    this.respond(await this.drive().previewLifecycle(this.ctx.params.nodeId, this.ctx.request.body));
+  }
+  async applyLifecycle() {
+    this.respond(
+      await this.drive().applyLifecycle(this.ctx.params.nodeId, this.ctx.request.body, this.key()),
+    );
+  }
   async access() {
     this.respond(await this.drive().folderAccess(this.ctx.params.folderId));
   }

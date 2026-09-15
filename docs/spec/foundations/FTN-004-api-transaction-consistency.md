@@ -146,3 +146,6 @@ PRD §14.2 端到端验收链路中与本契约相关：
 - 落地 SPEC: 散落各 SPEC（SPEC-001, SPEC-003, SPEC-004 等）
 - 主要代码: apps/server/app/** 各 controller/middleware（API 包络、错误码、事务边界与一致性策略散落实现于各业务模块）
 - 测试: 无
+
+
+G2-A [生命周期事务](../../superpowers/specs/2026-09-15-cloud-drive-g2-lifecycle.md)提供 lifecycle/preview 和 lifecycle 提交端点。预览摘要绑定操作者、动作和目录/授权元数据；工作区排他锁内重查权限与摘要，过期返回 409。移动、回收或恢复与版本、审计、所有受影响 Base 的协作事件/outbox 一起提交，故障完整回滚。幂等重放先校验当前授权，网络重试不增加审计；不同输入须重新预览并使用新键。

@@ -83,6 +83,12 @@ test.after(async () => {
 });
 
 test('authenticated HTTP writes persist; invalid input and unauthorized access are denied', async () => {
+  for (const suffix of ['/lifecycle', '/lifecycle/preview'])
+    await app
+      .httpRequest()
+      .post('/api/v1/drive/nodes/' + baseId + suffix)
+      .send({ action: 'TRASH' })
+      .expect(401);
   await app.httpRequest().get('/api/v1/workspaces').expect(401);
   await app
     .httpRequest()
@@ -125,6 +131,255 @@ test('authenticated HTTP writes persist; invalid input and unauthorized access a
     .set('Authorization', 'Bearer ' + editorToken)
     .expect(403);
 });
+
+test(
+  'drive lifecycle UI previews stale rules, retries committed moves and revokes owner/editor on trash before restoration',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 240000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web');
+    const load = new Function('url', 'return import(url)');
+    const { chromium } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const errors: string[] = [];
+    const api = (method: 'get' | 'post' | 'patch', route: string, bearer = token, body?: unknown) => {
+      const request = app.httpRequest();
+      const call = request[method]('/api/v1' + route)
+        .set('Authorization', 'Bearer ' + bearer)
+        .set('Idempotency-Key', randomUUID());
+      return body === undefined ? call : call.send(body);
+    };
+    try {
+      const source = (
+        await api('post', '/workspaces/' + workspaceId + '/drive/folders', token, {
+          name: '协作目录',
+        }).expect(200)
+      ).body.data.id;
+      const target = (
+        await api('post', '/workspaces/' + workspaceId + '/drive/folders', token, {
+          name: '私有目标',
+        }).expect(200)
+      ).body.data.id;
+      await api('post', '/drive/folders/' + source + '/access', token, {
+        version: 1,
+        policy: { restricted: false, grants: [] },
+      }).expect(200);
+      const resource = (
+        await api('post', '/workspaces/' + workspaceId + '/drive/bases', token, {
+          name: '可恢复表格',
+          parentId: source,
+        }).expect(200)
+      ).body.data;
+      const title = (await db.collabField.findFirstOrThrow({ where: { tableId: resource.tableId } })).id;
+      const record = (
+        await api('post', '/tables/' + resource.tableId + '/records', editorToken, {
+          schemaVersion: 1,
+          values: { [title]: '多人共同保留的数据' },
+        }).expect(200)
+      ).body.data.id;
+      const pages = [];
+      for (const [id, accessToken] of [
+        [owner, token],
+        [editor, editorToken],
+        [owner, token],
+      ]) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          (session: unknown) => {
+            window.collabTestSession = session;
+          },
+          {
+            mode: 'AUTHENTICATED',
+            token: accessToken,
+            csrfToken: 'test',
+            expiresIn: 900,
+            user: { id, username: id, name: '生命周期测试成员', roles: [], permissions: [] },
+          },
+        );
+        const page = await context.newPage();
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [p1, p2, p3] = pages;
+      const address = vite.resolvedUrls.local[0] + 'e2e/workspace.html?workspace=' + workspaceId;
+      const editorAddress =
+        vite.resolvedUrls.local[0] + 'e2e/workspace.html?base=' + resource.id + '&table=' + resource.tableId;
+      await Promise.all([
+        p1.goto(address + '&folder=' + source),
+        p2.goto(editorAddress),
+        p3.goto(editorAddress),
+      ]);
+      for (const page of [p2, p3])
+        await page.getByRole('button', { name: '标题：多人共同保留的数据', exact: true }).waitFor();
+      await p1.getByRole('button', { name: '可恢复表格操作', exact: true }).click();
+      await p1.getByRole('menuitem', { name: '移动资源', exact: true }).click();
+      assert.equal(await p1.getByRole('button', { name: '确认移动资源', exact: true }).isDisabled(), true);
+      await p1.getByRole('combobox', { name: '移动到', exact: true }).click();
+      await p1.locator('.ant-select-item-option-content').getByText('私有目标', { exact: true }).click();
+      await p1.getByRole('button', { name: '预览权限影响', exact: true }).click();
+      await p1.getByRole('region', { name: '权限影响预览', exact: true }).waitFor();
+      await p1.getByText('以下比较授权规则，不代表受影响人数', { exact: true }).waitFor();
+      const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence');
+      await mkdir(evidence, { recursive: true });
+      for (const width of [1440, 1024, 390]) {
+        await p1.setViewportSize({ width, height: 900 });
+        assert.equal(
+          await p1.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1),
+          false,
+          'preview overflow at ' + width,
+        );
+        await p1.screenshot({ path: path.join(evidence, 'g2-preview-' + width + '.png'), fullPage: true });
+      }
+      await p1.setViewportSize({ width: 1440, height: 1000 });
+      // Source remains manageable, but the private destination becomes inaccessible.
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: owner },
+        data: { role: 'MANAGER', canManageAccess: true, rowScope: 'ALL' },
+      });
+      await api('get', '/drive/nodes/' + resource.id).expect(200);
+      await p1
+        .getByRole('region', { name: '权限影响预览', exact: true })
+        .waitFor({ state: 'hidden', timeout: 5000 });
+      await p1.getByRole('button', { name: '确认移动资源', exact: true }).waitFor({ state: 'hidden' });
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: owner },
+        data: { role: 'OWNER' },
+      });
+      await p1.goto(address + '&folder=' + source);
+      await p1.getByRole('button', { name: '可恢复表格操作', exact: true }).click();
+      await p1.getByRole('menuitem', { name: '移动资源', exact: true }).click();
+      await p1.getByRole('combobox', { name: '移动到', exact: true }).click();
+      await p1.locator('.ant-select-item-option-content').getByText('私有目标', { exact: true }).click();
+      await p1.getByRole('button', { name: '预览权限影响', exact: true }).click();
+      await p1.getByRole('region', { name: '权限影响预览', exact: true }).waitFor();
+      const sourceVersion = (await api('get', '/drive/nodes/' + source).expect(200)).body.data.version;
+      await api('patch', '/drive/nodes/' + source, token, {
+        name: '协作目录改名',
+        version: sourceVersion,
+      }).expect(200);
+      await p1.getByRole('button', { name: '确认移动资源', exact: true }).click();
+      await p1.getByText('目录或授权规则已变化，请重新预览后确认。', { exact: true }).waitFor();
+      assert.equal(await p1.getByRole('button', { name: '确认移动资源', exact: true }).isDisabled(), true);
+      await p1.getByRole('button', { name: '预览权限影响', exact: true }).click();
+      await p1.getByRole('region', { name: '权限影响预览', exact: true }).waitFor();
+      const moveKeys: string[] = [];
+      const moveRoute = '**/api/v1/drive/nodes/' + resource.id + '/lifecycle';
+      await p1.route(
+        moveRoute,
+        async (route: {
+          request: () => { headers: () => Record<string, string> };
+          fetch: () => Promise<{ status: () => number }>;
+          fulfill: (value: unknown) => Promise<void>;
+          continue: () => Promise<void>;
+        }) => {
+          moveKeys.push(route.request().headers()['idempotency-key']);
+          if (moveKeys.length === 1) {
+            assert.equal((await route.fetch()).status(), 200);
+            await route.fulfill({
+              status: 503,
+              contentType: 'application/json',
+              body: '{"message":"response_lost"}',
+            });
+          } else await route.continue();
+        },
+      );
+      let revokedAt = Date.now();
+      await p1.getByRole('button', { name: '确认移动资源', exact: true }).click();
+      await p1.getByText('请求未完成，请检查连接后重试。', { exact: true }).waitFor();
+      await p1.getByRole('button', { name: '确认移动资源', exact: true }).click();
+      await p1.getByRole('button', { name: '确认移动资源', exact: true }).waitFor({ state: 'hidden' });
+      await p2
+        .getByRole('button', { name: '标题：多人共同保留的数据', exact: true })
+        .waitFor({ state: 'hidden', timeout: 5000 });
+      assert.ok(Date.now() - revokedAt < 5000);
+      assert.equal(moveKeys.length, 2);
+      assert.equal((await api('get', '/drive/nodes/' + resource.id).expect(200)).body.data.parentId, target);
+      assert.ok(moveKeys[0] && moveKeys[0] === moveKeys[1]);
+      assert.equal(
+        await db.operationLog.count({ where: { targetId: resource.id, action: 'drive.move' } }),
+        1,
+      );
+      await p1.unroute(moveRoute);
+      const moveBack = { action: 'MOVE', parentId: source };
+      const reviewed = (
+        await api('post', '/drive/nodes/' + resource.id + '/lifecycle/preview', token, moveBack).expect(200)
+      ).body.data;
+      await api('post', '/drive/nodes/' + resource.id + '/lifecycle', token, {
+        ...moveBack,
+        previewToken: reviewed.previewToken,
+      }).expect(200);
+      await p2.goto(editorAddress);
+      await p2.getByRole('button', { name: '标题：多人共同保留的数据', exact: true }).waitFor();
+      await p1.goto(address);
+      await p1.getByRole('button', { name: '协作目录改名操作', exact: true }).click();
+      await p1.getByRole('menuitem', { name: '移入回收站', exact: true }).click();
+      await p1.getByRole('button', { name: '预览权限影响', exact: true }).click();
+      await p1.getByRole('region', { name: '权限影响预览', exact: true }).waitFor();
+      revokedAt = Date.now();
+      await p1.getByRole('button', { name: '确认移入回收站', exact: true }).click();
+      await Promise.all(
+        [p2, p3].map((page) =>
+          page
+            .getByRole('button', { name: '标题：多人共同保留的数据', exact: true })
+            .waitFor({ state: 'hidden', timeout: 5000 }),
+        ),
+      );
+      assert.ok(Date.now() - revokedAt < 5000);
+      for (const accessToken of [token, editorToken]) {
+        await api('get', '/tables/' + resource.tableId + '/records/' + record, accessToken).expect(403);
+        await api('post', '/tables/' + resource.tableId + '/records/query', accessToken, {}).expect(403);
+      }
+      await p1.getByRole('button', { name: '确认移入回收站', exact: true }).waitFor({ state: 'hidden' });
+      await p1.getByRole('button', { name: '回收站', exact: true }).click();
+      await p1.getByRole('button', { name: '协作目录改名操作', exact: true }).waitFor();
+      for (const width of [1440, 1024, 390]) {
+        await p1.setViewportSize({ width, height: 900 });
+        assert.equal(
+          await p1.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1),
+          false,
+          'trash overflow at ' + width,
+        );
+        await p1.screenshot({ path: path.join(evidence, 'g2-trash-' + width + '.png'), fullPage: true });
+      }
+      await p1.setViewportSize({ width: 1440, height: 1000 });
+      await api('post', '/workspaces/' + workspaceId + '/drive/folders', token, {
+        name: '协作目录改名',
+      }).expect(200);
+      await p1.getByRole('button', { name: '协作目录改名操作', exact: true }).click();
+      await p1.getByRole('menuitem', { name: '恢复资源', exact: true }).click();
+      await p1.getByRole('button', { name: '预览权限影响', exact: true }).click();
+      await p1.getByText('名称已存在，请换一个名称。', { exact: true }).waitFor();
+      await p1.getByRole('textbox', { name: '恢复名称', exact: true }).fill('恢复后的协作目录');
+      await p1.getByRole('button', { name: '预览权限影响', exact: true }).click();
+      await p1.getByRole('region', { name: '权限影响预览', exact: true }).waitFor();
+      await p1.getByRole('button', { name: '确认恢复资源', exact: true }).click();
+      await p1.getByRole('button', { name: '确认恢复资源', exact: true }).waitFor({ state: 'hidden' });
+      for (const page of [p2, p3]) {
+        await page.goto(editorAddress);
+        await page.getByRole('button', { name: '标题：多人共同保留的数据', exact: true }).waitFor();
+      }
+      assert.equal((await api('get', '/drive/nodes/' + resource.id).expect(200)).body.data.parentId, source);
+      assert.equal(await db.collabRecord.count({ where: { tableId: resource.tableId } }), 1);
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await vite.close();
+    }
+  },
+);
 
 test('SSE delivers real changes and revokes an already connected member without broadcasting values', async () => {
   const abort = new AbortController();

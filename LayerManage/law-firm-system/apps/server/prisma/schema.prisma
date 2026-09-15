@@ -1649,6 +1649,8 @@ model DriveNode {
   baseId       String?         @unique
   ownerId      String
   accessPolicy Json?
+  deletedAt    DateTime?
+  deletedBy    String?
   version      Int             @default(1)
   createdAt    DateTime?
   cataloguedAt DateTime        @default(now())
@@ -1661,7 +1663,6 @@ model DriveNode {
 
   @@unique([workspaceId, id])
   @@unique([workspaceId, baseId])
-  @@unique([workspaceId, parentId, folderName])
   @@index([workspaceId, ownerId])
   @@map("drive_node")
 }

@@ -20,6 +20,13 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  DRIVE_PREVIEW_STALE: '目录或授权规则已变化，请重新预览后确认。',
+  DRIVE_STATE_CONFLICT: '资源状态已变化，请刷新目录后重试。',
+  DRIVE_PARENT_UNAVAILABLE: '原目录或目标目录仍在回收站，请先恢复上级目录。',
+  DRIVE_SAME_PARENT: '请选择不同的目标目录。',
+  DRIVE_TARGET_REQUIRED: '请选择移动目标。',
+  DRIVE_CYCLE: '不能移动到资源自身或其子文件夹。',
+  DRIVE_SUBTREE_LIMIT: '每次最多处理 500 个目录资源，请分批整理。',
   DRIVE_DEPTH_LIMIT: '文件夹最多支持 8 层，请选择上级目录。',
   DRIVE_VERSION_CONFLICT: '资源已被修改，请重新打开后重试。',
   COLLAB_DIRECTORY_CONFLICT: '目录已被其他成员修改，已重新加载，请核对后重试。',

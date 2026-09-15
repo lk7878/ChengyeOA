@@ -25,7 +25,7 @@ last_updated: 2026-09-15
 
 | 编号 | 模块 | 专项设计 | 已落地SPEC | 现状 |
 |---|---|---|---|---|
-| MOD-001 | 组织权限 | 角色权限/系统管理员权限设计 | SPEC-002/003/004/005；[SPEC-003-A](../superpowers/specs/2026-09-11-organization-management-extension.md)；SPEC-COLLAB-20260914 | ✅原基线已验收；003-A 本地自动化通过，浏览器手工验收未执行；工作区/应用/表及岗位主体、行字段范围和撤权已验证；云盘文件夹继承待实施 |
+| MOD-001 | 组织权限 | 角色权限/系统管理员权限设计 | SPEC-002/003/004/005；[SPEC-003-A](../superpowers/specs/2026-09-11-organization-management-extension.md)；SPEC-COLLAB-20260914 | ✅原基线已验收；003-A 本地自动化通过，浏览器手工验收未执行；工作区/应用/表及岗位主体、行字段范围和撤权已验证；云盘文件夹继承已验证，G2-A 移动/回收状态已实现，验收见云盘计划 |
 | MOD-002 | 多维协作工作区与配置中心 | 动态字段表格与模板配置（已扩展） | [SPEC-COLLAB-20260914](../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md)（前七批部分落地） | 自建表、视图、网格、SSE、防覆盖、资源/岗位授权、CRM 读取/办理及扩展字段、目录排序、断网恢复和原子批量粘贴已验证；第七批 AC-15 本地 100 会话/900 秒负载通过，3600 次保存成功；真实多设备、完整故障矩阵及 P2/P3 待验收或实施 |
 | MOD-003 | 品牌获客 | 页面与接口清单(渠道部分) | — | ⚠️有代码无SPEC |
 | MOD-004 | 线索销转 | 页面与接口清单 | SPEC-009(部分,已验收2026-07-30); SPEC-010(立项,CRM-07) | ⚠️部分落地；⬜多维工作区适配待实施 |
@@ -129,3 +129,17 @@ last_updated: 2026-09-15
 | DRIVE-AC-03 | `DriveNode`、`20260915120000_cloud_drive_catalog`；旧 Base 接入和重入测试 |
 | DRIVE-AC-05/06 | `resource-access.ts` / `folder-access.ts`、原内容入口；SELF、祖先撤权、附件/关联、HTTP/SSE 验证 |
 | DRIVE-AC-09/10 | `collaboration-load.test.ts`（8 层目录、100 会话、900 秒）及原协作/业务回归；详细环境和限制见实施计划 |
+
+
+## SPEC-DRIVE G2-A（移动与回收生命周期）
+
+[生命周期规格](../superpowers/specs/2026-09-15-cloud-drive-g2-lifecycle.md)对应 MOD-002 CFG-22、MOD-001 ORG-14 及 FTN-001/003/004/005；实现和实际检查记录见[计划第 7 节](../superpowers/plans/2026-09-15-feishu-cloud-drive-resource-center.md#7-g2-a-执行计划)。DRIVE-AC-07 的移动/回收部分已实现，快捷方式部分仍待开发，不能标记 AC-07 整项完成。
+
+| 范围 | 实现与验收定位 |
+|---|---|
+| 移动预览、规则变化冲突、幂等及整树原子事务 | DriveService.lifecyclePlan/previewLifecycle/applyLifecycle；drive-lifecycle.test.ts |
+| 回收/恢复、旧入口阻断、名称复用、当前权限过滤 | 20260915130000_drive_lifecycle；folder-access.ts、collaboration-service.ts；生命周期服务回归 |
+| 统一界面、跨会话、失效清空、失败重试与恢复 | CloudDrivePage.tsx、DriveLifecycle.tsx；collaboration-http.test.ts 的生命周期真实浏览器流程 |
+| 多人原有行为与性能门槛 | 原协作/G1 回归及 collaboration-load.test.ts；沿用 100 会话 / 900 秒 / 8 层目录，结果记录于计划 |
+
+G2-A 最终验收：服务 51/51、完整 HTTP/SSE/Edge 5/5、目标撤权追加 Edge 1/1、前端相关 21 项通过；100 会话 / 900 秒负载保存 3600/3600，查询/保存/可见 P95 1177/1446/1352ms，重连 P95 4298ms。第 54 条迁移已应用到两个隔离测试库及开发库；具体限制与原始日志位置见计划。

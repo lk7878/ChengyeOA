@@ -28,6 +28,7 @@ import { errorMessage, errorStatus, get, patch, post } from '../workspaces/api';
 import { ResourceAccess } from '../workspaces/ResourceAccess';
 import type { Directory, Workspace } from '../workspaces/types';
 import WorkspaceMembers from './WorkspaceMembers';
+import DriveLifecycle, { type LifecycleAction } from './DriveLifecycle';
 import './drive.css';
 
 interface Location {
@@ -50,6 +51,10 @@ interface DriveItem {
   updatedAt: string;
   version: number;
   path: Location[];
+  deletedAt: string | null;
+  canMove: boolean;
+  canTrash: boolean;
+  canRestore: boolean;
   canRename: boolean;
   canShare: boolean;
   access: {
@@ -108,6 +113,11 @@ export default function CloudDrivePage() {
   const [saving, setSaving] = useState(false);
   const [dialogError, setDialogError] = useState('');
   const [selected, setSelected] = useState<DriveItem>();
+  const [lifecycle, setLifecycle] = useState<{ item: DriveItem; action: LifecycleAction }>();
+  const lifecycleRef = useRef(lifecycle);
+  useEffect(() => {
+    lifecycleRef.current = lifecycle;
+  }, [lifecycle]);
   const [accessError, setAccessError] = useState('');
   const key = useRef(crypto.randomUUID());
   const selectedRef = useRef<DriveItem | undefined>(undefined);
@@ -171,6 +181,7 @@ export default function CloudDrivePage() {
         setListing(undefined);
         setFolders([]);
         setSelected(undefined);
+        setLifecycle(undefined);
         setLoading(true);
       }
       const query = new URLSearchParams({ scope, q: search, sort, page: String(page) });
@@ -185,6 +196,29 @@ export default function CloudDrivePage() {
         setFolders(tree.folders);
         setFolderUserId(tree.userId);
         setError('');
+        const operation = lifecycleRef.current;
+        if (operation && !initial) {
+          let allowed = false;
+          try {
+            const node = await get<DriveItem>('/drive/nodes/' + operation.item.id);
+            allowed = node.canMove;
+          } catch (e) {
+            if (errorStatus(e) === 403) {
+              try {
+                const trash = await get<Listing>(
+                  '/workspaces/' +
+                    workspaceId +
+                    '/drive?scope=trash&q=' +
+                    encodeURIComponent(operation.item.name),
+                );
+                allowed = trash.items.some((item) => item.id === operation.item.id && item.canRestore);
+              } catch {
+                /* Clear the preview when authorization cannot be refreshed. */
+              }
+            }
+          }
+          if (active && lifecycleRef.current === operation && !allowed) setLifecycle(undefined);
+        }
         const current = selectedRef.current;
         if (current && !initial) {
           try {
@@ -204,6 +238,7 @@ export default function CloudDrivePage() {
         setListing(undefined);
         setFolders([]);
         setSelected(undefined);
+        setLifecycle(undefined);
         if ([401, 403, 404].includes(errorStatus(e) || 0)) {
           setDialog(undefined);
           if (parentId) {
@@ -250,6 +285,10 @@ export default function CloudDrivePage() {
     }
   };
   const openItem = async (item: DriveItem) => {
+    if (item.deletedAt) {
+      setLifecycle({ item, action: 'RESTORE' });
+      return;
+    }
     if (item.kind === 'FOLDER') {
       change({ folder: item.id, scope: 'all', q: '' });
       return;
@@ -347,6 +386,7 @@ export default function CloudDrivePage() {
         ['all', '全部资源'],
         ['mine', '我的资源'],
         ['shared', '与我共享'],
+        ...(listing?.canManageAccess ? [['trash', '回收站']] : []),
       ].map(([value, label]) => (
         <Button
           key={value}
@@ -451,7 +491,9 @@ export default function CloudDrivePage() {
             </Dropdown>
           </div>
           <div className="drive-toolbar">
-            <span className="drive-caption">{search ? '搜索：' + search : '浏览资源'}</span>
+            <span className="drive-caption">
+              {search ? '搜索：' + search : scope === 'trash' ? '回收站' : '浏览资源'}
+            </span>
             <Space wrap>
               <Select
                 aria-label="资源排序"
@@ -498,10 +540,13 @@ export default function CloudDrivePage() {
               ? '搜索结果'
               : scope === 'mine'
                 ? '我的资源'
-                : scope === 'shared'
-                  ? '与我共享'
-                  : '全部资源'}{' '}
-            · {listing?.total ?? 0} 项{parentId ? '' : ' · 新建的根目录资源默认私有'}
+                : scope === 'trash'
+                  ? '回收站'
+                  : scope === 'shared'
+                    ? '与我共享'
+                    : '全部资源'}{' '}
+            · {listing?.total ?? 0} 项
+            {scope === 'trash' ? ' · 恢复后回到原目录' : parentId ? '' : ' · 新建的根目录资源默认私有'}
           </p>
           {loading ? (
             <Spin />
@@ -537,15 +582,20 @@ export default function CloudDrivePage() {
                   <span className="drive-date">{dateLabel(item.updatedAt)}</span>
                   <Dropdown
                     menu={{
-                      items: [
-                        { key: 'open', label: '打开' },
-                        { key: 'rename', label: '重命名', disabled: !item.canRename },
-                        { key: 'access', label: '分享与权限' },
-                      ],
+                      items: item.deletedAt
+                        ? [{ key: 'RESTORE', label: '恢复资源', disabled: !item.canRestore }]
+                        : [
+                            { key: 'open', label: '打开' },
+                            { key: 'rename', label: '重命名', disabled: !item.canRename },
+                            { key: 'access', label: '分享与权限' },
+                            { key: 'MOVE', label: '移动资源', disabled: !item.canMove },
+                            { key: 'TRASH', label: '移入回收站', danger: true, disabled: !item.canTrash },
+                          ],
                       onClick: ({ key: action }) => {
                         if (action === 'open') void openItem(item);
                         else if (action === 'rename') openDialog('rename', item);
-                        else void showAccess(item);
+                        else if (action === 'access') void showAccess(item);
+                        else setLifecycle({ item, action: action as LifecycleAction });
                       },
                     }}
                   >
@@ -624,6 +674,20 @@ export default function CloudDrivePage() {
           </p>
         )}
       </Modal>
+      {lifecycle && (
+        <DriveLifecycle
+          key={lifecycle.item.id + lifecycle.action}
+          item={lifecycle.item}
+          action={lifecycle.action}
+          folders={folders}
+          directory={directory}
+          onClose={() => setLifecycle(undefined)}
+          onSaved={() => {
+            setLifecycle(undefined);
+            refresh();
+          }}
+        />
+      )}
       <Drawer title="分享与权限" open={!!selected} onClose={() => setSelected(undefined)} size={480}>
         {selected && (
           <>

@@ -217,3 +217,6 @@ last_updated: 2026-09-14
 - 落地 SPEC: SPEC-007, SPEC-008
 - 主要代码: apps/server/app/application/events、apps/server/app/domain/events、apps/server/app/controller/eventOperations.ts；EventLog / EventSubscription / EventDelivery / EventHandlerLog 数据模型（apps/server/prisma/schema.prisma）
 - 测试: 无
+
+
+G2-A [生命周期事件](../../superpowers/specs/2026-09-15-cloud-drive-g2-lifecycle.md)在移动、回收和恢复事务内为子树 Base 写入 access.updated 协作事件和 outbox；不在事件中广播记录内容。SSE 继续实时检查自身与祖先状态，已打开的失效页面须在 5 秒内清空。目录每 2 秒/聚焦刷新，预览也重新检查访问权限，不能持有失效资源名称或规则作为长期授权缓存。

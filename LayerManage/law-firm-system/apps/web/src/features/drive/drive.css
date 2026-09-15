@@ -232,3 +232,26 @@
 .drive-cards .drive-date {
   grid-column: 1 / -1;
 }
+
+.drive-lifecycle-preview {
+  margin-top: 16px;
+  overflow-wrap: anywhere;
+}
+.drive-rule-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.drive-rule {
+  padding: 12px 0;
+  border-bottom: 1px solid #edf0f4;
+}
+.drive-rule p {
+  margin: 6px 0;
+}
+@media (max-width: 700px) {
+  .drive-rule-columns {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}
