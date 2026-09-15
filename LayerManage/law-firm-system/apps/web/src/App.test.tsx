@@ -1,10 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import App from './App';
 import { useAuthStore } from './stores/authStore';
 import { useChallengeStore } from './features/auth/challengeStore';
 import { runtimeSession } from './features/auth/runtime-session';
 import { authApi } from './api/auth';
+import { authorizationApi } from './features/authorization/api';
 
 vi.mock('./pages/SecurityRole', () => ({ default: () => <div>Role page</div> }));
 vi.mock('./pages/AdminGovernance', () => ({ default: () => <div>Administrator governance page</div> }));
@@ -16,12 +17,15 @@ function observePasswordChangeUi() {
   const exposure = { heading: false, form: false, password: false, confirmation: false };
   const scan = (node: Node) => {
     if (!(node instanceof Element)) return;
-    exposure.heading ||= Array.from(node.querySelectorAll('h2')).some(
-      (heading) => heading.textContent === '修改初始密码',
-    ) || (node.matches('h2') && node.textContent === '修改初始密码');
-    exposure.form ||= node.matches('form#password-change') || Boolean(node.querySelector('form#password-change'));
-    exposure.password ||= node.matches('[aria-label="新密码"]') || Boolean(node.querySelector('[aria-label="新密码"]'));
-    exposure.confirmation ||= node.matches('[aria-label="确认新密码"]') || Boolean(node.querySelector('[aria-label="确认新密码"]'));
+    exposure.heading ||=
+      Array.from(node.querySelectorAll('h2')).some((heading) => heading.textContent === '修改初始密码') ||
+      (node.matches('h2') && node.textContent === '修改初始密码');
+    exposure.form ||=
+      node.matches('form#password-change') || Boolean(node.querySelector('form#password-change'));
+    exposure.password ||=
+      node.matches('[aria-label="新密码"]') || Boolean(node.querySelector('[aria-label="新密码"]'));
+    exposure.confirmation ||=
+      node.matches('[aria-label="确认新密码"]') || Boolean(node.querySelector('[aria-label="确认新密码"]'));
   };
   const consume = (records: MutationRecord[]) => {
     records.forEach((record) => record.addedNodes.forEach(scan));
@@ -35,10 +39,29 @@ function observePasswordChangeUi() {
   };
 }
 
+afterEach(() => vi.restoreAllMocks());
+
 beforeEach(() => {
+  vi.spyOn(authorizationApi, 'me').mockImplementation(
+    async () =>
+      useAuthStore.getState().authorization || {
+        userId: useAuthStore.getState().userInfo!.id,
+        employeeId: null,
+        isSystemSuperAdmin: false,
+        isSystemAdmin: false,
+        permissions: [],
+        menus: [],
+        fieldCapabilities: {},
+        validUntil: null,
+        evaluatedAt: new Date().toISOString(),
+      },
+  );
   useAuthStore.setState({
-    userInfo: null, isAuthenticated: false, bootstrapStatus: 'ready',
-    authorization: null, authorizationStatus: 'idle',
+    userInfo: null,
+    isAuthenticated: false,
+    bootstrapStatus: 'ready',
+    authorization: null,
+    authorizationStatus: 'idle',
   });
   useChallengeStore.getState().clear();
   runtimeSession.clear();
@@ -95,18 +118,25 @@ test('does not allow an authenticated user to enter password change even with me
   render(<App />);
 
   await waitFor(() => expect(window.location.pathname).toBe('/'));
-  expect(await screen.findByText('Dashboard page')).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: '工作台' })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: '修改初始密码' })).not.toBeInTheDocument();
   await waitFor(() => expect(useChallengeStore.getState().token).toBeNull());
 });
 
 test('does not admit organization routes from a legacy admin role name', async () => {
   useAuthStore.setState({
-    bootstrapStatus: 'ready', isAuthenticated: true,
+    bootstrapStatus: 'ready',
+    isAuthenticated: true,
     userInfo: { id: 'user-1', username: 'admin', name: 'Admin', roles: ['admin'], permissions: [] },
     authorization: {
-      userId: 'user-1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: false,
-      permissions: [], menus: [], fieldCapabilities: {}, validUntil: null,
+      userId: 'user-1',
+      employeeId: null,
+      isSystemSuperAdmin: false,
+      isSystemAdmin: false,
+      permissions: [],
+      menus: [],
+      fieldCapabilities: {},
+      validUntil: null,
       evaluatedAt: new Date().toISOString(),
     },
     authorizationStatus: 'ready',
@@ -114,17 +144,24 @@ test('does not admit organization routes from a legacy admin role name', async (
   window.history.pushState({}, '', '/org/tree');
   render(<App />);
 
-  expect(await screen.findByText('403')).toBeInTheDocument();
+  expect(await screen.findByText('无权访问此页面')).toBeInTheDocument();
 });
 
 test('redirects the legacy roles path to the permission-protected security route', async () => {
   useAuthStore.setState({
-    bootstrapStatus: 'ready', isAuthenticated: true,
+    bootstrapStatus: 'ready',
+    isAuthenticated: true,
     userInfo: { id: 'user-1', username: 'role.reader', name: 'Role Reader' },
     authorization: {
-      userId: 'user-1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: false,
-      permissions: ['role.read'], menus: ['menu.security_roles'], fieldCapabilities: {},
-      validUntil: null, evaluatedAt: new Date().toISOString(),
+      userId: 'user-1',
+      employeeId: null,
+      isSystemSuperAdmin: false,
+      isSystemAdmin: false,
+      permissions: ['role.read'],
+      menus: ['menu.security_roles'],
+      fieldCapabilities: {},
+      validUntil: null,
+      evaluatedAt: new Date().toISOString(),
     },
     authorizationStatus: 'ready',
   });
@@ -136,12 +173,19 @@ test('redirects the legacy roles path to the permission-protected security route
 
 test('protects administrator governance with the catalog permission', async () => {
   useAuthStore.setState({
-    bootstrapStatus: 'ready', isAuthenticated: true,
+    bootstrapStatus: 'ready',
+    isAuthenticated: true,
     userInfo: { id: 'user-1', username: 'system.admin', name: 'System Admin' },
     authorization: {
-      userId: 'user-1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: true,
-      permissions: ['governance.catalog.read'], menus: ['menu.admin_governance'], fieldCapabilities: {},
-      validUntil: null, evaluatedAt: new Date().toISOString(),
+      userId: 'user-1',
+      employeeId: null,
+      isSystemSuperAdmin: false,
+      isSystemAdmin: true,
+      permissions: ['governance.catalog.read'],
+      menus: ['menu.admin_governance'],
+      fieldCapabilities: {},
+      validUntil: null,
+      evaluatedAt: new Date().toISOString(),
     },
     authorizationStatus: 'ready',
   });
@@ -152,12 +196,19 @@ test('protects administrator governance with the catalog permission', async () =
 
 test('protects event operations with the delivery read permission', async () => {
   useAuthStore.setState({
-    bootstrapStatus: 'ready', isAuthenticated: true,
+    bootstrapStatus: 'ready',
+    isAuthenticated: true,
     userInfo: { id: 'user-1', username: 'event.operator', name: 'Event Operator' },
     authorization: {
-      userId: 'user-1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: true,
-      permissions: ['event.delivery.read'], menus: ['menu.event_operations'], fieldCapabilities: {},
-      validUntil: null, evaluatedAt: new Date().toISOString(),
+      userId: 'user-1',
+      employeeId: null,
+      isSystemSuperAdmin: false,
+      isSystemAdmin: true,
+      permissions: ['event.delivery.read'],
+      menus: ['menu.event_operations'],
+      fieldCapabilities: {},
+      validUntil: null,
+      evaluatedAt: new Date().toISOString(),
     },
     authorizationStatus: 'ready',
   });
@@ -168,28 +219,43 @@ test('protects event operations with the delivery read permission', async () => 
 
 test('denies direct event operations access without the delivery read permission', async () => {
   useAuthStore.setState({
-    bootstrapStatus: 'ready', isAuthenticated: true,
+    bootstrapStatus: 'ready',
+    isAuthenticated: true,
     userInfo: { id: 'user-1', username: 'event.viewer', name: 'Event Viewer' },
     authorization: {
-      userId: 'user-1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: false,
-      permissions: [], menus: ['menu.event_operations'], fieldCapabilities: {},
-      validUntil: null, evaluatedAt: new Date().toISOString(),
+      userId: 'user-1',
+      employeeId: null,
+      isSystemSuperAdmin: false,
+      isSystemAdmin: false,
+      permissions: [],
+      menus: ['menu.event_operations'],
+      fieldCapabilities: {},
+      validUntil: null,
+      evaluatedAt: new Date().toISOString(),
     },
     authorizationStatus: 'ready',
   });
   window.history.pushState({}, '', '/security/event-operations');
   render(<App />);
-  expect(await screen.findByText('403')).toBeInTheDocument();
+  expect(await screen.findByText('无权访问此页面')).toBeInTheDocument();
   expect(screen.queryByText('Event operations page')).not.toBeInTheDocument();
 });
 
 test('allows every authenticated user to open account security without a new permission', async () => {
   useAuthStore.setState({
-    bootstrapStatus: 'ready', isAuthenticated: true,
+    bootstrapStatus: 'ready',
+    isAuthenticated: true,
     userInfo: { id: 'user-1', username: 'ordinary', name: 'Ordinary User' },
     authorization: {
-      userId: 'user-1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: false,
-      permissions: [], menus: [], fieldCapabilities: {}, validUntil: null, evaluatedAt: new Date().toISOString(),
+      userId: 'user-1',
+      employeeId: null,
+      isSystemSuperAdmin: false,
+      isSystemAdmin: false,
+      permissions: [],
+      menus: [],
+      fieldCapabilities: {},
+      validUntil: null,
+      evaluatedAt: new Date().toISOString(),
     },
     authorizationStatus: 'ready',
   });
@@ -206,8 +272,11 @@ test('restores the server session once before rendering protected routes', async
     data: { id: 'restored-user', username: 'restored', name: 'Restored User', roles: [], permissions: [] },
   });
   useAuthStore.setState({
-    userInfo: null, isAuthenticated: false, bootstrapStatus: 'idle',
-    authorization: null, authorizationStatus: 'idle',
+    userInfo: null,
+    isAuthenticated: false,
+    bootstrapStatus: 'idle',
+    authorization: null,
+    authorizationStatus: 'idle',
   });
 
   render(<App />);

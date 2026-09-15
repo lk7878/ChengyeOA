@@ -152,3 +152,8 @@ G2-A [生命周期事务](../../superpowers/specs/2026-09-15-cloud-drive-g2-life
 
 
 G2-B [导航事务](../../superpowers/specs/2026-09-15-cloud-drive-g2b-shortcuts-recents.md)：快捷方式创建/移除与审计、幂等收据原子提交，源/位置实时鉴权，重试先检查当前权限。访问 upsert/清空采用个人工作区锁及工作区共享锁；清空重放不误删随后访问。文件夹生命周期预览纳入其有效链接变化；链接目标内容不重复计入或回收。
+
+
+### 全站统一框架（2026-09-15）
+
+页面跳转不发起领域写操作；原业务 API、版本、幂等与事务保持。旧路径与 query/hash 保留，只有原首页统计移至明确分析入口。实现前契约见[U0/U1 导航与迁移矩阵](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。

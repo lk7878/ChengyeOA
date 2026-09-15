@@ -105,3 +105,8 @@ OBJECT_STORAGE_SECRET_KEY=
 2026-09-13 阶段进度：已完成统一桌面与本地 Harness 基础验证，见 [阶段一实施记录](../../superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。[阶段二](../../superpowers/plans/2026-09-13-desktop-cloud-wiki-vision.md)接入 AI-09 云端 Wiki 只读查询和 AI-10 个人原生视觉 API 链路，并验证身份、权限及根会话隔离。真实模型效果、云端 OCR 实际部署、完整 AI-08 安装验收及 MAT-04B 归档仍待后续阶段，未标记为整体验收通过。
 
 2026-09-14 法律能力补充：[四类法律技能 Spec](../../superpowers/specs/2026-09-14-lawyer-skills.md)限定合同审查、应诉分析、管辖分析和法规/案例检索。沿用唯一 lawyer、只读云端 Wiki、个人模型及本地文件边界；测试范围见[实施记录](../../superpowers/plans/2026-09-14-lawyer-skills.md)，不计为完整 V1.3.0 或真实法律质量验收。
+
+
+### 全站统一迁移（U0/U1，2026-09-15）
+
+知识库与智慧办案保持相邻全局顶栏入口；只适配外层框架，保留 Wiki 服务与原 Harness 会话/文件边界。案件文件仍由案件业务管理入口办理。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。

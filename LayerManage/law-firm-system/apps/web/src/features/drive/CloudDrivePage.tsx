@@ -1,3 +1,4 @@
+import { useUnifiedShell } from '../navigation/shell-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
@@ -90,6 +91,7 @@ const dateLabel = (date: string | null) =>
   date ? new Date(date).toLocaleString('zh-CN', { hour12: false }) : '原系统未记录';
 
 export default function CloudDrivePage() {
+  const unifiedShell = useUnifiedShell();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -490,7 +492,7 @@ export default function CloudDrivePage() {
     <div className="cloud-drive">
       <header className="drive-header">
         <Space>
-          <Button onClick={() => navigate('/')}>OA</Button>
+          {!unifiedShell && <Button onClick={() => navigate('/')}>OA</Button>}
           <h1>云盘</h1>
         </Space>
         <Space wrap>

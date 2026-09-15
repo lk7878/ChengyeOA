@@ -63,3 +63,8 @@ SPEC-009 计划 +Contact，见 FTN-001。
 - 测试: apps/server/test/crm/customer-service.test.ts、apps/server/test/app/customer-api.test.ts
 
 <!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->
+
+
+### 全站统一迁移（U0/U1，2026-09-15）
+
+客户列表和详情进入业务应用的客户经营，旧 Customer ID、唯一性和关联保持；统一视图与正式业务动作在 U5 细化。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。

@@ -83,3 +83,8 @@ last_updated: 2026-07-30
 ### 2026-09-11 财务、审批与工资表联动
 
 本模块增量契约及验证参见 [SPEC-FIN-APPR-PAYROLL-20260911](../../superpowers/specs/2026-09-11-finance-approval-payroll.md) 和 [实施记录](../../superpowers/plans/2026-09-11-finance-approval-payroll.md)。团队分类支持中文；财务按案件编号关联；最终通过审批幂等写入对应业务台账；工资文件按版本保存并提交审批，权限和历史保留见增量契约。
+
+
+### 全站统一迁移（U0/U1，2026-09-15）
+
+谈案/合同进入签约交付，收款/开票/退款/成本进入财务运营。旧 URL、caseNo 查询、金额、审批和状态机保持，业务深度整合由 U5/U6 完成。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。

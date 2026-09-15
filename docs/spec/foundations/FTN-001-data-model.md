@@ -188,3 +188,8 @@ G2-A 生命周期增量见[移动与回收契约](../../superpowers/specs/2026-0
 
 
 G2-B [导航元数据](../../superpowers/specs/2026-09-15-cloud-drive-g2b-shortcuts-recents.md)新增 DriveShortcut（同区原节点引用，软移除、位置/目标外键与部分唯一索引）和 DriveVisit（userId/nodeId 唯一、按个人工作区保留 100 项）。第 55 条迁移增量接入，当前模型/迁移基线 90/55；不复制资源名称、ACL 或业务内容。
+
+
+### 全站统一框架（2026-09-15）
+
+本批仅迁移前端框架和页面归属，不新增模型、迁移或复制业务记录；数据库保持 90 模型/55 迁移。所有旧记录 ID、关联与审计引用不变。实现前契约见[U0/U1 导航与迁移矩阵](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。

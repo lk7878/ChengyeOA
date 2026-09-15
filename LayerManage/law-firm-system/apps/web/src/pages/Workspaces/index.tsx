@@ -1,3 +1,4 @@
+import { useUnifiedShell } from '@/features/navigation/shell-context';
 import CloudDrivePage from '@/features/drive/CloudDrivePage';
 import { BusinessRecord } from '@/features/workspaces/BusinessRecord';
 import { ResourceAccess } from '@/features/workspaces/ResourceAccess';
@@ -86,6 +87,7 @@ export default function WorkspacesPage() {
 }
 
 function WorkspaceEditor() {
+  const unifiedShell = useUnifiedShell();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const baseId = params.get('base') || '';
@@ -849,9 +851,11 @@ function WorkspaceEditor() {
     <div className="collab-workspace">
       <header className="workspace-top">
         <Space wrap>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
-            OA
-          </Button>
+          {!unifiedShell && (
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
+              OA
+            </Button>
+          )}
           <AppstoreOutlined />
           <button
             className="workspace-home"
@@ -901,8 +905,12 @@ function WorkspaceEditor() {
               onSaved={refresh}
             />
           )}
-          <Button onClick={() => navigate('/notifications')}>通知</Button>
-          <Button onClick={() => navigate('/knowledge')}>知识库</Button>
+          {!unifiedShell && (
+            <>
+              <Button onClick={() => navigate('/notifications')}>通知</Button>
+              <Button onClick={() => navigate('/knowledge')}>知识库</Button>
+            </>
+          )}
         </Space>
       </header>
       {!baseId ? (

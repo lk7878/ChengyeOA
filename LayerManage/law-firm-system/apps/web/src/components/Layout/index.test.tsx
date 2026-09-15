@@ -1,81 +1,100 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { expect, test } from 'vitest';
-import MainLayout, { buildMenuItems } from './index';
+import { beforeEach, expect, test, vi } from 'vitest';
+import MainLayout from './index';
 import { useAuthStore } from '@/stores/authStore';
+import type { AuthorizationSummary } from '@/features/authorization/types';
 
-function keys(items: ReturnType<typeof buildMenuItems>): string[] {
-  return items.flatMap(item => {
-    if (!item || !('key' in item)) return [];
-    const own = String(item.key);
-    const children = 'children' in item && Array.isArray(item.children) ? keys(item.children) : [];
-    return [own, ...children];
-  });
-}
-
-test('requires super-admin status as well as the organization MENU permission', () => {
-  const menuKeys = keys(buildMenuItems([
-    'menu.organization_personnel',
-    'menu.organization',
-    'menu.security_roles',
-  ], true));
-  expect(menuKeys).toContain('/org/tree');
-  expect(menuKeys).not.toContain('/org/employees');
-  expect(menuKeys).toContain('/security/roles');
-  expect(menuKeys).not.toContain('/security/users');
-});
-
-test('does not grant navigation from role names', () => {
-  const menuKeys = keys(buildMenuItems(['SYSTEM_SUPER_ADMIN'] as never[]));
-  expect(menuKeys).not.toContain('master-data');
-  expect(menuKeys).not.toContain('/security/roles');
-});
-
-test('shows administrator governance only from its menu permission', () => {
-  expect(keys(buildMenuItems(['menu.admin_governance']))).toContain('/security/admin-governance');
-  expect(keys(buildMenuItems(['governance.catalog.read']))).not.toContain('/security/admin-governance');
-});
-
-test('shows event operations only from its menu permission', () => {
-  expect(keys(buildMenuItems(['menu.event_operations']))).toContain('/security/event-operations');
-  expect(keys(buildMenuItems([]))).not.toContain('/security/event-operations');
-  expect(keys(buildMenuItems(['event.delivery.read']))).not.toContain('/security/event-operations');
-});
-
-test('uses the approved Chinese breadcrumb for event operations', () => {
+const authorization: AuthorizationSummary = {
+  userId: 'test-user',
+  employeeId: null,
+  isSystemSuperAdmin: false,
+  isSystemAdmin: false,
+  permissions: [],
+  menus: [],
+  fieldCapabilities: {},
+  validUntil: null,
+  evaluatedAt: new Date().toISOString(),
+};
+beforeEach(() =>
   useAuthStore.setState({
-    authorization: {
-      userId: 'u1', employeeId: null, isSystemSuperAdmin: false, isSystemAdmin: true,
-      permissions: ['event.delivery.read'], menus: ['menu.event_operations'], fieldCapabilities: {},
-      validUntil: null, evaluatedAt: new Date().toISOString(),
-    },
+    isAuthenticated: false,
+    userInfo: null,
+    authorization: { ...authorization },
     authorizationStatus: 'ready',
-  });
+  }),
+);
+const show = (path = '/') =>
   render(
-    <MemoryRouter initialEntries={['/security/event-operations']}>
-      <MainLayout><div>page content</div></MainLayout>
+    <MemoryRouter initialEntries={[path]}>
+      <MainLayout>
+        <input aria-label="业务草稿" defaultValue="保留输入" />
+      </MainLayout>
     </MemoryRouter>,
   );
-  expect(screen.getByText('事件运维')).toBeInTheDocument();
-  expect(screen.queryByText('/security/event-operations')).not.toBeInTheDocument();
+
+test('uses exactly five global destinations and one contextual directory', () => {
+  show('/apps');
+  const global = within(screen.getByRole('navigation', { name: '全局导航' }));
+  expect(global.getAllByRole('link').map((link) => link.textContent)).toEqual([
+    '工作台',
+    '云盘',
+    '业务应用',
+    '数据分析',
+    '管理中心',
+  ]);
+  expect(global.queryByRole('link', { name: '渠道管理' })).not.toBeInTheDocument();
+  expect(
+    within(screen.getByRole('navigation', { name: '当前区域目录' })).getByRole('link', { name: '渠道管理' }),
+  ).toBeInTheDocument();
 });
-
-test('hides organization management from ordinary administrators with the menu code', () => {
-  expect(keys(buildMenuItems(['menu.organization_personnel', 'menu.organization']))).not.toContain('/org/tree');
+test('cloud drive supplies its own context instead of receiving a third navigation tree', () => {
+  show('/workspaces?base=original-id');
+  expect(screen.queryByRole('navigation', { name: '当前区域目录' })).not.toBeInTheDocument();
+  expect(screen.getByRole('navigation', { name: '全局导航' })).toBeInTheDocument();
 });
-
-
-test('keeps smart case out of the OA sidebar even with its permission', () => {
-  expect(keys(buildMenuItems(['menu.smart_case']))).not.toContain('/smart-case');
-  expect(keys(buildMenuItems([]))).not.toContain('/smart-case');
+test('rejects a direct URL even when the menu exists without read permission', () => {
+  useAuthStore.setState({ authorization: { ...authorization, menus: ['menu.security_roles'] } });
+  show('/security/roles');
+  expect(screen.getByText('无权访问此页面')).toBeInTheDocument();
+  expect(screen.queryByRole('textbox', { name: '业务草稿' })).not.toBeInTheDocument();
 });
-
-test('renders the specified product version and a permission-controlled knowledge entry', async () => {
-  useAuthStore.setState({ authorization: { userId:'u1', employeeId:null, isSystemSuperAdmin:false, isSystemAdmin:false, permissions:[], menus:['menu.knowledge', 'menu.smart_case'], fieldCapabilities:{}, validUntil:null, evaluatedAt:new Date().toISOString() }, authorizationStatus:'ready' });
-  render(<MemoryRouter><MainLayout><div>内容</div></MainLayout></MemoryRouter>);
-  fireEvent.click(screen.getByRole('img',{name:'menu-unfold'}));
-  expect(await screen.findByText('律师智慧管理系统')).toBeInTheDocument();
-  expect(screen.getByText('V1.2.1')).toBeInTheDocument();
-  expect(screen.getByRole('button',{name:/知识库/})).toBeInTheDocument();
-  expect(screen.getByRole('button',{name:'智慧办案'})).toBeInTheDocument();
+test('authorized tools stay adjacent and use the existing desktop bridge', async () => {
+  const openAssistant = vi.fn().mockResolvedValue(undefined);
+  window.chengyeDesktop = { version: 1, openAssistant };
+  useAuthStore.setState({
+    authorization: { ...authorization, menus: ['menu.knowledge', 'menu.smart_case'] },
+  });
+  show('/workspaces');
+  expect(screen.getByRole('link', { name: '知识库' })).toHaveAttribute('href', '/knowledge');
+  fireEvent.click(screen.getByRole('button', { name: '智慧办案' }));
+  expect(openAssistant).toHaveBeenCalledTimes(1);
+  expect(
+    within(screen.getByRole('navigation', { name: '全局导航' })).queryByRole('link', { name: '知识库' }),
+  ).not.toBeInTheDocument();
+  delete window.chengyeDesktop;
+});
+test('authorization failure hides protected content and provides a retry', () => {
+  const retry = vi.fn().mockResolvedValue(undefined);
+  useAuthStore.setState({ authorization: null, authorizationStatus: 'error', ensureAuthorization: retry });
+  show('/security/event-operations');
+  expect(screen.queryByRole('textbox', { name: '业务草稿' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '重试授权' }));
+  expect(retry).toHaveBeenCalledWith(true);
+});
+test('search results include only authorized destinations and keep Chinese labels', async () => {
+  show('/apps');
+  fireEvent.click(screen.getByRole('button', { name: '查找功能入口' }));
+  fireEvent.change(await screen.findByRole('textbox', { name: '搜索功能入口' }), {
+    target: { value: '角色' },
+  });
+  expect(await screen.findByText('没有匹配的可用入口')).toBeInTheDocument();
+  expect(
+    within(screen.getByRole('dialog')).queryByRole('link', { name: /角色权限/ }),
+  ).not.toBeInTheDocument();
+});
+test('unknown paths produce an explicit missing-page state', () => {
+  show('/inventory/not-a-real-page');
+  expect(screen.getByText('页面不存在')).toBeInTheDocument();
+  expect(screen.queryByRole('textbox', { name: '业务草稿' })).not.toBeInTheDocument();
 });

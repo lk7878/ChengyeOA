@@ -223,3 +223,8 @@ G2-A [生命周期事件](../../superpowers/specs/2026-09-15-cloud-drive-g2-life
 
 
 G2-B [个人访问与引用](../../superpowers/specs/2026-09-15-cloud-drive-g2b-shortcuts-recents.md)不写公共协作事件或更新 Base 修改时间；链接创建/移除保留事务审计，目录每 2 秒刷新当前授权结果。最近访问仅在进入资源后登记，SSE、记录查询/保存及列表轮询不触发访问登记。链接失效由同一目录刷新与打开前解析校验，原内容订阅继续使用既有撤权机制。
+
+
+### 全站统一框架（2026-09-15）
+
+导航授权每 15 秒及恢复焦点刷新，不新增业务事件，不修改记录查询/保存、tableAccess/folderChain 或 SSE 热路径；知识库桥与 CaseWorkbench 根保持在业务路由之外。实现前契约见[U0/U1 导航与迁移矩阵](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。

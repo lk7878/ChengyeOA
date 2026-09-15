@@ -1,305 +1,275 @@
-import { PRODUCT_NAME, PRODUCT_VERSION, PRODUCT_TITLE } from '@/product';
-import React, { useEffect, useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Alert, Avatar, Breadcrumb, Button, Drawer, Dropdown, Empty, Input, Modal, Result, Spin } from 'antd';
 import {
-  Layout,
-  Menu,
-  Avatar,
-  Button,
-  Badge,
-  Dropdown,
-  Breadcrumb,
-  Drawer,
-  Grid,
-  theme,
-  type MenuProps,
-} from 'antd';
-import {
-  DashboardOutlined,
   AppstoreOutlined,
-  UserOutlined,
-  TeamOutlined,
-  FileSearchOutlined,
-  UsergroupAddOutlined,
-  FileTextOutlined,
-  DollarOutlined,
-  ApartmentOutlined,
-  SafetyCertificateOutlined,
-  ShareAltOutlined,
-  AuditOutlined,
   BellOutlined,
-  TrophyOutlined,
+  CloudOutlined,
+  DashboardOutlined,
+  HomeOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  LogoutOutlined,
-  DownOutlined,
-  CalendarOutlined,
-  AccountBookOutlined,
-  RollbackOutlined,
-  WarningOutlined,
+  SearchOutlined,
+  SettingOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
-import { useLocation, useNavigate, Link } from 'react-router';
-import type { MenuPermissionCode, PermissionCode } from '@/features/authorization/types';
+import { Link, useLocation } from 'react-router';
+import { PRODUCT_NAME, PRODUCT_TITLE } from '@/product';
 import { useAuthStore } from '@/stores/authStore';
-import './sidebar.css';
 import { openCaseAssistant } from '@/features/intelligence/desktop';
+import {
+  areas,
+  canOpen,
+  entries,
+  findEntry,
+  legacyRedirects,
+  visibleEntries,
+} from '@/features/navigation/catalog';
+import { UnifiedShellContext } from '@/features/navigation/shell-context';
+import { useNavigationAuthorization } from '@/features/navigation/use-navigation-authorization';
+import { isAuthorizationSummaryExpired } from '@/features/authorization/api';
+import './sidebar.css';
 
-const { Header: AntHeader, Sider, Content } = Layout;
-
-interface NavigationItem {
-  key: string;
-  icon: React.ReactNode;
-  label: string;
-  requiredMenu?: MenuPermissionCode;
-  children?: NavigationItem[];
-}
-
-const baseMenuItems: NavigationItem[] = [
-  { key: '/workspaces', icon: <AppstoreOutlined />, label: '云盘' },
-  { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
-  {
-    key: 'lead-crm',
-    icon: <FileSearchOutlined />,
-    label: '线索销转',
-    requiredMenu: 'menu.lead_crm',
-    children: [
-      { key: '/leads', icon: <FileSearchOutlined />, label: '线索列表', requiredMenu: 'menu.lead_crm' },
-      { key: '/leads/pool', icon: <TeamOutlined />, label: '公海池', requiredMenu: 'menu.lead_crm' },
-      { key: '/leads/calendar', icon: <CalendarOutlined />, label: '到访日历', requiredMenu: 'menu.lead_crm' },
-    ],
-  },
-  { key: '/customers', icon: <UsergroupAddOutlined />, label: '客户管理', requiredMenu: 'menu.customer' },
-  {
-    key: 'contract-negotiation',
-    icon: <FileTextOutlined />,
-    label: '谈案合同',
-    requiredMenu: 'menu.contract',
-    children: [
-      { key: '/negotiations', icon: <FileTextOutlined />, label: '谈案管理', requiredMenu: 'menu.contract' },
-      { key: '/contracts', icon: <FileTextOutlined />, label: '合同管理', requiredMenu: 'menu.contract' },
-    ],
-  },
-  { key: '/cases', icon: <FileTextOutlined />, label: '案件管理' },
-  { key: 'finance', icon: <DollarOutlined />, label: '财务管理', children: [
-  { key: '/payments', icon: <DollarOutlined />, label: '收款管理', requiredMenu: 'menu.payment' },
-  // SPEC-011 Task 11：财务运营四页（FIN-02~05），菜单权限码由 Task 2 供给。
-  { key: '/invoices', icon: <AccountBookOutlined />, label: '开票管理', requiredMenu: 'menu.invoice' },
-  { key: '/refunds', icon: <RollbackOutlined />, label: '退款减免', requiredMenu: 'menu.refund' },
-  { key: '/costs', icon: <AccountBookOutlined />, label: '成本管理', requiredMenu: 'menu.cost' },
-  ] },
-  { key: '/anomalies', icon: <WarningOutlined />, label: '异常数据', requiredMenu: 'menu.anomaly' },
-  { key: '/users', icon: <UserOutlined />, label: '用户管理' },
-  { key: '/channels', icon: <ShareAltOutlined />, label: '渠道管理' },
-  { key: '/approvals', icon: <AuditOutlined />, label: '审批管理' },
-  { key: 'inventory', icon: <AccountBookOutlined />, label: '物品管理', requiredMenu: 'menu.inventory', children: [
-    { key: '/inventory/items', icon: <AccountBookOutlined />, label: '物品档案与库存', requiredMenu: 'menu.inventory' },
-    { key: '/inventory/customized-records', icon: <FileTextOutlined />, label: '定制物品领用登记', requiredMenu: 'menu.inventory' },
-    { key: '/inventory/customized-statistics', icon: <AccountBookOutlined />, label: '定制物品领用统计', requiredMenu: 'menu.inventory' },
-    { key: '/inventory/office-records', icon: <FileTextOutlined />, label: '办公用品领用明细', requiredMenu: 'menu.inventory' },
-    { key: '/inventory/office-statistics', icon: <AccountBookOutlined />, label: '办公用品领用统计', requiredMenu: 'menu.inventory' },
-    { key: '/inventory/inbound', icon: <AccountBookOutlined />, label: '入库明细', requiredMenu: 'menu.inventory' },
-    { key: '/inventory/outbound', icon: <AccountBookOutlined />, label: '出库明细', requiredMenu: 'menu.inventory' },
-    { key: '/inventory/stocktakes', icon: <AccountBookOutlined />, label: '定期盘点记录', requiredMenu: 'menu.inventory' },
-    { key: '/inventory/dashboard', icon: <DashboardOutlined />, label: '物品领用仪表盘', requiredMenu: 'menu.inventory' },
-  ] },
-  { key: '/notifications', icon: <BellOutlined />, label: '通知中心' },
-  { key: '/performances', icon: <TrophyOutlined />, label: '绩效管理' },
-];
-
-const permissionMenuItems: NavigationItem[] = [
-  {
-    key: 'master-data',
-    icon: <ApartmentOutlined />,
-    label: '组织与人员',
-    requiredMenu: 'menu.organization_personnel',
-    children: [
-      { key: '/org/tree', icon: <ApartmentOutlined />, label: '组织架构', requiredMenu: 'menu.organization' },
-      { key: '/org/positions', icon: <SafetyCertificateOutlined />, label: '岗位管理', requiredMenu: 'menu.position' },
-      { key: '/org/employees', icon: <TeamOutlined />, label: '员工管理', requiredMenu: 'menu.employee' },
-      { key: '/org/professional-teams', icon: <UsergroupAddOutlined />, label: '专业团队', requiredMenu: 'menu.professional_team' },
-    ],
-  },
-  {
-    key: 'security',
-    icon: <SafetyCertificateOutlined />,
-    label: '权限中心',
-    children: [
-      { key: '/security/roles', icon: <SafetyCertificateOutlined />, label: '角色权限', requiredMenu: 'menu.security_roles' },
-      { key: '/security/users', icon: <UserOutlined />, label: '用户授权', requiredMenu: 'menu.security_users' },
-      { key: '/security/trace', icon: <AuditOutlined />, label: '权限追踪', requiredMenu: 'menu.security_trace' },
-      { key: '/security/my-access', icon: <UserOutlined />, label: '我的权限', requiredMenu: 'menu.security_my_access' },
-      { key: '/security/admin-governance', icon: <SafetyCertificateOutlined />, label: '管理员治理', requiredMenu: 'menu.admin_governance' },
-      { key: '/security/event-operations', icon: <AuditOutlined />, label: '事件运维', requiredMenu: 'menu.event_operations' },
-    ],
-  },
-];
-
-// eslint-disable-next-line react-refresh/only-export-components
-export function buildMenuItems(menus: readonly PermissionCode[], isSuperAdmin = false): Required<MenuProps>['items'] {
-  const menuSet = new Set(menus.filter(code => isSuperAdmin || code !== 'menu.organization'));
-  return [...baseMenuItems, ...permissionMenuItems]
-    .map(item => filterNavigationItem(item, menuSet))
-    .filter((item): item is NavigationItem => item !== null) as Required<MenuProps>['items'];
-}
-
-function filterNavigationItem(item: NavigationItem, menus: Set<PermissionCode>): NavigationItem | null {
-  if (item.requiredMenu && !menus.has(item.requiredMenu)) return null;
-  if (!item.children) return item;
-  const children = item.children
-    .map(child => filterNavigationItem(child, menus))
-    .filter((child): child is NavigationItem => child !== null);
-  return children.length > 0 ? { ...item, children } : null;
-}
-
-const routeNameMap: Record<string, string> = {
-  '/': '仪表盘',
-  '/leads': '线索列表',
-  '/leads/pool': '公海池',
-  '/leads/calendar': '到访日历',
-  '/customers': '客户管理',
-  '/negotiations': '谈案管理',
-  '/contracts': '合同管理',
-  '/contracts/new': '新建合同',
-  '/cases': '案件管理',
-  '/smart-case': '智慧办案',
-  '/knowledge': '云端知识库',
-  '/payments': '收款管理',
-  '/invoices': '开票管理',
-  '/refunds': '退款减免',
-  '/costs': '成本管理',
-  '/anomalies': '异常数据',
-  '/users': '用户管理',
-  '/channels': '渠道管理',
-  '/approvals': '审批管理',
-  '/notifications': '通知中心',
-  '/performances': '绩效管理',
-  '/inventory': '物品管理',
-  '/inventory/items': '物品档案与库存',
-  '/inventory/customized-records': '定制物品领用登记',
-  '/inventory/customized-statistics': '定制物品领用统计',
-  '/inventory/office-records': '办公用品领用明细',
-  '/inventory/office-statistics': '办公用品领用统计',
-  '/inventory/inbound': '入库明细',
-  '/inventory/outbound': '出库明细',
-  '/inventory/stocktakes': '定期盘点记录',
-  '/inventory/dashboard': '物品领用仪表盘',
-  '/org/tree': '组织架构',
-  '/org/positions': '岗位管理',
-  '/org/employees': '员工管理',
-  '/org/professional-teams': '专业团队',
-  '/security/roles': '角色权限',
-  '/security/users': '用户授权',
-  '/security/trace': '权限追踪',
-  '/security/my-access': '我的权限',
-  '/security/admin-governance': '管理员治理',
-  '/security/event-operations': '事件运维',
-  '/security/account': '账号安全',
+const icons = {
+  home: <HomeOutlined />,
+  drive: <CloudOutlined />,
+  apps: <AppstoreOutlined />,
+  analytics: <DashboardOutlined />,
+  admin: <SettingOutlined />,
 };
 
-function resolveSelectedKey(pathname: string): string {
-  if (/^\/leads\/[^/]+$/.test(pathname)) return '/leads';
-  if (/^\/customers\/[^/]+$/.test(pathname)) return '/customers';
-  if (/^\/contracts\/[^/]+$/.test(pathname)) return '/contracts';
-  return pathname;
-}
-
-interface MainLayoutProps {
-  children: React.ReactNode;
-}
-
-const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const screens = Grid.useBreakpoint();
-  const isMobile = !screens.md;
-  const location = useLocation();
-  const navigate = useNavigate();
-  const { userInfo, logout, authorization, ensureAuthorization } = useAuthStore();
-  const menuItems = buildMenuItems(authorization?.menus ?? [], authorization?.isSystemSuperAdmin);
-  const {
-    token: { colorBgContainer, borderRadiusLG },
-  } = theme.useToken();
-
-  useEffect(() => {
-    void ensureAuthorization().catch(() => undefined);
-  }, [ensureAuthorization]);
-
-  const breadcrumbItems = [
-    { title: <Link to="/">首页</Link> },
-    ...(location.pathname !== '/' ? [{ title: routeNameMap[location.pathname] || location.pathname }] : []),
-  ];
-  const userMenuItems = [
-    { key: 'security-account', icon: <SafetyCertificateOutlined />, label: '账号安全', onClick: () => navigate('/security/account') },
-    { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', onClick: logout },
-  ];
-  const menu = (
-    <Menu
-      theme="dark"
-      mode="inline"
-      selectedKeys={[resolveSelectedKey(location.pathname)]}
-      items={menuItems}
-      onClick={({ key }) => { setMobileMenuOpen(false); navigate(key); }}
-      style={{ borderRight: 0 }}
-    />
-  );
-
-  return (
-    <Layout style={{ minHeight: '100vh' }}>
-      {!isMobile && (
-        <Sider
-          className="main-sidebar"
-          trigger={null}
-          collapsible
-          collapsed={collapsed}
-          theme="dark"
-          width={220}
-          style={{ position: 'fixed', height: '100vh', left: 0, top: 0, zIndex: 100 }}
+export default function MainLayout({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  const [expanded, setExpanded] = useState(false);
+  const [contextHidden, setContextHidden] = useState(false);
+  const [drawer, setDrawer] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const { userInfo, authorization, authorizationStatus, ensureAuthorization, logout } = useAuthStore();
+  useNavigationAuthorization();
+  const current = findEntry(legacyRedirects[pathname] || pathname);
+  const area = areas.find((item) => item.id === current?.area) || areas[0];
+  const available = visibleEntries(authorization, area.id).filter((item) => item.path !== area.path);
+  const groups = [...new Set(available.map((item) => item.group))];
+  const context = current && current.area !== 'drive' && !current.global;
+  const closeNavigation = () => setDrawer(false);
+  const globalNav = (
+    <nav aria-label="全局导航" className="unified-global-nav">
+      {areas.map((item) => (
+        <Link
+          key={item.id}
+          to={item.path}
+          aria-label={item.title}
+          aria-current={item.id === current?.area && !current.global ? 'page' : undefined}
+          onClick={closeNavigation}
         >
-          <div className="main-sidebar-title" style={{ fontSize: collapsed ? 16 : 18 }}>
-            {collapsed ? <span title={PRODUCT_TITLE}>律智</span> : <span title={PRODUCT_TITLE}>{PRODUCT_NAME}<small className="main-sidebar-version">V{PRODUCT_VERSION}</small></span>}
+          <span aria-hidden="true">{icons[item.id]}</span>
+          <span>{item.title}</span>
+        </Link>
+      ))}
+    </nav>
+  );
+  const contextNav = (
+    <nav aria-label="当前区域目录" className="unified-context-nav">
+      <Link className="unified-context-home" to={area.path} onClick={closeNavigation}>
+        {area.title}
+      </Link>
+      {groups.map((group) => (
+        <section key={group}>
+          <h2>{group}</h2>
+          {available
+            .filter((item) => item.group === group)
+            .map((item) => (
+              <Link
+                key={item.path}
+                to={item.path}
+                aria-current={(current?.parent || current?.path) === item.path ? 'page' : undefined}
+                onClick={closeNavigation}
+              >
+                {item.title}
+              </Link>
+            ))}
+        </section>
+      ))}
+      {!available.length && <p className="unified-muted">暂无可用入口</p>}
+    </nav>
+  );
+  const toolAllowed = (path: string) => canOpen(entries.find((item) => item.path === path)!, authorization);
+  const loading = authorizationStatus === 'idle' || authorizationStatus === 'loading';
+  const valid = authorizationStatus === 'ready' && !isAuthorizationSummaryExpired(authorization);
+  const body = loading ? (
+    <div className="unified-state" aria-label="正在加载授权">
+      <Spin />
+    </div>
+  ) : !valid ? (
+    <div className="unified-state">
+      <Alert
+        type="error"
+        title="无法确认当前权限"
+        description="请重试后继续，当前受保护内容已隐藏。"
+        action={
+          <Button onClick={() => void ensureAuthorization(true).catch(() => undefined)}>重试授权</Button>
+        }
+      />
+    </div>
+  ) : !current ? (
+    <Result status="404" title="页面不存在" extra={<Link to="/">返回工作台</Link>} />
+  ) : !canOpen(current, authorization) ? (
+    <Result
+      status="403"
+      title="无权访问此页面"
+      subTitle="请联系管理员核对岗位与访问权限。"
+      extra={<Link to="/">返回工作台</Link>}
+    />
+  ) : (
+    children
+  );
+  const searchItems = entries.filter(
+    (item) =>
+      !item.hidden && canOpen(item, authorization) && (item.title + item.group).includes(search.trim()),
+  );
+  return (
+    <UnifiedShellContext.Provider value={true}>
+      <div className={'unified-shell' + (expanded ? ' unified-expanded' : '')}>
+        <a className="unified-skip" href="#unified-main">
+          跳到主要内容
+        </a>
+        <header className="unified-header">
+          <div className="unified-header-left">
+            <Button
+              className="unified-mobile-toggle"
+              aria-label="打开全局导航"
+              icon={<MenuUnfoldOutlined />}
+              onClick={() => setDrawer(true)}
+            />
+            <Link className="unified-brand" title={PRODUCT_TITLE} to="/">
+              <span className="unified-brand-mark">承</span>
+              <span className="unified-brand-name">{PRODUCT_NAME}</span>
+            </Link>
+            <Breadcrumb
+              items={[
+                { title: <Link to={area.path}>{area.title}</Link> },
+                ...(current && current.path !== area.path ? [{ title: current.title }] : []),
+              ]}
+            />
           </div>
-          <nav className="main-sidebar-menu" aria-label="主导航">{menu}</nav>
-          <div className="main-sidebar-credit">百佑智业出品</div>
-        </Sider>
-      )}
-      <Drawer
-        open={isMobile && mobileMenuOpen}
-        placement="left"
-        closable={false}
-        onClose={() => setMobileMenuOpen(false)}
-        size="default"
-        styles={{ body: { padding: 0, background: '#001529', display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
-      >
-        <div className="main-sidebar-title"><span>{PRODUCT_NAME}<small className="main-sidebar-version">V{PRODUCT_VERSION}</small></span></div>
-        <nav className="main-sidebar-menu" aria-label="主导航">{menu}</nav>
-        <div className="main-sidebar-credit">百佑智业出品</div>
-      </Drawer>
-      <Layout style={{ marginLeft: isMobile ? 0 : collapsed ? 80 : 220, transition: 'all 0.2s', minWidth: 0 }}>
-        <AntHeader style={{ padding: '0 24px', background: colorBgContainer, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 99, boxShadow: '0 1px 4px rgba(0,21,41,0.08)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            {React.createElement(isMobile || collapsed ? MenuUnfoldOutlined : MenuFoldOutlined, {
-              style: { fontSize: 18, cursor: 'pointer' },
-              onClick: () => isMobile ? setMobileMenuOpen(true) : setCollapsed(!collapsed),
-            })}
-            <Breadcrumb items={breadcrumbItems} style={{ display: isMobile ? 'none' : undefined }} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 20 }}>
-            {authorization?.menus.includes('menu.knowledge') && <Button type="link" onClick={() => navigate('/knowledge')}>知识库</Button>}
-            {authorization?.menus.includes('menu.smart_case') && <Button type="link" data-smart-case-launcher onClick={() => { void openCaseAssistant(); }}>智慧办案</Button>}
-            <Badge count={0} size="small"><BellOutlined style={{ fontSize: 18, cursor: 'pointer' }} /></Badge>
-            <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <Avatar icon={<UserOutlined />} size="small" />
-                {!isMobile && <><span>{userInfo?.name || userInfo?.username || '用户'}</span><DownOutlined style={{ fontSize: 12 }} /></>}
-              </div>
+          <div className="unified-header-actions">
+            <Button
+              aria-label="查找功能入口"
+              icon={<SearchOutlined />}
+              onClick={() => {
+                setSearch('');
+                setSearchOpen(true);
+              }}
+            />
+            {toolAllowed('/knowledge') && (
+              <Link className="unified-tool" to="/knowledge">
+                知识库
+              </Link>
+            )}
+            {toolAllowed('/smart-case') && (
+              <Button
+                type="text"
+                aria-label="智慧办案"
+                data-smart-case-launcher
+                onClick={() => void openCaseAssistant()}
+              >
+                智慧办案
+              </Button>
+            )}
+            <Link aria-label="通知中心" title="通知中心" className="unified-notification" to="/notifications">
+              <BellOutlined aria-hidden="true" />
+            </Link>
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'account', label: <Link to="/security/account">账号安全</Link> },
+                  { key: 'logout', label: '退出登录', onClick: logout },
+                ],
+              }}
+              trigger={['click']}
+            >
+              <Button className="unified-account" aria-label="账号菜单">
+                <Avatar size="small" icon={<UserOutlined />} />
+                <span>{userInfo?.name || userInfo?.username || '账号'}</span>
+              </Button>
             </Dropdown>
           </div>
-        </AntHeader>
-        <Content style={{ margin: isMobile ? 12 : 24, padding: isMobile ? 16 : 24, background: colorBgContainer, borderRadius: borderRadiusLG, minHeight: 280 }}>
-          {children}
-        </Content>
-      </Layout>
-    </Layout>
+        </header>
+        <div className="unified-body">
+          <aside className="unified-global-rail">
+            {globalNav}
+            <Button
+              aria-label={expanded ? '收起全局导航' : '展开全局导航'}
+              icon={expanded ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+              onClick={() => setExpanded((value) => !value)}
+            />
+          </aside>
+          {context && !contextHidden && <aside className="unified-context">{contextNav}</aside>}
+          <div className="unified-content">
+            {context && (
+              <div className="unified-context-toggle">
+                <Button
+                  size="small"
+                  type="text"
+                  aria-label={contextHidden ? '展开区域目录' : '收起区域目录'}
+                  icon={contextHidden ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                  onClick={() => setContextHidden((value) => !value)}
+                >
+                  {area.title}
+                </Button>
+              </div>
+            )}
+            <main
+              id="unified-main"
+              tabIndex={-1}
+              className={
+                current?.area === 'drive' && valid
+                  ? 'unified-main unified-workspace'
+                  : 'unified-main unified-page'
+              }
+            >
+              {body}
+            </main>
+          </div>
+        </div>
+        <Drawer
+          title="导航"
+          placement="left"
+          open={drawer}
+          onClose={closeNavigation}
+          className="unified-navigation-drawer"
+          size={300}
+        >
+          {globalNav}
+          {context && contextNav}
+        </Drawer>
+        <Modal
+          title="查找功能入口"
+          open={searchOpen}
+          onCancel={() => setSearchOpen(false)}
+          footer={null}
+          destroyOnHidden
+        >
+          <Input
+            aria-label="搜索功能入口"
+            placeholder="搜索已授权的应用或页面"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <div className="unified-search-results">
+            {searchItems.map((item) => (
+              <Link key={item.path} to={item.path} onClick={() => setSearchOpen(false)}>
+                {item.title}
+                <small>
+                  {item.global ? '全局工具' : areas.find((value) => value.id === item.area)?.title} ·{' '}
+                  {item.group}
+                </small>
+              </Link>
+            ))}
+            {!searchItems.length && <Empty description="没有匹配的可用入口" />}
+          </div>
+        </Modal>
+      </div>
+    </UnifiedShellContext.Provider>
   );
-};
-
-export default MainLayout;
+}

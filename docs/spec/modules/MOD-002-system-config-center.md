@@ -18,6 +18,8 @@ last_updated: 2026-09-15
 
 2026-09-14 前的“只配置已有业务对象＋管理员统一发布”范围已扩展。普通自建表/视图与高风险系统配置分层；本需求与 [SPEC-COLLAB-20260914](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md) 作为向前开发输入，已有治理实现不因此被标记为完成新需求。
 
+2026-09-15 进一步授权[全站统一与原 OA 重构](../../superpowers/specs/2026-09-15-feishu-unified-oa-refactor.md)：旧菜单、页面和组件组织与飞书式协作设计冲突时，以新设计为主，允许全面重构；首批优先全局及左侧导航，再逐项整合全部业务模块。知识库与智慧办案保留现有架构，优先仅适配入口与外层。该新增范围尚未实施，不计入下面既有能力的完成状态。
+
 ## 2. 功能清单
 | 编号 | 功能 | 需求 | 现状 |
 |---|---|---|---|
@@ -123,3 +125,6 @@ G2-A 工程输入与完成边界见[生命周期契约](../../superpowers/specs/
 
 
 G2-B 见[快捷方式与最近访问契约](../../superpowers/specs/2026-09-15-cloud-drive-g2b-shortcuts-recents.md)：个人/共享引用原资源、独立添加/移除、个人最近 100 项及清空、入口实时鉴权；状态与验证见云盘计划第 8 节。上传、模板与文档协作仍分期推进。
+
+
+全站统一 U0–U3 的真实路由、五区布局、菜单/读取交集与 Wiki/Harness 边界见[统一导航契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)，实施与验收见[全站统一计划](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。本批是全站框架接入，原业务共同视图与受控动作继续按 U4–U7 分批整合。

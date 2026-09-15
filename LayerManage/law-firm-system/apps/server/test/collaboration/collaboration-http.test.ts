@@ -1573,3 +1573,269 @@ test(
     }
   },
 );
+
+test(
+  'unified shell keeps real routes, three-role permissions, resource return and desktop tools across navigation',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web');
+    const load = new Function('url', 'return import(url)');
+    const { chromium } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'isolated-unified-session',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const errors: string[] = [];
+    try {
+      const grant = async (userId: string, code: string, permissions: string[]) => {
+        const role = await db.role.create({
+          data: {
+            name: code,
+            code,
+            type: code.startsWith('SYSTEM_') ? 'SYSTEM' : 'BUSINESS',
+            permissions: {
+              create: permissions.map((permission) => ({ permission: { connect: { code: permission } } })),
+            },
+          },
+        });
+        await db.userRole.create({
+          data: { userId, roleId: role.id, validFrom: new Date(Date.now() - 1000) },
+        });
+        return role.id;
+      };
+      await grant(owner, 'SYSTEM_SUPER_ADMIN', [
+        'menu.organization_personnel',
+        'menu.organization',
+        'organization.read',
+        'menu.security_roles',
+        'role.read',
+        'menu.knowledge',
+        'menu.smart_case',
+      ]);
+      const staffRole = await grant(editor, 'UNIFIED_STAFF', [
+        'menu.lead_crm',
+        'lead.read',
+        'menu.knowledge',
+        'menu.smart_case',
+      ]);
+      const manager = await db.user.create({
+        data: { username: 'unified-manager', password: 'unused', mustChangePassword: false },
+      });
+      await grant(manager.id, 'UNIFIED_MANAGER', [
+        'menu.lead_crm',
+        'lead.read',
+        'menu.customer',
+        'customer.read',
+      ]);
+      await db.collabMember.create({
+        data: { workspaceId, principalId: manager.id, role: 'MANAGER', rowScope: 'ALL', canCreate: true },
+      });
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: editor },
+        data: { rowScope: 'SELF' },
+      });
+      const adminToken = (await createApiSession(db, owner, 'MFA')).token;
+      const managerToken = (await createApiSession(db, manager.id)).token;
+      const api = (method: 'get' | 'post', route: string, bearer = adminToken, body?: unknown) => {
+        const request = app.httpRequest();
+        const call = request[method]('/api/v1' + route)
+          .set('Authorization', 'Bearer ' + bearer)
+          .set('Idempotency-Key', randomUUID());
+        return body === undefined ? call : call.send(body);
+      };
+      const folder = (
+        await api('post', '/workspaces/' + workspaceId + '/drive/folders', adminToken, {
+          name: '统一入口资料',
+        }).expect(200)
+      ).body.data.id;
+      await api('post', '/drive/folders/' + folder + '/access', adminToken, {
+        version: 1,
+        policy: { restricted: false, grants: [] },
+      }).expect(200);
+      const base = (
+        await api('post', '/workspaces/' + workspaceId + '/drive/bases', adminToken, {
+          name: '统一入口测试表',
+          parentId: folder,
+        }).expect(200)
+      ).body.data;
+      const titleField = (await db.collabField.findFirstOrThrow({ where: { tableId: base.tableId } })).id;
+      await api('post', '/tables/' + base.tableId + '/records', editorToken, {
+        schemaVersion: 1,
+        values: { [titleField]: '同一资源本人记录' },
+      }).expect(200);
+      const pages = [];
+      for (const [id, accessToken] of [
+        [owner, adminToken],
+        [editor, editorToken],
+        [manager.id, managerToken],
+      ]) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        // Use source text so tsx function-name helpers cannot leak into the browser init script.
+        await context.addInitScript(`
+        window.unifiedTestSession = ${JSON.stringify({
+          mode: 'AUTHENTICATED',
+          token: accessToken,
+          csrfToken: 'test',
+          expiresIn: 900,
+          user: { id, username: id, name: '框架验收成员', roles: [], permissions: [] },
+        })};
+        window.unifiedAssistantOpens = 0;
+        window.chengyeDesktop = { version: 1, openAssistant: async function () { window.unifiedAssistantOpens++; } };
+      `);
+        const page = await context.newPage();
+        page.on('pageerror', (error: Error) => errors.push(error.message));
+        pages.push(page);
+      }
+      const [admin, staff, leader] = pages;
+      const address = vite.resolvedUrls.local[0];
+      await Promise.all(pages.map((page) => page.goto(address)));
+      for (const page of pages) {
+        await page.getByRole('heading', { name: '工作台', exact: true }).waitFor();
+        assert.deepEqual(
+          await page
+            .getByRole('navigation', { name: '全局导航', exact: true })
+            .getByRole('link')
+            .allTextContents(),
+          ['工作台', '云盘', '业务应用', '数据分析', '管理中心'],
+        );
+      }
+      await admin
+        .getByRole('navigation', { name: '全局导航', exact: true })
+        .getByRole('link', { name: '管理中心', exact: true })
+        .click();
+      await admin.locator('.unified-app-card').filter({ hasText: '组织架构' }).waitFor();
+      await staff
+        .getByRole('navigation', { name: '全局导航', exact: true })
+        .getByRole('link', { name: '管理中心', exact: true })
+        .click();
+      await staff.getByText('当前区域暂无已授权应用', { exact: true }).waitFor();
+      await staff.goto(address + 'security/roles');
+      await staff.getByText('无权访问此页面', { exact: true }).waitFor();
+      await api('get', '/roles', editorToken).expect(403);
+      await staff.locator('.unified-shell').evaluate((node: HTMLElement) => {
+        node.dataset.persistenceCheck = 'same-shell';
+      });
+      const applicationsLink = staff
+        .getByRole('navigation', { name: '全局导航', exact: true })
+        .getByRole('link', { name: '业务应用', exact: true });
+      await applicationsLink.focus();
+      await applicationsLink.press('Enter');
+      await staff.locator('.unified-app-card').filter({ hasText: '线索列表' }).click();
+      await staff.getByRole('button', { name: /新建线索/ }).waitFor();
+      assert.equal(new URL(staff.url()).pathname, '/leads');
+      await leader
+        .getByRole('navigation', { name: '全局导航', exact: true })
+        .getByRole('link', { name: '业务应用', exact: true })
+        .click();
+      await leader.locator('.unified-app-card').filter({ hasText: '客户管理' }).waitFor();
+      const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence');
+      await mkdir(evidence, { recursive: true });
+      for (const width of [1440, 1024, 390]) {
+        await staff.setViewportSize({ width, height: 900 });
+        assert.equal(
+          await staff.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
+          false,
+          'unified business overflow ' + width,
+        );
+        await staff.screenshot({
+          path: path.join(evidence, 'unified-business-' + width + '.png'),
+          fullPage: true,
+        });
+      }
+      await staff.getByRole('button', { name: '打开全局导航', exact: true }).click();
+      await staff.getByRole('dialog').getByRole('link', { name: '云盘', exact: true }).click();
+      await staff.getByRole('dialog').waitFor({ state: 'hidden' });
+      await staff.setViewportSize({ width: 1440, height: 1000 });
+      await staff.getByRole('heading', { name: '云盘', exact: true }).waitFor();
+      assert.equal(await staff.locator('.unified-context').count(), 0);
+      await staff.locator('[data-resource-id="' + folder + '"] .drive-resource-open').click();
+      await staff.locator('[data-resource-id="' + base.id + '"] .drive-resource-open').click();
+      await staff.getByRole('button', { name: '标题：同一资源本人记录', exact: true }).waitFor();
+      assert.equal(new URL(staff.url()).searchParams.get('base'), base.id);
+      assert.equal(
+        await staff.locator('.unified-shell').getAttribute('data-persistence-check'),
+        'same-shell',
+      );
+      assert.equal(await staff.getByRole('link', { name: '知识库', exact: true }).count(), 1);
+      await staff.getByRole('button', { name: '智慧办案', exact: true }).click();
+      await staff.waitForFunction(() => window.unifiedAssistantOpens === 1, undefined, { timeout: 5000 });
+      assert.equal(await staff.evaluate(() => window.unifiedAssistantOpens), 1);
+      for (const width of [1440, 1024, 390]) {
+        await staff.setViewportSize({ width, height: 900 });
+        assert.equal(
+          await staff.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
+          false,
+          'unified editor overflow ' + width,
+        );
+        await staff.screenshot({
+          path: path.join(evidence, 'unified-editor-' + width + '.png'),
+          fullPage: true,
+        });
+      }
+      await staff.setViewportSize({ width: 1440, height: 1000 });
+      await staff.getByRole('button', { name: '承业 · 云盘', exact: true }).click();
+      await staff.locator('[data-resource-id="' + base.id + '"]').waitFor();
+      assert.equal(new URL(staff.url()).searchParams.get('folder'), folder);
+      await staff.getByRole('button', { name: '智慧办案', exact: true }).click();
+      await staff.waitForFunction(() => window.unifiedAssistantOpens === 2, undefined, { timeout: 5000 });
+      assert.equal(await staff.evaluate(() => window.unifiedAssistantOpens), 2);
+      await staff.getByRole('button', { name: '展开全局导航', exact: true }).click();
+      assert.equal(await staff.locator('.unified-expanded').count(), 1);
+      await staff.getByRole('button', { name: '收起全局导航', exact: true }).click();
+      await staff.getByRole('button', { name: '查找功能入口', exact: true }).click();
+      await staff.getByRole('textbox', { name: '搜索功能入口', exact: true }).fill('角色');
+      await staff.getByText('没有匹配的可用入口', { exact: true }).waitFor();
+      await staff.keyboard.press('Escape');
+      await admin.goto(address + 'roles?from=bookmark#detail');
+      await admin.waitForURL('**/security/roles?from=bookmark#detail');
+      await admin.locator('.unified-main .ant-table').waitFor();
+      await staff.goto(address + 'inventory/not-a-page');
+      await staff.getByText('页面不存在', { exact: true }).waitFor();
+      await staff.goto(address + 'leads');
+      await staff.getByRole('button', { name: /新建线索/ }).waitFor();
+      await db.rolePermission.deleteMany({ where: { roleId: staffRole, permission: { code: 'lead.read' } } });
+      const revokedAt = Date.now();
+      await staff.getByText('无权访问此页面', { exact: true }).waitFor({ timeout: 18000 });
+      assert.ok(Date.now() - revokedAt < 18000);
+      await api('get', '/leads', editorToken).expect(403);
+      await staff.goto(address + 'apps');
+      await staff.locator('.unified-app-card').filter({ hasText: '渠道管理' }).waitFor();
+      assert.equal(await staff.locator('.unified-app-card').filter({ hasText: '线索列表' }).count(), 0);
+      await staff.route(
+        '**/api/v1/authorization/me',
+        async (route: { fulfill: (value: unknown) => Promise<void> }) =>
+          route.fulfill({
+            status: 503,
+            contentType: 'application/json',
+            body: '{"message":"temporary_unavailable"}',
+          }),
+      );
+      await staff.goto(address + 'apps');
+      await staff.getByText('无法确认当前权限', { exact: true }).waitFor();
+      await staff.unroute('**/api/v1/authorization/me');
+      await staff.getByRole('button', { name: '重试授权', exact: true }).click();
+      await staff.locator('.unified-app-card').filter({ hasText: '渠道管理' }).waitFor();
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await vite.close();
+    }
+  },
+);

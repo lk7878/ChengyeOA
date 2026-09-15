@@ -65,3 +65,8 @@ last_updated: 2026-09-14
 - 测试: apps/server/test/crm/、apps/server/test/app/{lead,appointment,customer}-api.test.ts
 
 <!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->
+
+
+### 全站统一迁移（U0/U1，2026-09-15）
+
+线索、公海、到访日历与记录详情进入业务应用的客户经营，旧 URL 和 Lead ID 保留。U4 继续接入同源视图/详情/受控跟进动作。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。

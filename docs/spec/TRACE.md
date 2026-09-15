@@ -157,3 +157,10 @@ G2-A 最终验收：服务 51/51、完整 HTTP/SSE/Edge 5/5、目标撤权追加
 | 迁移、基线及目录性能 | 20260915140000_drive_shortcuts_visits；90 模型/55 迁移；500 资源 + 200 链接 + 100 访问目录验证 |
 
 G2-B 最终验收：完整服务 59/59、严格输入追加服务 8/8、完整 HTTP/SSE/Edge 6/6、前端相关 21 项通过；混合目录 P95 29ms。两个隔离测试库及开发库增量迁移至 55 条（90 模型），两端构建与契约检查通过，开发服务恢复。没有重跑 900 秒持续负载，既有 G2-A 结果仅为历史证据。
+
+
+## SPEC-UNIFIED-OA U0–U3
+
+[路由矩阵与导航契约](../superpowers/specs/2026-09-15-unified-navigation-contract.md)覆盖全站 MOD-001–013。U0/U1 已明确全部实际路由、权威数据、授权、受控动作、旧链接及 Wiki/Harness 保护边界；U2/U3 已完成本批框架实现与验收。导航目录 catalog.ts、持久 MainLayout、区域首页 AreaPage、App 嵌套路由与受保护内容守卫共同承接 UNIFY-AC-01/02/03/07/08/09/10。本批不宣告 U4–U7 或 UNIFY-AC-04/05/06 全站业务整合完成。
+
+U0–U3 验收：前端相关 11 文件 51/51；完整 HTTP/SSE/Edge 7/7（290.525 秒）；两端 lint/类型、前端构建及 baseline/bootstrap/文档检查通过。真实 App 三角色、持久框架、键盘、三宽度、直链/撤权/重试、资源返回均覆盖。桌面桥使用测试替身，未复验真实 Electron 全办案链路；完整业务整合与 UNIFY-AC-07 剩余项仍待后续阶段，详见[实施计划](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。
