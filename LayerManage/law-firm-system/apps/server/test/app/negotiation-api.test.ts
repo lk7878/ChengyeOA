@@ -422,17 +422,19 @@ test('enforces SELF and TEAM data scopes on negotiation lists without leaking ex
     professionalTeamId: otherTeam.id,
   });
 
-  // SELF：锚 negotiatorEmployeeId / createdBy。
+  // SELF：严格创建人；仅被指派为谈案人不会扩大本人的登记范围。
   const selfReader = await createContractSession({
     permissions: ['negotiation.read'],
     scope: { kind: 'SELF' },
     employeeId: employeeA.id,
   });
+  const own = await seedNegotiation({ customerId: customer.id, negotiatorEmployeeId: employeeB.id, createdBy: selfReader.userId });
+  await app.httpRequest().get(`/api/v1/negotiations/${asNegotiator.id}`).set(bearer(selfReader.token)).expect(404);
   const selfList = await app.httpRequest()
     .get('/api/v1/negotiations')
     .set(bearer(selfReader.token))
     .expect(200);
-  assert.deepEqual(selfList.body.data.list.map((item: { id: string }) => item.id), [asNegotiator.id]);
+  assert.deepEqual(selfList.body.data.list.map((item: { id: string }) => item.id), [own.id]);
   const selfHidden = await app.httpRequest()
     .get(`/api/v1/negotiations/${outsiderOwned.id}`)
     .set(bearer(selfReader.token))

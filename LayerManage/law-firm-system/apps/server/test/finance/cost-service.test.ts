@@ -29,6 +29,7 @@ import { clearTestApplicationData, createTestPrisma } from '../helpers/test-data
 let prisma: PrismaClient;
 
 const COST_PERMISSIONS: PermissionCode[] = [
+  'channel.read',
   'case.read',
   'cost.read',
   'cost.create',
@@ -64,7 +65,7 @@ function costContext(userId: string, overrides: CostContextOverrides = {}): Auth
     employeeId: overrides.employeeId ?? null,
     isSystemAdmin: false,
     isSystemSuperAdmin: false,
-    grants: permissionCodes.map(permissionCode => ({
+    grants: permissionCodes.map((permissionCode) => ({
       sourceType: 'ROLE' as const,
       sourceId: `${userId}-grant-${permissionCode}`,
       sourceRoleId: 'test-role',
@@ -153,7 +154,7 @@ async function createCostRow(overrides: {
 }
 
 function hasCode(code: string): (error: unknown) => boolean {
-  return error => Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
+  return (error) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
 }
 
 function isValidationFailed400(error: unknown): boolean {
@@ -165,7 +166,7 @@ function isVersionConflict409(error: unknown): boolean {
 }
 
 function isFinanceError(code: string, httpStatus: number): (error: unknown) => boolean {
-  return error => error instanceof FinanceError && error.code === code && error.httpStatus === httpStatus;
+  return (error) => error instanceof FinanceError && error.code === code && error.httpStatus === httpStatus;
 }
 
 // ---------- 创建 createCostEntry ----------
@@ -209,24 +210,32 @@ test('createCostEntry registers a CHANNEL cost with cost.created and audit in on
   assert.equal(event.organizationId, null, 'cost carries no organization anchor');
   assert.equal(event.branchId, null);
   assert.equal(event.teamId, null);
-  assert.deepEqual(event.payload, {
-    costEntryId: view.id,
-    category: 'CHANNEL',
-    channelId: channel.id,
-    caseId: null,
-  }, 'cost.created carries exactly four keys');
+  assert.deepEqual(
+    event.payload,
+    {
+      costEntryId: view.id,
+      category: 'CHANNEL',
+      channelId: channel.id,
+      caseId: null,
+    },
+    'cost.created carries exactly four keys',
+  );
 
   const operationLog = await prisma.operationLog.findFirstOrThrow({
     where: { targetType: 'COST_ENTRY', targetId: view.id, action: 'COST_CREATE' },
   });
   assert.equal(operationLog.userId, userId);
   const auditValues = JSON.parse(operationLog.newValues ?? '{}') as Record<string, unknown>;
-  assert.deepEqual(auditValues, {
-    costEntryId: view.id,
-    category: 'CHANNEL',
-    amount: '3200.50',
-    hasNote: false,
-  }, 'create audit holds identifiers + amount + hasNote only');
+  assert.deepEqual(
+    auditValues,
+    {
+      costEntryId: view.id,
+      category: 'CHANNEL',
+      amount: '3200.50',
+      hasNote: false,
+    },
+    'create audit holds identifiers + amount + hasNote only',
+  );
 });
 
 test('createCostEntry persists note on the row but keeps it out of audit values', async () => {
@@ -246,12 +255,16 @@ test('createCostEntry persists note on the row but keeps it out of audit values'
   const event = await prisma.eventLog.findFirstOrThrow({
     where: { objectType: 'COST_ENTRY', objectId: view.id, eventType: 'cost.created' },
   });
-  assert.deepEqual(event.payload, {
-    costEntryId: view.id,
-    category: 'OFFICE',
-    channelId: null,
-    caseId: null,
-  }, 'note free text stays out of the event payload');
+  assert.deepEqual(
+    event.payload,
+    {
+      costEntryId: view.id,
+      category: 'OFFICE',
+      channelId: null,
+      caseId: null,
+    },
+    'note free text stays out of the event payload',
+  );
 
   const operationLog = await prisma.operationLog.findFirstOrThrow({
     where: { targetType: 'COST_ENTRY', targetId: view.id, action: 'COST_CREATE' },
@@ -269,31 +282,44 @@ test('createCostEntry accepts every anchor-matrix combination (five categories, 
   const service = costServiceFor(userId, actor);
 
   const channelCost = await service.createCostEntry({
-    category: 'CHANNEL', amount: '10.00', occurredAt: '2026-07-01', channelId: channel.id,
+    category: 'CHANNEL',
+    amount: '10.00',
+    occurredAt: '2026-07-01',
+    channelId: channel.id,
   });
   assert.equal(channelCost.channelId, channel.id);
   assert.equal(channelCost.caseId, null);
 
   const evidenceCost = await service.createCostEntry({
-    category: 'EVIDENCE', amount: '20.00', occurredAt: '2026-07-02', caseId: kase.id,
+    category: 'EVIDENCE',
+    amount: '20.00',
+    occurredAt: '2026-07-02',
+    caseId: kase.id,
   });
   assert.equal(evidenceCost.caseId, kase.id);
   assert.equal(evidenceCost.channelId, null);
 
   const caseHandlingCost = await service.createCostEntry({
-    category: 'CASE_HANDLING', amount: '30.00', occurredAt: '2026-07-03', caseId: kase.id,
+    category: 'CASE_HANDLING',
+    amount: '30.00',
+    occurredAt: '2026-07-03',
+    caseId: kase.id,
   });
   assert.equal(caseHandlingCost.caseId, kase.id);
   assert.equal(caseHandlingCost.channelId, null);
 
   const laborCost = await service.createCostEntry({
-    category: 'LABOR', amount: '40.00', occurredAt: '2026-07-04',
+    category: 'LABOR',
+    amount: '40.00',
+    occurredAt: '2026-07-04',
   });
   assert.equal(laborCost.channelId, null);
   assert.equal(laborCost.caseId, null);
 
   const officeCost = await service.createCostEntry({
-    category: 'OFFICE', amount: '50.00', occurredAt: '2026-07-05',
+    category: 'OFFICE',
+    amount: '50.00',
+    occurredAt: '2026-07-05',
   });
   assert.equal(officeCost.channelId, null);
   assert.equal(officeCost.caseId, null);
@@ -319,24 +345,36 @@ test('createCostEntry rejects every anchor-matrix violation (five categories, on
     'EVIDENCE without caseId is REQUIRED',
   );
   await assert.rejects(
-    () => service.createCostEntry({
-      category: 'CASE_HANDLING', amount: '10.00', occurredAt: '2026-07-01',
-      caseId: kase.id, channelId: channel.id,
-    }),
+    () =>
+      service.createCostEntry({
+        category: 'CASE_HANDLING',
+        amount: '10.00',
+        occurredAt: '2026-07-01',
+        caseId: kase.id,
+        channelId: channel.id,
+      }),
     isFinanceError(FINANCE_ERROR_CODES.COST_ANCHOR_FORBIDDEN, 400),
     'CASE_HANDLING with channelId is FORBIDDEN',
   );
   await assert.rejects(
-    () => service.createCostEntry({
-      category: 'LABOR', amount: '10.00', occurredAt: '2026-07-01', channelId: channel.id,
-    }),
+    () =>
+      service.createCostEntry({
+        category: 'LABOR',
+        amount: '10.00',
+        occurredAt: '2026-07-01',
+        channelId: channel.id,
+      }),
     isFinanceError(FINANCE_ERROR_CODES.COST_ANCHOR_FORBIDDEN, 400),
     'LABOR with channelId is FORBIDDEN',
   );
   await assert.rejects(
-    () => service.createCostEntry({
-      category: 'OFFICE', amount: '10.00', occurredAt: '2026-07-01', caseId: kase.id,
-    }),
+    () =>
+      service.createCostEntry({
+        category: 'OFFICE',
+        amount: '10.00',
+        occurredAt: '2026-07-01',
+        caseId: kase.id,
+      }),
     isFinanceError(FINANCE_ERROR_CODES.COST_ANCHOR_FORBIDDEN, 400),
     'OFFICE with caseId is FORBIDDEN',
   );
@@ -359,16 +397,24 @@ test('createCostEntry rejects a forged channelId or caseId with VALIDATION_FAILE
   const service = costServiceFor(userId, actor);
 
   await assert.rejects(
-    () => service.createCostEntry({
-      category: 'CHANNEL', amount: '10.00', occurredAt: '2026-07-01', channelId: randomUUID(),
-    }),
+    () =>
+      service.createCostEntry({
+        category: 'CHANNEL',
+        amount: '10.00',
+        occurredAt: '2026-07-01',
+        channelId: randomUUID(),
+      }),
     isValidationFailed400,
     'a channelId that does not resolve to a Channel row is a validation failure',
   );
   await assert.rejects(
-    () => service.createCostEntry({
-      category: 'EVIDENCE', amount: '10.00', occurredAt: '2026-07-01', caseId: randomUUID(),
-    }),
+    () =>
+      service.createCostEntry({
+        category: 'EVIDENCE',
+        amount: '10.00',
+        occurredAt: '2026-07-01',
+        caseId: randomUUID(),
+      }),
     isValidationFailed400,
     'a caseId that does not resolve to a Case row is a validation failure',
   );
@@ -393,12 +439,22 @@ test('createCostEntry rejects non-positive, over-scale and malformed amounts wit
   const { userId, actor } = await createCostActor();
   const service = costServiceFor(userId, actor);
 
-  const badAmounts: Array<string | number | undefined> = ['0', 0, '-1.00', '10.005', 'not-a-number', undefined];
+  const badAmounts: Array<string | number | undefined> = [
+    '0',
+    0,
+    '-1.00',
+    '10.005',
+    'not-a-number',
+    undefined,
+  ];
   for (const amount of badAmounts) {
     await assert.rejects(
-      () => service.createCostEntry({
-        category: 'LABOR', amount: amount as string, occurredAt: '2026-07-01',
-      }),
+      () =>
+        service.createCostEntry({
+          category: 'LABOR',
+          amount: amount as string,
+          occurredAt: '2026-07-01',
+        }),
       isValidationFailed400,
       `amount ${String(amount)} must be rejected`,
     );
@@ -413,17 +469,24 @@ test('createCostEntry rejects a malformed occurredAt and unknown extra keys with
   const badDates: unknown[] = ['not-a-date', '2026-13-40', '2026-02-30', 123];
   for (const occurredAt of badDates) {
     await assert.rejects(
-      () => service.createCostEntry({
-        category: 'LABOR', amount: '10.00', occurredAt: occurredAt as string,
-      }),
+      () =>
+        service.createCostEntry({
+          category: 'LABOR',
+          amount: '10.00',
+          occurredAt: occurredAt as string,
+        }),
       isValidationFailed400,
       `occurredAt ${String(occurredAt)} must be rejected`,
     );
   }
   await assert.rejects(
-    () => service.createCostEntry({
-      category: 'LABOR', amount: '10.00', occurredAt: '2026-07-01', injectedKey: 'x',
-    } as unknown as Parameters<CostService['createCostEntry']>[0]),
+    () =>
+      service.createCostEntry({
+        category: 'LABOR',
+        amount: '10.00',
+        occurredAt: '2026-07-01',
+        injectedKey: 'x',
+      } as unknown as Parameters<CostService['createCostEntry']>[0]),
     isValidationFailed400,
     'assertExactKeys rejects injected keys',
   );
@@ -436,7 +499,9 @@ test('updateCostEntry applies provided fields, bumps the version, and writes cos
   const { userId, actor } = await createCostActor();
   const service = costServiceFor(userId, actor);
   const created = await service.createCostEntry({
-    category: 'LABOR', amount: '100.00', occurredAt: '2026-07-01',
+    category: 'LABOR',
+    amount: '100.00',
+    occurredAt: '2026-07-01',
   });
 
   const view = await service.updateCostEntry(created.id, {
@@ -461,21 +526,29 @@ test('updateCostEntry applies provided fields, bumps the version, and writes cos
   assert.equal(event.organizationId, null);
   assert.equal(event.branchId, null);
   assert.equal(event.teamId, null);
-  assert.deepEqual(event.payload, {
-    costEntryId: created.id,
-    category: 'LABOR',
-  }, 'cost.updated carries exactly two keys');
+  assert.deepEqual(
+    event.payload,
+    {
+      costEntryId: created.id,
+      category: 'LABOR',
+    },
+    'cost.updated carries exactly two keys',
+  );
 
   const operationLog = await prisma.operationLog.findFirstOrThrow({
     where: { targetType: 'COST_ENTRY', targetId: created.id, action: 'COST_UPDATE' },
   });
   assert.equal(operationLog.userId, userId);
   const auditValues = JSON.parse(operationLog.newValues ?? '{}') as Record<string, unknown>;
-  assert.deepEqual(auditValues, {
-    costEntryId: created.id,
-    category: 'LABOR',
-    changedFields: ['amount', 'occurredAt', 'note'],
-  }, 'update audit records only the changed field names, never the new values');
+  assert.deepEqual(
+    auditValues,
+    {
+      costEntryId: created.id,
+      category: 'LABOR',
+      changedFields: ['amount', 'occurredAt', 'note'],
+    },
+    'update audit records only the changed field names, never the new values',
+  );
   assert.ok(!operationLog.newValues?.includes('人力成本'), 'note free text stays out of audit values');
 });
 
@@ -483,7 +556,10 @@ test('updateCostEntry applies a partial update and clears note with an empty str
   const { userId, actor } = await createCostActor();
   const service = costServiceFor(userId, actor);
   const created = await service.createCostEntry({
-    category: 'OFFICE', amount: '100.00', occurredAt: '2026-07-01', note: '初始备注',
+    category: 'OFFICE',
+    amount: '100.00',
+    occurredAt: '2026-07-01',
+    note: '初始备注',
   });
 
   const noted = await service.updateCostEntry(created.id, { note: '更新后的备注', version: 1 });
@@ -509,7 +585,9 @@ test('updateCostEntry rejects a missing or malformed version with 400', async ()
   const { userId, actor } = await createCostActor();
   const service = costServiceFor(userId, actor);
   const created = await service.createCostEntry({
-    category: 'LABOR', amount: '100.00', occurredAt: '2026-07-01',
+    category: 'LABOR',
+    amount: '100.00',
+    occurredAt: '2026-07-01',
   });
 
   const badVersions: unknown[] = [undefined, '1', -1, 1.5];
@@ -533,7 +611,10 @@ test('updateCostEntry rejects category/channelId/caseId injection with 400 (anch
   const channel = await createChannelFixture();
   const service = costServiceFor(userId, actor);
   const created = await service.createCostEntry({
-    category: 'CHANNEL', amount: '100.00', occurredAt: '2026-07-01', channelId: channel.id,
+    category: 'CHANNEL',
+    amount: '100.00',
+    occurredAt: '2026-07-01',
+    channelId: channel.id,
   });
 
   const injections: Array<Record<string, unknown>> = [
@@ -543,10 +624,11 @@ test('updateCostEntry rejects category/channelId/caseId injection with 400 (anch
   ];
   for (const injection of injections) {
     await assert.rejects(
-      () => service.updateCostEntry(
-        created.id,
-        injection as unknown as Parameters<CostService['updateCostEntry']>[1],
-      ),
+      () =>
+        service.updateCostEntry(
+          created.id,
+          injection as unknown as Parameters<CostService['updateCostEntry']>[1],
+        ),
       isValidationFailed400,
       `injection ${JSON.stringify(injection)} must be rejected by assertExactKeys`,
     );
@@ -566,7 +648,9 @@ test('updateCostEntry returns VERSION_CONFLICT 409 for a stale version', async (
   const { userId, actor } = await createCostActor();
   const service = costServiceFor(userId, actor);
   const created = await service.createCostEntry({
-    category: 'LABOR', amount: '100.00', occurredAt: '2026-07-01',
+    category: 'LABOR',
+    amount: '100.00',
+    occurredAt: '2026-07-01',
   });
 
   await service.updateCostEntry(created.id, { note: '第一次更新', version: 1 });
@@ -594,7 +678,9 @@ test('updateCostEntry returns COST_NOT_FOUND 404 for a missing or soft-deleted e
   const { userId, actor } = await createCostActor();
   const service = costServiceFor(userId, actor);
   const created = await service.createCostEntry({
-    category: 'LABOR', amount: '100.00', occurredAt: '2026-07-01',
+    category: 'LABOR',
+    amount: '100.00',
+    occurredAt: '2026-07-01',
   });
   await service.deleteCostEntry(created.id);
 
@@ -613,7 +699,9 @@ test('updateCostEntry requires the cost.update action permission', async () => {
   const { userId, actor } = await createCostActor();
   const service = costServiceFor(userId, actor);
   const created = await service.createCostEntry({
-    category: 'LABOR', amount: '100.00', occurredAt: '2026-07-01',
+    category: 'LABOR',
+    amount: '100.00',
+    occurredAt: '2026-07-01',
   });
   const denied = costServiceFor(userId, actor, {
     permissionCodes: ['cost.read', 'cost.create', 'cost.delete'],
@@ -635,7 +723,10 @@ test('deleteCostEntry soft-deletes with cost.deleted + audit and hides the row f
   const kase = await createCaseFixture(customer.id);
   const service = costServiceFor(userId, actor);
   const created = await service.createCostEntry({
-    category: 'EVIDENCE', amount: '800.00', occurredAt: '2026-07-10', caseId: kase.id,
+    category: 'EVIDENCE',
+    amount: '800.00',
+    occurredAt: '2026-07-10',
+    caseId: kase.id,
   });
 
   const result = await service.deleteCostEntry(created.id);
@@ -653,20 +744,28 @@ test('deleteCostEntry soft-deletes with cost.deleted + audit and hides the row f
   assert.equal(event.organizationId, null);
   assert.equal(event.branchId, null);
   assert.equal(event.teamId, null);
-  assert.deepEqual(event.payload, {
-    costEntryId: created.id,
-    category: 'EVIDENCE',
-  }, 'cost.deleted carries exactly two keys');
+  assert.deepEqual(
+    event.payload,
+    {
+      costEntryId: created.id,
+      category: 'EVIDENCE',
+    },
+    'cost.deleted carries exactly two keys',
+  );
 
   const operationLog = await prisma.operationLog.findFirstOrThrow({
     where: { targetType: 'COST_ENTRY', targetId: created.id, action: 'COST_DELETE' },
   });
   assert.equal(operationLog.userId, userId);
   const auditValues = JSON.parse(operationLog.newValues ?? '{}') as Record<string, unknown>;
-  assert.deepEqual(auditValues, {
-    costEntryId: created.id,
-    category: 'EVIDENCE',
-  }, 'delete audit carries exactly costEntryId + category');
+  assert.deepEqual(
+    auditValues,
+    {
+      costEntryId: created.id,
+      category: 'EVIDENCE',
+    },
+    'delete audit carries exactly costEntryId + category',
+  );
 
   await assert.rejects(
     () => service.getCostEntry(created.id),
@@ -681,7 +780,9 @@ test('deleteCostEntry returns COST_NOT_FOUND 404 for a missing id or a second de
   const { userId, actor } = await createCostActor();
   const service = costServiceFor(userId, actor);
   const created = await service.createCostEntry({
-    category: 'LABOR', amount: '100.00', occurredAt: '2026-07-01',
+    category: 'LABOR',
+    amount: '100.00',
+    occurredAt: '2026-07-01',
   });
 
   await assert.rejects(
@@ -710,7 +811,9 @@ test('deleteCostEntry requires the cost.delete action permission', async () => {
   const { userId, actor } = await createCostActor();
   const service = costServiceFor(userId, actor);
   const created = await service.createCostEntry({
-    category: 'LABOR', amount: '100.00', occurredAt: '2026-07-01',
+    category: 'LABOR',
+    amount: '100.00',
+    occurredAt: '2026-07-01',
   });
   const denied = costServiceFor(userId, actor, {
     permissionCodes: ['cost.read', 'cost.create', 'cost.update'],
@@ -735,7 +838,10 @@ test('listCostEntries filters by category, channelId and caseId with pagination,
   await createCostRow({ category: 'EVIDENCE', createdBy: userId, amount: '400.00', caseId: kase.id });
   await createCostRow({ category: 'LABOR', createdBy: userId, amount: '500.00' });
   await createCostRow({
-    category: 'LABOR', createdBy: userId, amount: '600.00', deletedAt: new Date(),
+    category: 'LABOR',
+    createdBy: userId,
+    amount: '600.00',
+    deletedAt: new Date(),
   });
   const service = costServiceFor(userId, actor);
 
@@ -744,18 +850,18 @@ test('listCostEntries filters by category, channelId and caseId with pagination,
   assert.equal(all.pageSize, 20);
   assert.equal(all.total, 5, 'soft-deleted rows are excluded');
   assert.equal(all.list.length, 5);
-  assert.ok(all.list.every(item => item.amount !== '600.00'));
+  assert.ok(all.list.every((item) => item.amount !== '600.00'));
 
   const byCategory = await service.listCostEntries({ category: 'CHANNEL' });
   assert.equal(byCategory.total, 3);
-  assert.ok(byCategory.list.every(item => item.category === 'CHANNEL'));
+  assert.ok(byCategory.list.every((item) => item.category === 'CHANNEL'));
 
   const laborOnly = await service.listCostEntries({ category: 'LABOR' });
   assert.equal(laborOnly.total, 1, 'soft-deleted LABOR row stays hidden under a category filter');
 
   const byChannel = await service.listCostEntries({ channelId: channelA.id });
   assert.equal(byChannel.total, 2);
-  assert.ok(byChannel.list.every(item => item.channelId === channelA.id));
+  assert.ok(byChannel.list.every((item) => item.channelId === channelA.id));
 
   const byCase = await service.listCostEntries({ caseId: kase.id });
   assert.equal(byCase.total, 1);
@@ -779,7 +885,8 @@ test('listCostEntries rejects a malformed category, page and pageSize with 400',
   await assert.rejects(() => service.listCostEntries({ page: 0 }), isValidationFailed400);
   await assert.rejects(() => service.listCostEntries({ pageSize: 101 }), isValidationFailed400);
   await assert.rejects(
-    () => service.listCostEntries({ status: 'X' } as unknown as Parameters<CostService['listCostEntries']>[0]),
+    () =>
+      service.listCostEntries({ status: 'X' } as unknown as Parameters<CostService['listCostEntries']>[0]),
     isValidationFailed400,
     'assertExactKeys rejects injected query keys',
   );
@@ -790,8 +897,11 @@ test('getCostEntry returns the view and 404s for a missing or soft-deleted id', 
   const channel = await createChannelFixture();
   const service = costServiceFor(userId, actor);
   const created = await service.createCostEntry({
-    category: 'CHANNEL', amount: '1200.00', occurredAt: '2026-07-08',
-    note: '渠道投放七月第一周', channelId: channel.id,
+    category: 'CHANNEL',
+    amount: '1200.00',
+    occurredAt: '2026-07-08',
+    note: '渠道投放七月第一周',
+    channelId: channel.id,
   });
 
   const view = await service.getCostEntry(created.id);
@@ -808,7 +918,9 @@ test('getCostEntry returns the view and 404s for a missing or soft-deleted id', 
     isFinanceError(FINANCE_ERROR_CODES.COST_NOT_FOUND, 404),
   );
   const deleted = await createCostRow({
-    category: 'OFFICE', createdBy: userId, deletedAt: new Date(),
+    category: 'OFFICE',
+    createdBy: userId,
+    deletedAt: new Date(),
   });
   await assert.rejects(
     () => service.getCostEntry(deleted.id),

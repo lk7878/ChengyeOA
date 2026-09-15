@@ -24,6 +24,7 @@ import { clearTestApplicationData, createTestPrisma } from '../helpers/test-data
 let prisma: PrismaClient;
 
 const CRM_PERMISSIONS: PermissionCode[] = [
+  'channel.read',
   'lead.read',
   'lead.create',
   'lead.update',
@@ -45,7 +46,7 @@ test.after(async () => {
 });
 
 function hasCode(code: string): (error: unknown) => boolean {
-  return error => Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
+  return (error) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
 }
 
 interface ContextOverrides {
@@ -63,7 +64,7 @@ function crmContext(userId: string, overrides: ContextOverrides = {}): Authoriza
     employeeId: overrides.employeeId ?? null,
     isSystemAdmin: false,
     isSystemSuperAdmin: false,
-    grants: permissionCodes.map(permissionCode => ({
+    grants: permissionCodes.map((permissionCode) => ({
       sourceType: 'ROLE' as const,
       sourceId: `${userId}-grant-${permissionCode}`,
       sourceRoleId: 'test-role',
@@ -216,11 +217,11 @@ test('createLead returns non-blocking duplicate signals without leaking plaintex
 
   assert.notEqual(second.lead.id, first.lead.id, 'duplicate hints must not block creation');
   assert.ok(
-    second.duplicates.some(signal => signal.leadId === first.lead.id && signal.type === 'PHONE'),
+    second.duplicates.some((signal) => signal.leadId === first.lead.id && signal.type === 'PHONE'),
     'expected a PHONE duplicate signal for the first lead',
   );
   assert.ok(
-    second.duplicates.some(signal => signal.leadId === first.lead.id && signal.type === 'NAME'),
+    second.duplicates.some((signal) => signal.leadId === first.lead.id && signal.type === 'NAME'),
     'expected a NAME duplicate signal for the first lead',
   );
   assert.equal(JSON.stringify(second.duplicates).includes('13800001234'), false);
@@ -265,10 +266,7 @@ test('createLead requires the lead.create action permission', async () => {
   const { userId, actor } = await createActor();
   const service = serviceFor(userId, actor, { permissionCodes: ['lead.read'] });
 
-  await assert.rejects(
-    () => service.createLead(leadInput()),
-    hasCode('PERMISSION_DENIED'),
-  );
+  await assert.rejects(() => service.createLead(leadInput()), hasCode('PERMISSION_DENIED'));
   assert.equal(await prisma.lead.count(), 0);
 });
 
@@ -300,9 +298,8 @@ test('transitionStatus rejects NEW to VISITED with LEAD_STATE_TRANSITION_INVALID
 
   await assert.rejects(
     () => service.transitionStatus(lead.id, 'VISITED', '跳级流转'),
-    error => error instanceof CrmError
-      && error.code === LEAD_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof CrmError && error.code === LEAD_STATE_TRANSITION_INVALID && error.httpStatus === 409,
   );
   const stored = await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } });
   assert.equal(stored.status, 'NEW');
@@ -381,14 +378,14 @@ test('convertToCustomer rejects a lead that is already CONVERTED', async () => {
   );
 
   await assert.rejects(
-    () => service.convertToCustomer(
-      lead.id,
-      { name: '王五', phone: '13900001111' },
-      { name: '王五', phone: '13900001111' },
-    ),
-    error => error instanceof CrmError
-      && error.code === CUSTOMER_ALREADY_CONVERTED
-      && error.httpStatus === 409,
+    () =>
+      service.convertToCustomer(
+        lead.id,
+        { name: '王五', phone: '13900001111' },
+        { name: '王五', phone: '13900001111' },
+      ),
+    (error) =>
+      error instanceof CrmError && error.code === CUSTOMER_ALREADY_CONVERTED && error.httpStatus === 409,
   );
   assert.equal(await prisma.customer.count(), 1);
 });
@@ -426,11 +423,12 @@ test('convertToCustomer rolls back the whole transaction when the event write fa
   const lead = await seedLead({ status: 'VISITED' });
 
   await assert.rejects(
-    () => service.convertToCustomer(
-      lead.id,
-      { name: '王五', phone: '13900001111' },
-      { name: '王五', phone: '13900001111' },
-    ),
+    () =>
+      service.convertToCustomer(
+        lead.id,
+        { name: '王五', phone: '13900001111' },
+        { name: '王五', phone: '13900001111' },
+      ),
     /injected outbox failure/,
   );
 
@@ -460,7 +458,10 @@ test('listLeads and getLead enforce the SELF data scope without leaking existenc
   });
 
   const page = await scoped.listLeads({});
-  assert.deepEqual(page.list.map(item => item.id), [mine.id]);
+  assert.deepEqual(
+    page.list.map((item) => item.id),
+    [mine.id],
+  );
   assert.equal(page.total, 1);
 
   const fetched = await scoped.getLead(mine.id);
@@ -468,7 +469,7 @@ test('listLeads and getLead enforce the SELF data scope without leaking existenc
 
   await assert.rejects(
     () => scoped.getLead(others.id),
-    error => error instanceof CrmError && error.code === LEAD_NOT_FOUND && error.httpStatus === 404,
+    (error) => error instanceof CrmError && error.code === LEAD_NOT_FOUND && error.httpStatus === 404,
   );
 });
 
@@ -490,7 +491,7 @@ test('BRANCH scope anchors on Lead.branchId: unassigned in-branch leads stay vis
 
   const page = await scoped.listLeads({});
   assert.deepEqual(
-    page.list.map(item => item.id).sort(),
+    page.list.map((item) => item.id).sort(),
     [unassignedInBranch.id, unassignedInChild.id].sort(),
   );
   assert.equal(page.total, 2);
@@ -507,14 +508,20 @@ test('BRANCH scope does not expose out-of-branch leads even when assigned to the
   });
   // 负责人是本人但 branchId 在范围外：用户只持有 BRANCH 授权（无 SELF）→ 不可见。
   const mineOutOfBranch = await seedLead({
-    name: '我的外所线索', assignedTo: clerk.id, branchId: other.id, poolStatus: 'PRIVATE',
+    name: '我的外所线索',
+    assignedTo: clerk.id,
+    branchId: other.id,
+    poolStatus: 'PRIVATE',
   });
   const inBranch = await seedLead({ name: '分所线索', branchId: branch.id });
 
   const scoped = serviceFor(userId, actor, { employeeId: clerk.id, scopeIds: [branchScope.id] });
 
   const page = await scoped.listLeads({});
-  assert.deepEqual(page.list.map(item => item.id), [inBranch.id]);
+  assert.deepEqual(
+    page.list.map((item) => item.id),
+    [inBranch.id],
+  );
   assert.equal(page.total, 1);
   await assert.rejects(() => scoped.getLead(mineOutOfBranch.id), hasCode(LEAD_NOT_FOUND));
 });
@@ -547,7 +554,10 @@ test('TEAM scope anchors on Lead.professionalTeamId regardless of assignee', asy
   const scoped = serviceFor(userId, actor, { scopeIds: [teamScope.id] });
 
   const page = await scoped.listLeads({});
-  assert.deepEqual(page.list.map(item => item.id), [inTeam.id]);
+  assert.deepEqual(
+    page.list.map((item) => item.id),
+    [inTeam.id],
+  );
   assert.equal(page.total, 1);
   await assert.rejects(() => scoped.getLead(inOtherTeam.id), hasCode(LEAD_NOT_FOUND));
 });
@@ -566,14 +576,23 @@ test('SELF and BRANCH scopes union: own assigned leads plus all in-branch leads'
   });
 
   const mineOutOfBranch = await seedLead({
-    name: '我的外所线索', assignedTo: clerk.id, branchId: other.id, poolStatus: 'PRIVATE',
+    name: '我的外所线索',
+    assignedTo: clerk.id,
+    branchId: other.id,
+    poolStatus: 'PRIVATE',
   });
   const colleagueInBranch = await seedLead({
-    name: '同事分所线索', assignedTo: colleague.id, branchId: branch.id, poolStatus: 'PRIVATE',
+    name: '同事分所线索',
+    assignedTo: colleague.id,
+    branchId: branch.id,
+    poolStatus: 'PRIVATE',
   });
   const unassignedInBranch = await seedLead({ name: '分所公海', branchId: branch.id });
   const outOfBoth = await seedLead({
-    name: '外所他人线索', assignedTo: colleague.id, branchId: other.id, poolStatus: 'PRIVATE',
+    name: '外所他人线索',
+    assignedTo: colleague.id,
+    branchId: other.id,
+    poolStatus: 'PRIVATE',
   });
 
   const scoped = serviceFor(userId, actor, {
@@ -583,7 +602,7 @@ test('SELF and BRANCH scopes union: own assigned leads plus all in-branch leads'
 
   const page = await scoped.listLeads({});
   assert.deepEqual(
-    page.list.map(item => item.id).sort(),
+    page.list.map((item) => item.id).sort(),
     [mineOutOfBranch.id, colleagueInBranch.id, unassignedInBranch.id].sort(),
   );
   assert.equal(page.total, 3);
@@ -601,14 +620,16 @@ test('lead projection masks phone and wechat without L3 READ field permission', 
   assert.equal(masked.wechat, '***');
 
   const readable = await serviceFor(userId, actor, {
-    fieldRules: [{
-      sourceRoleId: 'test-role',
-      resource: 'lead',
-      fieldCode: 'lead.phone',
-      readLevel: 'READ',
-      canWrite: true,
-      canExport: false,
-    }],
+    fieldRules: [
+      {
+        sourceRoleId: 'test-role',
+        resource: 'lead',
+        fieldCode: 'lead.phone',
+        readLevel: 'READ',
+        canWrite: true,
+        canExport: false,
+      },
+    ],
   }).getLead(lead.id);
   assert.equal(readable.phone, '13800001234');
   assert.equal(readable.wechat, '***', 'wechat stays masked without its own READ rule');
@@ -623,14 +644,16 @@ test('getLead writes READ_L3_FIELDS authorization audit only when raw L3 phone i
   assert.equal(await prisma.operationLog.count({ where: { action: 'READ_L3_FIELDS' } }), 0);
 
   const reader = serviceFor(userId, actor, {
-    fieldRules: [{
-      sourceRoleId: 'test-role',
-      resource: 'lead',
-      fieldCode: 'lead.phone',
-      readLevel: 'READ',
-      canWrite: true,
-      canExport: false,
-    }],
+    fieldRules: [
+      {
+        sourceRoleId: 'test-role',
+        resource: 'lead',
+        fieldCode: 'lead.phone',
+        readLevel: 'READ',
+        canWrite: true,
+        canExport: false,
+      },
+    ],
   });
   const view = await reader.getLead(lead.id);
   assert.equal(view.phone, '13800001234');

@@ -1857,7 +1857,8 @@ test(
       assert.ok(Date.now() - revokedAt < 18000);
       await api('get', '/leads', editorToken).expect(403);
       await staff.goto(address + 'apps');
-      await staff.locator('.unified-app-card').filter({ hasText: '渠道管理' }).waitFor();
+      await staff.getByText('当前区域暂无已授权应用', { exact: true }).waitFor();
+      assert.equal(await staff.locator('.unified-app-card').filter({ hasText: '渠道管理' }).count(), 0);
       assert.equal(await staff.locator('.unified-app-card').filter({ hasText: '线索列表' }).count(), 0);
       await staff.route(
         '**/api/v1/authorization/me',
@@ -1872,7 +1873,8 @@ test(
       await staff.getByText('无法确认当前权限', { exact: true }).waitFor();
       await staff.unroute('**/api/v1/authorization/me');
       await staff.getByRole('button', { name: '重试授权', exact: true }).click();
-      await staff.locator('.unified-app-card').filter({ hasText: '渠道管理' }).waitFor();
+      await staff.getByText('当前区域暂无已授权应用', { exact: true }).waitFor();
+      assert.equal(await staff.locator('.unified-app-card').filter({ hasText: '渠道管理' }).count(), 0);
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();
@@ -3410,6 +3412,512 @@ test(
             'U6-B failure context',
             page.url(),
             (await page.locator('body').innerText()).slice(-9000),
+          );
+      throw error;
+    } finally {
+      security.trustedOrigins.splice(0, security.trustedOrigins.length, ...previousOrigins);
+      await browser.close();
+      await vite.close();
+    }
+  },
+);
+
+test(
+  'U6-C smoke: channel views, scoped dashboard, retries, concurrent edits and revocation',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web');
+    const load = new Function('url', 'return import(url)');
+    const { chromium } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      // Run browser libraries as in the actual dev App; rc-util test mode hardcodes duplicate DOM IDs.
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'u6c-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const security = (app.config as typeof app.config & { identitySecurity: { trustedOrigins: string[] } })
+      .identitySecurity;
+    const previousOrigins = [...security.trustedOrigins];
+    security.trustedOrigins.push(new URL(vite.resolvedUrls.local[0]).origin);
+    try {
+      const org = (await db.collabWorkspace.findUniqueOrThrow({ where: { id: workspaceId } })).organizationId;
+      const position = await db.position.create({
+        data: { organizationId: org, code: randomUUID(), name: 'U6C 岗位', categoryCode: 'SALES' },
+      });
+      const manager = await db.user.create({
+        data: { username: 'u6c-manager', password: 'unused', mustChangePassword: false },
+      });
+      const ids = [owner, editor, manager.id],
+        people: Record<string, string> = {};
+      const permissions = [
+        'menu.channel',
+        'channel.read',
+        'channel.create',
+        'channel.update',
+        'channel.delete',
+        'user.read',
+        'organization.read',
+        'employee.read',
+      ];
+      for (const id of ids) {
+        const employee = await db.employee.create({
+          data: {
+            name: id === editor ? 'U6C 员工' : id === owner ? 'U6C 管理员' : 'U6C 负责人',
+            employeeNo: randomUUID(),
+            phone: '13800000000',
+            type: 'SALES',
+            status: 'FORMAL',
+            entryDate: new Date('2025-01-01'),
+          },
+        });
+        people[id] = employee.id;
+        await db.user.update({ where: { id }, data: { employeeId: employee.id } });
+        await db.employeeAssignment.create({
+          data: {
+            employeeId: employee.id,
+            organizationId: org,
+            positionId: position.id,
+            assignmentType: 'PRIMARY',
+            startedAt: new Date('2025-01-01'),
+          },
+        });
+        const role = await db.role.create({
+          data: {
+            name: 'U6C ' + id,
+            code: 'U6C_' + id,
+            type: 'BUSINESS',
+            permissions: { create: permissions.map((code) => ({ permission: { connect: { code } } })) },
+          },
+        });
+        const all = await db.dataScope.create({ data: { name: '选项', scopeType: 'ALL' } });
+        const scoped = await db.dataScope.create({
+          data: { name: '业务范围', scopeType: id === editor ? 'SELF' : 'ALL' },
+        });
+        for (const resource of ['channel', 'user', 'organization', 'employee'])
+          await db.roleDataScope.create({
+            data: { roleId: role.id, resource, dataScopeId: resource === 'employee' ? all.id : scoped.id },
+          });
+        await db.userRole.create({ data: { userId: id, roleId: role.id } });
+      }
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: editor },
+        data: { rowScope: 'SELF' },
+      });
+      await db.collabMember.create({
+        data: { workspaceId, principalId: manager.id, role: 'MANAGER', rowScope: 'ALL' },
+      });
+      const managerToken = (await createApiSession(db, manager.id)).token;
+      const tokens = [token, editorToken, managerToken],
+        pages = [],
+        errors: string[] = [];
+      for (let i = 0; i < ids.length; i++) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          `window.unifiedTestSession = ${JSON.stringify({ mode: 'AUTHENTICATED', token: tokens[i], csrfToken: 'test', expiresIn: 900, user: { id: ids[i], username: ids[i], name: '业务验收成员', roles: [], permissions: [] } })};`,
+        );
+        const page = await context.newPage();
+        page.setDefaultTimeout(15000);
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [admin, staff, leader] = pages,
+        address = vite.resolvedUrls.local[0];
+      const api = (
+        method: 'get' | 'post' | 'put' | 'delete',
+        route: string,
+        bearer = token,
+        body?: unknown,
+      ) => {
+        const client = app.httpRequest();
+        const call = client[method]('/api/v1' + route)
+          .set('Authorization', 'Bearer ' + bearer)
+          .set('Idempotency-Key', randomUUID());
+        return body === undefined ? call : call.send(body);
+      };
+      await admin.goto(address + 'channels');
+      await admin.getByRole('button', { name: '连接业务数据', exact: true }).click();
+      await admin.getByRole('combobox', { name: '连接到应用', exact: true }).click();
+      await admin
+        .locator('.ant-select-item-option-content')
+        .getByText('接口工作区 / 业务台账', { exact: true })
+        .click();
+      await admin
+        .getByRole('dialog')
+        .getByRole('button', { name: /^连\s*接$/ })
+        .click();
+      await admin.getByRole('button', { name: '字段配置', exact: true }).waitFor();
+      const channelTable = new URL(admin.url()).searchParams.get('table')!;
+      const tableUrl = address + 'channels?' + new URLSearchParams({ base: baseId, table: channelTable });
+      await staff.goto(tableUrl);
+      await staff.getByRole('button', { name: '登记渠道', exact: true }).click();
+      await staff.getByLabel('工作区', { exact: true }).click();
+      await staff.locator('.ant-select-item-option-content').getByText('接口工作区', { exact: true }).click();
+      await staff.getByLabel('所属组织', { exact: true }).click();
+      await staff
+        .locator('.ant-select-item-option-content')
+        .getByText('协作接口测试', { exact: true })
+        .click();
+      await staff.getByLabel('渠道名称', { exact: true }).fill('U6C 精确渠道');
+      await staff.getByLabel('渠道成本', { exact: true }).fill('90071992547409.91');
+      let dropped = false;
+      await staff.route(
+        '**/api/v1/channels',
+        async (route: {
+          request(): { method(): string };
+          fetch(): Promise<unknown>;
+          abort(reason: string): Promise<void>;
+          continue(): Promise<void>;
+        }) => {
+          if (route.request().method() === 'POST' && !dropped) {
+            dropped = true;
+            await route.fetch();
+            await route.abort('failed');
+          } else await route.continue();
+        },
+      );
+      await staff.getByRole('button', { name: '保存渠道', exact: true }).click();
+      await staff.getByRole('alert').waitFor();
+      assert.equal(await db.channel.count({ where: { createdBy: editor } }), 1);
+      await staff.getByRole('button', { name: '保存渠道', exact: true }).click();
+      await staff.getByRole('button', { name: '编辑渠道', exact: true }).waitFor();
+      const channel = await db.channel.findFirstOrThrow({ where: { createdBy: editor } });
+      assert.equal(channel.cost?.toFixed(2), '90071992547409.91');
+      const other = (
+        await api('post', '/channels', token, {
+          name: '负责人渠道',
+          type: 'OTHER',
+          branchId: org,
+          cost: '0.01',
+        }).expect(200)
+      ).body.data;
+      await api('get', '/channels/' + other.id, editorToken).expect(404);
+      await staff.getByRole('link', { name: '返回渠道工作表', exact: true }).click();
+      await staff.getByRole('button', { name: '渠道名称：U6C 精确渠道', exact: true }).waitFor();
+      assert.equal(await staff.getByRole('button', { name: '渠道名称：负责人渠道', exact: true }).count(), 0);
+      await leader.goto(tableUrl);
+      await leader.getByRole('button', { name: '渠道名称：U6C 精确渠道', exact: true }).waitFor();
+      await leader.getByRole('button', { name: '渠道名称：负责人渠道', exact: true }).waitFor();
+      const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence');
+      await mkdir(evidence, { recursive: true });
+      await staff.locator('.ant-message-notice').waitFor({ state: 'hidden' });
+      for (const width of [1440, 1024, 390]) {
+        await staff.setViewportSize({ width, height: 1000 });
+        await staff.screenshot({
+          path: path.join(evidence, 'u6c-channels-' + width + '.png'),
+          fullPage: true,
+        });
+        assert.equal(
+          await staff.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
+          false,
+        );
+      }
+      await staff.setViewportSize({ width: 1440, height: 1000 });
+      await staff.goto(address + 'channels/' + channel.id);
+      await staff.getByRole('button', { name: '编辑渠道', exact: true }).click();
+      await staff.getByRole('dialog').getByLabel('渠道名称', { exact: true }).fill('U6C 保留草稿');
+      await api('put', '/channels/' + channel.id, managerToken, { name: '负责人已修改', version: 1 }).expect(
+        200,
+      );
+      await staff
+        .getByText('渠道已被他人修改，请核对最新详情与当前草稿', { exact: true })
+        .waitFor({ timeout: 12000 });
+      await staff.getByRole('dialog').getByRole('button', { name: '保存渠道', exact: true }).click();
+      assert.equal((await db.channel.findUniqueOrThrow({ where: { id: channel.id } })).name, '负责人已修改');
+      assert.equal(
+        await staff.getByRole('dialog').getByLabel('渠道名称', { exact: true }).inputValue(),
+        'U6C 保留草稿',
+      );
+      await staff.getByRole('button', { name: '已核对，采用最新版本', exact: true }).click();
+      await staff.getByRole('dialog').getByRole('button', { name: '保存渠道', exact: true }).click();
+      await staff.getByRole('dialog').waitFor({ state: 'hidden' });
+      assert.equal((await db.channel.findUniqueOrThrow({ where: { id: channel.id } })).version, 3);
+      await staff.goto(address + 'analytics/overview');
+      await staff.getByRole('heading', { name: '经营概览', exact: true }).waitFor();
+      await staff.getByText('不可用', { exact: true }).first().waitFor();
+      const metrics = (await api('get', '/dashboard/metrics', editorToken).expect(200)).body.data;
+      assert.equal(metrics.overview.leadCount, null);
+      assert.equal(metrics.overview.customerCount, null);
+      assert.equal(metrics.overview.totalRevenue, null);
+      assert.equal(metrics.overview.employeeCount, 3);
+      for (const width of [1440, 1024, 390]) {
+        await staff.setViewportSize({ width, height: 1000 });
+        await staff.screenshot({
+          path: path.join(evidence, 'u6c-dashboard-' + width + '.png'),
+          fullPage: true,
+        });
+        assert.equal(
+          await staff.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
+          false,
+        );
+      }
+      const legacy = await db.channel.create({
+        data: { code: 'U6C-LEGACY', name: '历史待核对渠道', type: 'OTHER' },
+      });
+      await admin.goto(address + 'channels');
+      await admin.getByRole('button', { name: '待补录渠道', exact: true }).click();
+      await admin
+        .getByRole('dialog')
+        .getByRole('button', { name: /^补\s*录$/ })
+        .click();
+      await admin.getByLabel('确认创建人', { exact: true }).click();
+      await admin
+        .locator('.ant-select-item-option-content')
+        .getByText('collab-editor', { exact: true })
+        .click();
+      await admin.getByLabel('确认所属组织', { exact: true }).click();
+      await admin
+        .locator('.ant-select-item-option-content')
+        .getByText('协作接口测试', { exact: true })
+        .click();
+      await admin.getByLabel('补录依据', { exact: true }).fill('核对原始渠道登记记录');
+      await admin.getByRole('button', { name: '保存归属并记录审计', exact: true }).click();
+      await admin.getByText('没有待补录渠道', { exact: true }).waitFor();
+      assert.equal((await db.channel.findUniqueOrThrow({ where: { id: legacy.id } })).createdBy, editor);
+      assert.equal(
+        await db.operationLog.count({ where: { action: 'CHANNEL_IDENTITY_REPAIR', targetId: legacy.id } }),
+        1,
+      );
+      await staff.goto(address + 'channels/' + channel.id);
+      await staff.getByRole('button', { name: '编辑渠道', exact: true }).click();
+      await staff.getByRole('dialog').getByLabel('渠道说明', { exact: true }).fill('撤权后不能保留的草稿');
+      const role = await db.userRole.findFirstOrThrow({ where: { userId: editor } });
+      await db.rolePermission.deleteMany({
+        where: { roleId: role.roleId, permissionId: 'permission:channel.read' },
+      });
+      await staff.getByRole('dialog').waitFor({ state: 'hidden', timeout: 12000 });
+      await api('get', '/channels/' + channel.id, editorToken).expect(403);
+      assert.equal(await staff.getByRole('button', { name: '编辑渠道', exact: true }).count(), 0);
+      assert.deepEqual(errors, []);
+    } catch (error) {
+      for (const context of browser.contexts())
+        for (const page of context.pages())
+          console.error(
+            'U6-C failure context',
+            page.url(),
+            (await page.locator('body').innerText()).slice(-9000),
+          );
+      throw error;
+    } finally {
+      security.trustedOrigins.splice(0, security.trustedOrigins.length, ...previousOrigins);
+      await browser.close();
+      await vite.close();
+    }
+  },
+);
+
+test(
+  'U6-C management smoke: owned notifications, original approval and governance links, denied records and retry',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web');
+    const load = new Function('url', 'return import(url)');
+    const { chromium } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      // Run browser libraries as in the actual dev App; rc-util test mode hardcodes duplicate DOM IDs.
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'u6c-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const security = (app.config as typeof app.config & { identitySecurity: { trustedOrigins: string[] } })
+      .identitySecurity;
+    const previousOrigins = [...security.trustedOrigins];
+    security.trustedOrigins.push(new URL(vite.resolvedUrls.local[0]).origin);
+    try {
+      const role = await db.role.create({
+        data: {
+          name: '通知管理',
+          code: 'SYSTEM_ADMIN',
+          type: 'SYSTEM',
+          permissions: {
+            create: [
+              'approval.read',
+              'menu.admin_governance',
+              'governance.catalog.read',
+              'governance.operation.read_self',
+            ].map((code) => ({ permission: { connect: { code } } })),
+          },
+        },
+      });
+      await db.userRole.create({ data: { userId: owner, roleId: role.id } });
+      const businessRole = await db.role.create({
+        data: {
+          name: '审批读取岗位',
+          code: 'U6C_APPROVAL',
+          type: 'BUSINESS',
+          permissions: { create: { permission: { connect: { code: 'approval.read' } } } },
+        },
+      });
+      await db.userRole.create({ data: { userId: owner, roleId: businessRole.id } });
+      const accessToken = (await createApiSession(db, owner, 'MFA')).token;
+      const definition = await db.approvalDefinition.create({
+        data: {
+          code: 'U6C_LINK',
+          name: '通知关联审批',
+          businessType: 'LEAVE',
+          formSchema: { fields: [] },
+          approverRule: { type: 'USER', userIds: [editor] },
+          createdBy: owner,
+        },
+      });
+      const approval = await db.approvalInstance.create({
+        data: {
+          definitionId: definition.id,
+          definitionVersion: 1,
+          businessType: 'LEAVE',
+          title: '通知打开的真实审批',
+          content: { reason: '验收申请' },
+          applicantId: owner,
+          createdBy: owner,
+        },
+      });
+      const foreign = await db.approvalInstance.create({
+        data: {
+          definitionId: definition.id,
+          definitionVersion: 1,
+          businessType: 'LEAVE',
+          title: '不应显示的审批内容',
+          content: { reason: '不可见' },
+          applicantId: editor,
+          createdBy: editor,
+        },
+      });
+      const operation = await db.adminOperation.create({
+        data: {
+          operationNo: 'GOV-U6C-LINK',
+          operationType: 'SYSTEM_ADMIN_GRANT',
+          riskLevel: 'HIGH',
+          reviewMode: 'PRE',
+          status: 'PENDING_REVIEW',
+          requesterUserId: owner,
+          targetType: 'USER',
+          targetId: editor,
+          reason: '通知定位治理验收记录',
+          payloadSnapshot: { roleCode: 'SYSTEM_ADMIN' },
+          payloadHash: 'a'.repeat(64),
+          expectedTargetVersion: 1,
+          idempotencyKey: randomUUID(),
+        },
+      });
+      for (const row of [
+        { title: '审批通知验收', relatedType: 'APPROVAL_INSTANCE', relatedId: approval.id },
+        { title: '治理通知验收', relatedType: 'ADMIN_OPERATION', relatedId: operation.id },
+        { title: '失效审批通知', relatedType: 'APPROVAL_INSTANCE', relatedId: foreign.id },
+        { title: '外部地址通知', routeUrl: 'https://example.org' },
+      ])
+        await db.notification.create({
+          data: { userId: owner, type: 'SYSTEM', content: '通知记录定位验收', ...row },
+        });
+      await db.notification.create({
+        data: { userId: editor, type: 'SYSTEM', title: '其他人的通知不可见', content: '不可见' },
+      });
+      const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+      await context.addInitScript(
+        `window.unifiedTestSession=${JSON.stringify({ mode: 'AUTHENTICATED', token: accessToken, csrfToken: 'test', expiresIn: 900, user: { id: owner, username: 'collab-owner', name: '通知验收管理员', roles: [], permissions: [] } })};`,
+      );
+      const page = await context.newPage();
+      const errors: string[] = [];
+      page.on('pageerror', (e: Error) => errors.push(e.message));
+      const address = vite.resolvedUrls.local[0];
+      await page.goto(address + 'notifications');
+      const notificationTable = page.locator('.ant-table-tbody');
+      await notificationTable.getByText('审批通知验收', { exact: true }).waitFor();
+      assert.equal(await page.getByText('其他人的通知不可见', { exact: true }).count(), 0);
+      assert.equal(
+        await notificationTable.locator('tr').filter({ hasText: '外部地址通知' }).getByRole('link').count(),
+        0,
+      );
+      await notificationTable
+        .locator('tr')
+        .filter({ hasText: '审批通知验收' })
+        .getByRole('link', { name: '打开关联记录' })
+        .click();
+      assert.ok(page.url().includes('instance=' + approval.id));
+      await page.getByRole('dialog').getByText('通知打开的真实审批', { exact: true }).waitFor();
+      await page.goto(address + 'notifications');
+      await page
+        .locator('.ant-table-tbody tr')
+        .filter({ hasText: '治理通知验收' })
+        .getByRole('link', { name: '打开关联记录' })
+        .click();
+      await page.getByRole('dialog').getByText('GOV-U6C-LINK', { exact: true }).waitFor();
+      assert.ok(page.url().includes('operationId=' + operation.id));
+      await page.goto(address + 'notifications');
+      await page
+        .locator('.ant-table-tbody tr')
+        .filter({ hasText: '失效审批通知' })
+        .getByRole('link', { name: '打开关联记录' })
+        .click();
+      await page.getByText('关联审批不存在、无权查看或加载失败，请刷新重试。', { exact: true }).waitFor();
+      assert.equal(await page.getByText('不应显示的审批内容', { exact: true }).count(), 0);
+      await page.goto(address + 'notifications');
+      await page.locator('.ant-table-tbody').getByText('审批通知验收', { exact: true }).waitFor();
+      await page.route('**/api/v1/notifications?*', (route: { abort: () => Promise<void> }) => route.abort());
+      await page.getByRole('button', { name: '刷新通知', exact: true }).click();
+      await page
+        .locator('.ant-table-tbody')
+        .getByText('审批通知验收', { exact: true })
+        .waitFor({ state: 'hidden' });
+      await page.unroute('**/api/v1/notifications?*');
+      await page.getByRole('button', { name: /^重\s*试$/ }).click();
+      await page.locator('.ant-table-tbody').getByText('审批通知验收', { exact: true }).waitFor();
+      await page.getByRole('button', { name: '全部标为已读', exact: true }).click();
+      await page.waitForFunction(() =>
+        Array.from(document.querySelectorAll('button')).some(
+          (e) => e.textContent === '全部标为已读' && e.disabled,
+        ),
+      );
+      assert.equal(await db.notification.count({ where: { userId: owner, isRead: false } }), 0);
+      assert.equal(await db.notification.count({ where: { userId: editor, isRead: false } }), 1);
+      assert.deepEqual(errors, []);
+    } catch (error) {
+      for (const context of browser.contexts())
+        for (const page of context.pages())
+          console.error(
+            'U6-C management failure',
+            page.url(),
+            (await page.locator('body').innerText()).slice(-7000),
           );
       throw error;
     } finally {

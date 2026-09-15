@@ -23,3 +23,14 @@ export async function creatorIdsInOrganizations(db: Prisma.TransactionClient, or
     })
   ).map((user) => user.id);
 }
+
+/** Resolve declared employee targets to their actual account IDs, including historical creators. */
+export async function creatorIdsForEmployees(
+  db: Prisma.TransactionClient,
+  employeeIds: string[],
+): Promise<string[]> {
+  if (!employeeIds.length) return [];
+  return (await db.user.findMany({ where: { employeeId: { in: employeeIds } }, select: { id: true } })).map(
+    (user) => user.id,
+  );
+}

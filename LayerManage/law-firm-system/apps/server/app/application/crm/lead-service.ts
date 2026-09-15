@@ -1,3 +1,4 @@
+import { channelScope } from '../channel/channel-scope';
 import { crmTransaction } from './crm-transaction';
 // SPEC-009 Task 5: lead-service —— 线索录入（去重提示）、状态流转、转客户。
 // 事务边界（设计 §6.2）：业务写入与 EventLog 同事务（SPEC-007 outbox append）。
@@ -93,11 +94,25 @@ export class LeadService {
     this.outbox = outbox ?? new PrismaEventOutboxWriter();
   }
 
-  async createLead(input: CreateLeadInput, idempotencyKey?: string, transaction?: Prisma.TransactionClient): Promise<CreateLeadResult> {
+  async createLead(
+    input: CreateLeadInput,
+    idempotencyKey?: string,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<CreateLeadResult> {
     this.authorization.requireAction(this.authorizationContext, 'lead.create');
     assertExactKeys(input, [
-      'name', 'phone', 'wechat', 'channelId', 'sourceDetail', 'sourceType',
-      'campaignId', 'referralCustomerId', 'intentionLevel', 'tags', 'branchId', 'professionalTeamId',
+      'name',
+      'phone',
+      'wechat',
+      'channelId',
+      'sourceDetail',
+      'sourceType',
+      'campaignId',
+      'referralCustomerId',
+      'intentionLevel',
+      'tags',
+      'branchId',
+      'professionalTeamId',
     ]);
     const name = normalizeName(input.name);
     const phone = normalizePhone(input.phone);
@@ -105,15 +120,27 @@ export class LeadService {
     const wechat = normalizeOptionalText(input.wechat, 100);
     const wechatHash = hashWechat(wechat);
     const channelId = normalizeOptionalText(input.channelId, 100);
+    if (channelId) {
+      const channel =
+        this.authorizationContext.permissionCodes.includes('channel.read') &&
+        (await (transaction ?? this.prisma).channel.findFirst({
+          where: {
+            AND: [
+              { id: channelId },
+              await channelScope(this.prisma, this.authorizationContext, 'channel.read'),
+            ],
+          },
+          select: { id: true },
+        }));
+      if (!channel) throw new MasterDataError('VALIDATION_FAILED', 400);
+    }
     const sourceDetail = normalizeOptionalText(input.sourceDetail, 200);
-    const sourceType = input.sourceType === undefined
-      ? 'MANUAL'
-      : normalizeAllowedValue(input.sourceType, LEAD_SOURCE_TYPES);
+    const sourceType =
+      input.sourceType === undefined ? 'MANUAL' : normalizeAllowedValue(input.sourceType, LEAD_SOURCE_TYPES);
     const campaignId = normalizeOptionalText(input.campaignId, 100);
     const referralCustomerId = normalizeOptionalText(input.referralCustomerId, 100);
-    const intentionLevel = input.intentionLevel === undefined
-      ? 3
-      : normalizeIntentionLevel(input.intentionLevel);
+    const intentionLevel =
+      input.intentionLevel === undefined ? 3 : normalizeIntentionLevel(input.intentionLevel);
     const tags = normalizeOptionalText(input.tags, 500);
     const branchId = normalizeOptionalText(input.branchId, 100);
     const professionalTeamId = normalizeOptionalText(input.professionalTeamId, 100);
@@ -135,35 +162,34 @@ export class LeadService {
     const candidates = await (transaction ?? this.prisma).lead.findMany({
       where: {
         deletedAt: null,
-        OR: [
-          { phoneHash },
-          ...(wechatHash ? [{ wechatHash }] : []),
-          { name },
-        ],
+        OR: [{ phoneHash }, ...(wechatHash ? [{ wechatHash }] : []), { name }],
       },
       select: { id: true, name: true, phoneHash: true, wechatHash: true },
     });
     const duplicates = findDuplicateSignals({ name, phoneHash, wechatHash }, candidates);
 
-    const created = await this.createLeadWithBusinessNoRetry({
-      name,
-      phone,
-      phoneHash,
-      wechat,
-      wechatHash,
-      channelId,
-      sourceDetail,
-      sourceType,
-      campaignId,
-      referralCustomerId,
-      intentionLevel,
-      tags,
-      branchId,
-      professionalTeamId,
-      status: 'NEW',
-      poolStatus: 'PUBLIC',
-      createdBy: this.actor.actorUserId,
-    }, transaction);
+    const created = await this.createLeadWithBusinessNoRetry(
+      {
+        name,
+        phone,
+        phoneHash,
+        wechat,
+        wechatHash,
+        channelId,
+        sourceDetail,
+        sourceType,
+        campaignId,
+        referralCustomerId,
+        intentionLevel,
+        tags,
+        branchId,
+        professionalTeamId,
+        status: 'NEW',
+        poolStatus: 'PUBLIC',
+        createdBy: this.actor.actorUserId,
+      },
+      transaction,
+    );
 
     const result: CreateLeadResult = {
       lead: projectLead(created, this.leadFieldPermissions()),
@@ -190,13 +216,18 @@ export class LeadService {
     });
   }
 
-  async transitionStatus(leadId: string, target: LeadStatus, reason: string, transaction?: Prisma.TransactionClient): Promise<LeadView> {
+  async transitionStatus(
+    leadId: string,
+    target: LeadStatus,
+    reason: string,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<LeadView> {
     this.authorization.requireAction(this.authorizationContext, 'lead.update');
     const targetStatus = normalizeAllowedValue(target, LEAD_STATUS);
     const transitionReason = normalizeRequiredText(reason, 1, 500);
     const scopeWhere = await this.buildLeadScopeWhere('lead.update');
 
-    return crmTransaction(this.prisma, transaction, async tx => {
+    return crmTransaction(this.prisma, transaction, async (tx) => {
       const lead = await tx.lead.findFirst({
         where: { AND: [scopeWhere, { id: leadId, deletedAt: null }] },
       });
@@ -210,11 +241,20 @@ export class LeadService {
       });
       if (changed.count !== 1) throw new MasterDataError('VERSION_CONFLICT', 409);
 
-      await this.outbox.append(tx, this.envelope('LEAD', lead.id, {
-        leadId: lead.id,
-        fromStatus,
-        toStatus: targetStatus,
-      }, lead, LEAD_STATUS_CHANGED));
+      await this.outbox.append(
+        tx,
+        this.envelope(
+          'LEAD',
+          lead.id,
+          {
+            leadId: lead.id,
+            fromStatus,
+            toStatus: targetStatus,
+          },
+          lead,
+          LEAD_STATUS_CHANGED,
+        ),
+      );
       await tx.operationLog.create({
         data: {
           userId: this.actor.actorUserId,
@@ -238,16 +278,26 @@ export class LeadService {
     idempotencyKey?: string,
   ): Promise<CustomerView> {
     this.authorization.requireAction(this.authorizationContext, 'lead.convert');
-    assertExactKeys(customerInput, ['name', 'phone', 'wechat', 'email', 'address', 'customerType', 'tags', 'remark']);
+    assertExactKeys(customerInput, [
+      'name',
+      'phone',
+      'wechat',
+      'email',
+      'address',
+      'customerType',
+      'tags',
+      'remark',
+    ]);
     assertExactKeys(contactInput, ['name', 'phone', 'wechat', 'relation', 'isPrimary']);
     const customerName = normalizeName(customerInput.name);
     const customerPhone = normalizePhone(customerInput.phone);
     const customerWechat = normalizeOptionalText(customerInput.wechat, 100);
     const customerEmail = normalizeOptionalText(customerInput.email, 200);
     const customerAddress = normalizeOptionalText(customerInput.address, 500);
-    const customerType = customerInput.customerType === undefined
-      ? 'INDIVIDUAL'
-      : normalizeAllowedValue(customerInput.customerType, CUSTOMER_TYPES);
+    const customerType =
+      customerInput.customerType === undefined
+        ? 'INDIVIDUAL'
+        : normalizeAllowedValue(customerInput.customerType, CUSTOMER_TYPES);
     const customerTags = normalizeOptionalText(customerInput.tags, 500);
     const customerRemark = normalizeOptionalText(customerInput.remark, 500);
     const contactName = normalizeName(contactInput.name);
@@ -267,27 +317,32 @@ export class LeadService {
 
     let customer: Customer;
     try {
-      customer = await this.convertWithBusinessNoRetry(leadId, scopeWhere, {
-        name: customerName,
-        phone: customerPhone,
-        phoneHash: hashPhone(customerPhone),
-        wechat: customerWechat,
-        email: customerEmail,
-        address: customerAddress,
-        customerType,
-        tags: customerTags,
-        remark: customerRemark,
-        status: 'POTENTIAL',
-        createdBy: this.actor.actorUserId,
-      }, {
-        name: contactName,
-        phone: contactPhone,
-        phoneHash: hashPhone(contactPhone),
-        wechat: contactWechat,
-        relation: contactRelation,
-        isPrimary: contactIsPrimary,
-        createdBy: this.actor.actorUserId,
-      });
+      customer = await this.convertWithBusinessNoRetry(
+        leadId,
+        scopeWhere,
+        {
+          name: customerName,
+          phone: customerPhone,
+          phoneHash: hashPhone(customerPhone),
+          wechat: customerWechat,
+          email: customerEmail,
+          address: customerAddress,
+          customerType,
+          tags: customerTags,
+          remark: customerRemark,
+          status: 'POTENTIAL',
+          createdBy: this.actor.actorUserId,
+        },
+        {
+          name: contactName,
+          phone: contactPhone,
+          phoneHash: hashPhone(contactPhone),
+          wechat: contactWechat,
+          relation: contactRelation,
+          isPrimary: contactIsPrimary,
+          createdBy: this.actor.actorUserId,
+        },
+      );
     } catch (error) {
       // 并发下首个请求已转化成功：带幂等键的重试返回胜出的既有客户。
       if (idempotency && error instanceof CrmError && error.code === CUSTOMER_ALREADY_CONVERTED) {
@@ -314,14 +369,24 @@ export class LeadService {
 
   async listLeads(query: LeadListQuery): Promise<PagedResult<LeadView>> {
     this.authorization.requireAction(this.authorizationContext, 'lead.read');
-    assertExactKeys(query, ['page', 'pageSize', 'status', 'poolStatus', 'channelId', 'assignedTo', 'keyword']);
+    assertExactKeys(query, [
+      'page',
+      'pageSize',
+      'status',
+      'poolStatus',
+      'channelId',
+      'assignedTo',
+      'keyword',
+    ]);
     const page = normalizePage(query.page);
     const pageSize = normalizePageSize(query.pageSize);
     const scopeWhere = await this.buildLeadScopeWhere('lead.read');
 
     const filters: Prisma.LeadWhereInput[] = [scopeWhere, { deletedAt: null }];
-    if (query.status !== undefined) filters.push({ status: normalizeAllowedValue(query.status, LEAD_STATUS) });
-    if (query.poolStatus !== undefined) filters.push({ poolStatus: normalizeAllowedValue(query.poolStatus, POOL_STATUS) });
+    if (query.status !== undefined)
+      filters.push({ status: normalizeAllowedValue(query.status, LEAD_STATUS) });
+    if (query.poolStatus !== undefined)
+      filters.push({ poolStatus: normalizeAllowedValue(query.poolStatus, POOL_STATUS) });
     const channelId = normalizeOptionalText(query.channelId, 100);
     if (channelId) filters.push({ channelId });
     const assignedTo = normalizeOptionalText(query.assignedTo, 100);
@@ -353,7 +418,7 @@ export class LeadService {
     const fieldPermissions = this.leadFieldPermissions();
     await this.auditRawL3Access('LEAD', 'LIST', 'lead', fieldPermissions, rows.length, 'lead.list');
     return {
-      list: rows.map(row => projectLead(row, fieldPermissions)),
+      list: rows.map((row) => projectLead(row, fieldPermissions)),
       page,
       pageSize,
       total,
@@ -382,7 +447,7 @@ export class LeadService {
     ]);
     const fieldPermissions = this.leadFieldPermissions();
     return {
-      list: rows.map(row => projectLead(row, fieldPermissions)),
+      list: rows.map((row) => projectLead(row, fieldPermissions)),
       page,
       pageSize,
       total,
@@ -395,14 +460,23 @@ export class LeadService {
   ): Promise<Lead> {
     for (let attempt = 0; attempt < BUSINESS_NO_RETRY_LIMIT; attempt += 1) {
       try {
-        return await crmTransaction(this.prisma, transaction, async tx => {
+        return await crmTransaction(this.prisma, transaction, async (tx) => {
           const lead = await tx.lead.create({ data: { ...data, leadNo: makeBusinessNo('L') } });
-          await this.outbox.append(tx, this.envelope('LEAD', lead.id, {
-            leadId: lead.id,
-            status: 'NEW' as LeadStatus,
-            poolStatus: 'PUBLIC',
-            channelId: lead.channelId,
-          }, lead, LEAD_CREATED));
+          await this.outbox.append(
+            tx,
+            this.envelope(
+              'LEAD',
+              lead.id,
+              {
+                leadId: lead.id,
+                status: 'NEW' as LeadStatus,
+                poolStatus: 'PUBLIC',
+                channelId: lead.channelId,
+              },
+              lead,
+              LEAD_CREATED,
+            ),
+          );
           await tx.operationLog.create({
             data: {
               userId: this.actor.actorUserId,
@@ -424,7 +498,8 @@ export class LeadService {
           return lead;
         });
       } catch (error) {
-        if (!transaction && attempt + 1 < BUSINESS_NO_RETRY_LIMIT && isUniqueConflictOn(error, 'leadNo')) continue;
+        if (!transaction && attempt + 1 < BUSINESS_NO_RETRY_LIMIT && isUniqueConflictOn(error, 'leadNo'))
+          continue;
         throw error;
       }
     }
@@ -439,7 +514,7 @@ export class LeadService {
   ): Promise<Customer> {
     for (let attempt = 0; attempt < BUSINESS_NO_RETRY_LIMIT; attempt += 1) {
       try {
-        return await this.prisma.$transaction(async tx => {
+        return await this.prisma.$transaction(async (tx) => {
           const lead = await tx.lead.findFirst({
             where: { AND: [scopeWhere, { id: leadId, deletedAt: null }] },
           });
@@ -467,11 +542,20 @@ export class LeadService {
             data: { status: 'CONVERTED', updatedBy: this.actor.actorUserId, version: { increment: 1 } },
           });
           if (changed.count !== 1) throw new MasterDataError('VERSION_CONFLICT', 409);
-          await this.outbox.append(tx, this.envelope('CUSTOMER', customer.id, {
-            customerId: customer.id,
-            sourceLeadId: lead.id,
-            status: 'POTENTIAL',
-          }, lead, CUSTOMER_CREATED));
+          await this.outbox.append(
+            tx,
+            this.envelope(
+              'CUSTOMER',
+              customer.id,
+              {
+                customerId: customer.id,
+                sourceLeadId: lead.id,
+                status: 'POTENTIAL',
+              },
+              lead,
+              CUSTOMER_CREATED,
+            ),
+          );
           await tx.operationLog.create({
             data: {
               userId: this.actor.actorUserId,
@@ -556,10 +640,16 @@ export class LeadService {
   private leadFieldPermissions(): LeadFieldPermissions {
     return {
       phone: this.fieldProjection.fieldCapability(
-        this.authorizationContext, 'lead', 'lead.phone', 'lead.read',
+        this.authorizationContext,
+        'lead',
+        'lead.phone',
+        'lead.read',
       ).readLevel,
       wechat: this.fieldProjection.fieldCapability(
-        this.authorizationContext, 'lead', 'lead.wechat', 'lead.read',
+        this.authorizationContext,
+        'lead',
+        'lead.wechat',
+        'lead.read',
       ).readLevel,
     };
   }
@@ -567,10 +657,16 @@ export class LeadService {
   private customerFieldPermissions(): LeadFieldPermissions {
     return {
       phone: this.fieldProjection.fieldCapability(
-        this.authorizationContext, 'customer', 'customer.phone', 'customer.read',
+        this.authorizationContext,
+        'customer',
+        'customer.phone',
+        'customer.read',
       ).readLevel,
       wechat: this.fieldProjection.fieldCapability(
-        this.authorizationContext, 'customer', 'customer.wechat', 'customer.read',
+        this.authorizationContext,
+        'customer',
+        'customer.wechat',
+        'customer.read',
       ).readLevel,
     };
   }

@@ -105,11 +105,24 @@ export interface Position {
 // 渠道
 export interface Channel {
   id: string;
+  code: string;
   name: string;
   type: string;
-  accountInfo?: string;
-  cost: number;
+  accountInfo?: string | null;
+  cost: string | null;
   status: string;
+  branchId: string | null;
+  createdBy: string | null;
+  updatedBy: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ChannelStatistics {
+  channel: Channel;
+  totalLeads: number | null;
+  convertedLeads: number | null;
+  conversionRate: string | null;
 }
 
 // 线索
@@ -237,13 +250,14 @@ export interface Communication {
 // 通知
 export interface Notification {
   id: string;
-  userId: string;
+  userId?: string;
   type: string;
   title: string;
   content: string;
   isRead: boolean;
-  relatedId?: string;
-  relatedType?: string;
+  relatedId?: string | null;
+  relatedType?: string | null;
+  routeUrl?: string | null;
   createdAt: string;
 }
 
@@ -283,26 +297,30 @@ export interface PerformanceBusinessMetrics {
 // 仪表盘
 export interface DashboardMetrics {
   overview: {
-    leadCount: number;
-    customerCount: number;
-    contractCount: number;
-    caseCount: number;
-    totalRevenue: number;
-    employeeCount: number;
+    leadCount: number | null;
+    customerCount: number | null;
+    contractCount: number | null;
+    caseCount: number | null;
+    totalRevenue: string | null;
+    employeeCount: number | null;
   };
-  monthly: {
-    newLeads: number;
-    newContracts: number;
-    monthRevenue: number;
-  };
+  monthly: { newLeads: number | null; newContracts: number | null; monthRevenue: string | null };
 }
-
 export interface DashboardAlerts {
-  overdueTasks: number;
-  // 服务端返回应收计划行（dashboard.alerts，take 10）；本页仅消费 .length——
-  // 原型 Payment interface 已随 SPEC-010 终审修复轮 F-4 删除（死类型，零消费者）。
-  overduePayments: unknown[];
-  unassignedLeads: number;
-  urgentCases: Case[];
+  overdueTasks: number | null;
+  unassignedLeads: number | null;
+  urgentCases: { id: string; caseNo: string; title: string; status: string; priority: string }[] | null;
+  overduePayments:
+    | {
+        id: string;
+        planNo: string;
+        dueDate: string;
+        amount: string;
+        receivedAmount: string;
+        contractId: string;
+        contractNo: string;
+        contractTitle: string;
+      }[]
+    | null;
 }
 export * from '@/features/master-data/types';

@@ -1,3 +1,4 @@
+import { channelScope } from '../channel/channel-scope';
 import { createOnce } from './domain-mutation';
 import { buildCostScopeWhere } from './cost-scope';
 import { buildCaseScopeWhere } from '../case/case-scope';
@@ -91,7 +92,15 @@ export class CostService {
    */
   async createCostEntry(input: CreateCostEntryInput): Promise<CostEntryView> {
     this.authorization.requireAction(this.authorizationContext, 'cost.create');
-    assertExactKeys(input, ['category', 'amount', 'occurredAt', 'note', 'channelId', 'caseId', 'idempotencyKey']);
+    assertExactKeys(input, [
+      'category',
+      'amount',
+      'occurredAt',
+      'note',
+      'channelId',
+      'caseId',
+      'idempotencyKey',
+    ]);
     const idempotencyKey = normalizeOptionalText(input.idempotencyKey, 100);
     const scopeWhere = await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.create');
     const amount = normalizeCostAmount(input.amount);
@@ -101,53 +110,93 @@ export class CostService {
     const caseId = normalizeOptionalText(input.caseId, 100);
     assertCostAnchorShape(input.category, channelId, caseId);
     if (channelId !== null) {
-      const channel = await this.prisma.channel.findFirst({ where: { id: channelId } });
+      const channel =
+        this.authorizationContext.permissionCodes.includes('channel.read') &&
+        (await this.prisma.channel.findFirst({
+          where: {
+            AND: [
+              { id: channelId },
+              await channelScope(this.prisma, this.authorizationContext, 'channel.read'),
+            ],
+          },
+        }));
       if (!channel) throw new MasterDataError('VALIDATION_FAILED', 400);
     }
     if (caseId !== null) {
-      const anchoredCase = this.authorizationContext.permissionCodes.includes('case.read') && await this.prisma.case.findFirst({ where: { AND: [{ id: caseId }, await buildCaseScopeWhere(this.prisma, this.authorizationContext, 'case.read')] } });
+      const anchoredCase =
+        this.authorizationContext.permissionCodes.includes('case.read') &&
+        (await this.prisma.case.findFirst({
+          where: {
+            AND: [
+              { id: caseId },
+              await buildCaseScopeWhere(this.prisma, this.authorizationContext, 'case.read'),
+            ],
+          },
+        }));
       if (!anchoredCase) throw new MasterDataError('VALIDATION_FAILED', 400);
     }
 
-    return createOnce(this.prisma, { actorId: this.actor.actorUserId, key: idempotencyKey, operation: 'cost.create', normalized: { category: input.category, amount: amount.toFixed(2), occurredAt, note, channelId, caseId } }, async tx => {
-      const entry = await tx.costEntry.create({
-        data: {
+    return createOnce(
+      this.prisma,
+      {
+        actorId: this.actor.actorUserId,
+        key: idempotencyKey,
+        operation: 'cost.create',
+        normalized: {
           category: input.category,
-          amount,
+          amount: amount.toFixed(2),
           occurredAt,
           note,
           channelId,
           caseId,
-          createdBy: this.actor.actorUserId,
         },
-      });
-      if (!await tx.costEntry.findFirst({ where: { AND: [scopeWhere, { id: entry.id }] }, select: { id: true } })) throw new FinanceError(FINANCE_ERROR_CODES.COST_NOT_FOUND, 404, 'cost entry not found');
-      const payload: CostCreatedV1 = {
-        costEntryId: entry.id,
-        category: entry.category as CostCategory,
-        channelId: entry.channelId,
-        caseId: entry.caseId,
-      };
-      await this.outbox.append(tx, this.envelope(entry.id, payload, COST_CREATED));
-      await tx.operationLog.create({
-        data: {
-          userId: this.actor.actorUserId,
-          action: 'COST_CREATE',
-          targetType: 'COST_ENTRY',
-          targetId: entry.id,
-          // 审计只落标识符+金额+hasNote 布尔：note 自由文本落行不落审计。
-          newValues: JSON.stringify({
-            costEntryId: entry.id,
-            category: entry.category,
-            amount: entry.amount.toFixed(2),
-            hasNote: entry.note !== null,
-          }),
-          ip: this.actor.ip,
-        },
-      });
-      return projectCostEntry(entry);
-    }, async (tx, targetId) => projectCostEntry(await this.probeCostEntry(tx, targetId, scopeWhere)));
-
+      },
+      async (tx) => {
+        const entry = await tx.costEntry.create({
+          data: {
+            category: input.category,
+            amount,
+            occurredAt,
+            note,
+            channelId,
+            caseId,
+            createdBy: this.actor.actorUserId,
+          },
+        });
+        if (
+          !(await tx.costEntry.findFirst({
+            where: { AND: [scopeWhere, { id: entry.id }] },
+            select: { id: true },
+          }))
+        )
+          throw new FinanceError(FINANCE_ERROR_CODES.COST_NOT_FOUND, 404, 'cost entry not found');
+        const payload: CostCreatedV1 = {
+          costEntryId: entry.id,
+          category: entry.category as CostCategory,
+          channelId: entry.channelId,
+          caseId: entry.caseId,
+        };
+        await this.outbox.append(tx, this.envelope(entry.id, payload, COST_CREATED));
+        await tx.operationLog.create({
+          data: {
+            userId: this.actor.actorUserId,
+            action: 'COST_CREATE',
+            targetType: 'COST_ENTRY',
+            targetId: entry.id,
+            // 审计只落标识符+金额+hasNote 布尔：note 自由文本落行不落审计。
+            newValues: JSON.stringify({
+              costEntryId: entry.id,
+              category: entry.category,
+              amount: entry.amount.toFixed(2),
+              hasNote: entry.note !== null,
+            }),
+            ip: this.actor.ip,
+          },
+        });
+        return projectCostEntry(entry);
+      },
+      async (tx, targetId) => projectCostEntry(await this.probeCostEntry(tx, targetId, scopeWhere)),
+    );
   }
 
   /**
@@ -161,7 +210,10 @@ export class CostService {
     const page = normalizePage(query.page);
     const pageSize = normalizePageSize(query.pageSize);
 
-    const filters: Prisma.CostEntryWhereInput[] = [{ deletedAt: null }, await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.read')];
+    const filters: Prisma.CostEntryWhereInput[] = [
+      { deletedAt: null },
+      await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.read'),
+    ];
     if (query.category !== undefined) {
       filters.push({ category: normalizeAllowedValue(query.category, COST_CATEGORIES) });
     }
@@ -196,7 +248,12 @@ export class CostService {
     this.authorization.requireAction(this.authorizationContext, 'cost.read');
     const costId = normalizeRequiredText(id, 1, 100);
     const entry = await this.prisma.costEntry.findFirst({
-      where: { AND: [{ id: costId, deletedAt: null }, await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.read')] },
+      where: {
+        AND: [
+          { id: costId, deletedAt: null },
+          await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.read'),
+        ],
+      },
     });
     if (!entry) {
       throw new FinanceError(FINANCE_ERROR_CODES.COST_NOT_FOUND, 404, 'cost entry not found');
@@ -221,7 +278,7 @@ export class CostService {
     const costId = normalizeRequiredText(id, 1, 100);
     const scopeWhere = await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.update');
 
-    return this.prisma.$transaction(async tx => {
+    return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM cost_entry WHERE id = ${costId} FOR UPDATE`;
       const before = await this.probeCostEntry(tx, costId, scopeWhere);
       const version = normalizeNonNegativeInteger(input.version);
@@ -292,7 +349,7 @@ export class CostService {
     const costId = normalizeRequiredText(id, 1, 100);
     const scopeWhere = await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.delete');
 
-    return this.prisma.$transaction(async tx => {
+    return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM cost_entry WHERE id = ${costId} FOR UPDATE`;
       const before = await this.probeCostEntry(tx, costId, scopeWhere);
       const flipped = await tx.costEntry.updateMany({

@@ -55,7 +55,7 @@ test.after(async () => {
 });
 
 function hasCode(code: string): (error: unknown) => boolean {
-  return error => Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
+  return (error) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
 }
 
 interface ContextOverrides {
@@ -73,7 +73,7 @@ function crmContext(userId: string, overrides: ContextOverrides = {}): Authoriza
     employeeId: overrides.employeeId ?? null,
     isSystemAdmin: false,
     isSystemSuperAdmin: false,
-    grants: permissionCodes.map(permissionCode => ({
+    grants: permissionCodes.map((permissionCode) => ({
       sourceType: 'ROLE' as const,
       sourceId: `${userId}-grant-${permissionCode}`,
       sourceRoleId: 'test-role',
@@ -114,13 +114,24 @@ test('client versions prevent stale edits and deletion; optional values can be c
   const { userId, actor } = await createActor();
   const service = serviceFor(userId, actor);
   const customer = await service.createCustomer(customerInput({ email: 'a@example.test', remark: '待清空' }));
-  const updated = await service.updateCustomer(customer.id, { version: customer.version, email: '', remark: '', phone: '13900001234' });
+  const updated = await service.updateCustomer(customer.id, {
+    version: customer.version,
+    email: '',
+    remark: '',
+    phone: '13900001234',
+  });
   assert.equal(updated.email, null);
   assert.equal(updated.remark, null);
   const row = await prisma.customer.findUniqueOrThrow({ where: { id: customer.id } });
   assert.equal(row.phoneHash, hashPhone('13900001234'));
-  await assert.rejects(service.updateCustomer(customer.id, { version: customer.version, name: '旧版本' }), hasCode('VERSION_CONFLICT'));
-  await assert.rejects(service.deleteCustomer(customer.id, { version: customer.version }), hasCode('VERSION_CONFLICT'));
+  await assert.rejects(
+    service.updateCustomer(customer.id, { version: customer.version, name: '旧版本' }),
+    hasCode('VERSION_CONFLICT'),
+  );
+  await assert.rejects(
+    service.deleteCustomer(customer.id, { version: customer.version }),
+    hasCode('VERSION_CONFLICT'),
+  );
   await assert.rejects(service.deleteCustomer(customer.id, { version: 0 }), hasCode('VALIDATION_FAILED'));
 });
 
@@ -138,9 +149,17 @@ test('deletion soft deletes only the selected customer and contacts, retains a s
   await assert.rejects(service.getCustomer(customer.id), hasCode(LEAD_NOT_FOUND));
   await assert.rejects(service.updateCustomer(customer.id, { name: '恢复' }), hasCode(LEAD_NOT_FOUND));
   await assert.rejects(service.listContacts(customer.id), hasCode(LEAD_NOT_FOUND));
-  await assert.rejects(service.deleteCustomer(customer.id, { version: customer.version }), hasCode(LEAD_NOT_FOUND));
-  const audit = await prisma.operationLog.findFirstOrThrow({ where: { action: 'CUSTOMER_DELETE', targetId: customer.id } });
-  assert.deepEqual(JSON.parse(audit.newValues!), { customerNo: customer.customerNo, version: customer.version });
+  await assert.rejects(
+    service.deleteCustomer(customer.id, { version: customer.version }),
+    hasCode(LEAD_NOT_FOUND),
+  );
+  const audit = await prisma.operationLog.findFirstOrThrow({
+    where: { action: 'CUSTOMER_DELETE', targetId: customer.id },
+  });
+  assert.deepEqual(JSON.parse(audit.newValues!), {
+    customerNo: customer.customerNo,
+    version: customer.version,
+  });
 });
 
 test('deletion enforces action permission and scope, and audit failures roll back both customer and contacts', async () => {
@@ -148,10 +167,31 @@ test('deletion enforces action permission and scope, and audit failures roll bac
   const customer = await seedCustomer();
   const service = serviceFor(userId, actor);
   const contact = await service.addContact(customer.id, contactInput());
-  await assert.rejects(serviceFor(userId, actor, { permissionCodes: ['customer.read'] }).deleteCustomer(customer.id, { version: 1 }), hasCode('PERMISSION_DENIED'));
-  await assert.rejects(serviceFor(userId, actor, { scopeIds: [] }).deleteCustomer(customer.id, { version: 1 }), hasCode(LEAD_NOT_FOUND));
-  const failing = prisma.$extends({ query: { operationLog: { create: async () => { throw new Error('injected audit failure'); } } } });
-  await assert.rejects(new CustomerService(failing as typeof prisma, actor, crmContext(userId)).deleteCustomer(customer.id, { version: 1 }), /injected audit failure/);
+  await assert.rejects(
+    serviceFor(userId, actor, { permissionCodes: ['customer.read'] }).deleteCustomer(customer.id, {
+      version: 1,
+    }),
+    hasCode('PERMISSION_DENIED'),
+  );
+  await assert.rejects(
+    serviceFor(userId, actor, { scopeIds: [] }).deleteCustomer(customer.id, { version: 1 }),
+    hasCode(LEAD_NOT_FOUND),
+  );
+  const failing = prisma.$extends({
+    query: {
+      operationLog: {
+        create: async () => {
+          throw new Error('injected audit failure');
+        },
+      },
+    },
+  });
+  await assert.rejects(
+    new CustomerService(failing as typeof prisma, actor, crmContext(userId)).deleteCustomer(customer.id, {
+      version: 1,
+    }),
+    /injected audit failure/,
+  );
   assert.equal((await prisma.customer.findUniqueOrThrow({ where: { id: customer.id } })).deletedAt, null);
   assert.equal((await prisma.contact.findUniqueOrThrow({ where: { id: contact.id } })).deletedAt, null);
   assert.equal(await prisma.operationLog.count({ where: { action: 'CUSTOMER_DELETE' } }), 0);
@@ -163,8 +203,21 @@ test('deletion protects case, contract and lead associations, including historic
   for (const relation of ['case', 'contract', 'referral', 'source'] as const) {
     const source = relation === 'source' ? await seedLead() : null;
     const customer = await seedCustomer({ sourceLeadId: source?.id });
-    if (relation === 'case') await prisma.case.create({ data: { caseNo: randomUUID(), title: '关联案件', customerId: customer.id, caseType: '民事' } });
-    if (relation === 'contract') await prisma.contract.create({ data: { contractNo: randomUUID(), contractType: 'FORMAL', title: '历史合同', customerId: customer.id, createdBy: userId, deletedAt: new Date() } });
+    if (relation === 'case')
+      await prisma.case.create({
+        data: { caseNo: randomUUID(), title: '关联案件', customerId: customer.id, caseType: '民事' },
+      });
+    if (relation === 'contract')
+      await prisma.contract.create({
+        data: {
+          contractNo: randomUUID(),
+          contractType: 'FORMAL',
+          title: '历史合同',
+          customerId: customer.id,
+          createdBy: userId,
+          deletedAt: new Date(),
+        },
+      });
     if (relation === 'referral') await seedLead({ referralCustomerId: customer.id });
     await assert.rejects(service.deleteCustomer(customer.id, { version: 1 }), hasCode('CUSTOMER_IN_USE'));
     assert.equal((await prisma.customer.findUniqueOrThrow({ where: { id: customer.id } })).deletedAt, null);
@@ -260,14 +313,16 @@ test('createCustomer persists with dual phone storage and writes customer.create
   const { userId, actor } = await createActor();
   const service = serviceFor(userId, actor);
 
-  const view = await service.createCustomer(customerInput({
-    wechat: 'wx-cust-001',
-    email: 'cust@example.com',
-    address: '北京市朝阳区',
-    customerType: 'INDIVIDUAL',
-    tags: '["vip"]',
-    remark: '直客建档',
-  }));
+  const view = await service.createCustomer(
+    customerInput({
+      wechat: 'wx-cust-001',
+      email: 'cust@example.com',
+      address: '北京市朝阳区',
+      customerType: 'INDIVIDUAL',
+      tags: '["vip"]',
+      remark: '直客建档',
+    }),
+  );
 
   assert.ok(view.id);
   // customerNo（决策 12）：CU + yyMMdd + '-' + 6 位随机字母数字。
@@ -311,7 +366,7 @@ test('createCustomer honors provided status, rejects invalid input and requires 
 
   await assert.rejects(
     () => service.createCustomer(customerInput({ status: 'BOGUS' as never, phone: '13800006666' })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   // sourceLeadId 不可经直建设置（决策 12：转化路径独占）→ 精确键校验拒绝。
   await assert.rejects(
@@ -319,8 +374,10 @@ test('createCustomer honors provided status, rejects invalid input and requires 
     hasCode('VALIDATION_FAILED'),
   );
   await assert.rejects(
-    () => serviceFor(userId, actor, { permissionCodes: ['customer.read'] })
-      .createCustomer(customerInput({ phone: '13800007777' })),
+    () =>
+      serviceFor(userId, actor, { permissionCodes: ['customer.read'] }).createCustomer(
+        customerInput({ phone: '13800007777' }),
+      ),
     hasCode('PERMISSION_DENIED'),
   );
   assert.equal(await prisma.customer.count({ where: { status: 'BOGUS' } }), 0);
@@ -329,10 +386,12 @@ test('createCustomer honors provided status, rejects invalid input and requires 
 test('createCustomer writes OperationLog audit without phone, wechat or remark plaintext', async () => {
   const { userId, actor } = await createActor();
   const service = serviceFor(userId, actor);
-  const view = await service.createCustomer(customerInput({
-    wechat: 'wx-secret-002',
-    remark: '内部敏感备注',
-  }));
+  const view = await service.createCustomer(
+    customerInput({
+      wechat: 'wx-secret-002',
+      remark: '内部敏感备注',
+    }),
+  );
 
   const audit = await prisma.operationLog.findFirstOrThrow({
     where: { targetType: 'CUSTOMER', targetId: view.id, action: 'CUSTOMER_CREATE' },
@@ -370,20 +429,20 @@ test('updateCustomer applies partial updates, re-normalizes phone and bumps vers
   );
   await assert.rejects(
     () => service.updateCustomer(randomUUID(), { address: '不存在' }),
-    error => error instanceof CrmError && error.code === LEAD_NOT_FOUND && error.httpStatus === 404,
+    (error) => error instanceof CrmError && error.code === LEAD_NOT_FOUND && error.httpStatus === 404,
   );
   await assert.rejects(
-    () => serviceFor(userId, actor, { permissionCodes: ['customer.read'] })
-      .updateCustomer(created.id, { address: '越权' }),
+    () =>
+      serviceFor(userId, actor, { permissionCodes: ['customer.read'] }).updateCustomer(created.id, {
+        address: '越权',
+      }),
     hasCode('PERMISSION_DENIED'),
   );
 });
 
 test('getCustomer masks L3 fields by default and audits raw reads with purpose customer.read', async () => {
   const { userId, actor } = await createActor();
-  const created = await serviceFor(userId, actor).createCustomer(
-    customerInput({ wechat: 'wx-cust-003' }),
-  );
+  const created = await serviceFor(userId, actor).createCustomer(customerInput({ wechat: 'wx-cust-003' }));
 
   const masked = await serviceFor(userId, actor).getCustomer(created.id);
   assert.equal(masked.phone, '138****1234');
@@ -391,14 +450,16 @@ test('getCustomer masks L3 fields by default and audits raw reads with purpose c
   assert.equal(await prisma.operationLog.count({ where: { action: 'READ_L3_FIELDS' } }), 0);
 
   const reader = serviceFor(userId, actor, {
-    fieldRules: [{
-      sourceRoleId: 'test-role',
-      resource: 'customer',
-      fieldCode: 'customer.phone',
-      readLevel: 'READ',
-      canWrite: true,
-      canExport: false,
-    }],
+    fieldRules: [
+      {
+        sourceRoleId: 'test-role',
+        resource: 'customer',
+        fieldCode: 'customer.phone',
+        readLevel: 'READ',
+        canWrite: true,
+        canExport: false,
+      },
+    ],
   });
   const readable = await reader.getCustomer(created.id);
   assert.equal(readable.phone, '13800001234');
@@ -416,8 +477,18 @@ test('getCustomer masks L3 fields by default and audits raw reads with purpose c
 test('listCustomers paginates, filters by status and masks phone with LIST audit sentinel', async () => {
   const { userId, actor } = await createActor();
   await seedCustomer({ name: '潜在客户一', status: 'POTENTIAL' });
-  await seedCustomer({ name: '意向客户一', status: 'INTENT', phone: '13600001111', phoneHash: hashPhone('13600001111') });
-  await seedCustomer({ name: '签约客户一', status: 'SIGNED', phone: '13600002222', phoneHash: hashPhone('13600002222') });
+  await seedCustomer({
+    name: '意向客户一',
+    status: 'INTENT',
+    phone: '13600001111',
+    phoneHash: hashPhone('13600001111'),
+  });
+  await seedCustomer({
+    name: '签约客户一',
+    status: 'SIGNED',
+    phone: '13600002222',
+    phoneHash: hashPhone('13600002222'),
+  });
 
   const service = serviceFor(userId, actor);
   const page1 = await service.listCustomers({ page: 1, pageSize: 2 });
@@ -431,14 +502,16 @@ test('listCustomers paginates, filters by status and masks phone with LIST audit
   assert.equal(intentOnly.list[0].phone, '136****1111');
 
   const reader = serviceFor(userId, actor, {
-    fieldRules: [{
-      sourceRoleId: 'test-role',
-      resource: 'customer',
-      fieldCode: 'customer.phone',
-      readLevel: 'READ',
-      canWrite: true,
-      canExport: false,
-    }],
+    fieldRules: [
+      {
+        sourceRoleId: 'test-role',
+        resource: 'customer',
+        fieldCode: 'customer.phone',
+        readLevel: 'READ',
+        canWrite: true,
+        canExport: false,
+      },
+    ],
   });
   const raw = await reader.listCustomers({});
   assert.equal(raw.total, 3);
@@ -453,20 +526,25 @@ test('SELF scope anchors on createdBy: own customers visible, others hidden', as
   const outsider = await createActor();
   const org = await createOrganizationFixture('BRANCH_MAIN');
   const clerk = await createEmployeeInOrg(org.id, '客服');
+  await prisma.user.update({ where: { id: owner.userId }, data: { employeeId: clerk.id } });
   const selfScope = await prisma.dataScope.create({
     data: { name: `self-${randomUUID()}`, scopeType: 'SELF' },
   });
 
   const mine = await serviceFor(owner.userId, owner.actor).createCustomer(customerInput());
-  const others = await serviceFor(outsider.userId, outsider.actor)
-    .createCustomer(customerInput({ name: '他人客户', phone: '13877776666' }));
+  const others = await serviceFor(outsider.userId, outsider.actor).createCustomer(
+    customerInput({ name: '他人客户', phone: '13877776666' }),
+  );
 
   const scoped = serviceFor(owner.userId, owner.actor, {
     employeeId: clerk.id,
     scopeIds: [selfScope.id],
   });
   const page = await scoped.listCustomers({});
-  assert.deepEqual(page.list.map(item => item.id), [mine.id]);
+  assert.deepEqual(
+    page.list.map((item) => item.id),
+    [mine.id],
+  );
   assert.equal(page.total, 1);
   const fetched = await scoped.getCustomer(mine.id);
   assert.equal(fetched.id, mine.id);
@@ -511,7 +589,7 @@ test('BRANCH scope anchors on sourceLead.branchId; null-sourceLead customers are
 
   const scoped = serviceFor(userId, actor, { employeeId: clerk.id, scopeIds: [branchScope.id] });
   const page = await scoped.listCustomers({});
-  assert.deepEqual(page.list.map(item => item.id).sort(), [custIn.id, custChild.id].sort());
+  assert.deepEqual(page.list.map((item) => item.id).sort(), [custIn.id, custChild.id].sort());
   assert.equal(page.total, 2);
   await assert.rejects(() => scoped.getCustomer(custOut.id), hasCode(LEAD_NOT_FOUND));
   await assert.rejects(() => scoped.getCustomer(custDirect.id), hasCode(LEAD_NOT_FOUND));
@@ -536,7 +614,7 @@ test('addContact stores the phone hash, enforces per-customer uniqueness and pri
   // 同客户同电话（含格式化变体）→ P2002 映射 VALIDATION_FAILED(409)。
   await assert.rejects(
     () => service.addContact(customer.id, contactInput({ name: '重复电话', phone: '+86 135-1111-2222' })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 409,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 409,
   );
 
   // 跨客户同电话允许（唯一约束是 [customerId, phoneHash]）。
@@ -553,8 +631,11 @@ test('addContact stores the phone hash, enforces per-customer uniqueness and pri
   assert.equal((await prisma.contact.findUniqueOrThrow({ where: { id: second.id } })).isPrimary, true);
 
   await assert.rejects(
-    () => serviceFor(userId, actor, { permissionCodes: ['customer.read'] })
-      .addContact(customer.id, contactInput({ phone: '13555556666' })),
+    () =>
+      serviceFor(userId, actor, { permissionCodes: ['customer.read'] }).addContact(
+        customer.id,
+        contactInput({ phone: '13555556666' }),
+      ),
     hasCode('PERMISSION_DENIED'),
   );
 });
@@ -582,7 +663,7 @@ test('updateContact re-normalizes phone, re-applies primary exclusivity and maps
   // 改成与第一联系人同电话 → 唯一冲突 409。
   await assert.rejects(
     () => service.updateContact(customer.id, second.id, { phone: '13511112222' }),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 409,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 409,
   );
 
   await assert.rejects(
@@ -614,7 +695,10 @@ test('removeContact soft-deletes and listContacts excludes deleted rows in creat
   await service.removeContact(customer.id, second.id);
 
   const remaining = await service.listContacts(customer.id);
-  assert.deepEqual(remaining.map(item => item.id), [first.id, third.id]);
+  assert.deepEqual(
+    remaining.map((item) => item.id),
+    [first.id, third.id],
+  );
   const removed = await prisma.contact.findUniqueOrThrow({ where: { id: second.id } });
   assert.ok(removed.deletedAt instanceof Date);
 
@@ -633,14 +717,16 @@ test('contact views mask phone by customer.read field capability and audit raw d
   assert.equal(await prisma.operationLog.count({ where: { action: 'READ_L3_FIELDS' } }), 0);
 
   const reader = serviceFor(userId, actor, {
-    fieldRules: [{
-      sourceRoleId: 'test-role',
-      resource: 'customer',
-      fieldCode: 'customer.phone',
-      readLevel: 'READ',
-      canWrite: true,
-      canExport: false,
-    }],
+    fieldRules: [
+      {
+        sourceRoleId: 'test-role',
+        resource: 'customer',
+        fieldCode: 'customer.phone',
+        readLevel: 'READ',
+        canWrite: true,
+        canExport: false,
+      },
+    ],
   });
   const raw = await reader.listContacts(customer.id);
   assert.equal(raw[0].phone, '13511112222');
@@ -681,15 +767,17 @@ test('contact operations hide out-of-scope customers without leaking existence',
   );
   await assert.rejects(() => scoped.removeContact(custOut.id, seededContact.id), hasCode(LEAD_NOT_FOUND));
   await assert.rejects(
-    () => serviceFor(userId, actor, { permissionCodes: ['customer.create'] })
-      .listContacts(custOut.id),
+    () => serviceFor(userId, actor, { permissionCodes: ['customer.create'] }).listContacts(custOut.id),
     hasCode('PERMISSION_DENIED'),
   );
 });
 
 // ==================== SPEC-031 客户经营分析（复购 + 转介绍）====================
 
-async function seedContract(customerId: string, overrides: Partial<Prisma.ContractUncheckedCreateInput> = {}) {
+async function seedContract(
+  customerId: string,
+  overrides: Partial<Prisma.ContractUncheckedCreateInput> = {},
+) {
   const id = randomUUID();
   return prisma.contract.create({
     data: {
@@ -749,8 +837,8 @@ test('listCustomers batch-aggregates metrics across the page (SPEC-031)', async 
   await seedLead({ referralCustomerId: repeatCustomer.id });
 
   const page = await service.listCustomers({ page: 1, pageSize: 10, keyword: '客' });
-  const repeat = page.list.find(item => item.id === repeatCustomer.id);
-  const fresh = page.list.find(item => item.id === newCustomer.id);
+  const repeat = page.list.find((item) => item.id === repeatCustomer.id);
+  const fresh = page.list.find((item) => item.id === newCustomer.id);
   assert.ok(repeat, 'repeat customer is in the page');
   assert.equal(repeat.contractCount, 2);
   assert.equal(repeat.repurchaseCount, 1);

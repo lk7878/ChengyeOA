@@ -441,7 +441,7 @@ test('rejects forged channel, campaign, and referral customer identifiers at ent
   // 终审条目 2：channelId/campaignId/referralCustomerId 同为真 relation（schema Lead
   // .channel/campaign/referralCustomer），伪造 FK 曾与 branch/team（4a）同族漏网——
   // 原样透传将 P2003 成 500。入口存在性校验后：伪造→400 不触服务层；合法值不受影响。
-  const session = await createCrmSession({ permissions: ['lead.create', 'lead.read'] });
+  const session = await createCrmSession({ permissions: ['lead.create', 'lead.read', 'channel.read'] });
 
   const forgedChannel = await app.httpRequest()
     .post('/api/v1/leads')

@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import Table from '@/components/ResizableTable';
 // SPEC-013 Task 8: 审批中心页（APPROVAL 中心三 Tab + 新建申请 + 处理动作 + 详情）。
 // 形态沿 RefundListPage（AntD 6 + store 模式）：三 Tab 共享一个列表状态 + activeRole
@@ -102,15 +103,29 @@ const DEFINITION_STATUS_META: Record<string, { text: string; color: string }> = 
 
 /** 逗号分隔审批人取值（userIds / roleCodes）解析：去空白、滤空。 */
 function parseCsv(value: string): string[] {
-  return value.split(',').map(item => item.trim()).filter(Boolean);
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 /** SPEC-025 导入字段白名单（镜像后端 ImportDefinitionsInput）：仅保留配置快照 8 键。 */
-const IMPORT_DEFINITION_KEYS = ['code', 'name', 'businessType', 'formSchema', 'approverRule', 'nodeSchema', 'version', 'status'] as const;
+const IMPORT_DEFINITION_KEYS = [
+  'code',
+  'name',
+  'businessType',
+  'formSchema',
+  'approverRule',
+  'nodeSchema',
+  'version',
+  'status',
+] as const;
 
 /** SPEC-025 I×1 round-trip 修复：导入上传前剥离视图字段（id/createdAt/updatedAt）——「导出下载 → 原样上传」
  *  round-trip 可用（否则后端 assertExactKeys 对多余键 400）。缺键项不注入（保持导出快照语义）。 */
-function stripDefinitionViewFields(raw: Record<string, unknown>): ImportDefinitionsInput['definitions'][number] {
+function stripDefinitionViewFields(
+  raw: Record<string, unknown>,
+): ImportDefinitionsInput['definitions'][number] {
   const out: Record<string, unknown> = {};
   for (const key of IMPORT_DEFINITION_KEYS) {
     if (key in raw) out[key] = raw[key];
@@ -120,7 +135,10 @@ function stripDefinitionViewFields(raw: Record<string, unknown>): ImportDefiniti
 
 /** 动作失败读 response.data.message（业务码）；无则兜底「操作失败」（沿 approval-store actionErrorMessage）。 */
 function apiErrorMessage(error: unknown): string {
-  return (error as { response?: { data?: { message?: string } } } | undefined)?.response?.data?.message ?? '操作失败';
+  return (
+    (error as { response?: { data?: { message?: string } } } | undefined)?.response?.data?.message ??
+    '操作失败'
+  );
 }
 
 function newIdempotencyKey(): string {
@@ -170,7 +188,9 @@ function nodeStateMeta(
   }
   if (index < groups.length - 1) return { text: '已完成', color: 'blue' };
   const finalMeta = INSTANCE_STATUS_META[record.status];
-  return finalMeta ? { text: finalMeta.text, color: finalMeta.color } : { text: record.status, color: 'default' };
+  return finalMeta
+    ? { text: finalMeta.text, color: finalMeta.color }
+    : { text: record.status, color: 'default' };
 }
 
 /** SPEC-018 会签：nodeSchema 链按下标取节点 mode（缺省 ANY）。非数组/null → undefined（单节点无会签标注）。 */
@@ -193,16 +213,30 @@ function businessTypeText(value: string): string {
 
 type ActionModal = 'approve' | 'reject' | null;
 
-const ApprovalCenterPage: React.FC = () => {
+const ApprovalCenterPage: React.FC<{ initialInstanceId?: string; initialRole?: ApprovalRoleFilter }> = ({
+  initialInstanceId,
+  initialRole,
+}) => {
   const {
-    instances, listTotal, listPage, listPageSize, listLoading, listError,
-    activeRole, definitions, definitionsLoading,
-    fetchInstances, fetchDefinitions, applyApproval, processApproval, withdrawApproval,
+    instances,
+    listTotal,
+    listPage,
+    listPageSize,
+    listLoading,
+    listError,
+    activeRole,
+    definitions,
+    definitionsLoading,
+    fetchInstances,
+    fetchDefinitions,
+    applyApproval,
+    processApproval,
+    withdrawApproval,
   } = useApprovalStore();
-  const canApply = useAuthStore(state => state.hasPermission('approval.apply'));
-  const canProcess = useAuthStore(state => state.hasPermission('approval.process'));
-  const canManage = useAuthStore(state => state.hasPermission('approval.manage'));
-  const currentUserId = useAuthStore(state => state.userInfo?.id);
+  const canApply = useAuthStore((state) => state.hasPermission('approval.apply'));
+  const canProcess = useAuthStore((state) => state.hasPermission('approval.process'));
+  const canManage = useAuthStore((state) => state.hasPermission('approval.manage'));
+  const currentUserId = useAuthStore((state) => state.userInfo?.id);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [attachments, setAttachments] = useState<ApprovalAttachment[]>([]);
@@ -211,6 +245,8 @@ const ApprovalCenterPage: React.FC = () => {
   const [customTypeSaving, setCustomTypeSaving] = useState(false);
   const [customTypeForm] = Form.useForm();
   const [detailOpen, setDetailOpen] = useState(false);
+  const [linkedError, setLinkedError] = useState('');
+  const [linkedRetry, setLinkedRetry] = useState(0);
   const [activeRecord, setActiveRecord] = useState<ApprovalInstanceView | null>(null);
   const [activeTask, setActiveTask] = useState<ApprovalTaskView | null>(null);
   const [actionModal, setActionModal] = useState<ActionModal>(null);
@@ -228,7 +264,7 @@ const ApprovalCenterPage: React.FC = () => {
   // SPEC-025 Task 3：隐藏文件 input（导入 JSON 定义快照）。
   const importFileRef = useRef<HTMLInputElement>(null);
   const watchedCode = Form.useWatch('definitionCode', createForm);
-  const selectedDefinition = definitions.find(def => def.code === watchedCode);
+  const selectedDefinition = definitions.find((def) => def.code === watchedCode);
 
   // SPEC-017 Task 3：定义管理 Tab（approval.manage 门控）。activeTab 覆盖三 role + MANAGE
   // （store activeRole 仅用于列表三 Tab；MANAGE 非 role，本地 state 承接）。
@@ -252,7 +288,11 @@ const ApprovalCenterPage: React.FC = () => {
   const [statsData, setStatsData] = useState<ApprovalStatsView | null>(null);
 
   useEffect(() => {
-    void fetchInstances(activeRole, 1);
+    const role = initialRole === 'ALL' && !canManage ? 'APPLIED' : (initialRole ?? activeRole);
+    void Promise.resolve().then(() => {
+      if (initialRole) setActiveTab(role);
+      void fetchInstances(role, 1);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -303,9 +343,10 @@ const ApprovalCenterPage: React.FC = () => {
       formSchemaJson: JSON.stringify(record.formSchema, null, 2),
       approverRuleType: rule.type ?? 'ROLE',
       // SUPERVISOR（直属上级）无取值 CSV（levels 可 JSON 编辑器透传，此处保持默认直属上级）。
-      approverRuleValue: rule.type === 'SUPERVISOR'
-        ? ''
-        : (rule.type === 'USER' ? rule.userIds ?? [] : rule.roleCodes ?? []).join(', '),
+      approverRuleValue:
+        rule.type === 'SUPERVISOR'
+          ? ''
+          : (rule.type === 'USER' ? (rule.userIds ?? []) : (rule.roleCodes ?? [])).join(', '),
       nodeSchemaJson: record.nodeSchema ? JSON.stringify(record.nodeSchema, null, 2) : '',
     });
     setEditingDefinition(record);
@@ -344,19 +385,32 @@ const ApprovalCenterPage: React.FC = () => {
         return;
       }
     }
-    const approverRule = approverRuleType === 'USER'
-      ? { type: 'USER', userIds: approverRuleValues }
-      : approverRuleType === 'ROLE'
-        ? { type: 'ROLE', roleCodes: approverRuleValues }
-        : { type: 'SUPERVISOR' };
+    const approverRule =
+      approverRuleType === 'USER'
+        ? { type: 'USER', userIds: approverRuleValues }
+        : approverRuleType === 'ROLE'
+          ? { type: 'ROLE', roleCodes: approverRuleValues }
+          : { type: 'SUPERVISOR' };
 
     setManageSubmitting(true);
     try {
       if (editingDefinition) {
-        await approvalApi.updateDefinition(editingDefinition.code, { name, formSchema, approverRule, nodeSchema });
+        await approvalApi.updateDefinition(editingDefinition.code, {
+          name,
+          formSchema,
+          approverRule,
+          nodeSchema,
+        });
         message.success('定义已更新');
       } else {
-        await approvalApi.createDefinition({ code, name, businessType, formSchema, approverRule, nodeSchema });
+        await approvalApi.createDefinition({
+          code,
+          name,
+          businessType,
+          formSchema,
+          approverRule,
+          nodeSchema,
+        });
         message.success('定义已创建');
       }
       setManageModalOpen(false);
@@ -482,9 +536,11 @@ const ApprovalCenterPage: React.FC = () => {
         schemaVersion === undefined ? { definitions } : { schemaVersion, definitions },
       );
       const { imported = 0, updated = 0 } = res.data ?? {};
-      message.success(imported > 0
-        ? `导入成功：新增 ${imported} 条${updated > 0 ? `，更新 ${updated} 条` : ''}`
-        : `导入成功：更新 ${updated} 条`);
+      message.success(
+        imported > 0
+          ? `导入成功：新增 ${imported} 条${updated > 0 ? `，更新 ${updated} 条` : ''}`
+          : `导入成功：更新 ${updated} 条`,
+      );
       void fetchDefinitionsManage();
     } catch (error) {
       message.error(apiErrorMessage(error));
@@ -495,14 +551,15 @@ const ApprovalCenterPage: React.FC = () => {
 
   const openCreate = () => {
     createForm.resetFields();
-    setAttachments([]); setMaterialsBusy(false);
+    setAttachments([]);
+    setMaterialsBusy(false);
     createKeyRef.current = newIdempotencyKey();
     setCreateOpen(true);
     if (definitions.length === 0) void fetchDefinitions();
   };
 
   const handleDefinitionChange = (code: string) => {
-    const definition = definitions.find(item => item.code === code);
+    const definition = definitions.find((item) => item.code === code);
     if (definition) createForm.setFieldValue('title', definition.name);
   };
 
@@ -511,11 +568,12 @@ const ApprovalCenterPage: React.FC = () => {
     const content: Record<string, unknown> = {};
     for (const field of getSchemaFields(selectedDefinition.formSchema)) {
       const raw = values[field.key];
-      content[field.key] = field.type === 'date'
-        ? (raw as { toISOString?: () => string } | undefined)?.toISOString?.() ?? (raw as string)
-        : field.type === 'number'
-          ? Number(raw)
-          : (raw as string | undefined) ?? '';
+      content[field.key] =
+        field.type === 'date'
+          ? ((raw as { toISOString?: () => string } | undefined)?.toISOString?.() ?? (raw as string))
+          : field.type === 'number'
+            ? Number(raw)
+            : ((raw as string | undefined) ?? '');
     }
     setSubmitting(true);
     try {
@@ -523,7 +581,7 @@ const ApprovalCenterPage: React.FC = () => {
         definitionCode: selectedDefinition.code,
         title: (values.title as string)?.trim() || selectedDefinition.name,
         content,
-        ...(attachments.length ? { attachmentIds: attachments.map(file => file.id) } : {}),
+        ...(attachments.length ? { attachmentIds: attachments.map((file) => file.id) } : {}),
         idempotencyKey: createKeyRef.current,
       });
       if (!created) return;
@@ -543,23 +601,38 @@ const ApprovalCenterPage: React.FC = () => {
       createForm.setFieldsValue({ definitionCode: response.data.code, title: response.data.name });
       setCustomTypeOpen(false);
       message.success('个人审批类型已创建，可重复使用');
-    } catch { /* 请求层保留并提示错误 */ } finally { setCustomTypeSaving(false); }
+    } catch {
+      /* 请求层保留并提示错误 */
+    } finally {
+      setCustomTypeSaving(false);
+    }
   };
 
   const reapply = async (record: ApprovalInstanceView) => {
-    openCreate(); setDetailOpen(false); setSubmitting(true);
+    openCreate();
+    setDetailOpen(false);
+    setSubmitting(true);
     try {
       const available = (await approvalApi.definitions()).data;
-      const definition = available.find(item => item.id === record.definitionId);
+      const definition = available.find((item) => item.id === record.definitionId);
       const values: Record<string, unknown> = { ...record.content, title: record.title };
       if (definition) {
         values.definitionCode = definition.code;
-        for (const field of getSchemaFields(definition.formSchema)) if (field.type === 'date' && values[field.key]) values[field.key] = dayjs(String(values[field.key]));
+        for (const field of getSchemaFields(definition.formSchema))
+          if (field.type === 'date' && values[field.key])
+            values[field.key] = dayjs(String(values[field.key]));
       }
       createForm.setFieldsValue(values);
       const sourceFiles = (await approvalMaterialsApi.list(record.id)).data;
-      for (const source of sourceFiles) { const copied = (await approvalMaterialsApi.clone(source.id)).data; setAttachments(current => [...current, copied]); }
-    } catch { message.error('部分材料未能复制，请核对附件清单后再提交'); } finally { setSubmitting(false); }
+      for (const source of sourceFiles) {
+        const copied = (await approvalMaterialsApi.clone(source.id)).data;
+        setAttachments((current) => [...current, copied]);
+      }
+    } catch {
+      message.error('部分材料未能复制，请核对附件清单后再提交');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const renderField = (field: ApprovalFormField): React.ReactNode => {
@@ -575,12 +648,77 @@ const ApprovalCenterPage: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (!initialInstanceId) return;
+    let active = true;
+    void approvalApi
+      .detail(initialInstanceId)
+      .then((result) => {
+        if (active) {
+          setActiveRecord(result.data);
+          setDetailOpen(true);
+          setLinkedError('');
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setActiveRecord(null);
+          setDetailOpen(false);
+          setLinkedError('关联审批不存在、无权查看或加载失败，请刷新重试。');
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [initialInstanceId, linkedRetry]);
+
+  const visibleRecordId =
+    detailOpen || actionModal || forwardOpen || addSignerOpen ? activeRecord?.id : undefined;
+  useEffect(() => {
+    if (!visibleRecordId) return;
+    let active = true;
+    let pending = false;
+    const validate = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        await approvalApi.detail(visibleRecordId);
+      } catch {
+        if (active) {
+          setActiveRecord(null);
+          setActiveTask(null);
+          setDetailOpen(false);
+          setActionModal(null);
+          setForwardOpen(false);
+          setAddSignerOpen(false);
+          actionForm.resetFields();
+          forwardForm.resetFields();
+          addSignerForm.resetFields();
+          setLinkedError('审批详情已不可用，请重新加载后办理。');
+        }
+      } finally {
+        pending = false;
+      }
+    };
+    const timer = window.setInterval(() => void validate(), 5000);
+    window.addEventListener('focus', validate);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', validate);
+    };
+  }, [visibleRecordId, actionForm, forwardForm, addSignerForm]);
+
   const openDetail = (record: ApprovalInstanceView) => {
     setActiveRecord(record);
     setDetailOpen(true);
   };
 
-  const openAction = (modal: Exclude<ActionModal, null>, record: ApprovalInstanceView, task: ApprovalTaskView) => {
+  const openAction = (
+    modal: Exclude<ActionModal, null>,
+    record: ApprovalInstanceView,
+    task: ApprovalTaskView,
+  ) => {
     actionForm.resetFields();
     processKeyRef.current = newIdempotencyKey();
     setActiveRecord(record);
@@ -680,9 +818,11 @@ const ApprovalCenterPage: React.FC = () => {
   };
 
   const myPendingTask = (record: ApprovalInstanceView): ApprovalTaskView | null =>
-    record.tasks.find(task => task.status === 'PENDING' && (!currentUserId || task.assigneeId === currentUserId))
-    ?? record.tasks.find(task => task.status === 'PENDING')
-    ?? null;
+    record.tasks.find(
+      (task) => task.status === 'PENDING' && (!currentUserId || task.assigneeId === currentUserId),
+    ) ??
+    record.tasks.find((task) => task.status === 'PENDING') ??
+    null;
 
   const columns = [
     { title: '标题', dataIndex: 'title', key: 'title', width: 220 },
@@ -714,9 +854,11 @@ const ApprovalCenterPage: React.FC = () => {
         const name = currentNodeName(record);
         if (!name) return '-';
         // 单节点通用名 '审批' 弱化展示；多级节点名（如 主管初审/合伙人终审）以 Tag 突出。
-        return name === '审批'
-          ? <span style={{ color: 'rgba(0, 0, 0, 0.45)' }}>{name}</span>
-          : <Tag color="blue">{name}</Tag>;
+        return name === '审批' ? (
+          <span style={{ color: 'rgba(0, 0, 0, 0.45)' }}>{name}</span>
+        ) : (
+          <Tag color="blue">{name}</Tag>
+        );
       },
     },
     {
@@ -734,7 +876,9 @@ const ApprovalCenterPage: React.FC = () => {
         const pendingTask = activeRole === 'TODO' ? myPendingTask(record) : null;
         return (
           <Space size={0}>
-            <Button type="link" size="small" onClick={() => openDetail(record)}>详情</Button>
+            <Button type="link" size="small" onClick={() => openDetail(record)}>
+              详情
+            </Button>
             {activeRole === 'APPLIED' && record.status === 'PENDING' && canApply && (
               <Popconfirm
                 title="确认撤回该审批申请？"
@@ -742,15 +886,25 @@ const ApprovalCenterPage: React.FC = () => {
                 cancelText="取消"
                 onConfirm={() => void handleWithdraw(record)}
               >
-                <Button type="link" size="small">撤回</Button>
+                <Button type="link" size="small">
+                  撤回
+                </Button>
               </Popconfirm>
             )}
             {pendingTask && canProcess && (
               <>
-                <Button type="link" size="small" onClick={() => openAction('approve', record, pendingTask)}>审批通过</Button>
-                <Button type="link" size="small" onClick={() => openAction('reject', record, pendingTask)}>驳回</Button>
-                <Button type="link" size="small" onClick={() => openForward(pendingTask)}>转交</Button>
-                <Button type="link" size="small" onClick={() => openAddSigners(pendingTask)}>加签</Button>
+                <Button type="link" size="small" onClick={() => openAction('approve', record, pendingTask)}>
+                  审批通过
+                </Button>
+                <Button type="link" size="small" onClick={() => openAction('reject', record, pendingTask)}>
+                  驳回
+                </Button>
+                <Button type="link" size="small" onClick={() => openForward(pendingTask)}>
+                  转交
+                </Button>
+                <Button type="link" size="small" onClick={() => openAddSigners(pendingTask)}>
+                  加签
+                </Button>
               </>
             )}
           </Space>
@@ -790,8 +944,12 @@ const ApprovalCenterPage: React.FC = () => {
         const isMyPending = task.status === 'PENDING' && !!currentUserId && task.assigneeId === currentUserId;
         return canProcess && isMyPending ? (
           <>
-            <Button type="link" size="small" onClick={() => openForward(task)}>转交</Button>
-            <Button type="link" size="small" onClick={() => openAddSigners(task)}>加签</Button>
+            <Button type="link" size="small" onClick={() => openForward(task)}>
+              转交
+            </Button>
+            <Button type="link" size="small" onClick={() => openAddSigners(task)}>
+              加签
+            </Button>
           </>
         ) : null;
       },
@@ -825,14 +983,20 @@ const ApprovalCenterPage: React.FC = () => {
                 <Space size={4}>
                   <span style={{ fontWeight: 600 }}>{group.nodeName}</span>
                   {/* SPEC-018 会签：nodeSchema 对应节点 mode==='ALL'（需节点内全部通过）→ 节点名旁「会签」Tag。 */}
-                  {mode === 'ALL' && <Tag color="purple" data-testid={`node-countersign-${group.nodeName}`}>会签</Tag>}
-                  <Tag color={meta.color} data-testid={`node-state-${group.nodeName}`}>{meta.text}</Tag>
+                  {mode === 'ALL' && (
+                    <Tag color="purple" data-testid={`node-countersign-${group.nodeName}`}>
+                      会签
+                    </Tag>
+                  )}
+                  <Tag color={meta.color} data-testid={`node-state-${group.nodeName}`}>
+                    {meta.text}
+                  </Tag>
                 </Space>
               </React.Fragment>
             );
           })}
         </div>
-        {groups.map(group => (
+        {groups.map((group) => (
           <div key={group.nodeName} data-testid={`node-group-${group.nodeName}`}>
             <div style={{ margin: '8px 0 4px', fontWeight: 600 }}>{group.nodeName}</div>
             <Table<ApprovalTaskView>
@@ -887,14 +1051,20 @@ const ApprovalCenterPage: React.FC = () => {
       width: 150,
       render: (_: unknown, record: ApprovalDefinitionView) => (
         <Space size={0}>
-          <Button type="link" size="small" onClick={() => openManageEdit(record)}>编辑</Button>
+          <Button type="link" size="small" onClick={() => openManageEdit(record)}>
+            编辑
+          </Button>
           <Popconfirm
-            title={record.status === 'DISABLED' ? '确认启用该定义？' : '确认禁用该定义？禁用后不可发起新申请。'}
+            title={
+              record.status === 'DISABLED' ? '确认启用该定义？' : '确认禁用该定义？禁用后不可发起新申请。'
+            }
             okText="确定"
             cancelText="取消"
             onConfirm={() => void handleToggleDefinitionStatus(record)}
           >
-            <Button type="link" size="small">{record.status === 'DISABLED' ? '启用' : '禁用'}</Button>
+            <Button type="link" size="small">
+              {record.status === 'DISABLED' ? '启用' : '禁用'}
+            </Button>
           </Popconfirm>
         </Space>
       ),
@@ -907,7 +1077,9 @@ const ApprovalCenterPage: React.FC = () => {
         <Space>
           <Button onClick={() => void handleExportDefinitions()}>导出</Button>
           <Button onClick={openImportPicker}>导入</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openManageCreate}>新建定义</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openManageCreate}>
+            新建定义
+          </Button>
         </Space>
         {/* SPEC-025：隐藏 file input（accept=".json"）——导入文件选择触发读取解析。 */}
         <input
@@ -956,7 +1128,7 @@ const ApprovalCenterPage: React.FC = () => {
           pageSize: listPageSize,
           total: listTotal,
           showSizeChanger: true,
-          showTotal: total => `共 ${total} 条`,
+          showTotal: (total) => `共 ${total} 条`,
           onChange: (page, pageSize) => void fetchInstances(activeRole, page, pageSize),
         }}
       />
@@ -973,8 +1145,8 @@ const ApprovalCenterPage: React.FC = () => {
           value={allFilters.businessType}
           style={{ width: 140 }}
           data-testid="filter-business-type"
-          onChange={businessType => setAllFilters(prev => ({ ...prev, businessType }))}
-          options={APPROVAL_BUSINESS_TYPES.map(type => ({ value: type, label: type }))}
+          onChange={(businessType) => setAllFilters((prev) => ({ ...prev, businessType }))}
+          options={APPROVAL_BUSINESS_TYPES.map((type) => ({ value: type, label: type }))}
         />
         <Select<ApprovalInstanceStatus | undefined>
           allowClear
@@ -982,8 +1154,8 @@ const ApprovalCenterPage: React.FC = () => {
           value={allFilters.status}
           style={{ width: 140 }}
           data-testid="filter-status"
-          onChange={status => setAllFilters(prev => ({ ...prev, status }))}
-          options={INSTANCE_STATUSES.map(status => ({ value: status, label: status }))}
+          onChange={(status) => setAllFilters((prev) => ({ ...prev, status }))}
+          options={INSTANCE_STATUSES.map((status) => ({ value: status, label: status }))}
         />
         <Input
           allowClear
@@ -991,7 +1163,7 @@ const ApprovalCenterPage: React.FC = () => {
           value={allFilters.applicantId}
           style={{ width: 180 }}
           data-testid="filter-applicant"
-          onChange={event => setAllFilters(prev => ({ ...prev, applicantId: event.target.value }))}
+          onChange={(event) => setAllFilters((prev) => ({ ...prev, applicantId: event.target.value }))}
         />
         <Input
           allowClear
@@ -999,7 +1171,7 @@ const ApprovalCenterPage: React.FC = () => {
           value={allFilters.keyword}
           style={{ width: 180 }}
           data-testid="filter-keyword"
-          onChange={event => setAllFilters(prev => ({ ...prev, keyword: event.target.value }))}
+          onChange={(event) => setAllFilters((prev) => ({ ...prev, keyword: event.target.value }))}
           onPressEnter={() => void fetchInstances('ALL', 1, undefined, allFilters)}
         />
         <Button
@@ -1022,19 +1194,21 @@ const ApprovalCenterPage: React.FC = () => {
         >
           重置
         </Button>
-        <Button
-          loading={exportingCsv}
-          data-testid="export-csv"
-          onClick={() => void handleExportAllCsv()}
-        >
+        <Button loading={exportingCsv} data-testid="export-csv" onClick={() => void handleExportAllCsv()}>
           导出 CSV
         </Button>
       </Space>
       {statsData && (
         <Row gutter={16} style={{ marginBottom: 16 }} data-testid="all-view-stats">
-          <Col span={6}><Statistic title="总量" value={statsData.total} data-testid="stats-total" /></Col>
-          <Col span={6}><Statistic title="在途" value={statsData.pendingCount} data-testid="stats-pending" /></Col>
-          <Col span={6}><Statistic title="已决" value={statsData.decidedCount} data-testid="stats-decided" /></Col>
+          <Col span={6}>
+            <Statistic title="总量" value={statsData.total} data-testid="stats-total" />
+          </Col>
+          <Col span={6}>
+            <Statistic title="在途" value={statsData.pendingCount} data-testid="stats-pending" />
+          </Col>
+          <Col span={6}>
+            <Statistic title="已决" value={statsData.decidedCount} data-testid="stats-decided" />
+          </Col>
           <Col span={6}>
             <Statistic
               title="平均决策时效"
@@ -1069,7 +1243,7 @@ const ApprovalCenterPage: React.FC = () => {
           pageSize: listPageSize,
           total: listTotal,
           showSizeChanger: true,
-          showTotal: total => `共 ${total} 条`,
+          showTotal: (total) => `共 ${total} 条`,
           onChange: (page, pageSize) => void fetchInstances('ALL', page, pageSize, allFilters),
         }}
       />
@@ -1077,38 +1251,57 @@ const ApprovalCenterPage: React.FC = () => {
   );
 
   const tabItems: TabsProps['items'] = [
-    ...TABS.map(tab => ({ key: tab.key, label: tab.label, children: renderListTab() })),
+    ...TABS.map((tab) => ({ key: tab.key, label: tab.label, children: renderListTab() })),
     // SPEC-023 Task 2：全组织视图「全部审批」Tab——approval.manage 门控（无码用户不见）；
     // SPEC-028：ALL Tab 用 renderAllTab（筛选栏 + 导出按钮），筛选参数透传 fetchInstances。
-    ...(canManage
-      ? [{ key: 'ALL' as const, label: '全部审批', children: renderAllTab() }]
-      : []),
-    ...(canManage
-      ? [{ key: 'MANAGE' as const, label: '定义管理', children: manageTabChildren }]
-      : []),
+    ...(canManage ? [{ key: 'ALL' as const, label: '全部审批', children: renderAllTab() }] : []),
+    ...(canManage ? [{ key: 'MANAGE' as const, label: '定义管理', children: manageTabChildren }] : []),
   ];
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div style={{ fontWeight: 600, fontSize: 16 }}>审批中心 <a href="/approval-ledger">业务台账 / 同步状态</a></div>
+      {linkedError && (
+        <Alert
+          type="error"
+          title={linkedError}
+          action={
+            <Button
+              onClick={() => {
+                setLinkedRetry((value) => value + 1);
+                void fetchInstances(activeRole, listPage);
+              }}
+            >
+              重新加载
+            </Button>
+          }
+        />
+      )}
+      <div
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}
+      >
+        <div style={{ fontWeight: 600, fontSize: 16 }}>
+          审批中心 <a href="/approval-ledger">业务台账 / 同步状态</a>
+        </div>
         {canApply && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建申请</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+            新建申请
+          </Button>
         )}
       </div>
 
-      <Tabs
-        activeKey={activeTab}
-        onChange={handleTabChange}
-        destroyOnHidden
-        items={tabItems}
-      />
+      <Tabs activeKey={activeTab} onChange={handleTabChange} destroyOnHidden items={tabItems} />
 
       {/* 新建申请 */}
       <Modal
         title="新建审批申请"
         open={createOpen}
-        onCancel={() => { if (materialsBusy) { message.info('请先完成附件上传或保存文档修改'); return; } setCreateOpen(false); }}
+        onCancel={() => {
+          if (materialsBusy) {
+            message.info('请先完成附件上传或保存文档修改');
+            return;
+          }
+          setCreateOpen(false);
+        }}
         onOk={() => createForm.submit()}
         okButtonProps={{ disabled: materialsBusy }}
         confirmLoading={submitting}
@@ -1117,21 +1310,42 @@ const ApprovalCenterPage: React.FC = () => {
         destroyOnHidden
       >
         <Form form={createForm} layout="vertical" onFinish={handleCreate}>
-          <Form.Item name="definitionCode" label="审批类型" rules={[{ required: true, message: '请选择审批类型' }]}>
+          <Form.Item
+            name="definitionCode"
+            label="审批类型"
+            rules={[{ required: true, message: '请选择审批类型' }]}
+          >
             <Select
               aria-label="审批类型"
               placeholder="请选择审批类型"
               loading={definitionsLoading}
               onChange={handleDefinitionChange}
-              options={definitions.filter(definition => definition.businessType !== 'PAYROLL').map(definition => ({ value: definition.code, label: definition.name }))}
+              options={definitions
+                .filter((definition) => definition.businessType !== 'PAYROLL')
+                .map((definition) => ({ value: definition.code, label: definition.name }))}
             />
           </Form.Item>
-          <p>工资表审批请从 <a href="/performances">绩效管理 → 工资表</a> 发起。</p>
-          <Button style={{ marginBottom: 16 }} onClick={() => { customTypeForm.resetFields(); customTypeForm.setFieldValue('templateCode', watchedCode); setCustomTypeOpen(true); }}>自定义审批类型</Button>
-          <Form.Item name="title" label="标题" rules={[{ required: true, whitespace: true, message: '请填写标题' }]}>
+          <p>
+            工资表审批请从 <a href="/performances">绩效管理 → 工资表</a> 发起。
+          </p>
+          <Button
+            style={{ marginBottom: 16 }}
+            onClick={() => {
+              customTypeForm.resetFields();
+              customTypeForm.setFieldValue('templateCode', watchedCode);
+              setCustomTypeOpen(true);
+            }}
+          >
+            自定义审批类型
+          </Button>
+          <Form.Item
+            name="title"
+            label="标题"
+            rules={[{ required: true, whitespace: true, message: '请填写标题' }]}
+          >
             <Input aria-label="标题" maxLength={200} />
           </Form.Item>
-          {getSchemaFields(selectedDefinition?.formSchema).map(field => (
+          {getSchemaFields(selectedDefinition?.formSchema).map((field) => (
             <Form.Item
               key={field.key}
               name={field.key}
@@ -1146,11 +1360,44 @@ const ApprovalCenterPage: React.FC = () => {
         </Form>
       </Modal>
 
-      <Modal title="自定义审批类型" open={customTypeOpen} onCancel={() => setCustomTypeOpen(false)} onOk={() => customTypeForm.submit()} confirmLoading={customTypeSaving} okText="创建并使用" destroyOnHidden>
-        <Alert type="info" title="复制已有类型的表单和审批流程，保存为您可以反复使用的个人类型。" style={{ marginBottom: 16 }} />
-        <Form form={customTypeForm} layout="vertical" initialValues={{ templateCode: watchedCode }} onFinish={createPersonalType}>
-          <Form.Item name="name" label="自定义类型名称" rules={[{ required: true, whitespace: true, message: '请填写类型名称' }]}><Input maxLength={100} placeholder="如工资和绩效发放、差旅补助" /></Form.Item>
-          <Form.Item name="templateCode" label="参考表单与审批流程" rules={[{ required: true, message: '请选择参考类型' }]}><Select showSearch optionFilterProp="label" options={definitions.map(item => ({ value: item.code, label: item.name }))} /></Form.Item>
+      <Modal
+        title="自定义审批类型"
+        open={customTypeOpen}
+        onCancel={() => setCustomTypeOpen(false)}
+        onOk={() => customTypeForm.submit()}
+        confirmLoading={customTypeSaving}
+        okText="创建并使用"
+        destroyOnHidden
+      >
+        <Alert
+          type="info"
+          title="复制已有类型的表单和审批流程，保存为您可以反复使用的个人类型。"
+          style={{ marginBottom: 16 }}
+        />
+        <Form
+          form={customTypeForm}
+          layout="vertical"
+          initialValues={{ templateCode: watchedCode }}
+          onFinish={createPersonalType}
+        >
+          <Form.Item
+            name="name"
+            label="自定义类型名称"
+            rules={[{ required: true, whitespace: true, message: '请填写类型名称' }]}
+          >
+            <Input maxLength={100} placeholder="如工资和绩效发放、差旅补助" />
+          </Form.Item>
+          <Form.Item
+            name="templateCode"
+            label="参考表单与审批流程"
+            rules={[{ required: true, message: '请选择参考类型' }]}
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={definitions.map((item) => ({ value: item.code, label: item.name }))}
+            />
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -1173,7 +1420,12 @@ const ApprovalCenterPage: React.FC = () => {
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="业务同步">
-                {activeRecord.status !== 'APPROVED' ? '审批通过后同步' : activeRecord.businessSync?.status === 'SYNCED' ? '已同步' : activeRecord.businessSync?.reason || '待补同步'} <a href="/approval-ledger">查看管理台账</a>
+                {activeRecord.status !== 'APPROVED'
+                  ? '审批通过后同步'
+                  : activeRecord.businessSync?.status === 'SYNCED'
+                    ? '已同步'
+                    : activeRecord.businessSync?.reason || '待补同步'}{' '}
+                <Link to="/approval-ledger">查看管理台账</Link>
               </Descriptions.Item>
               <Descriptions.Item label="状态">
                 <Tag color={INSTANCE_STATUS_META[activeRecord.status]?.color}>
@@ -1193,9 +1445,27 @@ const ApprovalCenterPage: React.FC = () => {
             <Divider titlePlacement="left">附件与证明材料</Divider>
             <ApprovalAttachments key={activeRecord.id} instanceId={activeRecord.id} />
             <Space wrap style={{ marginTop: 16 }}>
-              <Button onClick={() => void exportApprovalMaterial(activeRecord.id).catch(error => message.error(error.message))}>导出审批材料 Word</Button>
-              <Button onClick={() => void exportApprovalMaterial(activeRecord.id, true).catch(error => message.error(error.message))}>打印 / 另存 PDF</Button>
-              {canApply && activeRecord.applicantId === currentUserId && ['WITHDRAWN', 'REJECTED'].includes(activeRecord.status) && <Button onClick={() => void reapply(activeRecord)}>修改后重新申请</Button>}
+              <Button
+                onClick={() =>
+                  void exportApprovalMaterial(activeRecord.id).catch((error) => message.error(error.message))
+                }
+              >
+                导出审批材料 Word
+              </Button>
+              <Button
+                onClick={() =>
+                  void exportApprovalMaterial(activeRecord.id, true).catch((error) =>
+                    message.error(error.message),
+                  )
+                }
+              >
+                打印 / 另存 PDF
+              </Button>
+              {canApply &&
+                activeRecord.applicantId === currentUserId &&
+                ['WITHDRAWN', 'REJECTED'].includes(activeRecord.status) && (
+                  <Button onClick={() => void reapply(activeRecord)}>修改后重新申请</Button>
+                )}
             </Space>
             <Divider titlePlacement="left">审批任务</Divider>
             {renderTaskGroups(activeRecord)}
@@ -1207,7 +1477,11 @@ const ApprovalCenterPage: React.FC = () => {
       <Modal
         title={actionModal === 'approve' ? '审批通过' : '驳回审批'}
         open={actionModal !== null}
-        onCancel={() => { setActionModal(null); setActiveRecord(null); setActiveTask(null); }}
+        onCancel={() => {
+          setActionModal(null);
+          setActiveRecord(null);
+          setActiveTask(null);
+        }}
         onOk={() => void handleActionOk()}
         confirmLoading={submitting}
         okText={actionModal === 'reject' ? '确认驳回' : '确认通过'}
@@ -1218,9 +1492,11 @@ const ApprovalCenterPage: React.FC = () => {
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message={actionModal === 'approve'
-            ? '审批通过为高敏感操作（approval.process），通过后实例定稿，不可撤销。'
-            : '驳回为高敏感操作，请确认后再提交。'}
+          message={
+            actionModal === 'approve'
+              ? '审批通过为高敏感操作（approval.process），通过后实例定稿，不可撤销。'
+              : '驳回为高敏感操作，请确认后再提交。'
+          }
         />
         <Form form={actionForm} layout="vertical">
           <Form.Item name="comment" label="审批意见（可选）">
@@ -1233,7 +1509,10 @@ const ApprovalCenterPage: React.FC = () => {
       <Modal
         title="转交任务"
         open={forwardOpen}
-        onCancel={() => { setForwardOpen(false); setActiveTask(null); }}
+        onCancel={() => {
+          setForwardOpen(false);
+          setActiveTask(null);
+        }}
         onOk={() => void handleForwardOk()}
         confirmLoading={submitting}
         okText="确认转交"
@@ -1260,7 +1539,10 @@ const ApprovalCenterPage: React.FC = () => {
       <Modal
         title="加签任务"
         open={addSignerOpen}
-        onCancel={() => { setAddSignerOpen(false); setActiveTask(null); }}
+        onCancel={() => {
+          setAddSignerOpen(false);
+          setActiveTask(null);
+        }}
         onOk={() => void handleAddSignersOk()}
         confirmLoading={submitting}
         okText="确认加签"
@@ -1278,7 +1560,11 @@ const ApprovalCenterPage: React.FC = () => {
             label="加签目标审批人 ID（逗号分隔）"
             rules={[{ required: true, whitespace: true, message: '请填写加签目标审批人 ID' }]}
           >
-            <Input aria-label="加签目标审批人 ID（逗号分隔）" maxLength={500} placeholder="如 user-2, user-3" />
+            <Input
+              aria-label="加签目标审批人 ID（逗号分隔）"
+              maxLength={500}
+              placeholder="如 user-2, user-3"
+            />
           </Form.Item>
         </Form>
       </Modal>
@@ -1294,18 +1580,38 @@ const ApprovalCenterPage: React.FC = () => {
         width={640}
         destroyOnHidden
       >
-        <Form form={manageForm} layout="vertical" onFinish={values => void handleManageSubmit(values)}>
-          <Form.Item name="code" label="编码" rules={[{ required: true, whitespace: true, message: '请填写编码' }]}>
-            <Input aria-label="编码" maxLength={100} disabled={!!editingDefinition} placeholder="如 EXPENSE_DOC_FEE" />
+        <Form form={manageForm} layout="vertical" onFinish={(values) => void handleManageSubmit(values)}>
+          <Form.Item
+            name="code"
+            label="编码"
+            rules={[{ required: true, whitespace: true, message: '请填写编码' }]}
+          >
+            <Input
+              aria-label="编码"
+              maxLength={100}
+              disabled={!!editingDefinition}
+              placeholder="如 EXPENSE_DOC_FEE"
+            />
           </Form.Item>
-          <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, message: '请填写名称' }]}>
+          <Form.Item
+            name="name"
+            label="名称"
+            rules={[{ required: true, whitespace: true, message: '请填写名称' }]}
+          >
             <Input aria-label="名称" maxLength={100} />
           </Form.Item>
-          <Form.Item name="businessType" label="业务类型" rules={[{ required: true, message: '请选择业务类型' }]}>
+          <Form.Item
+            name="businessType"
+            label="业务类型"
+            rules={[{ required: true, message: '请选择业务类型' }]}
+          >
             <Select
               aria-label="业务类型"
               disabled={!!editingDefinition}
-              options={APPROVAL_BUSINESS_TYPES.map(type => ({ value: type, label: BUSINESS_TYPE_META[type]?.text ?? type }))}
+              options={APPROVAL_BUSINESS_TYPES.map((type) => ({
+                value: type,
+                label: BUSINESS_TYPE_META[type]?.text ?? type,
+              }))}
             />
           </Form.Item>
           {editingDefinition && (
@@ -1324,7 +1630,11 @@ const ApprovalCenterPage: React.FC = () => {
               placeholder='{"fields":[{"key":"reason","label":"事由","type":"text","required":true}]}'
             />
           </Form.Item>
-          <Form.Item name="approverRuleType" label="审批人类型" rules={[{ required: true, message: '请选择审批人类型' }]}>
+          <Form.Item
+            name="approverRuleType"
+            label="审批人类型"
+            rules={[{ required: true, message: '请选择审批人类型' }]}
+          >
             <Select
               aria-label="审批人类型"
               options={[

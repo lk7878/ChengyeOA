@@ -1,3 +1,4 @@
+import ChannelIdentityGaps from '@/pages/Channel/ChannelIdentityGaps';
 import { financeContextParams, financialSources } from '@/pages/finance/context';
 import { useAuthStore } from '@/stores/authStore';
 import { businessSources, domainCreate, type BusinessSource } from './business-sources';
@@ -109,6 +110,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
         </div>
         <Button onClick={() => setRevision((n) => n + 1)}>刷新工作表</Button>
       </div>
+      {source === 'CHANNELS' && <ChannelIdentityGaps />}
       {error && (
         <Alert
           type="error"

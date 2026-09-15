@@ -17,6 +17,18 @@ export default class NotificationController extends Controller {
   async index() {
     const { ctx } = this;
     const { page = 1, pageSize = 10, isRead } = ctx.query;
+    if (
+      !/^\d+$/.test(String(page)) ||
+      !/^\d+$/.test(String(pageSize)) ||
+      !Number.isSafeInteger(Number(page)) ||
+      Number(page) < 1 ||
+      !Number.isSafeInteger(Number(pageSize)) ||
+      Number(pageSize) < 1 ||
+      Number(pageSize) > 100 ||
+      !Number.isSafeInteger((Number(page) - 1) * Number(pageSize)) ||
+      (isRead !== undefined && isRead !== 'true' && isRead !== 'false')
+    )
+      ctx.throw(400, 'VALIDATION_FAILED');
     const userId = ctx.state.user.userId;
 
     const where: Prisma.NotificationWhereInput = { userId };
@@ -30,7 +42,7 @@ export default class NotificationController extends Controller {
       select: NOTIFICATION_SAFE_SELECT,
       skip: (Number(page) - 1) * Number(pageSize),
       take: Number(pageSize),
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
 
     ctx.body = {
@@ -53,7 +65,7 @@ export default class NotificationController extends Controller {
     const { id } = ctx.params;
     const userId = ctx.state.user.userId;
 
-    const updated = await ctx.prisma.$transaction(async tx => {
+    const updated = await ctx.prisma.$transaction(async (tx) => {
       const result = await tx.notification.updateMany({
         where: { id, userId },
         data: { isRead: true },

@@ -184,3 +184,9 @@ U5-B 最终证据：案件三角色 App 冒烟通过；事件批量写入后案�
 
 
 2026-09-16 U6-B（阶段验收完成）：INVENTORY_ITEMS/MOVEMENTS/STOCKTAKES/PERFORMANCES 四类同源工作表、原接口动作与数据范围、库存三位精确小数、绩效事实身份和并发版本、独立详情办理与工资专用入口，对应 MOD-011/012、FTN-001/003/004/005。实现和回归见 inventory-performance-workspace.test.ts、performance-identity-migration.test.ts、collaboration-http.test.ts U6-B场景及新前端详情/数量/导航测试。原21项服务、原10项HTTP、新10项来源范围、原业务/工资7项、迁移1项、前端34个不同用例均有通过记录；完整HTTP/SSE/Edge12/12及最后目标冒烟1/1通过。类型/lint/构建与契约检查通过，开发库保留数据增量至91模型/58迁移。100会话/901.492秒、3600次保存全部成功可见，查询/保存/可见P95 1109/1171/1201ms，CPU affinity=0xffff；默认调度问题尚未解决。全部中间失败、修复、限制见[阶段计划第11节](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。U6-C/U7仍待完成，真实Electron当前仅进程及服务连通验收。
+
+
+### U6-C 实施追踪（验收进度见统一改造计划§12）
+CHANNELS → channel-service/channel-scope、channel_dashboard_workspaces与Channel独立办理；Dashboard → dashboard-service 六类获权聚合；通知/审批/治理 → notification-target、App记录定位和原控制器。147个服务/范围/迁移/原业务用例、47个原HTTP用例及通知5项通过记录分别见u6c-services-full-1/recheck、u6c-api-1/recheck、u6c-notification-api。完整浏览器原13项均有通过记录，管理跳转新增1项通过u6c-management-smoke-3。前端101个不同用例均有通过记录（u6c-management-front、u6c-event-front-recheck）。此时负载/开发库/最终提交尚待完成，不将过程记录作为全阶段验收。
+
+U6-C最终补充：第60项权限目录增量与SQL重入通过；开发库60迁移、原业务数量保持。100会话/900秒完整负载通过，条件与指标见阶段计划§12/u6c-load-report.json；最终构建/静态检查通过。服务/迁移不同用例共148项均有通过证据，未将重复复验相加。

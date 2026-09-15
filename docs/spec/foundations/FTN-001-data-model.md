@@ -219,3 +219,10 @@ CUSTOMERS / NEGOTIATIONS / CONTRACTS 直接读取 Customer / Negotiation / Contr
 ### U6-B 实施补充（2026-09-16）
 
 Performance 增 nullable createdBy/updatedBy 与 version=1、创建人索引；迁移只从唯一且仍存在的创建审计账户回填，不猜测未知归属。模型91、迁移58；库存历史表不加可变版本，协作扩展以固定领域版本1叠加扩展版本。阶段状态和验证证据以[阶段计划](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)第11节为准，U6-B两端构建、冒烟、指定CPU条件下负载与开发库58项增量迁移均已验收；U6-C/U7继续执行。
+
+
+### U6-C 实施补充（2026-09-16）
+
+Channel新增nullable createdBy/updatedBy/branchId与version，唯一真实创建审计才可回填createdBy；组织保持未知直至有依据人工补录。模型91、迁移59；开发库尚未部署。 阶段未完成，验证与限制见[实施计划](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)第12节。
+
+U6-C验收最终基线：91个Prisma模型、60项迁移。第59项渠道身份，第60项渠道权限目录定义；开发库增量部署数量保持，未知历史组织未自动改写。

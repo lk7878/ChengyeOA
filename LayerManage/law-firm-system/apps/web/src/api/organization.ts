@@ -1,3 +1,4 @@
+import type { ChannelStatistics } from '@/types';
 import request from './request';
 export { masterDataApi } from '@/features/master-data/api';
 import type {
@@ -48,13 +49,16 @@ export const positionApi = {
 };
 
 export const channelApi = {
-  list: () => request.get<ApiResponse<PaginatedData<Channel>>>('/v1/channels'),
+  list: (params?: { page?: number; pageSize?: number; keyword?: string; branchId?: string }) =>
+    request.get<ApiResponse<PaginatedData<Channel>>>('/v1/channels', { params }),
   detail: (id: string) => request.get<ApiResponse<Channel>>(`/v1/channels/${id}`),
-  create: (data: Partial<Channel>) => request.post<ApiResponse<Channel>>('/v1/channels', data),
+  create: (data: Partial<Channel> & { idempotencyKey?: string }) =>
+    request.post<ApiResponse<Channel>>('/v1/channels', data),
   update: (id: string, data: Partial<Channel>) =>
     request.put<ApiResponse<Channel>>(`/v1/channels/${id}`, data),
-  delete: (id: string) => request.delete<ApiResponse<null>>(`/v1/channels/${id}`),
-  statistics: (id: string) => request.get<ApiResponse<unknown>>(`/v1/channels/${id}/statistics`),
+  delete: (id: string, version?: number) =>
+    request.delete<ApiResponse<null>>(`/v1/channels/${id}`, { data: { version } }),
+  statistics: (id: string) => request.get<ApiResponse<ChannelStatistics>>(`/v1/channels/${id}/statistics`),
 };
 
 export const notificationApi = {

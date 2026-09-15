@@ -1,4 +1,5 @@
 export const businessSources = {
+  CHANNELS: { title: '渠道工作表', path: '/channels', personal: '我登记的渠道' },
   INVENTORY_ITEMS: { title: '物品库存工作表', path: '/inventory/items', personal: '我登记的物品' },
   INVENTORY_MOVEMENTS: { title: '出入库工作表', path: '/inventory/movements', personal: '我登记的出入库' },
   INVENTORY_STOCKTAKES: { title: '盘点工作表', path: '/inventory/stocktakes', personal: '我登记的盘点' },
@@ -20,6 +21,7 @@ export function isBusinessSource(source: string): source is BusinessSource {
 }
 
 export const domainCreates = {
+  CHANNELS: { label: '登记渠道', path: '/channels/new', permission: 'channel.create' },
   INVENTORY_ITEMS: { label: '新增物品', path: '/inventory/items/new', permission: 'inventory.manage' },
   INVENTORY_MOVEMENTS: {
     label: '登记出入库',

@@ -14,6 +14,7 @@ export type FieldReadLevel = 'NONE' | 'MASKED' | 'READ';
 export type DataClassification = 'L1' | 'L2' | 'L3' | 'L4' | 'FORBIDDEN';
 
 export const RESOURCE_CODES = [
+  'channel',
   'workspace',
   'inventory',
   'menu',
@@ -54,7 +55,7 @@ export const RESOURCE_CODES = [
   'performance',
 ] as const;
 
-export type ResourceCode = typeof RESOURCE_CODES[number];
+export type ResourceCode = (typeof RESOURCE_CODES)[number];
 
 export const FIELD_CODES = [
   'employee.phone',
@@ -68,12 +69,24 @@ export const FIELD_CODES = [
   'customer.wechat',
 ] as const;
 
-export type FieldCode = typeof FIELD_CODES[number];
+export type FieldCode = (typeof FIELD_CODES)[number];
 
 export const PERMISSION_CODES = [
+  'menu.channel',
+  'channel.read',
+  'channel.create',
+  'channel.update',
+  'channel.delete',
   'workspace.create',
-  'menu.knowledge', 'menu.smart_case',
-  'menu.inventory', 'inventory.read', 'inventory.manage', 'inventory.inbound', 'inventory.outbound', 'inventory.stocktake', 'inventory.export',
+  'menu.knowledge',
+  'menu.smart_case',
+  'menu.inventory',
+  'inventory.read',
+  'inventory.manage',
+  'inventory.inbound',
+  'inventory.outbound',
+  'inventory.stocktake',
+  'inventory.export',
   'menu.organization_personnel',
   'menu.organization',
   'menu.position',
@@ -230,7 +243,7 @@ export const PERMISSION_CODES = [
   'performance.update',
 ] as const;
 
-export type PermissionCode = typeof PERMISSION_CODES[number];
+export type PermissionCode = (typeof PERMISSION_CODES)[number];
 
 export interface PermissionCatalogEntry {
   readonly id: `permission:${PermissionCode}`;

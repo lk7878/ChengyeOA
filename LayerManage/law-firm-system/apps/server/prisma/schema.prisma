@@ -600,6 +600,12 @@ model SystemInitialization {
 // ==================== 运营/渠道模块 ====================
 
 model Channel {
+  createdBy String?
+  updatedBy String?
+  branchId String?
+  version Int @default(1)
+  @@index([createdBy])
+  @@index([branchId])
   id          String   @id @default(uuid())
   code        String   @unique
   name        String

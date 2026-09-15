@@ -50,7 +50,7 @@ test.after(async () => {
 });
 
 function hasCode(code: string): (error: unknown) => boolean {
-  return error => Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
+  return (error) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
 }
 
 interface ContextOverrides {
@@ -67,7 +67,7 @@ function contractContext(userId: string, overrides: ContextOverrides = {}): Auth
     employeeId: overrides.employeeId ?? null,
     isSystemAdmin: false,
     isSystemSuperAdmin: false,
-    grants: permissionCodes.map(permissionCode => ({
+    grants: permissionCodes.map((permissionCode) => ({
       sourceType: 'ROLE' as const,
       sourceId: `${userId}-grant-${permissionCode}`,
       sourceRoleId: 'test-role',
@@ -231,7 +231,10 @@ async function createTemplateFixture(overrides: {
   });
 }
 
-function contractInput(customerId: string, overrides: Partial<CreateContractInput> = {}): CreateContractInput {
+function contractInput(
+  customerId: string,
+  overrides: Partial<CreateContractInput> = {},
+): CreateContractInput {
   return { contractType: 'FIRST_SIGN', title: '委托代理合同', customerId, ...overrides };
 }
 
@@ -245,13 +248,15 @@ test('createContract persists a FIRST_SIGN draft and writes contract.created in 
   const paymentTerms = JSON.stringify({
     plans: [{ period: 1, dueDate: '2026-09-01', amount: '12800.50' }],
   });
-  const view = await service.createContract(contractInput(customer.id, {
-    amount: '12800.50',
-    paymentTerms,
-    startDate: '2026-08-01',
-    endDate: '2027-07-31',
-    terms: '按阶段交付法律服务',
-  }));
+  const view = await service.createContract(
+    contractInput(customer.id, {
+      amount: '12800.50',
+      paymentTerms,
+      startDate: '2026-08-01',
+      endDate: '2027-07-31',
+      terms: '按阶段交付法律服务',
+    }),
+  );
 
   assert.ok(view.id);
   assert.match(view.contractNo, CONTRACT_NO_PATTERN);
@@ -311,13 +316,17 @@ test('createContract numbers all four types with their type code prefixes', asyn
   const formal = await service.createContract(contractInput(customer.id, { contractType: 'FORMAL' }));
   assert.match(formal.contractNo, /^WT-/);
 
-  const riskNotice = await service.createContract(contractInput(customer.id, { contractType: 'RISK_NOTICE' }));
+  const riskNotice = await service.createContract(
+    contractInput(customer.id, { contractType: 'RISK_NOTICE' }),
+  );
   assert.match(riskNotice.contractNo, /^RN-/);
 
-  const supplement = await service.createContract(contractInput(customer.id, {
-    contractType: 'SUPPLEMENT',
-    parentContractId: formal.id,
-  }));
+  const supplement = await service.createContract(
+    contractInput(customer.id, {
+      contractType: 'SUPPLEMENT',
+      parentContractId: formal.id,
+    }),
+  );
   assert.match(supplement.contractNo, /^SA-/);
   assert.equal(supplement.parentContractId, formal.id);
   for (const view of [firstSign, formal, riskNotice, supplement]) {
@@ -332,14 +341,17 @@ test('createContract enforces the SUPPLEMENT parentContractId rules', async () =
 
   await assert.rejects(
     () => service.createContract(contractInput(customer.id, { contractType: 'SUPPLEMENT' })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   await assert.rejects(
-    () => service.createContract(contractInput(customer.id, {
-      contractType: 'SUPPLEMENT',
-      parentContractId: randomUUID(),
-    })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    () =>
+      service.createContract(
+        contractInput(customer.id, {
+          contractType: 'SUPPLEMENT',
+          parentContractId: randomUUID(),
+        }),
+      ),
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
 
   const voidParent = await createContractFixture({
@@ -348,11 +360,14 @@ test('createContract enforces the SUPPLEMENT parentContractId rules', async () =
     status: 'VOID',
   });
   await assert.rejects(
-    () => service.createContract(contractInput(customer.id, {
-      contractType: 'SUPPLEMENT',
-      parentContractId: voidParent.id,
-    })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    () =>
+      service.createContract(
+        contractInput(customer.id, {
+          contractType: 'SUPPLEMENT',
+          parentContractId: voidParent.id,
+        }),
+      ),
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
 
   const terminatedParent = await createContractFixture({
@@ -361,23 +376,28 @@ test('createContract enforces the SUPPLEMENT parentContractId rules', async () =
     status: 'TERMINATED',
   });
   await assert.rejects(
-    () => service.createContract(contractInput(customer.id, {
-      contractType: 'SUPPLEMENT',
-      parentContractId: terminatedParent.id,
-    })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    () =>
+      service.createContract(
+        contractInput(customer.id, {
+          contractType: 'SUPPLEMENT',
+          parentContractId: terminatedParent.id,
+        }),
+      ),
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
 
   const parent = await service.createContract(contractInput(customer.id, { contractType: 'FORMAL' }));
   await assert.rejects(
     () => service.createContract(contractInput(customer.id, { parentContractId: parent.id })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
 
-  const supplement = await service.createContract(contractInput(customer.id, {
-    contractType: 'SUPPLEMENT',
-    parentContractId: parent.id,
-  }));
+  const supplement = await service.createContract(
+    contractInput(customer.id, {
+      contractType: 'SUPPLEMENT',
+      parentContractId: parent.id,
+    }),
+  );
   assert.equal(supplement.parentContractId, parent.id);
 });
 
@@ -394,11 +414,11 @@ test('createContract snapshots an enabled template and rejects forged or disable
 
   await assert.rejects(
     () => service.createContract(contractInput(customer.id, { templateCode: 'TPL_FORGED' })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   await assert.rejects(
     () => service.createContract(contractInput(customer.id, { templateCode: 'TPL_DISABLED' })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
 
   const withoutTemplate = await service.createContract(contractInput(customer.id));
@@ -420,31 +440,39 @@ test('createContract enforces the NEGOTIATION source coupling and customer owner
 
   await assert.rejects(
     () => service.createContract(contractInput(customer.id, { sourceType: 'NEGOTIATION' })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   await assert.rejects(
-    () => service.createContract(contractInput(customer.id, {
-      sourceType: 'NEGOTIATION',
-      negotiationId: randomUUID(),
-    })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    () =>
+      service.createContract(
+        contractInput(customer.id, {
+          sourceType: 'NEGOTIATION',
+          negotiationId: randomUUID(),
+        }),
+      ),
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   await assert.rejects(
-    () => service.createContract(contractInput(otherCustomer.id, {
-      sourceType: 'NEGOTIATION',
-      negotiationId: negotiation.id,
-    })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    () =>
+      service.createContract(
+        contractInput(otherCustomer.id, {
+          sourceType: 'NEGOTIATION',
+          negotiationId: negotiation.id,
+        }),
+      ),
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   await assert.rejects(
     () => service.createContract(contractInput(customer.id, { negotiationId: negotiation.id })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
 
-  const view = await service.createContract(contractInput(customer.id, {
-    sourceType: 'NEGOTIATION',
-    negotiationId: negotiation.id,
-  }));
+  const view = await service.createContract(
+    contractInput(customer.id, {
+      sourceType: 'NEGOTIATION',
+      negotiationId: negotiation.id,
+    }),
+  );
   assert.equal(view.sourceType, 'NEGOTIATION');
   assert.equal(view.negotiationId, negotiation.id);
 
@@ -469,18 +497,20 @@ test('createContract validates explicit organization anchors and feeds their cod
 
   await assert.rejects(
     () => service.createContract(contractInput(customer.id, { branchId: randomUUID() })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   await assert.rejects(
     () => service.createContract(contractInput(customer.id, { professionalTeamId: randomUUID() })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   assert.equal(await prisma.contract.count(), 0);
 
-  const view = await service.createContract(contractInput(customer.id, {
-    branchId: branch.id,
-    professionalTeamId: team.id,
-  }));
+  const view = await service.createContract(
+    contractInput(customer.id, {
+      branchId: branch.id,
+      professionalTeamId: team.id,
+    }),
+  );
   assert.equal(view.branchId, branch.id);
   assert.equal(view.professionalTeamId, team.id);
   assert.match(view.contractNo, CONTRACT_NO_PATTERN);
@@ -506,15 +536,15 @@ test('createContract validates amount and projects it with fixed scale', async (
 
   await assert.rejects(
     () => service.createContract(contractInput(customer.id, { amount: 'not-a-number' })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   await assert.rejects(
     () => service.createContract(contractInput(customer.id, { amount: '-5' })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   await assert.rejects(
     () => service.createContract(contractInput(customer.id, { amount: '1.005' })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
 });
 
@@ -581,14 +611,19 @@ test('createContract rejects malformed paymentTerms with RECEIVABLE_PLAN_MISMATC
   for (const { label, input } of cases) {
     await assert.rejects(
       () => service.createContract(contractInput(customer.id, input)),
-      error => error instanceof ContractError
-        && error.code === CONTRACT_ERROR_CODES.RECEIVABLE_PLAN_MISMATCH
-        && error.httpStatus === 400,
+      (error) =>
+        error instanceof ContractError &&
+        error.code === CONTRACT_ERROR_CODES.RECEIVABLE_PLAN_MISMATCH &&
+        error.httpStatus === 400,
       `${label} must be rejected at create`,
     );
   }
   assert.equal(await prisma.contract.count(), 0, 'rejected creates write zero contracts');
-  assert.equal(await prisma.eventLog.count({ where: { objectType: 'CONTRACT' } }), 0, 'rejected creates write zero events');
+  assert.equal(
+    await prisma.eventLog.count({ where: { objectType: 'CONTRACT' } }),
+    0,
+    'rejected creates write zero events',
+  );
   assert.equal(
     await prisma.operationLog.count({ where: { targetType: 'CONTRACT', action: 'CONTRACT_CREATE' } }),
     0,
@@ -602,12 +637,14 @@ test('createContract returns CONTRACT_NOT_FOUND 404 for a missing or invisible c
 
   await assert.rejects(
     () => service.createContract(contractInput(randomUUID())),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND
-      && error.httpStatus === 404,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND &&
+      error.httpStatus === 404,
   );
 
   const employeeA = await createEmployeeFixture('客服A');
+  await prisma.user.update({ where: { id: userId }, data: { employeeId: employeeA.id } });
   const foreignCustomer = await createCustomerFixture('someone-else');
   const selfScope = await prisma.dataScope.create({
     data: { name: `self-${randomUUID()}`, scopeType: 'SELF' },
@@ -618,9 +655,10 @@ test('createContract returns CONTRACT_NOT_FOUND 404 for a missing or invisible c
   });
   await assert.rejects(
     () => scoped.createContract(contractInput(foreignCustomer.id)),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND
-      && error.httpStatus === 404,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND &&
+      error.httpStatus === 404,
   );
 
   const ownCustomer = await createCustomerFixture(userId);
@@ -669,7 +707,9 @@ test('submitContract routes by type policy: FIRST_SIGN to PENDING_APPROVAL, RISK
   });
   assert.equal(operationLog.userId, userId);
 
-  const riskNotice = await service.createContract(contractInput(customer.id, { contractType: 'RISK_NOTICE' }));
+  const riskNotice = await service.createContract(
+    contractInput(customer.id, { contractType: 'RISK_NOTICE' }),
+  );
   const routed = await service.submitContract(riskNotice.id);
   assert.equal(routed.status, 'PENDING_SIGN', 'RISK_NOTICE skips approval by type policy');
 });
@@ -719,7 +759,11 @@ test('approveContract without a comment clears the residual rejection comment', 
   await service.submitContract(created.id);
   const approved = await service.approveContract(created.id, {});
   assert.equal(approved.status, 'PENDING_SIGN');
-  assert.equal(approved.approvalComment, null, 'approve without comment clears the residual rejection comment');
+  assert.equal(
+    approved.approvalComment,
+    null,
+    'approve without comment clears the residual rejection comment',
+  );
 });
 
 test('rejectContract requires a comment, returns the contract to DRAFT, and allows resubmission', async () => {
@@ -731,7 +775,7 @@ test('rejectContract requires a comment, returns the contract to DRAFT, and allo
 
   await assert.rejects(
     () => service.rejectContract(created.id, { comment: '' }),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   const stillPending = await prisma.contract.findUniqueOrThrow({ where: { id: created.id } });
   assert.equal(stillPending.status, 'PENDING_APPROVAL');
@@ -793,7 +837,10 @@ test('signContract moves PENDING_SIGN to SIGNED with signDate and esign reservat
   const operationLog = await prisma.operationLog.findFirstOrThrow({
     where: { targetType: 'CONTRACT', targetId: created.id, action: 'CONTRACT_SIGN' },
   });
-  assert.ok(!operationLog.newValues?.includes('esign-link-001'), 'esign identifiers stay out of audit values');
+  assert.ok(
+    !operationLog.newValues?.includes('esign-link-001'),
+    'esign identifiers stay out of audit values',
+  );
 
   const defaulted = await service.createContract(contractInput(customer.id, { contractType: 'RISK_NOTICE' }));
   await service.submitContract(defaulted.id);
@@ -809,38 +856,45 @@ test('illegal transitions are rejected with CONTRACT_STATE_TRANSITION_INVALID 40
 
   await assert.rejects(
     () => service.approveContract(created.id, {}),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
   );
   await assert.rejects(
     () => service.rejectContract(created.id, { comment: '驳回' }),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
   );
   await assert.rejects(
     () => service.signContract(created.id, {}),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
   );
 
   await service.submitContract(created.id);
   await assert.rejects(
     () => service.submitContract(created.id),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
   );
 
-  const riskNotice = await service.createContract(contractInput(customer.id, { contractType: 'RISK_NOTICE' }));
+  const riskNotice = await service.createContract(
+    contractInput(customer.id, { contractType: 'RISK_NOTICE' }),
+  );
   await service.submitContract(riskNotice.id);
   await assert.rejects(
     () => service.approveContract(riskNotice.id, {}),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
     'RISK_NOTICE approve is blocked by the type policy gate',
   );
 
@@ -860,9 +914,10 @@ test('actions on missing or out-of-scope contracts hide existence as CONTRACT_NO
 
   await assert.rejects(
     () => service.getContract(randomUUID()),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND
-      && error.httpStatus === 404,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND &&
+      error.httpStatus === 404,
   );
 
   const selfScope = await prisma.dataScope.create({
@@ -871,13 +926,26 @@ test('actions on missing or out-of-scope contracts hide existence as CONTRACT_NO
   const foreigner = await prisma.user.create({
     data: { username: `contract.foreigner.${randomUUID()}`, password: 'x' },
   });
-  const foreignService = serviceFor(foreigner.id, { actorUserId: foreigner.id }, {
-    employeeId: employeeA.id,
-    scopeIds: [selfScope.id],
-  });
-  await assert.rejects(() => foreignService.getContract(created.id), hasCode(CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND));
-  await assert.rejects(() => foreignService.submitContract(created.id), hasCode(CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND));
-  await assert.rejects(() => foreignService.approveContract(created.id, {}), hasCode(CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND));
+  const foreignService = serviceFor(
+    foreigner.id,
+    { actorUserId: foreigner.id },
+    {
+      employeeId: employeeA.id,
+      scopeIds: [selfScope.id],
+    },
+  );
+  await assert.rejects(
+    () => foreignService.getContract(created.id),
+    hasCode(CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND),
+  );
+  await assert.rejects(
+    () => foreignService.submitContract(created.id),
+    hasCode(CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND),
+  );
+  await assert.rejects(
+    () => foreignService.approveContract(created.id, {}),
+    hasCode(CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND),
+  );
   await assert.rejects(
     () => foreignService.signContract(created.id, {}),
     hasCode(CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND),
@@ -898,12 +966,15 @@ test('concurrent approveContract on the same version has exactly one winner; los
   // 两个 approve 事务的 findFirst 均先于任何提交完成（同读 PENDING_APPROVAL v2 并通过状态
   // 门禁），其 updateMany 被行锁阻塞；锁释放后一者提交 version 2→3，另一者（READ COMMITTED
   // 下重评 where）命中 version=3 → count=0 → 钉死 VERSION_CONFLICT 分支。
-  const lockHolder = prisma.$transaction(async tx => {
-    await tx.$queryRaw`SELECT id FROM contract WHERE id = ${created.id} FOR UPDATE`;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  }, { timeout: 15000 });
+  const lockHolder = prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`SELECT id FROM contract WHERE id = ${created.id} FOR UPDATE`;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    },
+    { timeout: 15000 },
+  );
   // 让锁先落定再发起竞速。
-  await new Promise(resolve => setTimeout(resolve, 100));
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
   const results = await Promise.allSettled([
     service.approveContract(created.id, { comment: '竞速A' }),
@@ -911,8 +982,8 @@ test('concurrent approveContract on the same version has exactly one winner; los
   ]);
   await lockHolder;
 
-  const fulfilled = results.filter(result => result.status === 'fulfilled');
-  const rejected = results.filter(result => result.status === 'rejected');
+  const fulfilled = results.filter((result) => result.status === 'fulfilled');
+  const rejected = results.filter((result) => result.status === 'rejected');
   assert.equal(fulfilled.length, 1, 'exactly one approve may win');
   assert.equal(rejected.length, 1, 'the losing approve must fail, never silently overwrite');
   const loser = rejected[0].reason;
@@ -946,7 +1017,9 @@ test('listContracts paginates and filters by status, contractType, customerId an
 
   const first = await service.createContract(contractInput(customerA.id, { title: '劳动争议一审代理' }));
   await service.createContract(contractInput(customerA.id, { title: '合同纠纷二审代理' }));
-  await service.createContract(contractInput(customerB.id, { contractType: 'RISK_NOTICE', title: '风险告知书' }));
+  await service.createContract(
+    contractInput(customerB.id, { contractType: 'RISK_NOTICE', title: '风险告知书' }),
+  );
   await service.submitContract(first.id);
 
   const page1 = await service.listContracts({ page: 1, pageSize: 2 });
@@ -989,6 +1062,7 @@ test('getContract returns the detail', async () => {
 test('SELF scope anchors Contract.createdBy without leaking existence', async () => {
   const { userId, actor } = await createActor();
   const employeeA = await createEmployeeFixture('合同专员A');
+  await prisma.user.update({ where: { id: userId }, data: { employeeId: employeeA.id } });
   const customer = await createCustomerFixture(userId);
   const selfScope = await prisma.dataScope.create({
     data: { name: `self-${randomUUID()}`, scopeType: 'SELF' },
@@ -1001,7 +1075,10 @@ test('SELF scope anchors Contract.createdBy without leaking existence', async ()
     scopeIds: [selfScope.id],
   });
   const page = await scoped.listContracts({});
-  assert.deepEqual(page.list.map(item => item.id), [own.id]);
+  assert.deepEqual(
+    page.list.map((item) => item.id),
+    [own.id],
+  );
   assert.equal(page.total, 1);
 
   const fetched = await scoped.getContract(own.id);
@@ -1015,8 +1092,14 @@ test('SELF scope anchors Contract.createdBy without leaking existence', async ()
 test('TEAM scope anchors on Contract.professionalTeamId', async () => {
   const { userId, actor } = await createActor();
   const branch = await createOrganizationFixture('BRANCH_TEAM');
-  const team = await createTeamFixture(`TEAM_${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`, branch.id);
-  const otherTeam = await createTeamFixture(`TEAM_${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`, branch.id);
+  const team = await createTeamFixture(
+    `TEAM_${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`,
+    branch.id,
+  );
+  const otherTeam = await createTeamFixture(
+    `TEAM_${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`,
+    branch.id,
+  );
   const teamScope = await prisma.dataScope.create({
     data: { name: `team-${randomUUID()}`, scopeType: 'TEAM', professionalTeamId: team.id },
   });
@@ -1034,7 +1117,10 @@ test('TEAM scope anchors on Contract.professionalTeamId', async () => {
 
   const scoped = serviceFor(userId, actor, { scopeIds: [teamScope.id] });
   const page = await scoped.listContracts({});
-  assert.deepEqual(page.list.map(item => item.id), [inTeam.id]);
+  assert.deepEqual(
+    page.list.map((item) => item.id),
+    [inTeam.id],
+  );
   assert.equal(page.total, 1);
   await assert.rejects(
     () => scoped.getContract(inOtherTeam.id),
@@ -1070,10 +1156,7 @@ test('BRANCH scope anchors on Contract.branchId including the organization subtr
 
   const scoped = serviceFor(userId, actor, { employeeId: clerk.id, scopeIds: [branchScope.id] });
   const page = await scoped.listContracts({});
-  assert.deepEqual(
-    page.list.map(item => item.id).sort(),
-    [inBranch.id, inChild.id].sort(),
-  );
+  assert.deepEqual(page.list.map((item) => item.id).sort(), [inBranch.id, inChild.id].sort());
   assert.equal(page.total, 2);
   await assert.rejects(
     () => scoped.getContract(outOfBranch.id),
@@ -1103,7 +1186,10 @@ test('ORG scope anchors on the exact organization without descendants', async ()
 
   const scoped = serviceFor(userId, actor, { employeeId: clerk.id, scopeIds: [orgScope.id] });
   const page = await scoped.listContracts({});
-  assert.deepEqual(page.list.map(item => item.id), [inOrg.id]);
+  assert.deepEqual(
+    page.list.map((item) => item.id),
+    [inOrg.id],
+  );
   assert.equal(page.total, 1);
   await assert.rejects(
     () => scoped.getContract(inChild.id),
@@ -1123,10 +1209,12 @@ test('a context without any matching scope target fails closed', async () => {
     data: {
       name: `team-${randomUUID()}`,
       scopeType: 'TEAM',
-      professionalTeamId: (await createTeamFixture(
-        `TEAM_${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`,
-        (await createOrganizationFixture('BRANCH_TEAM')).id,
-      )).id,
+      professionalTeamId: (
+        await createTeamFixture(
+          `TEAM_${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`,
+          (await createOrganizationFixture('BRANCH_TEAM')).id,
+        )
+      ).id,
     },
   });
 
@@ -1164,7 +1252,11 @@ test('effectContract makes a FIRST_SIGN contract EFFECTIVE with default plan, en
   assert.equal(plans.length, 1);
   assert.equal(plans[0].period, 1);
   assert.equal(plans[0].amount.toFixed(2), '12800.50');
-  assert.deepEqual(plans[0].dueDate, new Date('2026-10-01T00:00:00.000Z'), 'default dueDate = effectiveDate + 30 days');
+  assert.deepEqual(
+    plans[0].dueDate,
+    new Date('2026-10-01T00:00:00.000Z'),
+    'default dueDate = effectiveDate + 30 days',
+  );
   assert.equal(plans[0].status, 'PENDING');
   assert.equal(plans[0].receivedAmount.toFixed(2), '0.00');
   assert.match(plans[0].planNo, /^PP\d{6}-[A-Z0-9]{6}$/);
@@ -1177,7 +1269,11 @@ test('effectContract makes a FIRST_SIGN contract EFFECTIVE with default plan, en
   assert.equal(engagement.customerId, customer.id);
   assert.equal(engagement.status, 'PENDING');
   assert.equal(engagement.createdBy, userId);
-  assert.equal(await prisma.case.count({ where: { contractId: created.id } }), 0, 'FIRST_SIGN creates no case');
+  assert.equal(
+    await prisma.case.count({ where: { contractId: created.id } }),
+    0,
+    'FIRST_SIGN creates no case',
+  );
 
   const event = await prisma.eventLog.findFirstOrThrow({
     where: { objectType: 'CONTRACT', objectId: created.id, eventType: 'contract.effective' },
@@ -1238,26 +1334,33 @@ test('effectContract FORMAL is gated by a signed RISK_NOTICE of the same custome
   const customer = await createCustomerFixture(userId);
   const otherCustomer = await createCustomerFixture(userId);
   const service = serviceFor(userId, actor);
-  const formal = await service.createContract(contractInput(customer.id, {
-    contractType: 'FORMAL',
-    title: '正式委托代理合同',
-    amount: '50000.00',
-  }));
+  const formal = await service.createContract(
+    contractInput(customer.id, {
+      contractType: 'FORMAL',
+      title: '正式委托代理合同',
+      amount: '50000.00',
+    }),
+  );
   await driveToSigned(service, formal.id);
 
   // 他人客户已签 RISK_NOTICE 不满足本客户门禁。
-  const foreignNotice = await service.createContract(contractInput(otherCustomer.id, { contractType: 'RISK_NOTICE' }));
+  const foreignNotice = await service.createContract(
+    contractInput(otherCustomer.id, { contractType: 'RISK_NOTICE' }),
+  );
   await service.submitContract(foreignNotice.id);
   await service.signContract(foreignNotice.id, {});
   // 本客户 RISK_NOTICE 仅 PENDING_SIGN（未签）同样不满足。
-  const unsignedNotice = await service.createContract(contractInput(customer.id, { contractType: 'RISK_NOTICE' }));
+  const unsignedNotice = await service.createContract(
+    contractInput(customer.id, { contractType: 'RISK_NOTICE' }),
+  );
   await service.submitContract(unsignedNotice.id);
 
   await assert.rejects(
     () => service.effectContract(formal.id, { effectiveDate: '2026-09-01' }),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.RISK_NOTICE_MISSING
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.RISK_NOTICE_MISSING &&
+      error.httpStatus === 409,
   );
   // 整事务回滚：零计划/零案件/零事件/状态仍 SIGNED/版本不变。
   const rolledBack = await prisma.contract.findUniqueOrThrow({ where: { id: formal.id } });
@@ -1267,7 +1370,9 @@ test('effectContract FORMAL is gated by a signed RISK_NOTICE of the same custome
   assert.equal(await prisma.paymentPlan.count({ where: { contractId: formal.id } }), 0);
   assert.equal(await prisma.case.count({ where: { contractId: formal.id } }), 0);
   assert.equal(
-    await prisma.eventLog.count({ where: { objectType: 'CONTRACT', objectId: formal.id, eventType: 'contract.effective' } }),
+    await prisma.eventLog.count({
+      where: { objectType: 'CONTRACT', objectId: formal.id, eventType: 'contract.effective' },
+    }),
     0,
   );
 
@@ -1307,17 +1412,19 @@ test('effectContract SUPPLEMENT generates only its own plans without touching th
   const customer = await createCustomerFixture(userId);
   const service = serviceFor(userId, actor);
   const parent = await service.createContract(contractInput(customer.id, { contractType: 'FORMAL' }));
-  const supplement = await service.createContract(contractInput(customer.id, {
-    contractType: 'SUPPLEMENT',
-    parentContractId: parent.id,
-    amount: '2000.00',
-    paymentTerms: JSON.stringify({
-      plans: [
-        { period: 1, dueDate: '2026-09-15', amount: '1200.00' },
-        { period: 2, dueDate: '2026-10-15', amount: '800.00' },
-      ],
+  const supplement = await service.createContract(
+    contractInput(customer.id, {
+      contractType: 'SUPPLEMENT',
+      parentContractId: parent.id,
+      amount: '2000.00',
+      paymentTerms: JSON.stringify({
+        plans: [
+          { period: 1, dueDate: '2026-09-15', amount: '1200.00' },
+          { period: 2, dueDate: '2026-10-15', amount: '800.00' },
+        ],
+      }),
     }),
-  }));
+  );
   await driveToSigned(service, supplement.id);
 
   const view = await service.effectContract(supplement.id, { effectiveDate: '2026-09-01' });
@@ -1328,7 +1435,10 @@ test('effectContract SUPPLEMENT generates only its own plans without touching th
     orderBy: { period: 'asc' },
   });
   assert.equal(plans.length, 2);
-  assert.deepEqual(plans.map(plan => plan.period), [1, 2]);
+  assert.deepEqual(
+    plans.map((plan) => plan.period),
+    [1, 2],
+  );
   assert.equal(plans[0].amount.toFixed(2), '1200.00');
   assert.equal(plans[1].amount.toFixed(2), '800.00');
   assert.deepEqual(plans[0].dueDate, new Date('2026-09-15T00:00:00.000Z'));
@@ -1361,23 +1471,27 @@ test('effectContract rejects RISK_NOTICE by the type policy gate and non-SIGNED 
   const customer = await createCustomerFixture(userId);
   const service = serviceFor(userId, actor);
 
-  const riskNotice = await service.createContract(contractInput(customer.id, { contractType: 'RISK_NOTICE' }));
+  const riskNotice = await service.createContract(
+    contractInput(customer.id, { contractType: 'RISK_NOTICE' }),
+  );
   await service.submitContract(riskNotice.id);
   await service.signContract(riskNotice.id, {});
   await assert.rejects(
     () => service.effectContract(riskNotice.id, {}),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
     'RISK_NOTICE has no effect edge (terminalAtSigned, generatesReceivable=false)',
   );
 
   const draft = await service.createContract(contractInput(customer.id));
   await assert.rejects(
     () => service.effectContract(draft.id, {}),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
   );
   assert.equal(await prisma.paymentPlan.count(), 0, 'rejected effects write no plans');
 });
@@ -1398,11 +1512,15 @@ test('effectContract replays on an EFFECTIVE contract returning current state wi
   assert.equal(await prisma.paymentPlan.count({ where: { contractId: created.id } }), 1);
   assert.equal(await prisma.analysisEngagement.count({ where: { contractId: created.id } }), 1);
   assert.equal(
-    await prisma.eventLog.count({ where: { objectType: 'CONTRACT', objectId: created.id, eventType: 'contract.effective' } }),
+    await prisma.eventLog.count({
+      where: { objectType: 'CONTRACT', objectId: created.id, eventType: 'contract.effective' },
+    }),
     1,
   );
   assert.equal(
-    await prisma.operationLog.count({ where: { targetType: 'CONTRACT', targetId: created.id, action: 'CONTRACT_EFFECT' } }),
+    await prisma.operationLog.count({
+      where: { targetType: 'CONTRACT', targetId: created.id, action: 'CONTRACT_EFFECT' },
+    }),
     1,
   );
 });
@@ -1427,9 +1545,10 @@ test('effectContract validates paymentTerms and rolls back everything on mismatc
 
   await assert.rejects(
     () => service.effectContract(created.id, { effectiveDate: '2026-09-01' }),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.RECEIVABLE_PLAN_MISMATCH
-      && error.httpStatus === 400,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.RECEIVABLE_PLAN_MISMATCH &&
+      error.httpStatus === 400,
   );
   const stored = await prisma.contract.findUniqueOrThrow({ where: { id: created.id } });
   assert.equal(stored.status, 'SIGNED', 'the status flip rolls back with the failed plan validation');
@@ -1438,7 +1557,9 @@ test('effectContract validates paymentTerms and rolls back everything on mismatc
   assert.equal(await prisma.paymentPlan.count({ where: { contractId: created.id } }), 0);
   assert.equal(await prisma.analysisEngagement.count({ where: { contractId: created.id } }), 0);
   assert.equal(
-    await prisma.eventLog.count({ where: { objectType: 'CONTRACT', objectId: created.id, eventType: 'contract.effective' } }),
+    await prisma.eventLog.count({
+      where: { objectType: 'CONTRACT', objectId: created.id, eventType: 'contract.effective' },
+    }),
     0,
   );
 });
@@ -1453,9 +1574,10 @@ test('effectContract hides missing or out-of-scope contracts as CONTRACT_NOT_FOU
 
   await assert.rejects(
     () => service.effectContract(randomUUID(), {}),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND
-      && error.httpStatus === 404,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND &&
+      error.httpStatus === 404,
   );
 
   const selfScope = await prisma.dataScope.create({
@@ -1464,10 +1586,14 @@ test('effectContract hides missing or out-of-scope contracts as CONTRACT_NOT_FOU
   const foreigner = await prisma.user.create({
     data: { username: `contract.foreigner.${randomUUID()}`, password: 'x' },
   });
-  const foreignService = serviceFor(foreigner.id, { actorUserId: foreigner.id }, {
-    employeeId: employeeA.id,
-    scopeIds: [selfScope.id],
-  });
+  const foreignService = serviceFor(
+    foreigner.id,
+    { actorUserId: foreigner.id },
+    {
+      employeeId: employeeA.id,
+      scopeIds: [selfScope.id],
+    },
+  );
   await assert.rejects(
     () => foreignService.effectContract(created.id, {}),
     hasCode(CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND),
@@ -1486,7 +1612,13 @@ test('effectContract requires the contract.effect action permission', async () =
   await driveToSigned(service, created.id);
 
   const denied = serviceFor(userId, actor, {
-    permissionCodes: ['contract.read', 'contract.create', 'contract.submit', 'contract.approve', 'contract.sign'],
+    permissionCodes: [
+      'contract.read',
+      'contract.create',
+      'contract.submit',
+      'contract.approve',
+      'contract.sign',
+    ],
   });
   await assert.rejects(() => denied.effectContract(created.id, {}), hasCode('PERMISSION_DENIED'));
 
@@ -1507,11 +1639,14 @@ test('concurrent effectContract has exactly one winner with a single plan set, e
   // （同读 SIGNED v4 并通过状态判定），其 updateMany 被行锁阻塞；锁释放后一者提交
   // version 4→5 并继续副作用，另一者（READ COMMITTED 下重评 where）命中 version=5 →
   // count=0 → VERSION_CONFLICT。先翻转后副作用保证败者零计划/零委托/零事件。
-  const lockHolder = prisma.$transaction(async tx => {
-    await tx.$queryRaw`SELECT id FROM contract WHERE id = ${created.id} FOR UPDATE`;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  }, { timeout: 15000 });
-  await new Promise(resolve => setTimeout(resolve, 100));
+  const lockHolder = prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`SELECT id FROM contract WHERE id = ${created.id} FOR UPDATE`;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    },
+    { timeout: 15000 },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
   const results = await Promise.allSettled([
     service.effectContract(created.id, {}),
@@ -1519,8 +1654,8 @@ test('concurrent effectContract has exactly one winner with a single plan set, e
   ]);
   await lockHolder;
 
-  const fulfilled = results.filter(result => result.status === 'fulfilled');
-  const rejected = results.filter(result => result.status === 'rejected');
+  const fulfilled = results.filter((result) => result.status === 'fulfilled');
+  const rejected = results.filter((result) => result.status === 'rejected');
   assert.equal(fulfilled.length, 1, 'exactly one effect may win');
   assert.equal(rejected.length, 1, 'the losing effect must fail, never duplicate side effects');
   const loser = rejected[0].reason;
@@ -1532,15 +1667,27 @@ test('concurrent effectContract has exactly one winner with a single plan set, e
   const stored = await prisma.contract.findUniqueOrThrow({ where: { id: created.id } });
   assert.equal(stored.status, 'EFFECTIVE');
   assert.equal(stored.version, 5, 'exactly one effect flip may commit');
-  assert.equal(await prisma.paymentPlan.count({ where: { contractId: created.id } }), 1, 'exactly one plan set');
-  assert.equal(await prisma.analysisEngagement.count({ where: { contractId: created.id } }), 1, 'exactly one engagement');
   assert.equal(
-    await prisma.eventLog.count({ where: { objectType: 'CONTRACT', objectId: created.id, eventType: 'contract.effective' } }),
+    await prisma.paymentPlan.count({ where: { contractId: created.id } }),
+    1,
+    'exactly one plan set',
+  );
+  assert.equal(
+    await prisma.analysisEngagement.count({ where: { contractId: created.id } }),
+    1,
+    'exactly one engagement',
+  );
+  assert.equal(
+    await prisma.eventLog.count({
+      where: { objectType: 'CONTRACT', objectId: created.id, eventType: 'contract.effective' },
+    }),
     1,
     'exactly one contract.effective event',
   );
   assert.equal(
-    await prisma.operationLog.count({ where: { targetType: 'CONTRACT', targetId: created.id, action: 'CONTRACT_EFFECT' } }),
+    await prisma.operationLog.count({
+      where: { targetType: 'CONTRACT', targetId: created.id, action: 'CONTRACT_EFFECT' },
+    }),
     1,
     'only the winner writes the effect audit',
   );
@@ -1578,7 +1725,10 @@ test('terminateContract moves EFFECTIVE to TERMINATED with reason, event and aud
   assert.equal(auditValues.fromStatus, 'EFFECTIVE');
   assert.equal(auditValues.toStatus, 'TERMINATED');
   assert.equal(auditValues.hasReason, true);
-  assert.ok(!operationLog.newValues?.includes('客户违约'), 'terminate reason stays in the business column, out of audit values');
+  assert.ok(
+    !operationLog.newValues?.includes('客户违约'),
+    'terminate reason stays in the business column, out of audit values',
+  );
 
   // SPEC-012 终止-计划联动：终止把未清计划（PENDING/PARTIAL）翻转为 CANCELLED（行保留、非删行），
   // 故计划行计数仍为 1；RECEIVED 计划保持不动，合同 receivedAmount 不变。
@@ -1593,27 +1743,36 @@ test('terminateContract requires EFFECTIVE, a non-empty reason and the contract.
   const draft = await service.createContract(contractInput(customer.id));
   await assert.rejects(
     () => service.terminateContract(draft.id, { reason: '草稿终止' }),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
   );
 
   const signed = await service.createContract(contractInput(customer.id));
   await driveToSigned(service, signed.id);
   await assert.rejects(
     () => service.terminateContract(signed.id, { reason: '签署未生效' }),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
     'SIGNED is not terminable; only EFFECTIVE is',
   );
   await assert.rejects(
     () => service.terminateContract(signed.id, { reason: '' }),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
 
   const denied = serviceFor(userId, actor, {
-    permissionCodes: ['contract.read', 'contract.create', 'contract.submit', 'contract.approve', 'contract.sign', 'contract.effect'],
+    permissionCodes: [
+      'contract.read',
+      'contract.create',
+      'contract.submit',
+      'contract.approve',
+      'contract.sign',
+      'contract.effect',
+    ],
   });
   await assert.rejects(
     () => denied.terminateContract(signed.id, { reason: '越权' }),
@@ -1665,13 +1824,17 @@ test('voidContract voids pre-effect states with reason, event and audit', async 
   assert.equal(auditValues.fromStatus, 'PENDING_SIGN');
   assert.equal(auditValues.toStatus, 'VOID');
   assert.equal(auditValues.hasReason, true);
-  assert.ok(!operationLog.newValues?.includes('签署前废止'), 'void reason stays in the business column, out of audit values');
+  assert.ok(
+    !operationLog.newValues?.includes('签署前废止'),
+    'void reason stays in the business column, out of audit values',
+  );
 
   await assert.rejects(
     () => service.voidContract(draft.id, { reason: '终态再作废' }),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
     'VOID is terminal',
   );
 });
@@ -1685,33 +1848,38 @@ test('voidContract rejects SIGNED and EFFECTIVE states, empty reason and missing
   await driveToSigned(service, signed.id);
   await assert.rejects(
     () => service.voidContract(signed.id, { reason: '已签署' }),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
     'SIGNED is not voidable; only pre-effect states are',
   );
 
   await service.effectContract(signed.id, {});
   await assert.rejects(
     () => service.voidContract(signed.id, { reason: '已生效' }),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
   );
 
   const draft = await service.createContract(contractInput(customer.id));
   await assert.rejects(
     () => service.voidContract(draft.id, { reason: '  ' }),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
 
   const denied = serviceFor(userId, actor, {
-    permissionCodes: ['contract.read', 'contract.create', 'contract.submit', 'contract.approve', 'contract.sign'],
+    permissionCodes: [
+      'contract.read',
+      'contract.create',
+      'contract.submit',
+      'contract.approve',
+      'contract.sign',
+    ],
   });
-  await assert.rejects(
-    () => denied.voidContract(draft.id, { reason: '越权' }),
-    hasCode('PERMISSION_DENIED'),
-  );
+  await assert.rejects(() => denied.voidContract(draft.id, { reason: '越权' }), hasCode('PERMISSION_DENIED'));
 
   const stored = await prisma.contract.findUniqueOrThrow({ where: { id: draft.id } });
   assert.equal(stored.status, 'DRAFT', 'rejected voids never mutate the contract');

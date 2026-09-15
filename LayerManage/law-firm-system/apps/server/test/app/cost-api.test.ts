@@ -29,7 +29,9 @@ interface FinanceSessionOptions {
 }
 
 /** 业务会话夹具（仿 contract-api T10 先例；cost 不做行级 scope，scope 仅保持夹具同构）。 */
-async function createFinanceSession(options: FinanceSessionOptions): Promise<{ userId: string; token: string }> {
+async function createFinanceSession(
+  options: FinanceSessionOptions,
+): Promise<{ userId: string; token: string }> {
   const suffix = randomUUID();
   const user = await prisma.user.create({
     data: {
@@ -44,18 +46,18 @@ async function createFinanceSession(options: FinanceSessionOptions): Promise<{ u
       code: `FIN_COST_${suffix.replaceAll('-', '').slice(0, 20).toUpperCase()}`,
       type: 'BUSINESS',
       permissions: {
-        create: options.permissions.map(code => ({ permission: { connect: { code } } })),
+        create: options.permissions.map((code) => ({ permission: { connect: { code } } })),
       },
     },
   });
   const scope = options.scope ?? { kind: 'ALL' };
-  const resources = [...new Set(options.permissions.map(code => code.split('.')[0]))];
+  const resources = [...new Set(options.permissions.map((code) => code.split('.')[0]))];
   for (const resource of resources) {
     const dataScope = await prisma.dataScope.create({
       data: {
         name: `Scope ${resource} ${suffix}`,
         scopeType: scope.kind,
-        includeDescendants: scope.kind === 'BRANCH' ? scope.includeDescendants ?? true : false,
+        includeDescendants: scope.kind === 'BRANCH' ? (scope.includeDescendants ?? true) : false,
         organizationId: scope.kind === 'BRANCH' || scope.kind === 'ORG' ? scope.organizationId : null,
         professionalTeamId: scope.kind === 'TEAM' ? scope.professionalTeamId : null,
       },
@@ -73,9 +75,7 @@ function bearer(token: string): { Authorization: string } {
   return { Authorization: `Bearer ${token}` };
 }
 
-const FULL_COST_PERMISSIONS = [
-  'cost.create', 'cost.read', 'cost.update', 'cost.delete',
-];
+const FULL_COST_PERMISSIONS = ['channel.read', 'cost.create', 'cost.read', 'cost.update', 'cost.delete'];
 
 async function createChannelFixture() {
   return prisma.channel.create({
@@ -101,7 +101,11 @@ test.after(async () => {
 
 test('requires authentication for every cost endpoint', async () => {
   await app.httpRequest().get('/api/v1/costs').expect(401);
-  await app.httpRequest().post('/api/v1/costs').send({ category: 'LABOR', amount: '100', occurredAt: '2026-08-01' }).expect(401);
+  await app
+    .httpRequest()
+    .post('/api/v1/costs')
+    .send({ category: 'LABOR', amount: '100', occurredAt: '2026-08-01' })
+    .expect(401);
   await app.httpRequest().get(`/api/v1/costs/${randomUUID()}`).expect(401);
   await app.httpRequest().patch(`/api/v1/costs/${randomUUID()}`).send({ note: 'x', version: 1 }).expect(401);
   await app.httpRequest().delete(`/api/v1/costs/${randomUUID()}`).expect(401);
@@ -109,22 +113,21 @@ test('requires authentication for every cost endpoint', async () => {
 
 test('rejects authenticated users without cost permissions', async () => {
   const ordinary = await createFinanceSession({ permissions: [] });
-  const denied = await app.httpRequest()
+  const denied = await app
+    .httpRequest()
     .post('/api/v1/costs')
     .set(bearer(ordinary.token))
     .send({ category: 'LABOR', amount: '100', occurredAt: '2026-08-01' })
     .expect(403);
   assert.equal(denied.body.message, 'PERMISSION_DENIED');
   await app.httpRequest().get('/api/v1/costs').set(bearer(ordinary.token)).expect(403);
-  await app.httpRequest()
-    .delete(`/api/v1/costs/${randomUUID()}`)
-    .set(bearer(ordinary.token))
-    .expect(403);
+  await app.httpRequest().delete(`/api/v1/costs/${randomUUID()}`).set(bearer(ordinary.token)).expect(403);
 
   // 只有 cost.read：读通、写拒。
   const reader = await createFinanceSession({ permissions: ['cost.read'] });
   await app.httpRequest().get('/api/v1/costs').set(bearer(reader.token)).expect(200);
-  await app.httpRequest()
+  await app
+    .httpRequest()
     .post('/api/v1/costs')
     .set(bearer(reader.token))
     .send({ category: 'LABOR', amount: '100', occurredAt: '2026-08-01' })
@@ -135,10 +138,17 @@ test('creates, updates, lists, and soft-deletes a cost entry end to end', async 
   const session = await createFinanceSession({ permissions: FULL_COST_PERMISSIONS });
   const channel = await createChannelFixture();
 
-  const created = await app.httpRequest()
+  const created = await app
+    .httpRequest()
     .post('/api/v1/costs')
     .set(bearer(session.token))
-    .send({ category: 'CHANNEL', amount: '1200.50', occurredAt: '2026-08-01', note: '投放费', channelId: channel.id })
+    .send({
+      category: 'CHANNEL',
+      amount: '1200.50',
+      occurredAt: '2026-08-01',
+      note: '投放费',
+      channelId: channel.id,
+    })
     .expect(200);
   assert.equal(created.body.code, 200);
   assert.equal(created.body.data.category, 'CHANNEL');
@@ -147,20 +157,19 @@ test('creates, updates, lists, and soft-deletes a cost entry end to end', async 
   assert.equal(created.body.data.version, 1);
   const costId = created.body.data.id as string;
 
-  const detail = await app.httpRequest()
+  const detail = await app
+    .httpRequest()
     .get(`/api/v1/costs/${costId}`)
     .set(bearer(session.token))
     .expect(200);
   assert.equal(detail.body.data.id, costId);
 
-  const list = await app.httpRequest()
-    .get('/api/v1/costs')
-    .set(bearer(session.token))
-    .expect(200);
+  const list = await app.httpRequest().get('/api/v1/costs').set(bearer(session.token)).expect(200);
   assert.equal(list.body.data.total, 1);
   assert.equal(list.body.data.list[0].id, costId);
 
-  const updated = await app.httpRequest()
+  const updated = await app
+    .httpRequest()
     .patch(`/api/v1/costs/${costId}`)
     .set(bearer(session.token))
     .send({ amount: '1300.00', note: '调整后投放费', version: 1 })
@@ -170,19 +179,14 @@ test('creates, updates, lists, and soft-deletes a cost entry end to end', async 
   assert.equal(updated.body.data.version, 2);
 
   // 软删：delete → get 404 → list 不见。
-  const destroyed = await app.httpRequest()
+  const destroyed = await app
+    .httpRequest()
     .delete(`/api/v1/costs/${costId}`)
     .set(bearer(session.token))
     .expect(200);
   assert.equal(destroyed.body.data.id, costId);
-  await app.httpRequest()
-    .get(`/api/v1/costs/${costId}`)
-    .set(bearer(session.token))
-    .expect(404);
-  const afterDelete = await app.httpRequest()
-    .get('/api/v1/costs')
-    .set(bearer(session.token))
-    .expect(200);
+  await app.httpRequest().get(`/api/v1/costs/${costId}`).set(bearer(session.token)).expect(404);
+  const afterDelete = await app.httpRequest().get('/api/v1/costs').set(bearer(session.token)).expect(200);
   assert.equal(afterDelete.body.data.total, 0);
 });
 
@@ -191,7 +195,8 @@ test('carries cost validation, anchor, optimistic-lock, and not-found error code
   const channel = await createChannelFixture();
 
   // body 未知键：400 VALIDATION_FAILED。
-  const unknownKey = await app.httpRequest()
+  const unknownKey = await app
+    .httpRequest()
     .post('/api/v1/costs')
     .set(bearer(session.token))
     .send({ category: 'LABOR', amount: '100', occurredAt: '2026-08-01', bogus: true })
@@ -199,13 +204,15 @@ test('carries cost validation, anchor, optimistic-lock, and not-found error code
   assert.equal(unknownKey.body.message, 'VALIDATION_FAILED');
 
   // 锚点矩阵：CHANNEL 缺 channelId → 400 COST_ANCHOR_REQUIRED；LABOR 带 channelId → 400 COST_ANCHOR_FORBIDDEN。
-  const anchorRequired = await app.httpRequest()
+  const anchorRequired = await app
+    .httpRequest()
     .post('/api/v1/costs')
     .set(bearer(session.token))
     .send({ category: 'CHANNEL', amount: '100', occurredAt: '2026-08-01' })
     .expect(400);
   assert.equal(anchorRequired.body.message, 'COST_ANCHOR_REQUIRED');
-  const anchorForbidden = await app.httpRequest()
+  const anchorForbidden = await app
+    .httpRequest()
     .post('/api/v1/costs')
     .set(bearer(session.token))
     .send({ category: 'LABOR', amount: '100', occurredAt: '2026-08-01', channelId: channel.id })
@@ -213,7 +220,8 @@ test('carries cost validation, anchor, optimistic-lock, and not-found error code
   assert.equal(anchorForbidden.body.message, 'COST_ANCHOR_FORBIDDEN');
 
   // 伪造 channelId：400 VALIDATION_FAILED（存在性探针，非 P2003 500）。
-  const forgedChannel = await app.httpRequest()
+  const forgedChannel = await app
+    .httpRequest()
     .post('/api/v1/costs')
     .set(bearer(session.token))
     .send({ category: 'CHANNEL', amount: '100', occurredAt: '2026-08-01', channelId: randomUUID() })
@@ -221,19 +229,22 @@ test('carries cost validation, anchor, optimistic-lock, and not-found error code
   assert.equal(forgedChannel.body.message, 'VALIDATION_FAILED');
 
   // 不存在：404 COST_NOT_FOUND。
-  const missing = await app.httpRequest()
+  const missing = await app
+    .httpRequest()
     .get(`/api/v1/costs/${randomUUID()}`)
     .set(bearer(session.token))
     .expect(404);
   assert.equal(missing.body.message, 'COST_NOT_FOUND');
 
   // update 注入不可变锚点字段：400 VALIDATION_FAILED。
-  const created = await app.httpRequest()
+  const created = await app
+    .httpRequest()
     .post('/api/v1/costs')
     .set(bearer(session.token))
     .send({ category: 'CHANNEL', amount: '100', occurredAt: '2026-08-01', channelId: channel.id })
     .expect(200);
-  const injected = await app.httpRequest()
+  const injected = await app
+    .httpRequest()
     .patch(`/api/v1/costs/${created.body.data.id}`)
     .set(bearer(session.token))
     .send({ amount: '200', version: 1, category: 'LABOR' })
@@ -241,7 +252,8 @@ test('carries cost validation, anchor, optimistic-lock, and not-found error code
   assert.equal(injected.body.message, 'VALIDATION_FAILED');
 
   // 乐观锁：版本过期 → 409 VERSION_CONFLICT。
-  const stale = await app.httpRequest()
+  const stale = await app
+    .httpRequest()
     .patch(`/api/v1/costs/${created.body.data.id}`)
     .set(bearer(session.token))
     .send({ amount: '300', version: 99 })

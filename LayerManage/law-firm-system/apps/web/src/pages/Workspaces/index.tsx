@@ -1689,6 +1689,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                 'INVENTORY_MOVEMENTS',
                 'INVENTORY_STOCKTAKES',
                 'PERFORMANCES',
+                'CHANNELS',
                 ...financialSources,
               ].includes(detail.table.source) &&
               editing.row && (
@@ -1923,6 +1924,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                       'INVENTORY_MOVEMENTS',
                       'INVENTORY_STOCKTAKES',
                       'PERFORMANCES',
+                      'CHANNELS',
                     ] as const
                   ).map((source) => ({
                     value: source,

@@ -18,11 +18,15 @@ let secondUserId: string;
 let firstToken: string;
 let secondToken: string;
 
-function bearer(token: string) { return { Authorization: `Bearer ${token}` }; }
+function bearer(token: string) {
+  return { Authorization: `Bearer ${token}` };
+}
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
-  const promise = new Promise<void>(done => { resolve = done; });
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 
@@ -55,7 +59,10 @@ async function createNotification(userId: string, label: string, isRead = false)
   });
 }
 
-test.before(async () => { prisma = createTestPrisma(); await app.ready(); });
+test.before(async () => {
+  prisma = createTestPrisma();
+  await app.ready();
+});
 test.beforeEach(async () => {
   await clearTestApplicationData(prisma);
   const first = await createUserAndToken('notification.first');
@@ -76,10 +83,7 @@ test('lists only the caller notifications with safe routing fields and no dedupl
   const own = await createNotification(firstUserId, 'own');
   const other = await createNotification(secondUserId, 'other');
 
-  const response = await app.httpRequest()
-    .get('/api/v1/notifications')
-    .set(bearer(firstToken))
-    .expect(200);
+  const response = await app.httpRequest().get('/api/v1/notifications').set(bearer(firstToken)).expect(200);
 
   assert.equal(response.body.data.list.length, 1);
   assert.equal(response.body.data.list[0].id, own.id);
@@ -96,7 +100,8 @@ test('marks only an owned notification read and keeps the safe response projecti
   const own = await createNotification(firstUserId, 'own');
   const other = await createNotification(secondUserId, 'other');
 
-  const response = await app.httpRequest()
+  const response = await app
+    .httpRequest()
     .patch(`/api/v1/notifications/${own.id}/read`)
     .set(bearer(firstToken))
     .expect(200);
@@ -106,10 +111,7 @@ test('marks only an owned notification read and keeps the safe response projecti
   assert.equal('deduplicationKey' in response.body.data, false);
   assert.equal('userId' in response.body.data, false);
 
-  await app.httpRequest()
-    .patch(`/api/v1/notifications/${other.id}/read`)
-    .set(bearer(firstToken))
-    .expect(404);
+  await app.httpRequest().patch(`/api/v1/notifications/${other.id}/read`).set(bearer(firstToken)).expect(404);
   assert.equal((await prisma.notification.findUniqueOrThrow({ where: { id: other.id } })).isRead, false);
 });
 
@@ -121,7 +123,7 @@ test('read atomically rechecks ownership after a concurrent owner change', async
   let requestOutcome: Promise<{ status: number }> | undefined;
   try {
     const notification = await createNotification(firstUserId, 'ownership-race');
-    mutation = mutatingPrisma.$transaction(async tx => {
+    mutation = mutatingPrisma.$transaction(async (tx) => {
       await tx.notification.update({
         where: { id: notification.id },
         data: { userId: secondUserId },
@@ -131,14 +133,15 @@ test('read atomically rechecks ownership after a concurrent owner change', async
     });
     await ownerChanged.promise;
 
-    requestOutcome = app.httpRequest()
+    requestOutcome = app
+      .httpRequest()
       .patch(`/api/v1/notifications/${notification.id}/read`)
       .set(bearer(firstToken))
-      .then(response => ({ status: response.status }));
+      .then((response) => ({ status: response.status }));
 
     let observedLockWait = false;
     for (let turn = 0; turn < 100 && !observedLockWait; turn += 1) {
-      await new Promise<void>(resolve => setImmediate(resolve));
+      await new Promise<void>((resolve) => setImmediate(resolve));
       const [activity] = await prisma.$queryRaw<Array<{ waiting: boolean }>>`
         SELECT EXISTS (
           SELECT 1 FROM pg_stat_activity
@@ -171,26 +174,52 @@ test('unread count and read-all remain scoped to the authenticated user', async 
   await createNotification(firstUserId, 'first-read', true);
   const other = await createNotification(secondUserId, 'other-unread');
 
-  const before = await app.httpRequest()
+  const before = await app
+    .httpRequest()
     .get('/api/v1/notifications/unread-count')
     .set(bearer(firstToken))
     .expect(200);
   assert.equal(before.body.data.count, 1);
 
-  await app.httpRequest()
-    .post('/api/v1/notifications/read-all')
-    .set(bearer(firstToken))
-    .expect(200);
-  const after = await app.httpRequest()
+  await app.httpRequest().post('/api/v1/notifications/read-all').set(bearer(firstToken)).expect(200);
+  const after = await app
+    .httpRequest()
     .get('/api/v1/notifications/unread-count')
     .set(bearer(firstToken))
     .expect(200);
   assert.equal(after.body.data.count, 0);
   assert.equal((await prisma.notification.findUniqueOrThrow({ where: { id: other.id } })).isRead, false);
 
-  const second = await app.httpRequest()
+  const second = await app
+    .httpRequest()
     .get('/api/v1/notifications/unread-count')
     .set(bearer(secondToken))
     .expect(200);
   assert.equal(second.body.data.count, 1);
+});
+
+test('rejects invalid notification pagination and read filters without exposing another owner', async () => {
+  for (const query of [
+    'page=0',
+    'page=-1',
+    'page=1.2',
+    'page=999999999999999999999',
+    'pageSize=0',
+    'pageSize=101',
+    'isRead=maybe',
+  ]) {
+    await app
+      .httpRequest()
+      .get('/api/v1/notifications?' + query)
+      .set(bearer(firstToken))
+      .expect(400);
+  }
+  await createNotification(firstUserId, 'own');
+  await createNotification(secondUserId, 'foreign');
+  const result = await app
+    .httpRequest()
+    .get('/api/v1/notifications?page=1&pageSize=100&isRead=false')
+    .set(bearer(firstToken))
+    .expect(200);
+  assert.equal(result.body.data.pagination.total, 1);
 });

@@ -4,7 +4,16 @@ import SmartCaseLauncher from './pages/Intelligence/SmartCaseLauncher';
 import CaseWorkbench from './components/CaseWorkbench';
 import ChineseConfig from './components/ChineseConfig';
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  Outlet,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from 'react-router';
 import { Spin } from 'antd';
 import { useAuthStore } from './stores/authStore';
 import { useChallengeStore } from './features/auth/challengeStore';
@@ -46,7 +55,8 @@ import SecuritySettingsPage from './pages/SecuritySettings';
 import OrganizationPage from './pages/Organization';
 import PositionPage from './pages/Position';
 import ProfessionalTeamPage from './pages/ProfessionalTeam';
-import ChannelPage from './pages/Channel';
+import ChannelCreatePage from './pages/Channel/ChannelCreatePage';
+import ChannelRecordPage from './pages/Channel/ChannelRecordPage';
 import ApprovalCenterPage from './pages/approvals/ApprovalCenterPage';
 import NotificationPage from './pages/Notification';
 import PerformanceRecordPage from './pages/Performance/PerformanceRecordPage';
@@ -383,7 +393,7 @@ function SessionBootstrap() {
             path="/security/admin-governance"
             element={
               <AuthorizedPage permission="governance.catalog.read">
-                <AdminGovernancePage />
+                <GovernanceRoute />
               </AuthorizedPage>
             }
           />
@@ -396,7 +406,9 @@ function SessionBootstrap() {
             }
           />
           <Route path="/security/account" element={<SecuritySettingsPage />} />
-          <Route path="/channels" element={<ChannelPage />} />
+          <Route path="/channels" element={<BusinessWorkspacePage source="CHANNELS" />} />
+          <Route path="/channels/new" element={<ChannelCreatePage />} />
+          <Route path="/channels/:id" element={<ChannelRecordPage />} />
           <Route
             path="/approval-ledger"
             element={
@@ -455,7 +467,7 @@ function SessionBootstrap() {
             path="/approvals"
             element={
               <AuthorizedPage permission="approval.read">
-                <ApprovalCenterPage />
+                <ApprovalRoute />
               </AuthorizedPage>
             }
           />
@@ -480,3 +492,17 @@ function SessionBootstrap() {
 }
 
 export default App;
+
+function GovernanceRoute() {
+  const [params] = useSearchParams();
+  const operationId = params.get('operationId') || undefined;
+  return <AdminGovernancePage key={operationId || 'list'} initialOperationId={operationId} />;
+}
+function ApprovalRoute() {
+  const [params] = useSearchParams();
+  const instanceId = params.get('instance') || undefined;
+  const value = params.get('role');
+  const role =
+    value === 'TODO' || value === 'DONE' || value === 'ALL' || value === 'APPLIED' ? value : undefined;
+  return <ApprovalCenterPage key={instanceId || 'list'} initialInstanceId={instanceId} initialRole={role} />;
+}

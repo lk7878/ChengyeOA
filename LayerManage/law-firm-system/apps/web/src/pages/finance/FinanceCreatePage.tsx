@@ -224,11 +224,11 @@ export default function FinanceCreatePage({ kind }: { kind: FinanceKind }) {
     [contractId, canReadPayment],
   );
   const channelChoices: ChoiceLoader = useCallback(
-    async (page) => {
-      if (!hasPermission('cost.create')) return { list: [], total: 0 };
+    async (page, keyword) => {
+      if (!hasPermission('channel.read')) return { list: [], total: 0 };
       const result = await request.get<{
         data: { list: { id: string; name: string }[]; pagination: { total: number } };
-      }>('/v1/channels', { params: { page, pageSize: 20 } });
+      }>('/v1/channels', { params: { page, pageSize: 20, keyword: keyword || undefined } });
       return {
         list: result.data.list.map((row) => ({ id: row.id, label: row.name })),
         total: result.data.pagination.total,
@@ -519,7 +519,7 @@ export default function FinanceCreatePage({ kind }: { kind: FinanceKind }) {
                   <FinanceChoicePicker
                     label="关联渠道"
                     load={channelChoices}
-                    disabled={!hasPermission('cost.create')}
+                    disabled={!hasPermission('channel.read')}
                   />
                 </Form.Item>
               )}

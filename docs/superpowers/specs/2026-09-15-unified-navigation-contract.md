@@ -132,3 +132,8 @@ U6-A：四种财务来源使用共同工作表；new 额外要求对应 create�
 | /payroll | 原工资表与审批，performance.read；附件仍由上传者/审批参与者授权 |
 
 最终验收证据见阶段计划第11节；U6-C管理页面及U7视觉收敛另行完成。
+
+
+## U6-C 增量映射
+
+/channels替换为CHANNELS共同工作表；/channels/new、/:id分别登记/详情，menu.channel与channel.read/create按正式目录叠加；原表中“无channel.read”是U0历史状态，本阶段已由新目录取代。/analytics/overview六类指标读取各自业务范围，无授权值null，不再全库聚合。/notifications只列本人通知；/approvals?instance=原ID、/security/admin-governance?operationId=原ID支持正式记录定位，授权守卫和后端记录权限共同生效。/approval-ledger保留正式审批ID与同步状态，提供办理返回。

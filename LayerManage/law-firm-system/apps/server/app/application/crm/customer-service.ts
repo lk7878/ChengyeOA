@@ -31,7 +31,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
 import { FieldProjectionService } from '../authorization/field-projection-service';
-import { buildOrganizationScopeWhere } from '../authorization/resource-scope-resolvers';
+import { buildCustomerVisibilityWhere } from '../contract/contract-scope';
 import { EventOutboxWriter, PrismaEventOutboxWriter } from '../events/event-outbox-writer';
 import { AuditActor } from '../master-data/master-data-types';
 import { PermissionCode } from '../../domain/authorization/authorization-types';
@@ -143,7 +143,15 @@ export class CustomerService {
   async createCustomer(input: CreateCustomerInput): Promise<CustomerView> {
     this.authorization.requireAction(this.authorizationContext, 'customer.create');
     assertExactKeys(input, [
-      'name', 'phone', 'wechat', 'email', 'address', 'customerType', 'status', 'tags', 'remark',
+      'name',
+      'phone',
+      'wechat',
+      'email',
+      'address',
+      'customerType',
+      'status',
+      'tags',
+      'remark',
     ]);
     const name = normalizeName(input.name);
     const phone = normalizePhone(input.phone);
@@ -151,60 +159,62 @@ export class CustomerService {
     const wechat = normalizeOptionalText(input.wechat, 100);
     const email = normalizeOptionalText(input.email, 200);
     const address = normalizeOptionalText(input.address, 500);
-    const customerType = input.customerType === undefined
-      ? 'INDIVIDUAL'
-      : normalizeAllowedValue(input.customerType, CUSTOMER_TYPES);
-    const status = input.status === undefined
-      ? 'POTENTIAL'
-      : normalizeAllowedValue(input.status, CUSTOMER_STATUS);
+    const customerType =
+      input.customerType === undefined
+        ? 'INDIVIDUAL'
+        : normalizeAllowedValue(input.customerType, CUSTOMER_TYPES);
+    const status =
+      input.status === undefined ? 'POTENTIAL' : normalizeAllowedValue(input.status, CUSTOMER_STATUS);
     const tags = normalizeOptionalText(input.tags, 500);
     const remark = normalizeOptionalText(input.remark, 500);
 
     for (let attempt = 0; attempt < BUSINESS_NO_RETRY_LIMIT; attempt += 1) {
       try {
-        return await this.prisma.$transaction(async tx => {
-          const customer = await tx.customer.create({
-            data: {
-              customerNo: makeBusinessNo('CU'),
-              name,
-              phone,
-              phoneHash,
-              wechat,
-              email,
-              address,
-              status,
-              customerType,
-              // 决策 12：sourceLeadId 转化路径独占，直建恒 null。
+        return await this.prisma
+          .$transaction(async (tx) => {
+            const customer = await tx.customer.create({
+              data: {
+                customerNo: makeBusinessNo('CU'),
+                name,
+                phone,
+                phoneHash,
+                wechat,
+                email,
+                address,
+                status,
+                customerType,
+                // 决策 12：sourceLeadId 转化路径独占，直建恒 null。
+                sourceLeadId: null,
+                tags,
+                remark,
+                createdBy: this.actor.actorUserId,
+              },
+            });
+            const payload: CustomerCreatedV1 = {
+              customerId: customer.id,
               sourceLeadId: null,
-              tags,
-              remark,
-              createdBy: this.actor.actorUserId,
-            },
-          });
-          const payload: CustomerCreatedV1 = {
-            customerId: customer.id,
-            sourceLeadId: null,
-            status: customer.status as CustomerStatus,
-          };
-          await this.outbox.append(tx, this.envelope(customer.id, payload));
-          await tx.operationLog.create({
-            data: {
-              userId: this.actor.actorUserId,
-              action: 'CUSTOMER_CREATE',
-              targetType: 'CUSTOMER',
-              targetId: customer.id,
-              // 审计只落安全字段：禁止 phone/wechat/remark 自由文本。
-              newValues: JSON.stringify({
-                customerNo: customer.customerNo,
-                name: customer.name,
-                status: customer.status,
-                customerType: customer.customerType,
-              }),
-              ip: this.actor.ip,
-            },
-          });
-          return customer;
-        }).then(created => projectCustomer(created, this.customerFieldPermissions()));
+              status: customer.status as CustomerStatus,
+            };
+            await this.outbox.append(tx, this.envelope(customer.id, payload));
+            await tx.operationLog.create({
+              data: {
+                userId: this.actor.actorUserId,
+                action: 'CUSTOMER_CREATE',
+                targetType: 'CUSTOMER',
+                targetId: customer.id,
+                // 审计只落安全字段：禁止 phone/wechat/remark 自由文本。
+                newValues: JSON.stringify({
+                  customerNo: customer.customerNo,
+                  name: customer.name,
+                  status: customer.status,
+                  customerType: customer.customerType,
+                }),
+                ip: this.actor.ip,
+              },
+            });
+            return customer;
+          })
+          .then((created) => projectCustomer(created, this.customerFieldPermissions()));
       } catch (error) {
         if (attempt + 1 < BUSINESS_NO_RETRY_LIMIT && isUniqueConflictOn(error, 'customerNo')) continue;
         throw error;
@@ -221,22 +231,43 @@ export class CustomerService {
     this.authorization.requireAction(this.authorizationContext, 'customer.update');
     const id = normalizeRequiredText(customerId, 1, 100);
     assertExactKeys(input, [
-      'name', 'phone', 'wechat', 'email', 'address', 'customerType', 'status', 'tags', 'remark', 'version',
+      'name',
+      'phone',
+      'wechat',
+      'email',
+      'address',
+      'customerType',
+      'status',
+      'tags',
+      'remark',
+      'version',
     ]);
     const version = input.version === undefined ? undefined : normalizeCustomerVersion(input.version);
 
     const data: Prisma.CustomerUncheckedUpdateInput = {};
     const updatedFields: string[] = [];
-    if (input.name !== undefined) { data.name = normalizeName(input.name); updatedFields.push('name'); }
+    if (input.name !== undefined) {
+      data.name = normalizeName(input.name);
+      updatedFields.push('name');
+    }
     if (input.phone !== undefined) {
       const phone = normalizePhone(input.phone);
       data.phone = phone;
       data.phoneHash = hashPhone(phone);
       updatedFields.push('phone');
     }
-    if (input.wechat !== undefined) { data.wechat = normalizeOptionalText(input.wechat, 100); updatedFields.push('wechat'); }
-    if (input.email !== undefined) { data.email = normalizeOptionalText(input.email, 200); updatedFields.push('email'); }
-    if (input.address !== undefined) { data.address = normalizeOptionalText(input.address, 500); updatedFields.push('address'); }
+    if (input.wechat !== undefined) {
+      data.wechat = normalizeOptionalText(input.wechat, 100);
+      updatedFields.push('wechat');
+    }
+    if (input.email !== undefined) {
+      data.email = normalizeOptionalText(input.email, 200);
+      updatedFields.push('email');
+    }
+    if (input.address !== undefined) {
+      data.address = normalizeOptionalText(input.address, 500);
+      updatedFields.push('address');
+    }
     if (input.customerType !== undefined) {
       data.customerType = normalizeAllowedValue(input.customerType, CUSTOMER_TYPES);
       updatedFields.push('customerType');
@@ -245,16 +276,23 @@ export class CustomerService {
       data.status = normalizeAllowedValue(input.status, CUSTOMER_STATUS);
       updatedFields.push('status');
     }
-    if (input.tags !== undefined) { data.tags = normalizeOptionalText(input.tags, 500); updatedFields.push('tags'); }
-    if (input.remark !== undefined) { data.remark = normalizeOptionalText(input.remark, 500); updatedFields.push('remark'); }
+    if (input.tags !== undefined) {
+      data.tags = normalizeOptionalText(input.tags, 500);
+      updatedFields.push('tags');
+    }
+    if (input.remark !== undefined) {
+      data.remark = normalizeOptionalText(input.remark, 500);
+      updatedFields.push('remark');
+    }
     const scopeWhere = await this.buildCustomerScopeWhere('customer.update');
 
-    return this.prisma.$transaction(async tx => {
+    return this.prisma.$transaction(async (tx) => {
       const customer = await tx.customer.findFirst({
         where: { AND: [scopeWhere, { id, deletedAt: null }] },
       });
       if (!customer) throw new CrmError(LEAD_NOT_FOUND, 404, 'customer not found');
-      if (version !== undefined && version !== customer.version) throw new MasterDataError('VERSION_CONFLICT', 409);
+      if (version !== undefined && version !== customer.version)
+        throw new MasterDataError('VERSION_CONFLICT', 409);
 
       const changed = await tx.customer.updateMany({
         where: { id: customer.id, version: customer.version, deletedAt: null },
@@ -285,20 +323,30 @@ export class CustomerService {
     assertExactKeys(input, ['version']);
     const version = normalizeCustomerVersion(input.version);
     const scopeWhere = await this.buildCustomerScopeWhere('customer.delete');
-    await this.prisma.$transaction(async tx => {
+    await this.prisma.$transaction(async (tx) => {
       const visible = await tx.customer.findFirst({ where: { AND: [scopeWhere, { id, deletedAt: null }] } });
       if (!visible) throw new CrmError(LEAD_NOT_FOUND, 404, 'customer not found');
       await tx.$queryRaw`SELECT id FROM customer WHERE id = ${id} FOR UPDATE`;
       const customer = await tx.customer.findFirst({
         where: { AND: [scopeWhere, { id, deletedAt: null }] },
-        include: { _count: { select: {
-          referrals: true, cases: true, contracts: true, payments: true, negotiations: true,
-          analysisEngagements: true, invoiceRequests: true, refundRequests: true,
-        } } },
+        include: {
+          _count: {
+            select: {
+              referrals: true,
+              cases: true,
+              contracts: true,
+              payments: true,
+              negotiations: true,
+              analysisEngagements: true,
+              invoiceRequests: true,
+              refundRequests: true,
+            },
+          },
+        },
       });
       if (!customer) throw new CrmError(LEAD_NOT_FOUND, 404, 'customer not found');
       if (customer.version !== version) throw new MasterDataError('VERSION_CONFLICT', 409);
-      if (customer.sourceLeadId || Object.values(customer._count).some(count => count > 0)) {
+      if (customer.sourceLeadId || Object.values(customer._count).some((count) => count > 0)) {
         throw new CrmError(CUSTOMER_IN_USE, 409, '客户已关联业务记录，无法删除');
       }
       const deletedAt = new Date();
@@ -308,10 +356,16 @@ export class CustomerService {
       });
       if (changed.count !== 1) throw new MasterDataError('VERSION_CONFLICT', 409);
       await tx.contact.updateMany({ where: { customerId: id, deletedAt: null }, data: { deletedAt } });
-      await tx.operationLog.create({ data: {
-        userId: this.actor.actorUserId, action: 'CUSTOMER_DELETE', targetType: 'CUSTOMER', targetId: id,
-        newValues: JSON.stringify({ customerNo: customer.customerNo, version }), ip: this.actor.ip,
-      } });
+      await tx.operationLog.create({
+        data: {
+          userId: this.actor.actorUserId,
+          action: 'CUSTOMER_DELETE',
+          targetType: 'CUSTOMER',
+          targetId: id,
+          newValues: JSON.stringify({ customerNo: customer.customerNo, version }),
+          ip: this.actor.ip,
+        },
+      });
     });
   }
 
@@ -326,7 +380,14 @@ export class CustomerService {
     if (!customer) throw new CrmError(LEAD_NOT_FOUND, 404, 'customer not found');
     const fieldPermissions = this.customerFieldPermissions();
     await auditRawL3Access(
-      this.prisma, this.actor, 'CUSTOMER', customer.id, 'customer', fieldPermissions, 1, CUSTOMER_READ_PURPOSE,
+      this.prisma,
+      this.actor,
+      'CUSTOMER',
+      customer.id,
+      'customer',
+      fieldPermissions,
+      1,
+      CUSTOMER_READ_PURPOSE,
     );
     // SPEC-031 经营指标（复购 + 转介绍）注入视图。
     const metrics = await this.aggregateCustomerMetrics([customer.id]);
@@ -342,7 +403,8 @@ export class CustomerService {
     const scopeWhere = await this.buildCustomerScopeWhere('customer.read');
 
     const filters: Prisma.CustomerWhereInput[] = [scopeWhere, { deletedAt: null }];
-    if (query.status !== undefined) filters.push({ status: normalizeAllowedValue(query.status, CUSTOMER_STATUS) });
+    if (query.status !== undefined)
+      filters.push({ status: normalizeAllowedValue(query.status, CUSTOMER_STATUS) });
     if (query.customerType !== undefined) {
       filters.push({ customerType: normalizeAllowedValue(query.customerType, CUSTOMER_TYPES) });
     }
@@ -372,12 +434,19 @@ export class CustomerService {
     ]);
     const fieldPermissions = this.customerFieldPermissions();
     await auditRawL3Access(
-      this.prisma, this.actor, 'CUSTOMER', 'LIST', 'customer', fieldPermissions, rows.length, CUSTOMER_READ_PURPOSE,
+      this.prisma,
+      this.actor,
+      'CUSTOMER',
+      'LIST',
+      'customer',
+      fieldPermissions,
+      rows.length,
+      CUSTOMER_READ_PURPOSE,
     );
     // SPEC-031 经营指标（复购 + 转介绍）——分页批量聚合。
-    const metricsMap = await this.aggregateCustomerMetrics(rows.map(row => row.id));
+    const metricsMap = await this.aggregateCustomerMetrics(rows.map((row) => row.id));
     return {
-      list: rows.map(row => projectCustomer(row, fieldPermissions, metricsMap[row.id])),
+      list: rows.map((row) => projectCustomer(row, fieldPermissions, metricsMap[row.id])),
       page,
       pageSize,
       total,
@@ -449,7 +518,7 @@ export class CustomerService {
     const scopeWhere = await this.buildCustomerScopeWhere('customer.update');
 
     try {
-      return await this.prisma.$transaction(async tx => {
+      return await this.prisma.$transaction(async (tx) => {
         const customer = await tx.customer.findFirst({
           where: { AND: [scopeWhere, { id, deletedAt: null }] },
           select: { id: true },
@@ -511,16 +580,27 @@ export class CustomerService {
     });
     const fieldPermissions = this.customerFieldPermissions();
     await auditRawL3Access(
-      this.prisma, this.actor, 'CUSTOMER', customer.id, 'customer', fieldPermissions, contacts.length, CUSTOMER_READ_PURPOSE,
+      this.prisma,
+      this.actor,
+      'CUSTOMER',
+      customer.id,
+      'customer',
+      fieldPermissions,
+      contacts.length,
+      CUSTOMER_READ_PURPOSE,
     );
-    return contacts.map(contact => projectContact(contact, fieldPermissions));
+    return contacts.map((contact) => projectContact(contact, fieldPermissions));
   }
 
   /**
    * 更新联系人（决策 15）：customer.update；同客户归属校验（404）；phone 变更重算 hash；
    * isPrimary=true 同事务清除该客户其他主标记；唯一冲突 → VALIDATION_FAILED(409)。
    */
-  async updateContact(customerId: string, contactId: string, input: UpdateContactInput): Promise<ContactView> {
+  async updateContact(
+    customerId: string,
+    contactId: string,
+    input: UpdateContactInput,
+  ): Promise<ContactView> {
     this.authorization.requireAction(this.authorizationContext, 'customer.update');
     const id = normalizeRequiredText(customerId, 1, 100);
     const targetContactId = normalizeRequiredText(contactId, 1, 100);
@@ -528,20 +608,32 @@ export class CustomerService {
 
     const data: Prisma.ContactUncheckedUpdateInput = {};
     const updatedFields: string[] = [];
-    if (input.name !== undefined) { data.name = normalizeName(input.name); updatedFields.push('name'); }
+    if (input.name !== undefined) {
+      data.name = normalizeName(input.name);
+      updatedFields.push('name');
+    }
     if (input.phone !== undefined) {
       const phone = normalizePhone(input.phone);
       data.phone = phone;
       data.phoneHash = hashPhone(phone);
       updatedFields.push('phone');
     }
-    if (input.wechat !== undefined) { data.wechat = normalizeOptionalText(input.wechat, 100); updatedFields.push('wechat'); }
-    if (input.relation !== undefined) { data.relation = normalizeOptionalText(input.relation, 50); updatedFields.push('relation'); }
-    if (input.isPrimary !== undefined) { data.isPrimary = normalizeBoolean(input.isPrimary, false); updatedFields.push('isPrimary'); }
+    if (input.wechat !== undefined) {
+      data.wechat = normalizeOptionalText(input.wechat, 100);
+      updatedFields.push('wechat');
+    }
+    if (input.relation !== undefined) {
+      data.relation = normalizeOptionalText(input.relation, 50);
+      updatedFields.push('relation');
+    }
+    if (input.isPrimary !== undefined) {
+      data.isPrimary = normalizeBoolean(input.isPrimary, false);
+      updatedFields.push('isPrimary');
+    }
     const scopeWhere = await this.buildCustomerScopeWhere('customer.update');
 
     try {
-      return await this.prisma.$transaction(async tx => {
+      return await this.prisma.$transaction(async (tx) => {
         const customer = await tx.customer.findFirst({
           where: { AND: [scopeWhere, { id, deletedAt: null }] },
           select: { id: true },
@@ -590,7 +682,7 @@ export class CustomerService {
     const targetContactId = normalizeRequiredText(contactId, 1, 100);
     const scopeWhere = await this.buildCustomerScopeWhere('customer.update');
 
-    await this.prisma.$transaction(async tx => {
+    await this.prisma.$transaction(async (tx) => {
       const customer = await tx.customer.findFirst({
         where: { AND: [scopeWhere, { id, deletedAt: null }] },
         select: { id: true },
@@ -618,49 +710,35 @@ export class CustomerService {
 
   /**
    * customer 数据范围（决策 11）：Customer 无组织列——
-   *   SELF/员工维度 → createdBy = context.userId（与 lead-service 写 createdBy 同一身份串）；
+   *   SELF/员工维度 → 实际目标员工对应账户的 createdBy；
    *   TEAM          → sourceLead.professionalTeamId IN resolution.professionalTeamIds；
    *   BRANCH/ORG    → sourceLead.branchId IN 组织子树展开 id 集；
    *   ALL           → 不过滤。
    * sourceLeadId=null 仅命中 SELF 谓词与 ALL；多范围 OR 并集；零谓词 fail-closed。
    */
   private async buildCustomerScopeWhere(permissionCode: PermissionCode): Promise<Prisma.CustomerWhereInput> {
-    const resolution = await this.authorization.resolveScopeTargets(
+    return buildCustomerVisibilityWhere(
+      this.prisma,
+      this.authorization,
       this.authorizationContext,
-      'customer',
       permissionCode,
     );
-    if (resolution.all) return {};
-
-    const predicates: Prisma.CustomerWhereInput[] = [];
-    if (resolution.employeeIds.length > 0) {
-      predicates.push({ createdBy: this.authorizationContext.userId });
-    }
-    if (resolution.professionalTeamIds.length > 0) {
-      predicates.push({ sourceLead: { professionalTeamId: { in: resolution.professionalTeamIds } } });
-    }
-    if (resolution.organizationTargets.length > 0) {
-      // buildOrganizationScopeWhere 只读取 organizationTargets 分量（此处 all 必为 false）。
-      const organizations = await this.prisma.organization.findMany({
-        where: buildOrganizationScopeWhere(resolution),
-        select: { id: true },
-      });
-      if (organizations.length > 0) {
-        predicates.push({ sourceLead: { branchId: { in: organizations.map(organization => organization.id) } } });
-      }
-    }
-    if (predicates.length === 0) return { id: { in: [] } };
-    return { OR: predicates };
   }
 
   /** customer.read 锚定的 phone/wechat 字段能力（同 lead-service customerFieldPermissions）。 */
   private customerFieldPermissions(): CustomerFieldPermissions {
     return {
       phone: this.fieldProjection.fieldCapability(
-        this.authorizationContext, 'customer', 'customer.phone', 'customer.read',
+        this.authorizationContext,
+        'customer',
+        'customer.phone',
+        'customer.read',
       ).readLevel,
       wechat: this.fieldProjection.fieldCapability(
-        this.authorizationContext, 'customer', 'customer.wechat', 'customer.read',
+        this.authorizationContext,
+        'customer',
+        'customer.wechat',
+        'customer.read',
       ).readLevel,
     };
   }

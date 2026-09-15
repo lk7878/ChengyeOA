@@ -190,6 +190,8 @@ export default (app: Application) => {
 
   // 渠道模块
   router.get('/api/v1/channels', controller.channel.index);
+  router.get('/api/v1/channels/identity-gaps', controller.channel.identityGaps);
+  router.post('/api/v1/channels/:id/identity', controller.channel.repairIdentity);
   router.get('/api/v1/channels/:id', controller.channel.show);
   router.post('/api/v1/channels', controller.channel.create);
   router.put('/api/v1/channels/:id', controller.channel.update);

@@ -1,3 +1,4 @@
+import { channelScope } from '../channel/channel-scope';
 import { inventoryScope } from '../inventory/inventory-scope';
 import { performanceScope } from '../performance/performance-scope';
 import { creatorIdsInOrganizations } from '../authorization/creator-organization';
@@ -21,6 +22,23 @@ import { maskLeadPhone, maskLeadWechat } from './lead-projection';
 import { auditRawL3Access } from './lead-audit';
 
 export const domainSources = {
+  CHANNELS: {
+    resource: 'channel',
+    edit: 'channel.update',
+    table: 'channel',
+    columns: [
+      ['code', '渠道编号', 'TEXT'],
+      ['name', '渠道名称', 'TEXT'],
+      ['type', '渠道类型', 'TEXT'],
+      ['accountInfo', '渠道说明', 'LONG_TEXT'],
+      ['cost', '渠道成本', 'CURRENCY'],
+      ['status', '渠道状态', 'TEXT'],
+      ['branchId', '所属组织', 'ORGANIZATION'],
+      ['createdBy', '登记人', 'CREATED_BY'],
+      ['createdAt', '创建时间', 'CREATED_AT'],
+      ['updatedAt', '更新时间', 'UPDATED_AT'],
+    ],
+  },
   INVENTORY_ITEMS: {
     resource: 'inventory',
     edit: 'inventory.manage',
@@ -357,36 +375,39 @@ export class WorkspaceDomainSource {
     const financial = source === 'PAYMENTS' || source === 'INVOICES' || source === 'REFUNDS';
     const inventory = source.startsWith('INVENTORY_');
     const immutable = source === 'INVENTORY_MOVEMENTS' || source === 'INVENTORY_STOCKTAKES';
-    const domain = inventory
-      ? await inventoryScope(
-          this.db,
-          this.actor,
-          permission,
-          source === 'INVENTORY_ITEMS'
-            ? 'items'
-            : source === 'INVENTORY_MOVEMENTS'
-              ? 'movements'
-              : 'stocktakes',
-        )
-      : source === 'PERFORMANCES'
-        ? await performanceScope(this.db, this.actor, permission)
-        : financial
-          ? await buildFinancialRecordScopeWhere(
+    const domain =
+      source === 'CHANNELS'
+        ? await channelScope(this.db, this.actor, permission)
+        : inventory
+          ? await inventoryScope(
               this.db,
-              this.authorization,
               this.actor,
               permission,
-              domainSources[source].resource,
+              source === 'INVENTORY_ITEMS'
+                ? 'items'
+                : source === 'INVENTORY_MOVEMENTS'
+                  ? 'movements'
+                  : 'stocktakes',
             )
-          : source === 'COSTS'
-            ? await buildCostScopeWhere(this.db, this.actor, permission)
-            : source === 'CASES'
-              ? await buildCaseScopeWhere(this.db, this.actor, permission)
-              : source === 'CUSTOMERS'
-                ? await buildCustomerVisibilityWhere(this.db, this.authorization, this.actor, permission)
-                : source === 'NEGOTIATIONS'
-                  ? await buildNegotiationScopeWhere(this.db, this.authorization, this.actor, permission)
-                  : await buildContractScopeWhere(this.db, this.authorization, this.actor, permission);
+          : source === 'PERFORMANCES'
+            ? await performanceScope(this.db, this.actor, permission)
+            : financial
+              ? await buildFinancialRecordScopeWhere(
+                  this.db,
+                  this.authorization,
+                  this.actor,
+                  permission,
+                  domainSources[source].resource,
+                )
+              : source === 'COSTS'
+                ? await buildCostScopeWhere(this.db, this.actor, permission)
+                : source === 'CASES'
+                  ? await buildCaseScopeWhere(this.db, this.actor, permission)
+                  : source === 'CUSTOMERS'
+                    ? await buildCustomerVisibilityWhere(this.db, this.authorization, this.actor, permission)
+                    : source === 'NEGOTIATIONS'
+                      ? await buildNegotiationScopeWhere(this.db, this.authorization, this.actor, permission)
+                      : await buildContractScopeWhere(this.db, this.authorization, this.actor, permission);
     const root = await this.db.organization.findUnique({ where: { id: access.organizationId } });
     if (!root || root.status !== 'ENABLED') fail('COLLAB_FORBIDDEN', 403);
     const organizations = await this.db.organization.findMany({
@@ -453,7 +474,7 @@ export class WorkspaceDomainSource {
       organization = Prisma.sql`(l."branchId" IN (${Prisma.join(ids)}) OR
         (b."sourceLeadId" IS NULL AND ${creators.length ? Prisma.sql`b."createdBy" IN (${Prisma.join(creators.map((u) => u.id))})` : Prisma.sql`FALSE`}))`;
     }
-    return Prisma.sql`${this.compile(domain)} AND ${['CASES', 'INVOICES', 'REFUNDS', 'PERFORMANCES', 'INVENTORY_ITEMS', 'INVENTORY_MOVEMENTS', 'INVENTORY_STOCKTAKES'].includes(source) ? Prisma.sql`TRUE` : Prisma.sql`b."deletedAt" IS NULL`} AND ${financial ? Prisma.sql`c."deletedAt" IS NULL` : Prisma.sql`TRUE`} AND ${organization}
+    return Prisma.sql`${this.compile(domain)} AND ${['CHANNELS', 'CASES', 'INVOICES', 'REFUNDS', 'PERFORMANCES', 'INVENTORY_ITEMS', 'INVENTORY_MOVEMENTS', 'INVENTORY_STOCKTAKES'].includes(source) ? Prisma.sql`TRUE` : Prisma.sql`b."deletedAt" IS NULL`} AND ${financial ? Prisma.sql`c."deletedAt" IS NULL` : Prisma.sql`TRUE`} AND ${organization}
       AND ${access.selfOnly ? Prisma.sql`b."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`}`;
   }
   from(source: DomainSource) {

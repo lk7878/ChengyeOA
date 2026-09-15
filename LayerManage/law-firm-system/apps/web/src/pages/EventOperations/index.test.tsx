@@ -543,7 +543,8 @@ test('aborts outstanding detail work on unmount', async () => {
 });
 
 test('uses one layout main landmark and a named search region for filters', async () => {
-  render(<MemoryRouter><MainLayout><EventOperationsPage /></MainLayout></MemoryRouter>);
+  useAuthStore.setState({ authorizationStatus: 'ready', isAuthenticated: false });
+  render(<MemoryRouter initialEntries={['/security/event-operations']}><MainLayout><EventOperationsPage /></MainLayout></MemoryRouter>);
   expect(screen.getAllByRole('main')).toHaveLength(1);
   expect(await screen.findByRole('search', { name: '事件投递筛选' })).toBeInTheDocument();
 });

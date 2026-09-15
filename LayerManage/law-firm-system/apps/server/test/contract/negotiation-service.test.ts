@@ -8,10 +8,7 @@ import { NegotiationService } from '../../app/application/contract/negotiation-s
 import { CreateNegotiationInput } from '../../app/application/contract/contract-types';
 import { AuditActor } from '../../app/application/master-data/master-data-types';
 import { PermissionCode } from '../../app/domain/authorization/authorization-types';
-import {
-  CONTRACT_ERROR_CODES,
-  ContractError,
-} from '../../app/domain/contract/contract-errors';
+import { CONTRACT_ERROR_CODES, ContractError } from '../../app/domain/contract/contract-errors';
 import { hashPhone } from '../../app/domain/crm/lead-policy';
 import { MasterDataError } from '../../app/domain/master-data/master-data-errors';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
@@ -42,7 +39,7 @@ test.after(async () => {
 });
 
 function hasCode(code: string): (error: unknown) => boolean {
-  return error => Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
+  return (error) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
 }
 
 interface ContextOverrides {
@@ -59,7 +56,7 @@ function contractContext(userId: string, overrides: ContextOverrides = {}): Auth
     employeeId: overrides.employeeId ?? null,
     isSystemAdmin: false,
     isSystemSuperAdmin: false,
-    grants: permissionCodes.map(permissionCode => ({
+    grants: permissionCodes.map((permissionCode) => ({
       sourceType: 'ROLE' as const,
       sourceId: `${userId}-grant-${permissionCode}`,
       sourceRoleId: 'test-role',
@@ -188,12 +185,14 @@ test('createNegotiation persists the negotiation and writes negotiation.created 
   const negotiator = await createEmployeeFixture('谈案律师');
   const service = serviceFor(userId, actor);
 
-  const view = await service.createNegotiation(negotiationInput(customer.id, negotiator.id, {
-    quotedAmount: '12800.50',
-    customerConcerns: '担心周期过长',
-    competitorInfo: '对比了隔壁律所',
-    remark: '重点关注',
-  }));
+  const view = await service.createNegotiation(
+    negotiationInput(customer.id, negotiator.id, {
+      quotedAmount: '12800.50',
+      customerConcerns: '担心周期过长',
+      competitorInfo: '对比了隔壁律所',
+      remark: '重点关注',
+    }),
+  );
 
   assert.ok(view.id);
   assert.match(view.negotiationNo, /^NE\d{6}-[0-9A-Z]{6}$/);
@@ -240,9 +239,11 @@ test('createNegotiation accepts a numeric quotedAmount and projects it unmasked'
   const negotiator = await createEmployeeFixture('谈案律师');
   const service = serviceFor(userId, actor);
 
-  const view = await service.createNegotiation(negotiationInput(customer.id, negotiator.id, {
-    quotedAmount: 9600,
-  }));
+  const view = await service.createNegotiation(
+    negotiationInput(customer.id, negotiator.id, {
+      quotedAmount: 9600,
+    }),
+  );
 
   assert.equal(view.quotedAmount, '9600.00');
 });
@@ -254,12 +255,15 @@ test('createNegotiation rejects an invalid or negative quotedAmount with VALIDAT
   const service = serviceFor(userId, actor);
 
   await assert.rejects(
-    () => service.createNegotiation(negotiationInput(customer.id, negotiator.id, { quotedAmount: 'not-a-number' })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    () =>
+      service.createNegotiation(
+        negotiationInput(customer.id, negotiator.id, { quotedAmount: 'not-a-number' }),
+      ),
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   await assert.rejects(
     () => service.createNegotiation(negotiationInput(customer.id, negotiator.id, { quotedAmount: '-5' })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   assert.equal(await prisma.negotiation.count(), 0);
 });
@@ -292,18 +296,22 @@ test('createNegotiation resolves branchId/professionalTeamId from the referenced
   });
   const service = serviceFor(userId, actor);
 
-  const inherited = await service.createNegotiation(negotiationInput(customer.id, negotiator.id, {
-    leadId: lead.id,
-  }));
+  const inherited = await service.createNegotiation(
+    negotiationInput(customer.id, negotiator.id, {
+      leadId: lead.id,
+    }),
+  );
   assert.equal(inherited.leadId, lead.id);
   assert.equal(inherited.branchId, branch.id);
   assert.equal(inherited.professionalTeamId, team.id);
 
   const otherBranch = await createOrganizationFixture('BRANCH_OTHER');
-  const explicit = await service.createNegotiation(negotiationInput(customer.id, negotiator.id, {
-    leadId: lead.id,
-    branchId: otherBranch.id,
-  }));
+  const explicit = await service.createNegotiation(
+    negotiationInput(customer.id, negotiator.id, {
+      leadId: lead.id,
+      branchId: otherBranch.id,
+    }),
+  );
   assert.equal(explicit.branchId, otherBranch.id, 'explicit branchId wins over lead inheritance');
   assert.equal(explicit.professionalTeamId, team.id, 'team still inherited when not explicit');
 
@@ -322,7 +330,7 @@ test('createNegotiation rejects a missing lead reference with VALIDATION_FAILED 
 
   await assert.rejects(
     () => service.createNegotiation(negotiationInput(customer.id, negotiator.id, { leadId: randomUUID() })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   assert.equal(await prisma.negotiation.count(), 0);
 });
@@ -337,8 +345,11 @@ test('createNegotiation rejects a forged appointmentId with VALIDATION_FAILED 40
   const service = serviceFor(userId, actor);
 
   await assert.rejects(
-    () => service.createNegotiation(negotiationInput(customer.id, negotiator.id, { appointmentId: randomUUID() })),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    () =>
+      service.createNegotiation(
+        negotiationInput(customer.id, negotiator.id, { appointmentId: randomUUID() }),
+      ),
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   assert.equal(await prisma.negotiation.count(), 0);
   assert.equal(await prisma.eventLog.count({ where: { eventType: 'negotiation.created' } }), 0);
@@ -370,9 +381,11 @@ test('createNegotiation accepts an existing appointment and persists appointment
   });
   const service = serviceFor(userId, actor);
 
-  const view = await service.createNegotiation(negotiationInput(customer.id, negotiator.id, {
-    appointmentId: appointment.id,
-  }));
+  const view = await service.createNegotiation(
+    negotiationInput(customer.id, negotiator.id, {
+      appointmentId: appointment.id,
+    }),
+  );
   assert.equal(view.appointmentId, appointment.id);
   const stored = await prisma.negotiation.findUniqueOrThrow({ where: { id: view.id } });
   assert.equal(stored.appointmentId, appointment.id);
@@ -385,7 +398,7 @@ test('createNegotiation rejects a forged negotiatorEmployeeId with VALIDATION_FA
 
   await assert.rejects(
     () => service.createNegotiation(negotiationInput(customer.id, randomUUID())),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   assert.equal(await prisma.negotiation.count(), 0);
   assert.equal(await prisma.eventLog.count({ where: { eventType: 'negotiation.created' } }), 0);
@@ -398,9 +411,10 @@ test('createNegotiation returns NEGOTIATION_NOT_FOUND 404 for a missing customer
 
   await assert.rejects(
     () => service.createNegotiation(negotiationInput(randomUUID(), negotiator.id)),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.NEGOTIATION_NOT_FOUND
-      && error.httpStatus === 404,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.NEGOTIATION_NOT_FOUND &&
+      error.httpStatus === 404,
   );
   assert.equal(await prisma.negotiation.count(), 0);
 });
@@ -420,9 +434,10 @@ test('createNegotiation hides a customer outside the operator customer.read scop
 
   await assert.rejects(
     () => scoped.createNegotiation(negotiationInput(customer.id, negotiator.id)),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.NEGOTIATION_NOT_FOUND
-      && error.httpStatus === 404,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.NEGOTIATION_NOT_FOUND &&
+      error.httpStatus === 404,
   );
   assert.equal(await prisma.negotiation.count(), 0);
 });
@@ -459,15 +474,12 @@ test('listNegotiations paginates and filters by status and customerId', async ()
 
   const page2 = await service.listNegotiations({ page: 2, pageSize: 2 });
   assert.equal(page2.list.length, 1);
-  const allIds = [...page1.list, ...page2.list].map(item => item.id);
+  const allIds = [...page1.list, ...page2.list].map((item) => item.id);
   assert.equal(new Set(allIds).size, 3);
 
   const byCustomer = await service.listNegotiations({ customerId: customerA.id });
   assert.equal(byCustomer.total, 2);
-  assert.deepEqual(
-    byCustomer.list.map(item => item.id).sort(),
-    [first.id, second.id].sort(),
-  );
+  assert.deepEqual(byCustomer.list.map((item) => item.id).sort(), [first.id, second.id].sort());
 
   const byStatus = await service.listNegotiations({ status: 'SIGNED' });
   assert.equal(byStatus.total, 0);
@@ -486,9 +498,10 @@ test('getNegotiation returns the detail and hides missing ids as NEGOTIATION_NOT
 
   await assert.rejects(
     () => service.getNegotiation(randomUUID()),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.NEGOTIATION_NOT_FOUND
-      && error.httpStatus === 404,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.NEGOTIATION_NOT_FOUND &&
+      error.httpStatus === 404,
   );
 });
 
@@ -497,9 +510,11 @@ test('updateNegotiation changes fields only while NEGOTIATING and bumps version'
   const customer = await createCustomerFixture(userId);
   const negotiator = await createEmployeeFixture('谈案律师');
   const service = serviceFor(userId, actor);
-  const created = await service.createNegotiation(negotiationInput(customer.id, negotiator.id, {
-    customerConcerns: '初始顾虑',
-  }));
+  const created = await service.createNegotiation(
+    negotiationInput(customer.id, negotiator.id, {
+      customerConcerns: '初始顾虑',
+    }),
+  );
 
   const updated = await service.updateNegotiation(created.id, {
     quotedAmount: '15000',
@@ -531,7 +546,7 @@ test('updateNegotiation validates a changed negotiatorEmployeeId exists', async 
 
   await assert.rejects(
     () => service.updateNegotiation(created.id, { negotiatorEmployeeId: randomUUID() }),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
 
   const replacement = await createEmployeeFixture('接手律师');
@@ -549,9 +564,10 @@ test('updateNegotiation rejects closed negotiations with CONTRACT_STATE_TRANSITI
 
   await assert.rejects(
     () => service.updateNegotiation(created.id, { remark: '改动' }),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
   );
 });
 
@@ -586,7 +602,7 @@ test('closeNegotiation UNSIGNED requires a reason and stores it without leaking 
 
   await assert.rejects(
     () => service.closeNegotiation(created.id, { outcome: 'UNSIGNED' }),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
   const stillOpen = await prisma.negotiation.findUniqueOrThrow({ where: { id: created.id } });
   assert.equal(stillOpen.status, 'NEGOTIATING');
@@ -614,7 +630,7 @@ test('closeNegotiation rejects a contradictory unsignedReason on SIGNED with VAL
 
   await assert.rejects(
     () => service.closeNegotiation(created.id, { outcome: 'SIGNED', unsignedReason: '矛盾原因' }),
-    error => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
+    (error) => error instanceof MasterDataError && error.code === 'VALIDATION_FAILED' && error.status === 400,
   );
 });
 
@@ -628,9 +644,10 @@ test('closeNegotiation on a terminal negotiation throws CONTRACT_STATE_TRANSITIO
 
   await assert.rejects(
     () => service.closeNegotiation(created.id, { outcome: 'UNSIGNED', unsignedReason: '反悔' }),
-    error => error instanceof ContractError
-      && error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID
-      && error.httpStatus === 409,
+    (error) =>
+      error instanceof ContractError &&
+      error.code === CONTRACT_ERROR_CODES.CONTRACT_STATE_TRANSITION_INVALID &&
+      error.httpStatus === 409,
   );
   assert.equal(
     await prisma.eventLog.count({ where: { eventType: 'negotiation.closed', objectId: created.id } }),
@@ -651,12 +668,15 @@ test('concurrent closeNegotiation on the same version has exactly one winner; lo
   // 并通过状态门禁），其 updateMany 被行锁阻塞；锁释放后一者提交 version 1→2，另一者（READ
   // COMMITTED 下重评 where）命中 version=2 → count=0 → 钉死 VERSION_CONFLICT 分支
   // （无锁时败者交错落 CONTRACT_STATE_TRANSITION_INVALID/VERSION_CONFLICT 之二，非确定性）。
-  const lockHolder = prisma.$transaction(async tx => {
-    await tx.$queryRaw`SELECT id FROM negotiation WHERE id = ${created.id} FOR UPDATE`;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  }, { timeout: 15000 });
+  const lockHolder = prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`SELECT id FROM negotiation WHERE id = ${created.id} FOR UPDATE`;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    },
+    { timeout: 15000 },
+  );
   // 让锁先落定再发起竞速。
-  await new Promise(resolve => setTimeout(resolve, 100));
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
   const results = await Promise.allSettled([
     service.closeNegotiation(created.id, { outcome: 'SIGNED' }),
@@ -664,8 +684,8 @@ test('concurrent closeNegotiation on the same version has exactly one winner; lo
   ]);
   await lockHolder;
 
-  const fulfilled = results.filter(result => result.status === 'fulfilled');
-  const rejected = results.filter(result => result.status === 'rejected');
+  const fulfilled = results.filter((result) => result.status === 'fulfilled');
+  const rejected = results.filter((result) => result.status === 'rejected');
   assert.equal(fulfilled.length, 1, 'exactly one close may win');
   assert.equal(rejected.length, 1, 'the losing close must fail, never silently overwrite');
   const loser = rejected[0].reason;
@@ -693,9 +713,10 @@ test('concurrent closeNegotiation on the same version has exactly one winner; lo
   );
 });
 
-test('list and get enforce the SELF scope on negotiatorEmployeeId or createdBy without leaking existence', async () => {
+test('list and get enforce the SELF scope on the actual creator without leaking existence', async () => {
   const { userId, actor } = await createActor();
   const employeeA = await createEmployeeFixture('谈案A');
+  await prisma.user.update({ where: { id: userId }, data: { employeeId: employeeA.id } });
   const employeeB = await createEmployeeFixture('谈案B');
   const customer = await createCustomerFixture(userId);
   const selfScope = await prisma.dataScope.create({
@@ -723,14 +744,15 @@ test('list and get enforce the SELF scope on negotiatorEmployeeId or createdBy w
   });
 
   const page = await scoped.listNegotiations({});
-  assert.deepEqual(
-    page.list.map(item => item.id).sort(),
-    [asNegotiator.id, asCreator.id].sort(),
-  );
-  assert.equal(page.total, 2);
+  assert.deepEqual(page.list.map((item) => item.id).sort(), [asCreator.id]);
+  assert.equal(page.total, 1);
 
-  const fetched = await scoped.getNegotiation(asNegotiator.id);
-  assert.equal(fetched.id, asNegotiator.id);
+  const fetched = await scoped.getNegotiation(asCreator.id);
+  assert.equal(fetched.id, asCreator.id);
+  await assert.rejects(
+    () => scoped.getNegotiation(asNegotiator.id),
+    hasCode(CONTRACT_ERROR_CODES.NEGOTIATION_NOT_FOUND),
+  );
   await assert.rejects(
     () => scoped.getNegotiation(outOfScope.id),
     hasCode(CONTRACT_ERROR_CODES.NEGOTIATION_NOT_FOUND),
@@ -776,7 +798,10 @@ test('TEAM scope anchors on Negotiation.professionalTeamId', async () => {
 
   const scoped = serviceFor(userId, actor, { scopeIds: [teamScope.id] });
   const page = await scoped.listNegotiations({});
-  assert.deepEqual(page.list.map(item => item.id), [inTeam.id]);
+  assert.deepEqual(
+    page.list.map((item) => item.id),
+    [inTeam.id],
+  );
   assert.equal(page.total, 1);
   await assert.rejects(
     () => scoped.getNegotiation(inOtherTeam.id),
@@ -816,10 +841,7 @@ test('BRANCH scope anchors on Negotiation.branchId including the organization su
 
   const scoped = serviceFor(userId, actor, { employeeId: clerk.id, scopeIds: [branchScope.id] });
   const page = await scoped.listNegotiations({});
-  assert.deepEqual(
-    page.list.map(item => item.id).sort(),
-    [inBranch.id, inChild.id].sort(),
-  );
+  assert.deepEqual(page.list.map((item) => item.id).sort(), [inBranch.id, inChild.id].sort());
   assert.equal(page.total, 2);
   await assert.rejects(
     () => scoped.getNegotiation(outOfBranch.id),
@@ -852,7 +874,10 @@ test('ORG scope anchors on the exact organization without descendants', async ()
 
   const scoped = serviceFor(userId, actor, { employeeId: clerk.id, scopeIds: [orgScope.id] });
   const page = await scoped.listNegotiations({});
-  assert.deepEqual(page.list.map(item => item.id), [inOrg.id]);
+  assert.deepEqual(
+    page.list.map((item) => item.id),
+    [inOrg.id],
+  );
   assert.equal(page.total, 1);
   await assert.rejects(
     () => scoped.getNegotiation(inChild.id),
@@ -874,14 +899,16 @@ test('a context without any matching scope target fails closed', async () => {
     data: {
       name: `team-${randomUUID()}`,
       scopeType: 'TEAM',
-      professionalTeamId: (await prisma.professionalTeam.create({
-        data: {
-          code: `TEAM_${randomUUID()}`,
-          name: '空团队',
-          categoryCode: 'OTHER',
-          homeOrganizationId: (await createOrganizationFixture('BRANCH_TEAM')).id,
-        },
-      })).id,
+      professionalTeamId: (
+        await prisma.professionalTeam.create({
+          data: {
+            code: `TEAM_${randomUUID()}`,
+            name: '空团队',
+            categoryCode: 'OTHER',
+            homeOrganizationId: (await createOrganizationFixture('BRANCH_TEAM')).id,
+          },
+        })
+      ).id,
     },
   });
 

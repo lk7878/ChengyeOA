@@ -33,18 +33,29 @@ export default class LeadController extends Controller {
     const { ctx } = this;
     const body = ctx.request.body;
     assertExactKeys(body, [
-      'name', 'phone', 'wechat', 'channelId', 'sourceDetail', 'sourceType',
-      'campaignId', 'referralCustomerId', 'intentionLevel', 'tags', 'branchId', 'professionalTeamId',
+      'name',
+      'phone',
+      'wechat',
+      'channelId',
+      'sourceDetail',
+      'sourceType',
+      'campaignId',
+      'referralCustomerId',
+      'intentionLevel',
+      'tags',
+      'branchId',
+      'professionalTeamId',
     ]);
     await this.assertOrganizationExists(body.branchId);
     await this.assertProfessionalTeamExists(body.professionalTeamId);
-    await this.assertChannelExists(body.channelId);
     await this.assertCampaignExists(body.campaignId);
     await this.assertReferralCustomerExists(body.referralCustomerId);
-    this.respond(await leadService(ctx).createLead(
-      body as unknown as CreateLeadInput,
-      optionalHeader(ctx.get('idempotency-key')),
-    ));
+    this.respond(
+      await leadService(ctx).createLead(
+        body as unknown as CreateLeadInput,
+        optionalHeader(ctx.get('idempotency-key')),
+      ),
+    );
   }
 
   /** GET /api/v1/leads（lead.read）。 */
@@ -75,32 +86,35 @@ export default class LeadController extends Controller {
   async update() {
     const body = this.ctx.request.body;
     assertExactKeys(body, ['targetStatus', 'reason']);
-    this.respond(await leadService(this.ctx).transitionStatus(
-      this.ctx.params.id,
-      body.targetStatus as LeadStatus,
-      body.reason as string,
-    ));
+    this.respond(
+      await leadService(this.ctx).transitionStatus(
+        this.ctx.params.id,
+        body.targetStatus as LeadStatus,
+        body.reason as string,
+      ),
+    );
   }
 
   /** POST /api/v1/leads/:id/assign（lead.assign）：分配/改派。 */
   async assign() {
     const body = this.ctx.request.body;
     assertExactKeys(body, ['toEmployeeId', 'reason']);
-    this.respond(await leadAssignmentService(this.ctx).assign(
-      this.ctx.params.id,
-      body.toEmployeeId as string,
-      body.reason as string | undefined,
-    ));
+    this.respond(
+      await leadAssignmentService(this.ctx).assign(
+        this.ctx.params.id,
+        body.toEmployeeId as string,
+        body.reason as string | undefined,
+      ),
+    );
   }
 
   /** POST /api/v1/leads/:id/recycle（lead.recycle）：手动回收（仅私海）。 */
   async recycle() {
     const body = this.ctx.request.body;
     assertExactKeys(body, ['reason']);
-    this.respond(await leadAssignmentService(this.ctx).recycle(
-      this.ctx.params.id,
-      body.reason as string | undefined,
-    ));
+    this.respond(
+      await leadAssignmentService(this.ctx).recycle(this.ctx.params.id, body.reason as string | undefined),
+    );
   }
 
   /** POST /api/v1/leads/pool/claim（lead.pool.claim）：公海领取，body { leadId }。 */
@@ -115,24 +129,28 @@ export default class LeadController extends Controller {
     const { ctx } = this;
     const body = ctx.request.body;
     assertExactKeys(body, ['customer', 'contact']);
-    this.respond(await leadService(ctx).convertToCustomer(
-      ctx.params.id,
-      body.customer as ConvertCustomerInput,
-      body.contact as ConvertContactInput,
-      optionalHeader(ctx.get('idempotency-key')),
-    ));
+    this.respond(
+      await leadService(ctx).convertToCustomer(
+        ctx.params.id,
+        body.customer as ConvertCustomerInput,
+        body.contact as ConvertContactInput,
+        optionalHeader(ctx.get('idempotency-key')),
+      ),
+    );
   }
 
   /** POST /api/v1/leads/:id/follows（lead.update）：记录跟进。 */
   async follow() {
     const body = this.ctx.request.body;
     assertExactKeys(body, ['type', 'content', 'nextPlan', 'nextTime']);
-    this.respond(await leadFollowService(this.ctx).recordFollow(this.ctx.params.id, {
-      type: body.type as LeadFollowType,
-      content: body.content as string,
-      nextPlan: body.nextPlan as string | undefined,
-      nextTime: body.nextTime === undefined ? undefined : parseIsoDate(body.nextTime),
-    }));
+    this.respond(
+      await leadFollowService(this.ctx).recordFollow(this.ctx.params.id, {
+        type: body.type as LeadFollowType,
+        content: body.content as string,
+        nextPlan: body.nextPlan as string | undefined,
+        nextTime: body.nextTime === undefined ? undefined : parseIsoDate(body.nextTime),
+      }),
+    );
   }
 
   /** GET /api/v1/leads/:id/follows（lead.read）。 */
@@ -173,15 +191,6 @@ export default class LeadController extends Controller {
    * 但软删行仍是合法 FK 目标（不触发 P2003），故同样只按 id 验存在——与 4a 同语义，
    * 不验组织归属、不验生命周期状态。
    */
-  private async assertChannelExists(value: unknown): Promise<void> {
-    if (typeof value !== 'string' || value.trim().length === 0) return;
-    const channel = await this.ctx.prisma.channel.findFirst({
-      where: { id: value.trim() },
-      select: { id: true },
-    });
-    if (!channel) throw new MasterDataError('VALIDATION_FAILED', 400);
-  }
-
   private async assertCampaignExists(value: unknown): Promise<void> {
     if (typeof value !== 'string' || value.trim().length === 0) return;
     const campaign = await this.ctx.prisma.campaign.findFirst({
