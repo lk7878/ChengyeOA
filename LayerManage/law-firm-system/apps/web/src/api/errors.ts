@@ -2,6 +2,16 @@ import { message } from 'antd';
 
 const reported = new WeakSet<object>();
 const messages: Record<string, string> = {
+  SOP_TASK_ACTION_REQUIRED: '请在SOP任务详情办理此节点',
+  SOP_STATE_INVALID: '任务或流程状态已变化，请刷新核对；当前输入已保留',
+  SOP_DEPENDENCY_BLOCKED: '前置节点尚未完成，暂时不能执行此操作',
+  SOP_REVIEW_REQUIRED: '此节点需要提交成果审核，不能直接完成',
+  SOP_MATERIALS_REQUIRED: '此节点需要提交已配置的必需材料',
+  SOP_TASKS_INCOMPLETE: '仍有未完成的节点，请先处理后再完成流程',
+  SOP_CASE_SCOPE_MISMATCH: '模板与案件的组织、专业团队或案件类型不一致，请核对原案件归属',
+  SOP_TEMPLATE_NOT_ACTIVE: '所选模板已停用或不再是当前发布版本，请重新选择',
+  SOP_ASSIGNEE_PERMISSION_REQUIRED: '该人员尚无SOP任务读取或执行权限，请先配置岗位权限',
+  SOP_ASSIGNEE_NOT_AVAILABLE: '该人员已离职、停用或不在可分派范围内',
   SOP_VERSION_CONFLICT: '模板版本已变化或不可编辑；当前输入已保留，请核对最新版本后重新编辑',
   SOP_REVIEW_PENDING: '此版本正在审核，暂时不能修改或重复申请',
   SOP_DEPENDENCY_CYCLE: '前置节点形成循环，请调整节点依赖',

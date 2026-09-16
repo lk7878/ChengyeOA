@@ -14,6 +14,7 @@ export type FieldReadLevel = 'NONE' | 'MASKED' | 'READ';
 export type DataClassification = 'L1' | 'L2' | 'L3' | 'L4' | 'FORBIDDEN';
 
 export const RESOURCE_CODES = [
+  'sop_instance', 'sop_task',
   'sop_template',
   'channel',
   'workspace',
@@ -73,6 +74,7 @@ export const FIELD_CODES = [
 export type FieldCode = (typeof FIELD_CODES)[number];
 
 export const PERMISSION_CODES = [
+  'menu.sop_tasks', 'sop.instance.read', 'sop.instance.start', 'sop.instance.manage', 'sop.task.read', 'sop.task.execute', 'sop.task.manage',
   'menu.sop_templates', 'sop.template.read', 'sop.template.manage', 'sop.template.publish',
   'menu.channel',
   'channel.read',

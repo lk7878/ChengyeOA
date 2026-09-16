@@ -56,7 +56,7 @@ export class CaseTaskService {
       if (['CLOSED', 'ARCHIVED'].includes(currentCase.status)) throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
       await tx.case.update({ where: { id }, data: { version: { increment: 1 }, updatedBy: this.actor.actorUserId } });
       const task = await tx.caseTask.create({
-        data: { caseId: id, name, nodeType, dueDate, remark },
+        data: { caseId: id, name, nodeType, dueDate, remark, createdBy: this.actor.actorUserId },
       });
       await tx.operationLog.create({
         data: {
@@ -84,10 +84,13 @@ export class CaseTaskService {
     await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.task.manage');
     const task = await this.prisma.caseTask.findFirst({ where: { id: tid, caseId: id } });
     if (!task) throw new CaseError(CASE_ERROR_CODES.CASE_TASK_NOT_FOUND, 404, 'case task not found');
+    if (task.sopInstanceId) throw new MasterDataError('SOP_TASK_ACTION_REQUIRED', 409);
     assertTaskTransition(task.status, nextStatus);
 
     const data: Prisma.CaseTaskUpdateManyMutationInput = {
       status: nextStatus,
+      updatedBy: this.actor.actorUserId,
+      version: { increment: 1 },
       ...(remark !== null && remark !== undefined ? { remark } : {}),
       ...(nextStatus === 'COMPLETED' ? { completedAt: new Date() } : {}),
     };
@@ -98,6 +101,7 @@ export class CaseTaskService {
       await tx.case.update({ where: { id }, data: { version: { increment: 1 }, updatedBy: this.actor.actorUserId } });
       const currentTask = await tx.caseTask.findFirst({ where: { id: tid, caseId: id } });
       if (!currentTask) throw new CaseError(CASE_ERROR_CODES.CASE_TASK_NOT_FOUND, 404, 'case task not found');
+      if (currentTask.sopInstanceId) throw new MasterDataError('SOP_TASK_ACTION_REQUIRED', 409);
       assertTaskTransition(currentTask.status, nextStatus);
       await tx.caseTask.updateMany({ where: { id: tid, caseId: id }, data });
       const row = await tx.caseTask.findUniqueOrThrow({ where: { id: tid } });

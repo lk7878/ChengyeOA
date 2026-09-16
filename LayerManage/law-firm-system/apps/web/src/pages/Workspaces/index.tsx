@@ -1122,7 +1122,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     <Button
                       disabled={busy || configDirty || inlineDirty || !!editing}
                       onClick={async () => {
-                        const key = detail.table.source === 'LEADS' ? 'assignedTo' : 'createdBy';
+                        const key = detail.table.source === 'LEADS' ? 'assignedTo' : detail.table.source === 'SOP_TASKS' ? 'assigneeUserId' : 'createdBy';
                         const field = fields.find((f) => f.options.businessKey === key);
                         if (!field) {
                           message.info('当前未授权个人筛选字段');
@@ -1676,6 +1676,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                 'CUSTOMERS',
                 'CONTRACTS',
                 'NEGOTIATIONS',
+                'SOP_TASKS',
                 'CASES',
                 'INVENTORY_ITEMS',
                 'INVENTORY_MOVEMENTS',
@@ -1907,7 +1908,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                       'CUSTOMERS',
                       'NEGOTIATIONS',
                       'CONTRACTS',
-                      'CASES',
+                      'SOP_TASKS',
+                'CASES',
                       'PAYMENTS',
                       'INVOICES',
                       'REFUNDS',

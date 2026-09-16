@@ -189,6 +189,14 @@ export default (app: Application) => {
   router.post('/api/v1/professional-teams/:id/lead', requirePermission('professional_team.lead.manage'), controller.professionalTeam.replaceLead);
 
   // 渠道模块
+  router.get('/api/v1/sop/instances', requirePermission('sop.instance.read'), controller.sop.instances);
+  router.post('/api/v1/sop/instances', requirePermission('sop.instance.start'), controller.sop.startInstance);
+  router.get('/api/v1/sop/instances/:id', requirePermission('sop.instance.read'), controller.sop.instance);
+  router.post('/api/v1/sop/instances/:id/actions', requirePermission('sop.instance.manage'), controller.sop.instanceAction);
+  router.get('/api/v1/sop/tasks', requirePermission('sop.task.read'), controller.sop.tasks);
+  router.get('/api/v1/sop/tasks/:id', requirePermission('sop.task.read'), controller.sop.task);
+  router.post('/api/v1/sop/tasks/:id/actions', requireAnyPermission(['sop.task.execute', 'sop.task.manage']), controller.sop.taskAction);
+  router.get('/api/v1/sop/task-options', requirePermission('sop.task.manage'), controller.sop.taskOptions);
   router.get('/api/v1/sop/templates', requirePermission('sop.template.read'), controller.sop.templates);
   router.get('/api/v1/sop/templates/:id', requirePermission('sop.template.read'), controller.sop.template);
   router.get('/api/v1/sop/template-versions/:id', requirePermission('sop.template.read'), controller.sop.templateVersion);

@@ -995,7 +995,17 @@ const collaborationChanged: EventDefinition<{ baseId: string }> = {
   extractObjectId(payload) { return payload.baseId; },
 };
 
+function sopChangedDefinition(objectType: 'SOP_INSTANCE' | 'SOP_TASK'): EventDefinition<{id:string;version:number;action:string}> {
+ return {sourceModule:'SOP',objectType,filterFields:new Set(['action']),parsePayload(raw:unknown){
+  assertSafeJson(raw);assertPayloadSize(raw);const value=requirePlainObject(raw,'SOP event');assertExactKeys(value,['id','version','action'],'SOP event');
+  const version=requireNonNegativeInteger(value.version,'version');if(version<1)throw new Error('SOP event version must be positive');
+  const action=requireString(value.action,'action');if(!['START','COMPLETE','PAUSE','RESUME','CANCEL','SKIP','ASSIGN','RESCHEDULE'].includes(action))throw new Error('Invalid SOP action');
+  return {id:requireUuid(value.id,'id'),version,action};},extractObjectId(value){return value.id;}};
+}
+
 const EVENT_DEFINITIONS = new Map<string, EventDefinition<unknown>>([
+  [eventKey('sop.instance.changed',1),sopChangedDefinition('SOP_INSTANCE')],
+  [eventKey('sop.task.changed',1),sopChangedDefinition('SOP_TASK')],
   [ eventKey('collaboration.changed', 1), collaborationChanged ],
   [ eventKey('admin.operation.reviewed', 1), reviewedV1Definition ],
   [ eventKey('lead.created', 1), leadCreatedV1Definition ],

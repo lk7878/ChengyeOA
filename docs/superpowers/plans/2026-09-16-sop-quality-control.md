@@ -15,8 +15,8 @@ SQ1→SQ2→SQ3→SQ4→SQ5→SQ6→SQ7。每阶段独立检查和本地提交�
 | 阶段 | 交付和关键任务 | 必须通过的阶段冒烟 | 状态 |
 | --- | --- | --- | --- |
 | SQ0 规划 | 现状核对、差异处理、产品/数据/权限/状态/验收契约、同步MOD/FTN/TRACE | 文档引用与泄漏检查；无应用改动，不声称功能冒烟通过 | 本次规划完成 |
-| SQ1 模板与授权基础 | 锁定物理schema与新权限目录；模板/版本/节点/材料要求；治理适配和发布历史；三团队草稿；案件删除引用保护 | 管理员建草稿→另一获权人审核发布→停用/回滚；普通岗位不能发布；旧版本仍可读取 | 已实现并验收，待本地提交 |
-| SQ2 SOP执行工作台 | Case绑定版本；节点/CaseTask单一状态源；责任分派与对象协作权限；共同表格、我的任务、进度/逾期、案件入口 | 普通承办/负责人/管理员同一界面，双会话更新；创建重试不重复；直链/附件撤权；原任务不能绕过门槛 | 待开发 |
+| SQ1 模板与授权基础 | 锁定物理schema与新权限目录；模板/版本/节点/材料要求；治理适配和发布历史；三团队草稿；案件删除引用保护 | 管理员建草稿→另一获权人审核发布→停用/回滚；普通岗位不能发布；旧版本仍可读取 | 已验收，本地提交e5b0d056 |
+| SQ2 SOP执行工作台 | Case绑定版本；节点/CaseTask单一状态源；责任分派与对象协作权限；共同表格、我的任务、进度/逾期、案件入口 | 普通承办/负责人/管理员同一界面，双会话更新；创建重试不重复；直链/附件撤权；原任务不能绕过门槛 | 已验收，见SQ2记录 |
 | SQ3 医疗试点与一级审核 | 材料/报告冻结版本、专家意见、审批适配、退回修订；节点审核与原案件结案门槛策略；医疗案件最小业务闭环 | 收集→提交→负责人退回→修订→通过；自审/旧回调/换材料拒绝；断网草稿与409；旧案件结案保持兼容 | 待开发 |
 | SQ4 二级抽检与整改 | 质检清单、获权月度候选、可复现抽样、问题单/整改/复核；已结案件处理；审计和统计口径 | 建批→抽检发现问题→整改→复核退回→通过；零候选/不足/重试/补抽，越权访问拒绝 | 待开发 |
 | SQ5 专项分析与联动 | 新0–100满意度记录；低于80事件及专项关闭审批；站内提醒、改期去重、待办定位与质量指标 | 79触发/80和空值不触发；旧星级不误触发；重复/乱序事件、审批同步失败重试、调岗撤权；统计遵守范围 | 待开发 |
@@ -91,3 +91,44 @@ SQ7交付时恢复前后端与桌面连通；准备普通承办、团队负责�
 - 本阶段未改SSE或通用协作写入热路径，不重复通用100会话负载；不将模板测试当作后续任务执行、审批或抽检容量结论。开发后端为迁移和Prisma构建暂时停止，SQ7统一恢复运行环境；现有桌面/Vite进程保留。
 
 下一阶段SQ2继续补齐原CaseTask增量、案件绑定、显式任务协作授权、同源表格及旧任务接口门槛。SQ2–SQ7尚未实现，不将当前配置页视为完整SOP交付。
+
+
+## SQ2 开工契约（2026-09-17）
+
+SQ1本地提交e5b0d056。SQ2复用CaseTask主键及status为唯一节点执行状态；增量sopInstanceId/nodeCode/nodeSnapshot/createdBy/assigneeUserId/version，旧行SOP关联与人员字段均空，不回填猜测创建人。唯一(instance,nodeCode)。实例增加batchKey，唯一(case,templateVersion,batch)，启动还记录持久requestKey，只有显式新批次才能重复启用。
+
+任务协作使用SopTaskAccess真实User/CaseTask外键，记录授予人、开始/截止、撤销时间和原因；指派同时明确授予任务读取和执行，改派撤回旧协作，仍要求岗位具有对应动作权限。授予只包含节点必要内容，不放开关联Case/File。列表/详情/统计和共同表都复验相同任务范围；只有独立case.read范围通过才返回案件标签/链接，附件依旧独立case.file.read。
+
+新增动作：sop.instance.read/start/manage与sop.task.read/execute/manage，资源分别sop_instance/sop_task。SELF依据实际createdBy，TEAM/ORG依据绑定模板不可变的团队/组织锚点；任务读取/执行另并入有效对象协作授权，管理动作不能由被指派权限扩大。启动检查case.read、case.task.manage、实例start范围和模板read范围、已发布生效版本、案件组织/团队/类型吻合及非结案状态。未知组织案件先走已有纠正流程。
+
+API /api/v1/sop/instances（GET/POST）、/instances/:id（GET）、/instances/:id/actions（POST）；/tasks（GET）、/tasks/:id（GET）、/tasks/:id/actions（POST）、/task-options（GET）。写入携带expectedVersion、requestKey与受控action，开始/完成/跳过/分派/改期及暂停/恢复/取消/完成保持版本锁和审计。锁顺序为Case→Instance→Task；普通执行不可跳过、取消或改派。依赖按冻结nodeSnapshot执行，逾期按dueDate计算。SQ3实现提交审核与材料快照前，已配置强制材料/审核的节点不能由完成动作直接绕过。
+
+同源工作表新增SOP_TASKS只读业务投影，继续共用字段/视图/筛选/分组/个人视图，业务动作跳原CaseTask ID的SOP详情；不写CollabRecord镜像。原CaseTask PUT遇SOP任务返回受控办理错误；案件详情只展示当前获权SOP任务，案件删除继续引用保护。修改了同源查询适配，SQ2验收包含原协作回归及100会话/900秒条件负载。
+
+阶段测试：双会话分派/执行/改派撤权，只有任务权限不能读案件或文件；SELF/TEAM/ORG、来源工作区范围交集，旧接口不绕门槛，启动及动作重试幂等、409保留输入、依赖/暂停/取消/改期、默认并行与旧任务兼容。真实App按三角色、三宽度及字段/视图配置冒烟，再构建/迁移/提交。
+
+## SQ3 开工契约（2026-09-17，SQ2验收后实施）
+
+SopSubmission保存不可变报告正文、材料检查映射、冻结节点摘要、提交人及(taskId,number)唯一修订；SubmissionAttachment以真实CaseFile外键和内容SHA-256冻结材料，文件API与数据库RESTRICT共同阻止已引用材料删除。CaseFile原ID作为不可变文件版本，新上传生成新ID；不重写旧文件。ExpertGuidance单独保存获权专家意见，可引用提交版本，指导不等于批准。
+
+QualityReview绑定唯一SopSubmission和原ApprovalInstance，保存材料/成果检查清单及业务同步状态。需审核节点由显式选择的有效审核人处理；候选必须满足冻结reviewerRoleId（若配置）、quality.review.decide、对应任务范围、原approval.process，并排除提交人及本轮执行人。无合格人时保留待分派审核，不自动通过；获权管理人可以后续分派。审核定义由可信SOP适配器按本轮人员生成不可变单节点定义，原通用申请接口不可伪造SOP审核，仍沿原ApprovalInstance/Task办理。审批摘要只含提交ID/摘要/修订号，不放案件名或报告正文。
+
+新增sop.report.read/submit、sop.guidance.read/create与quality.review.read/assign/decide（相应任务资源范围及原task.read交集）。显式任务授权只允许必要任务/报告/指导内容，材料元信息及下载必须另经case.file.read。审核读取通过提交读取权限与当前任务范围；审核决定复验独立review.decide、岗位和文件读取能力。审批转交/加签不得改变冻结审核对象或绕过角色/自审规则，首期SOP专用审核不开放通用转交/加签，需退回或撤回后重新分派。
+
+提交API POST /sop/tasks/:id/submissions（expectedVersion/requestKey/report/materials/reviewerUserId可空）；GET /sop/tasks/:id/submissions、GET /sop/submissions/:id；POST /sop/reviews/:id/assign；GET /sop/tasks/:id/review-options；GET/POST /sop/tasks/:id/guidance。提交只在ACTIVE实例和IN_PROGRESS节点执行，冻结必需材料齐备后进入IN_REVIEW；无需审核的提交验证材料后完成。退回/撤回保留旧版并进入CHANGES_REQUESTED，新提交另建修订。
+
+锁顺序Case→SopInstance→CaseTask→ApprovalInstance→Submission/Review。审批通过仅在当前提交、摘要、任务版本和有效权限仍匹配时完成业务同步；失败沿原ApprovalSyncRecord显示FAILED并支持重试，不能展示已完成。暂停/取消、材料变更、旧回调均不能推进新版本。普通任务完成接口不能绕开reviewRequired；必需材料节点通过新提交入口完成。被明确closeGate=true的非取消实例节点必须真实完成才允许原closeCase，SKIPPED不等于通过结案门槛；默认false及没有实例的旧案件保持原行为。
+
+UI在SOP任务详情增加材料选择、报告提交、修订历史、指导和审核链接，继续5秒/焦点刷新、401/403/404清除、409/断网保留草稿。原审批详情显示SOP目标直链和同步状态，真正正文到独立授权页面读取。验收涵盖医疗收集→退回→新修订→通过、原closeCase门槛与旧案件兼容、自审/撤权/材料替换/并发及真实App三角色三宽度。
+
+### SQ2 验收记录（2026-09-17）
+
+案件版本绑定、单一CaseTask节点、显式协作授权、同源SOP_TASKS网格/个人视图、三角色办理/撤权、旧接口保护与逾期组合筛选已实现。证据目录LayerManage/law-firm-system/var/collaboration-evidence/sq2（忽略入库）。
+
+- SOP执行最终8项通过，另原案件11项、协作/变更/模板33项通过；覆盖幂等、冻结、SELF/ORG/TEAM、无案件/附件权限、改派/到期/撤权、依赖/审核占位门槛、409、并发、生命周期及旧接口。逾期+状态覆盖问题已修复并补回归。
+- 真实App最终5场景全部通过：原认证HTTP、SSE、双浏览器共同表、U5-B、SQ2三角色。SQ2中管理员从案件启用、负责人/普通用户同源查看、个人视图、分派/完成/撤权；仅任务权限访问案件及文件403；共同表无CollabRecord副本。1440/1024/390截图留存，无页面横向溢出。首轮发现CaseTask原生投影缺updatedBy，增量迁移修复后两轮通过；未通过夹具或权限放宽掩盖。
+- 前端69文件303项通过，两端lint/types、后端构建、OA前端构建、baseline/bootstrap及文档检查通过。根build尝试因Node22.14不满足智能适配器22.19+而停止；切22.20后根智能构建停于Corepack/pnpm启动，已终止本次构建树，按影响范围完成OA前端构建，不声称重新构建未变更的Harness。SQ7另做桌面保护回归。保留既有User页Hook及jsdom/大包提示。
+- 100会话/20写入者/900秒负载通过，实际902.003秒，3600/3600写入、83475查询、无未观察写入或计数错误；查询/保存/可见P95为1212.13/1342.10/1263ms，100会话重连P95 4745ms，撤权716ms，撤权读写403。Node22.14、PG16、同机回环、服务和发生器分进程、CPU亲和性0xffff/Normal、开发后端停止；沿用U6C条件，不消除默认CPU调度限制，也不据此宣称SOP专属大数据量容量。
+- 隔离库从SQ1增量到63迁移，并安全重放仅两个_test隔离库验证权限ID一致；开发库61→63，重复deploy无待执行。95模型；16类原业务数量[6,1,2,1,7,0,0,0,0,0,0,0,0,0,0,0]和用户/角色/关联/角色权限[2,8,1,29]保持；5个未知组织案件不改，新SOP表仍为空。未重置开发库、未自动启动真实案件流程。
+
+SQ2完成后本地提交，随后连续执行SQ3–SQ7。上方SQ3开工契约及ignored目录中的草稿仅为下一阶段准备，不算SQ3功能验收；SQ7仍需恢复运行环境及整体交付。

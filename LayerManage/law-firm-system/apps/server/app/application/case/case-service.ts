@@ -1,3 +1,4 @@
+import { sopTaskScope } from '../sop/execution-scope';
 import { buildOrganizationScopeWhere } from '../authorization/resource-scope-resolvers';
 import { buildCaseScopeWhere, requireCaseAccess, withAuthorizedCaseFiles } from './case-scope';
 // SPEC-033 Task 2: case-service —— 案件生命周期（create/update/list/get/close）。
@@ -660,7 +661,7 @@ export class CaseService {
       include: {
         customer: { select: { name: true } },
         lawyer: { select: { name: true } },
-        tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
+        tasks: { where: { OR: [{sopInstanceId:null}, ...(this.authorizationContext.permissionCodes.includes('sop.task.read') ? [await sopTaskScope(this.prisma,this.authorizationContext,'sop.task.read')] : [])] }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
         communications: { orderBy: [{ createdAt: 'desc' }, { id: 'asc' }] },
       },
     });

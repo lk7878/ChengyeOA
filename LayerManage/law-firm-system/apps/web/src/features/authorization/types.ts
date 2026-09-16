@@ -1,4 +1,5 @@
 export const PERMISSION_CODES = [
+  'menu.sop_tasks', 'sop.instance.read', 'sop.instance.start', 'sop.instance.manage', 'sop.task.read', 'sop.task.execute', 'sop.task.manage',
   'menu.sop_templates', 'sop.template.read', 'sop.template.manage', 'sop.template.publish',
   'menu.channel',
   'channel.read',

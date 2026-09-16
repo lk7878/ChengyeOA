@@ -172,6 +172,9 @@ model ProfessionalTeamMember {
 // ==================== 用户/权限模块 ====================
 
 model User {
+  sopAssignedTasks CaseTask[] @relation("SopAssignee")
+  sopTaskAccesses SopTaskAccess[] @relation("SopAccessPrincipal")
+  sopTaskAccessGrants SopTaskAccess[] @relation("SopAccessIssuer")
   driveShortcuts     DriveShortcut[]
   driveVisits        DriveVisit[]
   driveNodes         DriveNode[]
@@ -1169,6 +1172,19 @@ model CaseFile {
 }
 
 model CaseTask {
+  sopInstanceId String?
+  nodeCode String?
+  nodeSnapshot Json?
+  createdBy String?
+  updatedBy String?
+  assigneeUserId String?
+  version Int @default(1)
+  sopInstance SopInstance? @relation(fields: [sopInstanceId], references: [id], onDelete: Restrict)
+  assignee User? @relation("SopAssignee", fields: [assigneeUserId], references: [id], onDelete: Restrict)
+  sopAccesses SopTaskAccess[]
+  @@unique([sopInstanceId, nodeCode])
+  @@index([assigneeUserId, status, dueDate])
+  @@index([createdBy])
   id          String    @id @default(uuid())
   caseId      String
   name        String // 任务名称
@@ -2026,6 +2042,9 @@ model SopTemplateVersion {
   @@map("sop_template_version")
 }
 model SopInstance {
+  batchKey String @default("PRIMARY")
+  tasks CaseTask[]
+  @@unique([caseId, templateVersionId, batchKey])
   id String @id @default(uuid())
   caseId String
   templateVersionId String
@@ -2038,4 +2057,23 @@ model SopInstance {
   templateVersion SopTemplateVersion @relation(fields: [templateVersionId], references: [id], onDelete: Restrict)
   @@index([caseId])
   @@map("sop_instance")
+}
+
+
+model SopTaskAccess {
+  id String @id @default(uuid())
+  taskId String
+  principalUserId String
+  grantedBy String
+  validFrom DateTime @default(now())
+  validUntil DateTime?
+  revokedAt DateTime?
+  revokeReason String?
+  canExecute Boolean @default(true)
+  createdAt DateTime @default(now())
+  task CaseTask @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  principal User @relation("SopAccessPrincipal", fields: [principalUserId], references: [id], onDelete: Restrict)
+  issuer User @relation("SopAccessIssuer", fields: [grantedBy], references: [id], onDelete: Restrict)
+  @@index([principalUserId, revokedAt, validUntil])
+  @@map("sop_task_access")
 }

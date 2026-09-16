@@ -161,6 +161,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   const canUpdate = useAuthStore((state) => state.hasPermission('case.update'));
   const canDelete = useAuthStore((state) => state.hasPermission('case.delete'));
   const canClose = useAuthStore((state) => state.hasPermission('case.close'));
+  const canStartSop = useAuthStore(state=>state.hasPermission('sop.instance.start'));
   const canTask = useAuthStore((state) => state.hasPermission('case.task.manage'));
   const canCommunicate = useAuthStore((state) => state.hasPermission('case.communication.create'));
 
@@ -646,7 +647,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
     <div>
       <Space wrap style={{ marginBottom: 16 }}>
         <Link to="/cases">返回案件工作表</Link>
-        {id && <BusinessTableLinks source="CASES" recordId={id} />}
+        {id && <BusinessTableLinks source="CASES" recordId={id} />}{id&&canStartSop&&<Link to={"/sop/instances/new?case="+id}>启动SOP流程</Link>}
         {detail && <Link to={'/finance?caseNo=' + encodeURIComponent(detail.caseNo)}>关联财务</Link>}
       </Space>
       <h1>{id ? '案件详情与交付' : '新建案件'}</h1>
@@ -1117,11 +1118,11 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
                       }
                     >
                       <p style={{ margin: 0 }}>
-                        <strong>{task.name}</strong> <Tag>{task.nodeType}</Tag>{' '}
+                        <strong>{task.name}</strong> <Tag>{task.nodeType}</Tag>{task.nodeType==='SOP'&&<Link to={'/sop/tasks/'+task.id}>办理SOP节点</Link>}{' '}
                         <Tag color={TASK_STATUS_META[task.status]?.color}>
                           {TASK_STATUS_META[task.status]?.text ?? task.status}
                         </Tag>
-                        {canTask && !isTerminal && task.status === 'PENDING' && (
+                        {canTask && task.nodeType !== 'SOP' && !isTerminal && task.status === 'PENDING' && (
                           <Button
                             type="link"
                             size="small"
@@ -1130,7 +1131,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
                             开始办理
                           </Button>
                         )}
-                        {canTask && !isTerminal && task.status === 'IN_PROGRESS' && (
+                        {canTask && task.nodeType !== 'SOP' && !isTerminal && task.status === 'IN_PROGRESS' && (
                           <Button
                             type="link"
                             size="small"

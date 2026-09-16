@@ -1,3 +1,4 @@
+import { sopTaskScope } from '../sop/execution-scope';
 import { channelScope } from '../channel/channel-scope';
 import { inventoryScope } from '../inventory/inventory-scope';
 import { performanceScope } from '../performance/performance-scope';
@@ -22,6 +23,9 @@ import { maskLeadPhone, maskLeadWechat } from './lead-projection';
 import { auditRawL3Access } from './lead-audit';
 
 export const domainSources = {
+  SOP_TASKS: {resource:'sop_task',edit:'sop.task.manage',table:'case_task',columns:[
+    ['name','节点任务','TEXT'],['status','执行状态','TEXT'],['assigneeUserId','负责人','CREATED_BY'],['dueDate','到期时间','DATETIME'],['remark','办理备注','LONG_TEXT'],['createdBy','创建人','CREATED_BY'],['createdAt','创建时间','CREATED_AT'],['updatedAt','更新时间','UPDATED_AT'],
+  ]},
   CHANNELS: {
     resource: 'channel',
     edit: 'channel.update',
@@ -304,7 +308,7 @@ export class WorkspaceDomainSource {
     const permission =
       action === 'update'
         ? domainSources[source].edit
-        : (`${domainSources[source].resource}.${action}` as PermissionCode);
+        : (source === 'SOP_TASKS' ? 'sop.task.read' : `${domainSources[source].resource}.${action}` as PermissionCode);
     if (!this.actor.permissionCodes.includes(permission)) fail('COLLAB_FORBIDDEN', 403);
     return permission;
   }
@@ -372,6 +376,13 @@ export class WorkspaceDomainSource {
   }
   async scope(source: DomainSource, access: Access, action = 'read') {
     const permission = this.authorize(source, action);
+    if(source==='SOP_TASKS') {
+      const root=await this.db.organization.findUnique({where:{id:access.organizationId}});if(!root||root.status!=='ENABLED')fail('COLLAB_FORBIDDEN',403);
+      const now=new Date();
+      const where:Prisma.CaseTaskWhereInput={AND:[await sopTaskScope(this.db,this.actor,permission),{sopInstance:{templateVersion:{template:{organization:{status:'ENABLED',OR:[{id:root.id},{path:{startsWith:root.path.replace(/\/$/,'')+'/'}}]}}}}},...(access.selfOnly?[{OR:[{createdBy:this.actor.userId},{sopAccesses:{some:{principalUserId:this.actor.userId,revokedAt:null,validFrom:{lte:now},OR:[{validUntil:null},{validUntil:{gt:now}}]}}}]}]:[])]};
+      const rows=await this.db.caseTask.findMany({where,select:{id:true}});
+      return rows.length?Prisma.sql`b.id IN (${Prisma.join(rows.map(row=>row.id))})`:Prisma.sql`FALSE`;
+    }
     const financial = source === 'PAYMENTS' || source === 'INVOICES' || source === 'REFUNDS';
     const inventory = source.startsWith('INVENTORY_');
     const immutable = source === 'INVENTORY_MOVEMENTS' || source === 'INVENTORY_STOCKTAKES';

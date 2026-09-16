@@ -1,4 +1,5 @@
 export const businessSources = {
+  SOP_TASKS: { title:'SOP任务工作表', path:'/sop/tasks', personal:'分派给我的任务' },
   CHANNELS: { title: '渠道工作表', path: '/channels', personal: '我登记的渠道' },
   INVENTORY_ITEMS: { title: '物品库存工作表', path: '/inventory/items', personal: '我登记的物品' },
   INVENTORY_MOVEMENTS: { title: '出入库工作表', path: '/inventory/movements', personal: '我登记的出入库' },

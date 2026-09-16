@@ -4198,3 +4198,284 @@ test(
     }
   },
 );
+
+
+test(
+  'SQ2 real App shares native SOP tasks across administrator manager and assignee with revocation',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web'),
+      load = new Function('url', 'return import(url)');
+    const { chromium, expect } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'sq2-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence/sq2');
+    await mkdir(evidence, { recursive: true });
+    const errors: string[] = [];
+    try {
+      const adminRole = await db.role.create({
+        data: { code: 'SYSTEM_SUPER_ADMIN', name: '系统管理员', type: 'SYSTEM' },
+      });
+      await db.userRole.create({ data: { userId: owner, roleId: adminRole.id } });
+      const adminToken = (await createApiSession(db, owner, 'MFA')).token;
+      const employee = await db.employee.create({
+        data: {
+          employeeNo: 'SQ2_STAFF',
+          name: 'SQ2办案人',
+          phone: '13800000000',
+          type: 'ASSISTANT',
+          entryDate: new Date(),
+        },
+      });
+      await db.user.update({ where: { id: editor }, data: { employeeId: employee.id } });
+      const self = await db.dataScope.create({ data: { name: '本人SOP', scopeType: 'SELF' } });
+      const staffRole = await db.role.create({
+        data: {
+          code: 'SQ2_STAFF',
+          name: '办理岗',
+          type: 'BUSINESS',
+          permissions: {
+            create: ['menu.sop_tasks', 'sop.task.read', 'sop.task.execute'].map((code) => ({
+              permission: { connect: { code } },
+            })),
+          },
+          dataScopes: { create: { resource: 'sop_task', dataScopeId: self.id } },
+        },
+      });
+      await db.userRole.create({ data: { userId: editor, roleId: staffRole.id } });
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: editor },
+        data: { rowScope: 'SELF' },
+      });
+      const manager = await db.user.create({
+        data: { username: 'sq2-manager', password: 'unused', mustChangePassword: false },
+      });
+      const all = await db.dataScope.create({ data: { name: '团队验收全范围', scopeType: 'ALL' } });
+      const managerRole = await db.role.create({
+        data: {
+          code: 'SQ2_MANAGER',
+          name: '负责人',
+          type: 'BUSINESS',
+          permissions: {
+            create: [
+              'menu.sop_tasks',
+              'sop.task.read',
+              'sop.task.manage',
+              'sop.task.execute',
+              'sop.instance.read',
+              'sop.instance.manage',
+              'case.task.manage',
+              'employee.read',
+            ].map((code) => ({ permission: { connect: { code } } })),
+          },
+          dataScopes: {
+            create: ['sop_task', 'sop_instance', 'case', 'employee'].map((resource) => ({
+              resource,
+              dataScopeId: all.id,
+            })),
+          },
+        },
+      });
+      await db.userRole.create({ data: { userId: manager.id, roleId: managerRole.id } });
+      await db.collabMember.create({
+        data: { workspaceId, principalId: manager.id, role: 'MANAGER', rowScope: 'ALL', canCreate: true },
+      });
+      const managerToken = (await createApiSession(db, manager.id)).token;
+      const org = (await db.organization.findFirstOrThrow()).id;
+      const team = await db.professionalTeam.create({
+        data: { code: 'SQ2_TEAM', name: 'SQ2医疗团队', categoryCode: 'MEDICAL', homeOrganizationId: org },
+      });
+      const api = (method: 'get' | 'post', route: string, bearer = adminToken, body?: unknown) => {
+        const req = app.httpRequest()[method]('/api/v1' + route)
+          .set('Authorization', 'Bearer ' + bearer)
+          .set('Idempotency-Key', randomUUID());
+        return body === undefined ? req : req.send(body);
+      };
+      const template = (
+        await api('post', '/sop/templates', adminToken, {
+          code: 'SQ2_UI',
+          name: 'SQ2医疗交付',
+          organizationId: org,
+          professionalTeamId: team.id,
+          caseType: '医疗纠纷',
+          requestKey: randomUUID(),
+          content: {
+            schemaVersion: 1,
+            nodes: [
+              { code: 'COLLECT', name: 'SQ2材料收集' },
+              { code: 'DELIVER', name: 'SQ2交付报告', dependsOn: ['COLLECT'] },
+            ],
+          },
+        }).expect(200)
+      ).body.data;
+      const version = await db.sopTemplateVersion.findFirstOrThrow({ where: { templateId: template.id } });
+      await db.sopTemplateVersion.update({ where: { id: version.id }, data: { status: 'PUBLISHED' } });
+      await db.sopTemplate.update({ where: { id: template.id }, data: { activeVersionId: version.id } });
+      const customer = await db.customer.create({
+        data: {
+          customerNo: 'SQ2_CUSTOMER',
+          name: '保密客户',
+          phone: '13800000000',
+          phoneHash: 'test',
+          createdBy: owner,
+        },
+      });
+      const caseRow = await db.case.create({
+        data: {
+          caseNo: 'SQ2_CASE',
+          title: '不向仅获派任务人员公开的案件',
+          caseType: '医疗纠纷',
+          customerId: customer.id,
+          branchId: org,
+          teamIds: JSON.stringify([team.id]),
+          createdBy: owner,
+        },
+      });
+      const table = (
+        await api('post', '/bases/' + baseId + '/tables', adminToken, {
+          name: 'SOP交付工作表',
+          source: 'SOP_TASKS',
+        }).expect(200)
+      ).body.data;
+      const pages = [];
+      for (const [id, bearer] of [
+        [owner, adminToken],
+        [editor, editorToken],
+        [manager.id, managerToken],
+      ]) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          'window.unifiedTestSession=' +
+            JSON.stringify({
+              mode: 'AUTHENTICATED',
+              token: bearer,
+              csrfToken: 'test',
+              expiresIn: 900,
+              user: { id, username: id, name: 'SQ2验收', roles: [], permissions: [] },
+            }) +
+            ';',
+        );
+        const page = await context.newPage();
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [admin, staff, leader] = pages,
+        address = vite.resolvedUrls.local[0],
+        tableUrl = address + 'sop/tasks?' + new URLSearchParams({ base: baseId, table: table.id });
+      await admin.goto(address + 'sop/instances/new?case=' + caseRow.id);
+      await admin.getByLabel('已发布模板', { exact: true }).click();
+      await admin
+        .locator('.ant-select-item-option-content')
+        .getByText('SQ2医疗交付 · 医疗纠纷', { exact: true })
+        .click();
+      await admin.getByRole('button', { name: '确认启动', exact: true }).click();
+      await admin.getByRole('link', { name: 'SQ2材料收集', exact: true }).click();
+      const task = await db.caseTask.findFirstOrThrow({ where: { caseId: caseRow.id, nodeCode: 'COLLECT' } });
+      await staff.goto(tableUrl);
+      await leader.goto(tableUrl);
+      await leader.getByRole('button', { name: '节点任务：SQ2材料收集', exact: true }).waitFor();
+      await expect(staff.getByRole('button', { name: '节点任务：SQ2材料收集', exact: true })).toHaveCount(0);
+      await admin.getByRole('button', { name: '分派任务', exact: true }).click();
+      await admin.getByRole('dialog', { name: '分派任务' }).getByLabel('负责人', { exact: true }).click();
+      await admin.locator('.ant-select-item-option-content').getByText('SQ2办案人', { exact: true }).click();
+      await admin
+        .getByRole('dialog', { name: '分派任务' })
+        .getByRole('button', { name: '确认办理', exact: true })
+        .click();
+      await staff.getByRole('button', { name: '节点任务：SQ2材料收集', exact: true }).waitFor();
+      await staff.getByRole('button', { name: '创建个人视图', exact: true }).click();
+      await expect
+        .poll(
+          async () =>
+            await db.collabView.count({
+              where: { tableId: table.id, ownerId: editor, name: '分派给我的任务' },
+            }),
+        )
+        .toBe(1);
+      const detail = (await api('get', '/sop/tasks/' + task.id, editorToken).expect(200)).body.data;
+      assert.equal(detail.case, null);
+      await api('get', '/cases/' + caseRow.id, editorToken).expect(403);
+      await api('get', '/cases/' + caseRow.id + '/files', editorToken).expect(403);
+      await staff.goto(address + 'sop/tasks/' + task.id);
+      await staff.getByRole('button', { name: '开始办理', exact: true }).click();
+      await staff
+        .getByRole('dialog')
+        .getByLabel('办理说明', { exact: true })
+        .fill('材料已收集，保持原任务ID');
+      await staff.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await expect
+        .poll(async () => (await db.caseTask.findUniqueOrThrow({ where: { id: task.id } })).status)
+        .toBe('IN_PROGRESS');
+      await leader.getByRole('button', { name: /执行状态：.*办理|执行状态：IN_PROGRESS/ }).waitFor();
+      await staff.getByRole('button', { name: '完成节点', exact: true }).click();
+      await staff.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await expect
+        .poll(async () => (await db.caseTask.findUniqueOrThrow({ where: { id: task.id } })).status)
+        .toBe('COMPLETED');
+      const second = await db.caseTask.findFirstOrThrow({
+        where: { caseId: caseRow.id, nodeCode: 'DELIVER' },
+      });
+      await api('post', '/sop/tasks/' + second.id + '/actions', managerToken, {
+        action: 'ASSIGN',
+        expectedVersion: second.version,
+        requestKey: randomUUID(),
+        assigneeUserId: editor,
+      }).expect(200);
+      await staff.goto(address + 'sop/tasks/' + second.id);
+      await staff.getByRole('button', { name: '开始办理', exact: true }).waitFor();
+      for (const width of [1440, 1024, 390]) {
+        await staff.setViewportSize({ width, height: 1000 });
+        await staff.screenshot({ path: path.join(evidence, 'task-' + width + '.png'), fullPage: true });
+        assert.ok(await staff.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
+      }
+      const current = await db.caseTask.findUniqueOrThrow({ where: { id: second.id } });
+      await api('post', '/sop/tasks/' + second.id + '/actions', managerToken, {
+        action: 'ASSIGN',
+        expectedVersion: current.version,
+        requestKey: randomUUID(),
+        assigneeUserId: null,
+      }).expect(200);
+      await staff
+        .getByRole('heading', { name: 'SQ2交付报告', exact: true })
+        .waitFor({ state: 'hidden', timeout: 15000 });
+      await api('get', '/sop/tasks/' + second.id, editorToken).expect(404);
+      assert.equal(await db.collabRecord.count(), 0);
+      assert.equal(await db.caseTask.count(), 2);
+      assert.deepEqual(errors, []);
+    } catch (error) {
+      for (const [i, context] of browser.contexts().entries())
+        for (const page of context.pages())
+          await page
+            .screenshot({ path: path.join(evidence, 'failed-' + i + '.png'), fullPage: true })
+            .catch(() => undefined);
+      throw error;
+    } finally {
+      await browser.close();
+      await vite.close();
+    }
+  },
+);

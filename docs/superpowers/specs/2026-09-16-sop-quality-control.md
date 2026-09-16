@@ -2,7 +2,7 @@
 
 - ID：SPEC-SOP-QC-20260916
 - 日期：2026-09-16
-- 状态：规划稿；尚未实施、尚未验收
+- 状态：分阶段实施；SQ1–SQ2已验收，完整交付待SQ7
 - 来源：用户要求继续规划 SOP 和质检；承接已验收 U5–U7，不重开已完成阶段。
 - 实施计划：[SQ 阶段计划](../plans/2026-09-16-sop-quality-control.md)
 
@@ -170,3 +170,13 @@ SQ1新权限仅menu.sop_templates和sop.template.read/manage/publish，resource=
 SQ1验收补充：三团队模板默认均为草稿；错误依赖图/未知字段/组织团队不一致拒绝；草稿编辑409保留UI；发布期间禁止修改、换摘要/自审/撤权拒绝；旧版读取与回滚新版本验证；Case已有SOP引用删除拒绝且保留原关联；迁移/权限目录重入及原治理回归。
 
 SQ1补充只读定位接口：GET /api/v1/sop/template-versions/:id 经sop.template.read及同一模板范围检查后返回所属模板及历史版本，供治理详情准确定位审核目标；不以治理读取权限替代模板范围。版本比较显示新增、移除、配置与排列变化。
+
+## SQ2 实施契约（2026-09-17）
+
+CaseTask增量sopInstanceId/nodeCode/nodeSnapshot/createdBy/updatedBy/assigneeUserId/version，仍为唯一任务身份和状态源；SopInstance业务唯一键(caseId,templateVersionId,batchKey)，原始创建请求另由DomainMutation去重。SopTaskAccess以真实用户/任务/授予人FK记录显式读取及执行授权、有效期、撤销依据。指派必须有employee.read范围且目标当前具有SOP读取和执行权限；任务权限不解锁Case或CaseFile。
+
+本阶段实际权限为menu.sop_tasks、sop.instance.read/start/manage、sop.task.read/execute/manage。对应资源sop_instance/sop_task，SELF取真实创建人，ORG/TEAM取绑定模板组织/团队；读取与执行并入有效对象授权。共同来源SOP_TASKS的工作区SELF限制也包含这一显式任务例外，同时与工作区组织和业务任务范围求交。原始同源行保持CaseTask ID，无CollabRecord副本。
+
+实际页面为/sop/tasks共同工作表、/sop/tasks/:id办理、/sop/instances/new启动与/sop/instances/:id实例进度；原案件详情提供启动/办理入口。共用视图、字段及个人“分派给我”筛选。案件详情的SOP任务也复验独立task.read，旧CaseTask更新拒绝SOP节点；系统受控动作通过expectedVersion/requestKey办理。逾期与状态组合取交集，逾期不覆写执行状态。已配置强制材料或审核的完成动作在SQ3提供成果提交前保持拒绝。
+
+启动要求原案件读/任务管理、模板读及实例启动范围，以及发布生效版本、组织/团队/类型匹配；冻结节点内容不随模板变化。开始/完成检查依赖，实例暂停、取消或案件终态均不可继续。改派撤销旧对象授权；普通获派者不能改派、跳过或管理实例。列表、详情、错误清除和5秒/焦点刷新沿统一范围约束。

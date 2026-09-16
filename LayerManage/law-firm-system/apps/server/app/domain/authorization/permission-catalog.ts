@@ -32,6 +32,13 @@ function permission(
 }
 
 export const PERMISSION_CATALOG = Object.freeze([
+  permission('menu.sop_tasks', 'SOP任务', 'MENU', 'menu', 'view', 'LOW', '/sop/tasks'),
+  permission('sop.instance.read', '查看SOP流程', 'ACTION', 'sop_instance', 'read', 'LOW'),
+  permission('sop.instance.start', '启动SOP流程', 'ACTION', 'sop_instance', 'start', 'MEDIUM'),
+  permission('sop.instance.manage', '管理SOP流程', 'ACTION', 'sop_instance', 'manage', 'MEDIUM'),
+  permission('sop.task.read', '查看SOP任务', 'ACTION', 'sop_task', 'read', 'LOW'),
+  permission('sop.task.execute', '执行SOP任务', 'ACTION', 'sop_task', 'execute', 'MEDIUM'),
+  permission('sop.task.manage', '分派管理SOP任务', 'ACTION', 'sop_task', 'manage', 'MEDIUM'),
   permission('menu.sop_templates', 'SOP模板', 'MENU', 'menu', 'view', 'LOW', '/admin/sop-templates'),
   permission('sop.template.read', '查看SOP模板', 'ACTION', 'sop_template', 'read', 'LOW'),
   permission('sop.template.manage', '维护SOP模板草稿', 'ACTION', 'sop_template', 'manage', 'MEDIUM'),
