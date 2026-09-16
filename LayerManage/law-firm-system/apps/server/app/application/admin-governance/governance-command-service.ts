@@ -1,3 +1,5 @@
+import { isSopOperation, validateSopGovernance } from './adapters/sop-template-adapter';
+import { requireSopVersion } from '../sop/template-service';
 import { AdminOperation, Prisma, PrismaClient } from '@prisma/client';
 import { hashPayload } from '../../domain/admin-governance/canonical-json';
 import { GOVERNANCE_CODES, GovernanceError } from '../../domain/admin-governance/governance-errors';
@@ -43,6 +45,7 @@ export class GovernanceCommandService {
     const adapter = this.adapters.find(item => item.key === catalog.adapterKey && item.supports(input.operationType));
     if (!adapter) notAllowed();
     const normalizedPayload = adapter.validatePayload(input.operationType, input.payload);
+    if (isSopOperation(input.operationType)) await requireSopVersion(this.prisma, context, input.targetId, 'sop.template.publish');
     const payloadHash = hashPayload(normalizedPayload);
     const confirmationAt = await this.validateCriticalConfirmation(input.operationType, input.targetId, input.confirmation);
 
@@ -71,6 +74,7 @@ export class GovernanceCommandService {
             },
           );
         }
+        if (isSopOperation(input.operationType)) await validateSopGovernance(tx, context, { ...input, payload: normalizedPayload });
         const operation = await new GovernanceStore(tx).create({
           operationType: input.operationType,
           riskLevel: catalog.riskLevel,

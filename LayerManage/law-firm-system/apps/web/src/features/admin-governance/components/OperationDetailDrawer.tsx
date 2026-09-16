@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { businessLabel } from '@/locales/business-labels';
 import Table from '@/components/ResizableTable';
 import { Alert, Descriptions, Drawer, Empty, Spin, Tag, Timeline, Typography } from 'antd';
@@ -27,6 +28,7 @@ export default function OperationDetailDrawer({ open, loading, error, detail, on
           { key: 'reason', label: '申请理由', children: detail.reason },
           { key: 'payload', label: '不可变参数快照', children: json(detail.payloadSnapshot) },
         ]} />
+        {detail.targetType === 'SOP_TEMPLATE_VERSION' && <Link to={'/admin/sop-templates?templateVersion=' + encodeURIComponent(detail.targetId)}>核对本次申请的SOP模板版本</Link>}
         <h3>审核记录</h3>
         {detail.reviews.length ? <Timeline items={detail.reviews.map(review => ({ children: <><strong>{businessLabel(review.decision)}</strong> · {review.reviewerUserId}<br /><Text type="secondary">{review.comment || '无附加意见'} · {new Date(review.createdAt).toLocaleString()}</Text></> }))} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无审核记录" />}
         <h3>执行轨迹</h3>

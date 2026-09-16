@@ -1,3 +1,4 @@
+import SopTemplatesPage from './pages/SopTemplates';
 import RecordAccessBoundary from './features/crm/RecordAccessBoundary';
 import IntelligencePage from './pages/Intelligence';
 import DesktopKnowledgeBridge from './features/intelligence/DesktopKnowledgeBridge';
@@ -158,7 +159,8 @@ function SessionBootstrap() {
           <Route path="/apps" element={<AreaPage key="apps" area="apps" />} />
           <Route path="/analytics" element={<AreaPage key="analytics" area="analytics" />} />
           <Route path="/analytics/overview" element={<Dashboard />} />
-          <Route path="/admin" element={<AreaPage key="admin" area="admin" />} />
+          <Route path="/admin/sop-templates" element={<PermissionRoute permission="sop.template.read"><SopTemplatesPage /></PermissionRoute>} />
+              <Route path="/admin" element={<AreaPage key="admin" area="admin" />} />
           <Route path="/workspaces" element={<WorkspacesPage />} />
           <Route
             path="/leads"

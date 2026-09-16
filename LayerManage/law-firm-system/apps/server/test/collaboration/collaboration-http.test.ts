@@ -3964,3 +3964,237 @@ test(
     }
   },
 );
+
+
+test(
+  'SQ1 real App creates edits governs disables and rolls back SOP templates with MFA and role isolation',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 360000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web'),
+      load = new Function('url', 'return import(url)');
+    const { chromium, expect } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'sq1-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence/sq1');
+    await mkdir(evidence, { recursive: true });
+    const security = (app.config as typeof app.config & { identitySecurity: { trustedOrigins: string[] } })
+      .identitySecurity;
+    const previousOrigins = [...security.trustedOrigins];
+    security.trustedOrigins.push(new URL(vite.resolvedUrls.local[0]).origin);
+    const errors: string[] = [];
+    try {
+      for (const [id, code] of [
+        [owner, 'SYSTEM_ADMIN'],
+        [editor, 'SYSTEM_SUPER_ADMIN'],
+      ]) {
+        const role = await db.role.create({ data: { code, name: code, type: 'SYSTEM' } });
+        await db.userRole.create({ data: { userId: id, roleId: role.id } });
+      }
+      const org = (await db.organization.findFirstOrThrow()).id;
+      await db.professionalTeam.create({
+        data: { code: 'SQ1_MEDICAL', name: 'SQ1医疗团队', categoryCode: 'MEDICAL', homeOrganizationId: org },
+      });
+      const ordinary = await db.user.create({
+        data: { username: 'sq1-ordinary', password: 'unused', mustChangePassword: false },
+      });
+      const sessions = await Promise.all([
+        createApiSession(db, owner, 'MFA'),
+        createApiSession(db, editor, 'MFA'),
+        createApiSession(db, ordinary.id),
+      ]);
+      const pages = [];
+      for (const [i, id] of [owner, editor, ordinary.id].entries()) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addCookies([
+          { name: 'chengye_csrf', value: sessions[i].csrfToken, url: vite.resolvedUrls.local[0] },
+        ]);
+        await context.addInitScript(
+          'window.unifiedTestSession=' +
+            JSON.stringify({
+              mode: 'AUTHENTICATED',
+              token: sessions[i].token,
+              csrfToken: sessions[i].csrfToken,
+              expiresIn: 900,
+              user: { id, username: id, name: 'SQ1验收', roles: [], permissions: [] },
+            }) +
+            ';',
+        );
+        const page = await context.newPage();
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [admin, reviewer, staff] = pages,
+        address = vite.resolvedUrls.local[0];
+      await admin.goto(address + 'admin/sop-templates');
+      await admin.getByRole('button', { name: '新建模板', exact: true }).click();
+      const drawer = admin.getByRole('dialog', { name: '新建SOP模板' });
+      await drawer.getByLabel('模板编码', { exact: true }).fill('SQ1_UI');
+      await drawer.getByLabel('模板名称', { exact: true }).fill('SQ1医疗流程');
+      await drawer.getByLabel('所属组织', { exact: true }).click();
+      await admin
+        .locator('.ant-select-item-option-content')
+        .getByText('协作接口测试', { exact: true })
+        .click();
+      await drawer.getByLabel('专业团队', { exact: true }).click();
+      await admin
+        .locator('.ant-select-item-option-content')
+        .getByText('SQ1医疗团队', { exact: true })
+        .click();
+      await drawer.getByLabel('适用案件类型', { exact: true }).fill('医疗纠纷');
+      await drawer.getByRole('button', { name: '保存草稿', exact: true }).click();
+      await admin.getByRole('heading', { name: 'SQ1医疗流程', exact: true }).waitFor();
+      const template = await db.sopTemplate.findUniqueOrThrow({ where: { code: 'SQ1_UI' } });
+      const revision = await db.sopTemplateVersion.findFirstOrThrow({ where: { templateId: template.id } });
+      await admin.getByRole('button', { name: '编辑草稿', exact: true }).click();
+      const edit = admin.getByRole('dialog', { name: '编辑SOP草稿' });
+      await edit.getByLabel('节点1说明', { exact: true }).fill('已检查材料清单与适用团队');
+      await edit.getByRole('button', { name: '保存草稿', exact: true }).click();
+      await edit.waitFor({ state: 'hidden' });
+      await expect(admin.getByLabel('节点1说明', { exact: true })).toHaveValue('已检查材料清单与适用团队');
+      // A concurrent edit returns 409 while preserving the local draft.
+      await admin.getByRole('button', { name: '编辑草稿', exact: true }).click();
+      await edit.getByLabel('节点1说明', { exact: true }).fill('保留冲突草稿');
+      const concurrent = await db.sopTemplateVersion.findUniqueOrThrow({ where: { id: revision.id } });
+      await app
+        .httpRequest()
+        .put('/api/v1/sop/template-versions/' + revision.id)
+        .set('Authorization', 'Bearer ' + sessions[0].token)
+        .send({ expectedVersion: concurrent.version, content: concurrent.content })
+        .expect(200);
+      await edit.getByRole('button', { name: '保存草稿', exact: true }).click();
+      await admin.getByText(/模板版本已变化或不可编辑/).waitFor();
+      await expect(edit.getByLabel('节点1说明', { exact: true })).toHaveValue('保留冲突草稿');
+      await edit.getByRole('button', { name: 'Close', exact: true }).click();
+      async function mfa(page: typeof admin, userId: string) {
+        await page.getByRole('dialog', { name: '再次验证身份' }).waitFor();
+        const factor = await db.mfaFactor.findFirstOrThrow({ where: { userId, disabledAt: null } });
+        while (
+          factor.lastAcceptedCounter !== null &&
+          BigInt(Math.floor(Date.now() / 30000)) <= factor.lastAcceptedCounter
+        )
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        const secret = new MfaSecretCrypto(
+          new Map([[1, Buffer.from('0123456789abcdef0123456789abcdef')]]),
+        ).decrypt({
+          ciphertext: factor.encryptedSecret,
+          iv: factor.secretIv,
+          authTag: factor.secretAuthTag,
+          keyVersion: factor.keyVersion,
+        });
+        const counter = Buffer.alloc(8);
+        counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));
+        const digest = createHmac('sha1', decodeBase32(secret)).update(counter).digest();
+        await page
+          .getByLabel('当前六位验证码', { exact: true })
+          .fill(
+            ((digest.readUInt32BE(digest[digest.length - 1] & 15) & 0x7fffffff) % 1000000)
+              .toString()
+              .padStart(6, '0'),
+          );
+        const responsePromise = page.waitForResponse((r: { url: () => string }) =>
+          r.url().includes('/auth/step-up'),
+        );
+        await page.getByRole('button', { name: '验证并继续', exact: true }).click();
+        const response = await responsePromise;
+        assert.equal(response.status(), 200, JSON.stringify((await response.json()).message));
+        await page.getByRole('dialog', { name: '再次验证身份' }).waitFor({ state: 'hidden' });
+      }
+      for (const action of ['发布', '停用', '发布']) {
+        if (
+          action === '发布' &&
+          (await db.sopTemplateVersion.count({ where: { templateId: template.id, status: 'DISABLED' } }))
+        ) {
+          await admin.getByRole('button', { name: '复制此版本为新草稿', exact: true }).click();
+          await admin.getByRole('button', { name: '编辑草稿', exact: true }).waitFor();
+        }
+        await admin.getByRole('button', { name: '申请' + action, exact: true }).click();
+        const dialog = admin.getByRole('dialog', { name: '申请' + action + '模板', exact: true });
+        await dialog.getByLabel('申请原因', { exact: true }).fill('已核验团队节点及适用范围后申请' + action);
+        await dialog.getByRole('button', { name: '提交申请', exact: true }).click();
+        await mfa(admin, owner);
+        await dialog.waitFor({ state: 'hidden' });
+        const op = await db.adminOperation.findFirstOrThrow({
+          where: { targetType: 'SOP_TEMPLATE_VERSION', status: 'PENDING_REVIEW' },
+        });
+        await reviewer.goto(address + 'security/admin-governance?operationId=' + op.id);
+        await reviewer.getByRole('link', { name: '核对本次申请的SOP模板版本', exact: true }).click();
+        await expect(reviewer.getByLabel('节点1说明', { exact: true })).toHaveValue(
+          '已检查材料清单与适用团队',
+        );
+        await reviewer.goto(address + 'security/admin-governance');
+        await reviewer.getByRole('tab', { name: '待我审核', exact: true }).click();
+        await reviewer.getByRole('button', { name: '审核 ' + op.operationNo, exact: true }).click();
+        await reviewer
+          .getByRole('dialog', { name: '治理审核', exact: true })
+          .getByRole('button', { name: '提交审核', exact: true })
+          .click();
+        await mfa(reviewer, editor);
+        await expect
+          .poll(async () => (await db.adminOperation.findUniqueOrThrow({ where: { id: op.id } })).status)
+          .toBe('SUCCEEDED');
+        await admin.getByRole('button', { name: '刷新模板', exact: true }).click();
+        await admin
+          .getByRole('button', { name: action === '发布' ? '申请停用' : '申请发布', exact: true })
+          .waitFor({ state: action === '发布' ? 'visible' : 'hidden' });
+        if (action === '停用')
+          await expect(admin.locator('.ant-tag').getByText('已停用', { exact: true })).toBeVisible();
+      }
+      assert.equal(await db.sopTemplateVersion.count({ where: { templateId: template.id } }), 2);
+      assert.equal(
+        (await db.sopTemplateVersion.findUniqueOrThrow({ where: { id: revision.id } })).status,
+        'DISABLED',
+      );
+      for (const width of [1440, 1024, 390]) {
+        await admin.setViewportSize({ width, height: 1000 });
+        await admin.screenshot({ path: path.join(evidence, 'templates-' + width + '.png'), fullPage: true });
+        assert.ok(await admin.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
+      }
+      await app
+        .httpRequest()
+        .get('/api/v1/sop/templates')
+        .set('Authorization', 'Bearer ' + sessions[2].token)
+        .expect(403);
+      await staff.goto(address + 'admin/sop-templates');
+      await expect(staff.getByRole('button', { name: '新建模板', exact: true })).toHaveCount(0);
+      await db.userRole.deleteMany({ where: { userId: owner } });
+      await admin.getByRole('button', { name: '刷新模板', exact: true }).click();
+      await admin.getByRole('heading', { name: 'SQ1医疗流程', exact: true }).waitFor({ state: 'hidden' });
+      assert.deepEqual(errors, []);
+    } catch (error) {
+      for (const [i, context] of browser.contexts().entries())
+        for (const page of context.pages())
+          await page
+            .screenshot({ path: path.join(evidence, 'failed-' + i + '.png'), fullPage: true })
+            .catch(() => undefined);
+      throw error;
+    } finally {
+      security.trustedOrigins.splice(0, security.trustedOrigins.length, ...previousOrigins);
+      await browser.close();
+      await vite.close();
+    }
+  },
+);

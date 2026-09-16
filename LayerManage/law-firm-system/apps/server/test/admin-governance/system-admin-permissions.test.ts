@@ -6,6 +6,7 @@ import { SYSTEM_ADMIN_PERMISSION_CODES } from '../../app/domain/admin-governance
 test('SYSTEM_ADMIN uses an immutable explicit permission allowlist', () => {
   assert.equal(Object.isFrozen(SYSTEM_ADMIN_PERMISSION_CODES), true);
   assert.deepEqual(SYSTEM_ADMIN_PERMISSION_CODES, [
+    'menu.sop_templates', 'sop.template.read', 'sop.template.manage', 'sop.template.publish',
     'menu.admin_governance',
     'governance.catalog.read',
     'governance.operation.create',

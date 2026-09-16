@@ -1,4 +1,5 @@
 export type GovernedOperationType =
+  | 'SOP_TEMPLATE_PUBLISH' | 'SOP_TEMPLATE_DISABLE'
   | 'SYSTEM_ADMIN_GRANT' | 'SYSTEM_ADMIN_REVOKE' | 'SYSTEM_ADMIN_ACCOUNT_DISABLE'
   | 'SUPER_ADMIN_GRANT' | 'SUPER_ADMIN_REVOKE' | 'SUPER_ADMIN_ACCOUNT_DISABLE'
   | 'ADMIN_MFA_RESET'
@@ -16,7 +17,7 @@ export interface GovernanceCatalogEntry {
   riskLevel: GovernanceRisk;
   reviewMode: GovernanceReviewMode;
   requesterRoles: Array<'SYSTEM_ADMIN' | 'SYSTEM_SUPER_ADMIN'>;
-  adapterKey: 'administrator-account' | 'master-data';
+  adapterKey: 'administrator-account' | 'master-data' | 'sop-template';
   retryable: boolean;
   confirmationTemplate?: string;
 }

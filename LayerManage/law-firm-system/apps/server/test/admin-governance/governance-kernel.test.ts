@@ -39,8 +39,8 @@ test('canonical JSON rejects values that cannot be represented safely', () => {
 });
 
 test('operation catalog contains every stable type exactly once and is immutable', () => {
-  assert.equal(GOVERNED_OPERATION_TYPES.length, 9);
-  assert.equal(new Set(GOVERNED_OPERATION_TYPES).size, 9);
+  assert.equal(GOVERNED_OPERATION_TYPES.length, 11);
+  assert.equal(new Set(GOVERNED_OPERATION_TYPES).size, 11);
   assert.deepEqual(Object.keys(GOVERNED_OPERATION_CATALOG).sort(), [...GOVERNED_OPERATION_TYPES].sort());
   assert.equal(Object.isFrozen(GOVERNED_OPERATION_CATALOG), true);
 

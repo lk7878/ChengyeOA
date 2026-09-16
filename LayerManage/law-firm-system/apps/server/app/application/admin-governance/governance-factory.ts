@@ -1,3 +1,4 @@
+import { SopTemplateAdapter } from './adapters/sop-template-adapter';
 import { PrismaClient } from '@prisma/client';
 import { Context } from 'egg';
 import { AdministratorAccountAdapter } from './adapters/administrator-account-adapter';
@@ -29,6 +30,7 @@ export function createGovernanceServices(prisma: PrismaClient, options: Governan
   const adapters = options.adapters ?? [
     new AdministratorAccountAdapter(clock),
     new MasterDataAdapter(),
+    new SopTemplateAdapter(),
   ];
   const runner = new GovernanceExecutionRunner(prisma, adapters, eventSink, options.stepUp, clock);
   return {

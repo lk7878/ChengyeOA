@@ -3,9 +3,9 @@ id: MOD-007
 title: 专业团队与分析报告模块
 source: PRD §8.7
 status: draft
-implements: [SPEC-SOP-QC-20260916（规划，待实施）]
+implements: [SPEC-SOP-QC-20260916（SQ1模板已实施，执行待SQ2–SQ6）]
 design_refs: [docs/专项设计/三大专业团队SOP系统字段清单.md]
-last_updated: 2026-09-16
+last_updated: 2026-09-17
 ---
 
 # MOD-007 专业团队与分析报告模块
@@ -208,3 +208,7 @@ SOP 节点 / 字段配置（医疗 / 执行 / 刑事三团队的节点、材料�
 ### SOP与质检规划（2026-09-16）
 
 本模块SOP节点、模板与专家指导进入[SQ1–SQ7计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)，不再列作U5/U6未完成任务。ProfessionalTeam/Member已存在，SOP模板版本与实例仍待开发。默认执行模板采用本模块九主节点，专项清单的财产线索整理归证据收集子任务；医疗九节点、刑事十二节点，资料默认提示及按版本配置保持。
+
+## SQ1实现边界（2026-09-17）
+
+模板目录、草稿配置、不可变版本、发布/停用双人治理、MFA、历史复制回滚和范围权限已实现并通过真实App冒烟。三团队预置仅供新建草稿选择，不自动导入真实数据；节点执行、报告材料提交和签约前后衔接尚待SQ2–SQ6。验收与迁移证据见[SQ阶段计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)。

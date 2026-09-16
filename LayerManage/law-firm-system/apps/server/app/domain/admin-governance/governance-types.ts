@@ -1,4 +1,5 @@
 export const GOVERNED_OPERATION_TYPES = Object.freeze([
+  'SOP_TEMPLATE_PUBLISH', 'SOP_TEMPLATE_DISABLE',
   'SYSTEM_ADMIN_GRANT',
   'SYSTEM_ADMIN_REVOKE',
   'SYSTEM_ADMIN_ACCOUNT_DISABLE',
@@ -26,7 +27,7 @@ export type GovernanceStatus =
   | 'FLAGGED';
 export type GovernanceDecision = 'APPROVE' | 'REJECT' | 'CONFIRM' | 'FLAG';
 export type GovernanceRequesterRole = 'SYSTEM_ADMIN' | 'SYSTEM_SUPER_ADMIN';
-export type GovernanceAdapterKey = 'administrator-account' | 'master-data';
+export type GovernanceAdapterKey = 'administrator-account' | 'master-data' | 'sop-template';
 
 export interface GovernedOperationCatalogEntry {
   readonly riskLevel: GovernanceRisk;

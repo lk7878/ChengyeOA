@@ -3,6 +3,7 @@ import type { GovernedOperationType } from './types';
 export type MasterTargetType = 'ORGANIZATION' | 'POSITION' | 'PROFESSIONAL_TEAM';
 
 export const OPERATION_LABELS: Readonly<Record<GovernedOperationType, string>> = Object.freeze({
+  SOP_TEMPLATE_PUBLISH: '发布SOP模板', SOP_TEMPLATE_DISABLE: '停用SOP模板',
   SYSTEM_ADMIN_GRANT: '授予系统管理员', SYSTEM_ADMIN_REVOKE: '撤销系统管理员',
   SYSTEM_ADMIN_ACCOUNT_DISABLE: '停用系统管理员账户', SUPER_ADMIN_GRANT: '授予超级管理员',
   SUPER_ADMIN_REVOKE: '撤销超级管理员', SUPER_ADMIN_ACCOUNT_DISABLE: '停用超级管理员账户',

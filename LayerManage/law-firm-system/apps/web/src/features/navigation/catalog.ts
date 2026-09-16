@@ -28,6 +28,7 @@ const lead: PermissionCode[] = ['menu.lead_crm', 'lead.read'];
 const customer: PermissionCode[] = ['menu.customer', 'customer.read'];
 const contract: PermissionCode[] = ['menu.contract', 'contract.read'];
 export const entries: NavigationEntry[] = [
+  { path:'/admin/sop-templates', title:'SOP模板', area:'admin', group:'流程与质检配置', required:['menu.sop_templates','sop.template.read'] },
   { path: '/', title: '工作台', area: 'home', group: '常用' },
   { path: '/workspaces', title: '云盘', area: 'drive', group: '资源' },
   { path: '/apps', title: '业务应用', area: 'apps', group: '全部应用' },

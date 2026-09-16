@@ -171,7 +171,7 @@ test('synthesizes only the SYSTEM_ADMIN allowlist with ALL scope and assignment 
   assert.equal(context.isSystemSuperAdmin, false);
   assert.equal(context.isSystemAdmin, true);
   const systemGrants = context.grants.filter(grant => grant.sourceType === 'SYSTEM_ADMIN');
-  assert.equal(systemGrants.length, 11);
+  assert.equal(systemGrants.length, 15);
   assert.ok(systemGrants.every(grant => grant.scopeIds.length === 1 && grant.scopeIds[0] === 'ALL'));
   assert.ok(systemGrants.every(grant => grant.validUntil?.getTime() === validUntil.getTime()));
   assert.equal(context.permissionCodes.includes('governance.review'), false);

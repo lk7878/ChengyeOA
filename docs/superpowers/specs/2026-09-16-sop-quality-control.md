@@ -153,3 +153,20 @@
 | SQ-AC-12 | 增量迁移和SQL重入不损坏60迁移后的真实数据；原ID、版本、权限与审计保留；按影响做回归/构建/冒烟/容量验收 |
 
 每阶段在隔离测试库执行真实App冒烟（非仅单元测试），失败修复后复验，证据注明夹具、环境、剩余限制。触及协作查询/写入/推送热路径时重跑既有100会话/900秒契约；审批/抽样/提醒另测并发幂等与故障恢复，不能把通用表格负载作为专属业务容量结论。每阶段完成后同步文档并本地Git提交，未经新授权不推送或部署。
+
+
+## SQ1 实施前补充（2026-09-17）
+
+物理模型锁定：SopTemplate保留稳定ID、code、name、organizationId、professionalTeamId、caseType、createdBy/version；SopTemplateVersion保留templateId、number、content JSON、contentHash、status、version、createdBy和治理发布/停用ID，唯一(templateId,number)，发布内容不可原地修改。模板的activeVersionId只定位已发布版本。SopInstance先提供案件/版本的RESTRICT引用骨架用于删除保护，执行行为在SQ2实现；CaseTask采用增量字段及可空SOP节点FK，保持原任务ID，不新增另一套完成状态。组织和团队用真实FK，创建/读取候选检查独立组织/团队read范围，模板TEAM/ORG/SELF分别取明确锚点及真实创建人。
+
+节点JSON v1：code/name/instruction、dependsOn、materials(code/name/required/instruction)、reviewRequired、reviewerRoleId可空、reminderDays可空、closeGate默认false；1–50节点、每节点最多30材料，引用存在且无环，编号唯一，默认required=false。审核角色若设置须为启用业务角色且创建人可读取，实际人员SQ2/3按生效授权解析。reminderDays为1–365自然日，不暗含法定期限。
+
+API（拟新增）：GET/POST /sop/templates；GET /sop/templates/:id；POST /sop/templates/:id/versions（从指定历史版本复制生成新草稿）；PUT /sop/template-versions/:id（草稿编辑、expectedVersion）；GET /sop/template-options（获权组织/团队及角色候选，分页或明确候选上限）；GET /sop/template-presets（三团队草稿内容，管理员显式选择才保存）。列表分页1–100，keyword/status可选，读操作不建默认模板。所有新建采用持久requestKey+摘要，编辑强制版本。
+
+发布/停用使用原治理operationType SOP_TEMPLATE_PUBLISH / SOP_TEMPLATE_DISABLE，targetType=SOP_TEMPLATE_VERSION、expectedTargetVersion和payload.contentHash；HIGH/PRE，两次MFA遵守原治理流程。请求和执行均复核模板sop.template.publish范围及有效账号，发布检查目标仍为同版本草稿且摘要匹配。治理PENDING_REVIEW/APPROVED/EXECUTING期间显示IN_REVIEW并禁止编辑；拒绝/取消恢复可编辑草稿；失败保留治理记录，可修复后重新申请，旧请求不能通过新版本。回滚是复制历史内容形成新草稿并再次审核发布，不改旧实例。前端模板页请求治理审批并链接原治理详情；通用治理新建表单不把SOP类型误作为用户账户操作。
+
+SQ1新权限仅menu.sop_templates和sop.template.read/manage/publish，resource=sop_template；其余运行权限到对应阶段加入。目录数据库增量与代码同步，不默认授予业务角色；SYSTEM_ADMIN按已有窄目录显式增加模板配置动作，publish仍必须另一超级管理员审核。模板读取/修改仍采用服务端动作+范围；系统身份不授予案件审核。
+
+SQ1验收补充：三团队模板默认均为草稿；错误依赖图/未知字段/组织团队不一致拒绝；草稿编辑409保留UI；发布期间禁止修改、换摘要/自审/撤权拒绝；旧版读取与回滚新版本验证；Case已有SOP引用删除拒绝且保留原关联；迁移/权限目录重入及原治理回归。
+
+SQ1补充只读定位接口：GET /api/v1/sop/template-versions/:id 经sop.template.read及同一模板范围检查后返回所属模板及历史版本，供治理详情准确定位审核目标；不以治理读取权限替代模板范围。版本比较显示新增、移除、配置与排列变化。

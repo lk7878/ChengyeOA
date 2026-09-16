@@ -32,6 +32,10 @@ function permission(
 }
 
 export const PERMISSION_CATALOG = Object.freeze([
+  permission('menu.sop_templates', 'SOP模板', 'MENU', 'menu', 'view', 'LOW', '/admin/sop-templates'),
+  permission('sop.template.read', '查看SOP模板', 'ACTION', 'sop_template', 'read', 'LOW'),
+  permission('sop.template.manage', '维护SOP模板草稿', 'ACTION', 'sop_template', 'manage', 'MEDIUM'),
+  permission('sop.template.publish', '申请发布停用SOP模板', 'ACTION', 'sop_template', 'publish', 'HIGH'),
   permission('menu.channel', '渠道管理', 'MENU', 'menu', 'view', 'LOW', '/channels'),
   permission('channel.read', '查看渠道', 'ACTION', 'channel', 'read', 'LOW'),
   permission('channel.create', '登记渠道', 'ACTION', 'channel', 'create', 'MEDIUM'),

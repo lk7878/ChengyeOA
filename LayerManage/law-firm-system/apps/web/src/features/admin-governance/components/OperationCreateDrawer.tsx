@@ -111,7 +111,7 @@ export default function OperationCreateDrawer({ open, catalog, submitting, onClo
     <Spin spinning={loadingTargets}>
       <Form form={form} layout="vertical" onFinish={submit} requiredMark="optional">
         <Form.Item name="operationType" label="治理操作" rules={[{ required: true, message: '请选择治理操作' }]}>
-          <Select aria-label="治理操作" placeholder="请选择" options={catalog.map(item => ({ value: item.operationType, label: OPERATION_LABELS[item.operationType] }))} />
+          <Select aria-label="治理操作" placeholder="请选择" options={catalog.filter(item => item.adapterKey !== 'sop-template').map(item => ({ value: item.operationType, label: OPERATION_LABELS[item.operationType] }))} />
         </Form.Item>
         {entry && <div className="governance-operation-meta"><Tag>{businessLabel(entry.riskLevel)}</Tag><Tag>{entry.reviewMode === 'PRE' ? '事前审核' : '事后审核'}</Tag></div>}
         {isMasterData && <Form.Item name="targetType" label="主数据类型" rules={[{ required: true, message: '请选择主数据类型' }]}>

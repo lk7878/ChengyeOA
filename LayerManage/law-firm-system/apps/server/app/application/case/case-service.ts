@@ -543,14 +543,14 @@ export class CaseService {
         where: { id },
         include: {
           files: true,
-          _count: { select: { costEntries: true, tasks: true, communications: true } },
+          _count: { select: { costEntries: true, tasks: true, communications: true, sopInstances: true } },
         },
       });
       if (!row) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
       if (row.version !== version) throw new MasterDataError('VERSION_CONFLICT', 409);
       if (['CLOSED', 'ARCHIVED'].includes(row.status))
         throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
-      if (row.contractId || row._count.costEntries)
+      if (row.contractId || row._count.costEntries || row._count.sopInstances)
         throw new CaseError(CASE_ERROR_CODES.CASE_IN_USE, 409, 'case has financial references');
       await tx.case.delete({ where: { id } });
       await tx.operationLog.create({

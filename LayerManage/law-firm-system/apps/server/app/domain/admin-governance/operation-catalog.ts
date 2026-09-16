@@ -30,6 +30,8 @@ function entry(
 }
 
 const catalog = {
+  SOP_TEMPLATE_PUBLISH: entry('HIGH', 'PRE', ADMINISTRATORS, 'sop-template', true),
+  SOP_TEMPLATE_DISABLE: entry('HIGH', 'PRE', ADMINISTRATORS, 'sop-template', true),
   SYSTEM_ADMIN_GRANT: entry('HIGH', 'PRE', SUPER_ADMIN_ONLY, 'administrator-account', true),
   SYSTEM_ADMIN_REVOKE: entry('HIGH', 'PRE', SUPER_ADMIN_ONLY, 'administrator-account', true),
   SYSTEM_ADMIN_ACCOUNT_DISABLE: entry('HIGH', 'PRE', SUPER_ADMIN_ONLY, 'administrator-account', true),

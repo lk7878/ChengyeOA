@@ -2,8 +2,14 @@ import { message } from 'antd';
 
 const reported = new WeakSet<object>();
 const messages: Record<string, string> = {
+  SOP_VERSION_CONFLICT: '模板版本已变化或不可编辑；当前输入已保留，请核对最新版本后重新编辑',
+  SOP_REVIEW_PENDING: '此版本正在审核，暂时不能修改或重复申请',
+  SOP_DEPENDENCY_CYCLE: '前置节点形成循环，请调整节点依赖',
+  SOP_DEPENDENCY_MISSING: '前置节点不存在，请重新选择',
+  SOP_NODE_DUPLICATE: '节点编码不能重复',
+  SOP_REVIEWER_ROLE_INVALID: '审核角色已停用或不可用，请重新配置',
   CUSTOMER_IN_USE: '客户已关联线索、案件、合同或其他业务记录，无法删除，请先核查关联记录',
-  CASE_IN_USE: '案件已关联财务合同或成本记录，无法删除，请先核查关联记录',
+  CASE_IN_USE: '案件已关联财务合同、成本或SOP流程记录，无法删除，请先核查关联记录',
   CASE_STATE_INVALID: '案件已结案或归档，不能修改或删除',
   CASE_NOT_FOUND: '案件不存在或已删除，请刷新列表',
   HARNESS_TICKET_INVALID: '本机助手授权已失效，请重新连接',

@@ -1,6 +1,7 @@
 import { PermissionCode } from '../authorization/authorization-types';
 
 export const SYSTEM_ADMIN_PERMISSION_CODES = Object.freeze([
+  'menu.sop_templates', 'sop.template.read', 'sop.template.manage', 'sop.template.publish',
   'menu.admin_governance',
   'governance.catalog.read',
   'governance.operation.create',

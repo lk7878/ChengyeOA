@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationError, AUTHORIZATION_CODES } from '../../domain/authorization/authorization-errors';
 import { PERMISSION_CATALOG } from '../../domain/authorization/permission-catalog';
 import { FieldReadLevel } from '../../domain/authorization/authorization-types';
@@ -10,7 +10,7 @@ import {
 } from './authorization-service';
 
 export class AuthorizationContextLoader {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaClient | Prisma.TransactionClient) {}
 
   async load(userId: string, evaluatedAt = new Date()): Promise<AuthorizationContext> {
     const user = await this.prisma.user.findUnique({

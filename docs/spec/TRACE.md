@@ -196,3 +196,5 @@ U6-C最终补充：第60项权限目录增量与SQL重入通过；开发库60迁
 
 
 2026-09-16：SOP与质检转入独立规划SPEC-SOP-QC-20260916及[SQ1–SQ7计划](../superpowers/plans/2026-09-16-sop-quality-control.md)，覆盖MOD-007/008并关联FTN-001/002/003/005/006。新增规格已明确模板版本、同源UI、对象协作授权、一级审核、抽检整改、满意度量表差异、前期衔接及每阶段冒烟要求。本次仅文档，所有SQ开发阶段待执行，U5–U7已完成状态不变。
+
+2026-09-17 SQ1：MOD-007模板配置部分落地；SQ-AC-01的模板生命周期/双人审核/版本冻结、SQ-AC-03配置范围、SQ-AC-11配置页三宽度、SQ-AC-12本阶段迁移及案件删除保护已验证。物理SopTemplate/SopTemplateVersion/SopInstance骨架、sop服务/控制器、SopTemplateAdapter、SopTemplates页面及治理版本直链对应57个不同后端测试、303前端测试及真实App完整发布停用回滚冒烟；61迁移94模型。详细失败修复及限制见[SQ阶段计划](../superpowers/plans/2026-09-16-sop-quality-control.md)。实例执行/完整SQ-AC及SQ2–SQ7未验收。

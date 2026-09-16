@@ -189,6 +189,14 @@ export default (app: Application) => {
   router.post('/api/v1/professional-teams/:id/lead', requirePermission('professional_team.lead.manage'), controller.professionalTeam.replaceLead);
 
   // 渠道模块
+  router.get('/api/v1/sop/templates', requirePermission('sop.template.read'), controller.sop.templates);
+  router.get('/api/v1/sop/templates/:id', requirePermission('sop.template.read'), controller.sop.template);
+  router.get('/api/v1/sop/template-versions/:id', requirePermission('sop.template.read'), controller.sop.templateVersion);
+  router.post('/api/v1/sop/templates', requirePermission('sop.template.manage'), controller.sop.createTemplate);
+  router.post('/api/v1/sop/templates/:id/versions', requirePermission('sop.template.manage'), controller.sop.copyVersion);
+  router.put('/api/v1/sop/template-versions/:id', requirePermission('sop.template.manage'), controller.sop.updateVersion);
+  router.get('/api/v1/sop/template-options', requirePermission('sop.template.manage'), controller.sop.options);
+  router.get('/api/v1/sop/template-presets', requirePermission('sop.template.manage'), controller.sop.presets);
   router.get('/api/v1/channels', controller.channel.index);
   router.get('/api/v1/channels/identity-gaps', controller.channel.identityGaps);
   router.post('/api/v1/channels/:id/identity', controller.channel.repairIdentity);

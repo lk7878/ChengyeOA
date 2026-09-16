@@ -13,7 +13,7 @@ import {
 } from './resource-scope-resolvers';
 
 export class DataScopeService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaClient | Prisma.TransactionClient) {}
 
   async buildScopeWhere<R extends ScopeableResourceCode>(
     context: AuthorizationContext,

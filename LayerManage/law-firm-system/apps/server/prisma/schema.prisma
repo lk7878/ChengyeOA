@@ -10,6 +10,8 @@ datasource db {
 // ==================== 组织架构模块 ====================
 
 model Organization {
+  sopTemplates SopTemplate[]
+
   collabWorkspaces   CollabWorkspace[]   @relation("CollabOrganization")
   inventoryMovements InventoryMovement[]
   id                 String              @id @default(uuid())
@@ -124,6 +126,8 @@ model EmployeeAssignment {
 }
 
 model ProfessionalTeam {
+  sopTemplates SopTemplate[]
+
   id                 String   @id @default(uuid())
   code               String   @unique
   name               String
@@ -1105,6 +1109,8 @@ model CostEntry {
 // ==================== 案件模块 ====================
 
 model Case {
+  sopInstances SopInstance[]
+
   createdBy String? // U5-B: unknown historical creators remain null
   branchId String?
   updatedBy String?
@@ -1973,4 +1979,63 @@ model DomainMutation {
   @@unique([actorId, key])
   @@index([targetId])
   @@map("domain_mutation")
+}
+
+// SQ1: immutable published template versions; execution foundation only.
+model SopTemplate {
+  id String @id @default(uuid())
+  code String @unique
+  name String
+  organizationId String
+  professionalTeamId String
+  caseType String
+  createdBy String
+  updatedBy String?
+  version Int @default(1)
+  activeVersionId String? @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  professionalTeam ProfessionalTeam @relation(fields: [professionalTeamId], references: [id], onDelete: Restrict)
+  versions SopTemplateVersion[] @relation("SopVersions")
+  activeVersion SopTemplateVersion? @relation("SopActiveVersion", fields: [activeVersionId], references: [id], onDelete: Restrict)
+  @@index([organizationId, professionalTeamId])
+  @@index([createdBy])
+  @@map("sop_template")
+}
+model SopTemplateVersion {
+  id String @id @default(uuid())
+  templateId String
+  number Int
+  content Json
+  contentHash String
+  status String @default("DRAFT")
+  version Int @default(1)
+  createdBy String
+  updatedBy String?
+  publishedOperationId String? @unique
+  disabledOperationId String? @unique
+  publishedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  template SopTemplate @relation("SopVersions", fields: [templateId], references: [id], onDelete: Restrict)
+  activeFor SopTemplate? @relation("SopActiveVersion")
+  instances SopInstance[]
+  @@unique([templateId, number])
+  @@index([status])
+  @@map("sop_template_version")
+}
+model SopInstance {
+  id String @id @default(uuid())
+  caseId String
+  templateVersionId String
+  createdBy String
+  version Int @default(1)
+  status String @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  case Case @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  templateVersion SopTemplateVersion @relation(fields: [templateVersionId], references: [id], onDelete: Restrict)
+  @@index([caseId])
+  @@map("sop_instance")
 }

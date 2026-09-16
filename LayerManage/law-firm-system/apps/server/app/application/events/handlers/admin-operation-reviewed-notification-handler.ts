@@ -13,6 +13,7 @@ const EVENT_TYPE = 'admin.operation.reviewed';
 const EVENT_VERSION = 1;
 
 const OPERATION_LABELS: Readonly<Record<GovernedOperationType, string>> = Object.freeze({
+  SOP_TEMPLATE_PUBLISH: 'SOP模板发布', SOP_TEMPLATE_DISABLE: 'SOP模板停用',
   SYSTEM_ADMIN_GRANT: '系统管理员授权',
   SYSTEM_ADMIN_REVOKE: '系统管理员撤销',
   SYSTEM_ADMIN_ACCOUNT_DISABLE: '系统管理员账号停用',
