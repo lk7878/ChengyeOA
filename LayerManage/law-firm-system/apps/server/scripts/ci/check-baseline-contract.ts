@@ -7,8 +7,8 @@ interface PackageManifest {
   pkg?: { assets?: unknown };
 }
 
-const CANONICAL_PRISMA_MODEL_COUNT = 105;
-const CANONICAL_PRISMA_MIGRATION_COUNT = 65;
+const CANONICAL_PRISMA_MODEL_COUNT = 110;
+const CANONICAL_PRISMA_MIGRATION_COUNT = 66;
 
 function packageManifest(filePath: string): PackageManifest {
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as PackageManifest;

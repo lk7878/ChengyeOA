@@ -32,6 +32,14 @@ function permission(
 }
 
 export const PERMISSION_CATALOG = Object.freeze([
+  permission('quality.assessment.read','查看百分制评估','ACTION','case','read','MEDIUM'),
+  permission('quality.assessment.record','记录百分制评估','ACTION','case','record','MEDIUM'),
+  permission('quality.analysis.read','查看专项分析','ACTION','case','read','MEDIUM'),
+  permission('quality.analysis.manage','维护专项分析','ACTION','case','manage','MEDIUM'),
+  permission('quality.analysis.close','申请关闭专项分析','ACTION','case','close','MEDIUM'),
+  permission('quality.analysis.decide','审核专项关闭','ACTION','case','decide','MEDIUM'),
+  permission('quality.metric.read','查看质量指标','ACTION','case','read','MEDIUM'),
+
   permission('menu.quality', '质量管理', 'MENU', 'menu', 'read', 'MEDIUM'),
   permission('quality.sample.read', '查看抽检批次', 'ACTION', 'case', 'read', 'MEDIUM'),
   permission('quality.sample.manage', '配置执行抽检', 'ACTION', 'case', 'manage', 'MEDIUM'),

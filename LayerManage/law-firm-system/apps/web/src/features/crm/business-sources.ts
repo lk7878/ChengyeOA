@@ -1,4 +1,5 @@
 export const businessSources = {
+  QUALITY_ANALYSES:{title:'专项分析工作表',path:'/quality/special-analyses',personal:'我创建的专项分析'},
   QUALITY_REVIEWS:{title:'二级抽检工作表',path:'/quality/reviews',personal:'我创建的检查'},
   QUALITY_ISSUES:{title:'质检问题工作表',path:'/quality/issues',personal:'我创建的问题'},
   SOP_TASKS: { title:'SOP任务工作表', path:'/sop/tasks', personal:'分派给我的任务' },

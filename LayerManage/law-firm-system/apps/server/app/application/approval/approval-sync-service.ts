@@ -1,5 +1,6 @@
+import { guardAnalysisApproval } from '../quality/analysis-review-policy';
 import { requireSopTask } from '../sop/execution-scope';
-import { guardSopApproval, lockSopApproval, sopApprovalScope, syncSopReview } from '../sop/review-policy';
+import { guardSopApproval, lockSopApproval, sopApprovalScope, syncSopReview } from '../quality/managed-approval-policy';
 import { channelScope } from '../channel/channel-scope';
 import { randomUUID } from 'node:crypto';
 import { PrismaEventOutboxWriter } from '../events/event-outbox-writer';
@@ -23,7 +24,7 @@ export const SYNC_TARGETS = [
   'TRANSFER',
   'CUSTOM',
   'PAYROLL',
-  'SOP_REVIEW',
+  'SOP_REVIEW', 'QUALITY_ANALYSIS',
 ] as const;
 const DEFAULT_TARGETS: Record<string, string> = {
   EXPENSE: 'COST',
@@ -32,7 +33,7 @@ const DEFAULT_TARGETS: Record<string, string> = {
   CONTRACT_CHANGE: 'CONTRACT_CHANGE',
   TRANSFER: 'TRANSFER',
   PAYROLL: 'PAYROLL',
-  SOP_REVIEW: 'SOP_REVIEW',
+  SOP_REVIEW: 'SOP_REVIEW', QUALITY_ANALYSIS:'QUALITY_ANALYSIS',
 };
 const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 class SyncIncomplete extends Error {}
@@ -58,7 +59,7 @@ export async function syncApproved(
   await tx.$executeRawUnsafe('SAVEPOINT approval_business_sync');
   try {
     if (target === 'UNCONFIGURED') throw new SyncIncomplete('请管理员配置此自定义审批的目标台账后重试');
-    if (target === 'SOP_REVIEW') { targetId = await syncSopReview(tx,instanceId,actor); } else if (target === 'COST') {
+    if (['SOP_REVIEW','QUALITY_ANALYSIS'].includes(target)) { targetId = await syncSopReview(tx,instanceId,actor); } else if (target === 'COST') {
       const rawAmount = String(data.amount ?? '');
       if (!/^\d{1,16}(\.\d{1,2})?$/.test(rawAmount) || new Prisma.Decimal(rawAmount).lte(0))
         throw new SyncIncomplete('缺少有效报销金额（amount），须大于零且最多两位小数');
@@ -200,7 +201,7 @@ export async function syncApproved(
     await tx.$executeRawUnsafe('RELEASE SAVEPOINT approval_business_sync');
     status = target === 'UNCONFIGURED' ? 'PENDING_CONFIG' : 'FAILED';
     reason =
-      target === 'SOP_REVIEW' ? 'SOP成果版本、流程状态、材料或审核权限已变化，请核实后重试' : error instanceof SyncIncomplete
+      ['SOP_REVIEW','QUALITY_ANALYSIS'].includes(target) ? '业务版本、流程状态、材料或审核权限已变化，请核实后重试' : error instanceof SyncIncomplete
         ? error.message
         : '业务关联或权限校验未通过，请核实原申请中的金额、分类、案件及岗位信息后重试';
   }
@@ -278,6 +279,7 @@ export class ApprovalSyncService {
     const instanceId = normalizeRequiredText(id, 1, 100);
     return this.prisma.$transaction(async (tx) => {
       await guardSopApproval(tx,this.context,instanceId,'READ');
+      await guardAnalysisApproval(tx,this.context,instanceId,'APPROVE');
       const sop = await tx.qualityReview.findUnique({where:{approvalInstanceId:instanceId},include:{submission:true}});
       if(sop) await requireSopTask(tx,this.context,sop.submission.taskId,'quality.review.decide');
       await lockSopApproval(tx,instanceId);

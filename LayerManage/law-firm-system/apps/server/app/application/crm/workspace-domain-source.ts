@@ -24,6 +24,7 @@ import { maskLeadPhone, maskLeadWechat } from './lead-projection';
 import { auditRawL3Access } from './lead-audit';
 
 export const domainSources = {
+  QUALITY_ANALYSES:{resource:'case',edit:'quality.analysis.manage',table:'special_analysis',columns:[['name','专项分析','TEXT'],['status','分析状态','TEXT'],['createdBy','创建人','CREATED_BY'],['createdAt','创建时间','CREATED_AT'],['updatedAt','更新时间','UPDATED_AT']]},
   QUALITY_REVIEWS: {resource:'case',edit:'quality.inspection.record',table:'quality_sampling_item',columns:[['name','抽检记录','TEXT'],['status','检查状态','TEXT'],['inspectorUserId','检查人','CREATED_BY'],['createdBy','创建人','CREATED_BY'],['createdAt','创建时间','CREATED_AT'],['updatedAt','更新时间','UPDATED_AT']]},
   QUALITY_ISSUES: {resource:'case',edit:'quality.issue.manage',table:'quality_issue',columns:[['name','问题名称','TEXT'],['status','整改状态','TEXT'],['assigneeUserId','整改负责人','CREATED_BY'],['dueAt','整改期限','DATETIME'],['createdBy','创建人','CREATED_BY'],['createdAt','创建时间','CREATED_AT'],['updatedAt','更新时间','UPDATED_AT']]},
 
@@ -312,7 +313,7 @@ export class WorkspaceDomainSource {
     const permission =
       action === 'update'
         ? domainSources[source].edit
-        : (source === 'QUALITY_REVIEWS' ? 'quality.inspection.read' : source === 'QUALITY_ISSUES' ? 'quality.issue.read' : source === 'SOP_TASKS' ? 'sop.task.read' : `${domainSources[source].resource}.${action}` as PermissionCode);
+        : (source === 'QUALITY_ANALYSES' ? 'quality.analysis.read' : source === 'QUALITY_REVIEWS' ? 'quality.inspection.read' : source === 'QUALITY_ISSUES' ? 'quality.issue.read' : source === 'SOP_TASKS' ? 'sop.task.read' : `${domainSources[source].resource}.${action}` as PermissionCode);
     if (!this.actor.permissionCodes.includes(permission)) fail('COLLAB_FORBIDDEN', 403);
     return permission;
   }
@@ -380,11 +381,11 @@ export class WorkspaceDomainSource {
   }
   async scope(source: DomainSource, access: Access, action = 'read') {
     const permission = this.authorize(source, action);
-    if(source==='QUALITY_REVIEWS'||source==='QUALITY_ISSUES') {
+    if(source==='QUALITY_REVIEWS'||source==='QUALITY_ISSUES'||source==='QUALITY_ANALYSES') {
       const root=await this.db.organization.findUnique({where:{id:access.organizationId}});if(!root||root.status!=='ENABLED')fail('COLLAB_FORBIDDEN',403);
       const orgs=await this.db.organization.findMany({where:{status:'ENABLED',OR:[{id:root.id},{path:{startsWith:root.path.replace(/\/$/,'')+'/'}}]},select:{id:true}});
       const where={case:{AND:[await qualityCaseScope(this.db,this.actor,permission),{branchId:{in:orgs.map(o=>o.id)}}]},...(access.selfOnly?{createdBy:this.actor.userId}:{})};
-      const rows=source==='QUALITY_REVIEWS'?await this.db.qualitySamplingItem.findMany({where,select:{id:true}}):await this.db.qualityIssue.findMany({where,select:{id:true}});
+      const rows=source==='QUALITY_ANALYSES'?await this.db.specialAnalysis.findMany({where,select:{id:true}}):source==='QUALITY_REVIEWS'?await this.db.qualitySamplingItem.findMany({where,select:{id:true}}):await this.db.qualityIssue.findMany({where,select:{id:true}});
       return rows.length?Prisma.sql`b.id IN (${Prisma.join(rows.map(r=>r.id))})`:Prisma.sql`FALSE`;
     }
     if(source==='SOP_TASKS') {

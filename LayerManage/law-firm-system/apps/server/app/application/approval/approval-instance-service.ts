@@ -1,4 +1,4 @@
-import { freezeSopReviewChecklist, guardSopApproval, lockSopApproval, sopApprovalScope, syncSopReview } from '../sop/review-policy';
+import { freezeSopReviewChecklist, guardSopApproval, lockSopApproval, sopApprovalScope, syncSopReview } from '../quality/managed-approval-policy';
 // SPEC-013 Task 5: approval-instance-service —— 审批实例全生命周期（审批中心业务核心）。
 // 形态逐段镜像 invoice-service：3 参构造 (prisma, actor, authorizationContext) + 可选
 // outbox；requireAction 每公开方法第一行；assertExactKeys 入参白名单；同事务 EventLog +
@@ -111,7 +111,8 @@ export class ApprovalInstanceService {
    */
   async applyForApproval(input: ApplyApprovalInput): Promise<ApprovalInstanceView> { return this.applyInternal(input); }
   async applySopReview(tx: Prisma.TransactionClient, input: ApplyApprovalInput, submissionId: string): Promise<ApprovalInstanceView> { return this.applyInternal(input,tx,submissionId); }
-  private async applyInternal(input: ApplyApprovalInput, transaction?: Prisma.TransactionClient, sopSubmissionId?: string): Promise<ApprovalInstanceView> {
+  async applyAnalysisClose(tx:Prisma.TransactionClient,input:ApplyApprovalInput,closeId:string):Promise<ApprovalInstanceView>{return this.applyInternal(input,tx,undefined,closeId);}
+  private async applyInternal(input: ApplyApprovalInput, transaction?: Prisma.TransactionClient, sopSubmissionId?: string, analysisCloseId?:string): Promise<ApprovalInstanceView> {
     this.authorization.requireAction(this.authorizationContext, 'approval.apply');
     assertExactKeys(input, ['definitionCode', 'title', 'content', 'idempotencyKey', 'attachmentIds', 'payrollBatchId', 'payrollVersion']);
     const definitionCode = normalizeRequiredText(input.definitionCode, 1, 100);
@@ -124,7 +125,7 @@ export class ApprovalInstanceService {
     if (requestKey) {
       const existing = await (transaction ?? this.prisma).approvalInstance.findUnique({ where: { requestKey } });
       if (existing) {
-        if (existing.businessType === 'SOP_REVIEW' && !sopSubmissionId) fileError('SOP_REVIEW_ADAPTER_REQUIRED', 409);
+        if ((existing.businessType === 'SOP_REVIEW' && !sopSubmissionId)||(existing.businessType === 'QUALITY_ANALYSIS'&&!analysisCloseId)) fileError('SOP_REVIEW_ADAPTER_REQUIRED', 409);
         if (existing.requestHash !== requestHash) fileError('APPROVAL_APPLY_KEY_CONFLICT', 409);
         return this.loadInstanceView(transaction ?? this.prisma, existing.id);
       }
@@ -138,6 +139,11 @@ export class ApprovalInstanceService {
       const sub = await transaction!.sopSubmission.findUniqueOrThrow({where:{id:sopSubmissionId!}});
       if (sub.submittedBy !== this.actor.actorUserId || input.content.submissionId !== sub.id || input.content.contentHash !== sub.contentHash) fileError('SOP_REVIEW_ADAPTER_REQUIRED',409);
     } else if (sopSubmissionId) fileError('SOP_REVIEW_ADAPTER_REQUIRED',409);
+    if(definition.businessType==='QUALITY_ANALYSIS'){
+      if(!transaction||!analysisCloseId)fileError('QUALITY_APPROVAL_ADAPTER_REQUIRED',409);
+      const close=await transaction!.analysisCloseRequest.findUniqueOrThrow({where:{id:analysisCloseId!},include:{analysis:true}});
+      if(close.createdBy!==this.actor.actorUserId||close.analysis.status!=='PENDING_CLOSE'||close.analysis.currentCloseId!==close.id||input.content.analysisId!==close.analysisId||input.content.closeRequestId!==close.id||input.content.contentHash!==close.contentHash)fileError('QUALITY_APPROVAL_ADAPTER_REQUIRED',409);
+    } else if(analysisCloseId)fileError('QUALITY_APPROVAL_ADAPTER_REQUIRED',409);
     this.assertContentMatchesSchema(input.content, definition.formSchema);
     if (definition.businessType === 'PAYROLL') {
       this.authorization.requireAction(this.authorizationContext, 'performance.update');
@@ -160,7 +166,7 @@ export class ApprovalInstanceService {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${requestKey}))::text`;
         const existing = await tx.approvalInstance.findUnique({ where: { requestKey } });
         if (existing) {
-          if (existing.businessType === 'SOP_REVIEW' && !sopSubmissionId) fileError('SOP_REVIEW_ADAPTER_REQUIRED', 409);
+          if ((existing.businessType === 'SOP_REVIEW' && !sopSubmissionId)||(existing.businessType === 'QUALITY_ANALYSIS'&&!analysisCloseId)) fileError('SOP_REVIEW_ADAPTER_REQUIRED', 409);
         if (existing.requestHash !== requestHash) fileError('APPROVAL_APPLY_KEY_CONFLICT', 409);
           return this.loadInstanceView(tx, existing.id);
         }
@@ -195,6 +201,7 @@ export class ApprovalInstanceService {
       }
 
       if (sopSubmissionId) await tx.qualityReview.update({where:{submissionId:sopSubmissionId},data:{approvalInstanceId:instance.id,reviewerUserId:node0ApproverIds[0],status:'PENDING',version:{increment:1}}});
+      if(analysisCloseId)await tx.analysisCloseRequest.update({where:{id:analysisCloseId},data:{approvalInstanceId:instance.id}});
       const payload: ApprovalInstanceCreatedV1 = {
         instanceId: instance.id,
         businessType: definition.businessType,

@@ -103,3 +103,6 @@ MAT-04B 遵循 [SPEC-AI-DESKTOP-20260913 §7](../../superpowers/specs/2026-09-13
 
 
 2026-09-17 SQ4已验收：QualityService及6表实现不可变抽检策略、月度固定候选/种子、无放回补抽、二级检查与问题整改修订，QUALITY_REVIEWS/QUALITY_ISSUES读取原ID，Quality页面按原授权办理；已结案件新增整改材料不修改原生命周期。对应SQ-AC-06/07及本阶段03/11/12；105模型65迁移，真实App与条件负载结果见SQ阶段计划。满意度专项分析/提醒/前期衔接仍待SQ5–SQ7。
+
+
+2026-09-17 SQ5已验收：独立SatisfactionAssessment、SpecialAnalysis及原QUALITY_ANALYSIS审批适配、任职指纹与配置提醒、QUALITY_ANALYSES原ID工作表和当前范围指标落地。对应SQ-AC-08/09及本阶段03/07/11/12；110模型66迁移，测试/真实App/100会话负载与限制见SQ阶段计划。完整前期衔接及桌面恢复仍待SQ6/SQ7。

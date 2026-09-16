@@ -5,6 +5,15 @@ import { requireAnyPermission } from './middleware/requireAnyPermission';
 
 export default (app: Application) => {
   const { router, controller } = app;
+  router.get('/api/v1/cases/:id/quality-assessments',controller.quality.assessments);
+  router.post('/api/v1/cases/:id/quality-assessments',controller.quality.assess);
+  router.get('/api/v1/quality/special-analyses',controller.quality.analyses);
+  router.get('/api/v1/quality/special-analyses/:id',controller.quality.analysis);
+  router.post('/api/v1/quality/special-analyses/:id',controller.quality.saveAnalysis);
+  router.get('/api/v1/quality/special-analyses/:id/reviewers',controller.quality.analysisReviewers);
+  router.post('/api/v1/quality/special-analyses/:id/close',controller.quality.closeAnalysis);
+  router.get('/api/v1/quality/metrics',controller.quality.metrics);
+
   router.get('/api/v1/quality/options',controller.quality.options);
   router.get('/api/v1/quality/policies',controller.quality.policies);
   router.post('/api/v1/quality/policies',controller.quality.createPolicy);

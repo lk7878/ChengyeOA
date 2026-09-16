@@ -1,3 +1,6 @@
+import { AssessmentHandler } from '../quality/assessment-handler';
+import { SopReminderHandler,SopReminderScanner } from '../sop/sop-reminder';
+import { SopChangeNotification,QualityChangeNotification } from '../sop/change-notification';
 import { randomUUID } from 'node:crypto';
 
 import { PrismaClient } from '@prisma/client';
@@ -135,6 +138,10 @@ export function createEventServices(
       };
     },
   });
+  registry.register({handlerCode:'QUALITY_ASSESSMENT_ANALYSIS',eventType:'quality.assessment.recorded',eventVersion:1,handler:new AssessmentHandler(),safeSummary:payload=>{const parsed=parseEventPayload<{id:string}>('quality.assessment.recorded',1,payload).payload;return {id:parsed.id};}});
+  registry.register({handlerCode:'SOP_REMINDER_NOTIFICATION',eventType:'sop.reminder.due',eventVersion:1,handler:new SopReminderHandler(),safeSummary:payload=>{const parsed=parseEventPayload<{id:string}>('sop.reminder.due',1,payload).payload;return {id:parsed.id};}});
+  registry.register({handlerCode:'SOP_CHANGE_NOTIFICATION',eventType:'sop.task.changed',eventVersion:1,handler:new SopChangeNotification(),safeSummary:payload=>{const parsed=parseEventPayload<{id:string}>('sop.task.changed',1,payload).payload;return {id:parsed.id};}});
+  registry.register({handlerCode:'QUALITY_CHANGE_NOTIFICATION',eventType:'quality.changed',eventVersion:1,handler:new QualityChangeNotification(),safeSummary:payload=>{const parsed=parseEventPayload<{id:string}>('quality.changed',1,payload).payload;return {id:parsed.id};}});
   registry.validate();
   const health = new EventHealthService(config.enabled);
   const dispatcher = new EventDispatcher(prisma, registry, health);
@@ -158,6 +165,8 @@ export function createEventServices(
       })
     : undefined;
   const tickListeners: Array<{ label: string; run: (now: Date) => Promise<void> }> = [];
+  const sopReminderScanner=new SopReminderScanner(prisma);
+  tickListeners.push({label:'sop-reminder-scanner',run:async now=>{await sopReminderScanner.scanOnce(now);}});
   if (leadRecycleScanner) {
     // scanOnce 返回回收条数；worker 的 listener 契约只关心完成/抛错，包一层丢弃计数。
     tickListeners.push({ label: 'lead-recycle-scanner', run: async now => { await leadRecycleScanner.scanOnce(now); } });

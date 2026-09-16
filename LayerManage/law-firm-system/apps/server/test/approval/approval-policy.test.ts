@@ -40,8 +40,8 @@ import {
 
 // ===== 词汇表（approval-types） =====
 
-test('APPROVAL_BUSINESS_TYPES includes custom and payroll business types in order', () => {
-  assert.deepEqual([...APPROVAL_BUSINESS_TYPES], ['EXPENSE', 'CONTRACT_CHANGE', 'SEAL', 'LEAVE', 'TRANSFER', 'CUSTOM', 'PAYROLL']);
+test('APPROVAL_BUSINESS_TYPES includes public and managed business types in order', () => {
+  assert.deepEqual([...APPROVAL_BUSINESS_TYPES], ['EXPENSE', 'CONTRACT_CHANGE', 'SEAL', 'LEAVE', 'TRANSFER', 'CUSTOM', 'PAYROLL', 'SOP_REVIEW', 'QUALITY_ANALYSIS']);
 });
 
 // SPEC-041：+SUPERVISOR（按申请人报告线路由直属上级/多级上溯）。

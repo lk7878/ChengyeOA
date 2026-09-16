@@ -4961,3 +4961,64 @@ test(
     } finally {await browser.close();await vite.close();}
   },
 );
+
+test(
+  'SQ5 real App records low satisfaction and closes analysis through original approval',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web'),
+      load = new Function('url', 'return import(url)');
+    const { chromium, expect } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'sq3-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence/sq5');
+    await mkdir(evidence, { recursive: true });
+    const errors: string[] = [];
+
+    try {
+      const role=await db.role.create({data:{code:'SYSTEM_SUPER_ADMIN',name:'系统管理员',type:'SYSTEM'}});await db.userRole.create({data:{userId:owner,roleId:role.id}});const adminToken=(await createApiSession(db,owner,'MFA')).token;
+      const employee=await db.employee.create({data:{employeeNo:'SQ5_EMP',name:'专项审核员',phone:'13800000000',type:'ASSISTANT',entryDate:new Date()}});await db.user.update({where:{id:editor},data:{employeeId:employee.id}});
+      const all=await db.dataScope.create({data:{name:'获权分析范围',scopeType:'ALL'}}),reviewRole=await db.role.create({data:{code:'SQ5_REVIEWER',name:'专项审核岗位',type:'BUSINESS',permissions:{create:['menu.quality','case.read','quality.analysis.read','quality.analysis.decide','approval.read','approval.process','approval.manage'].map(code=>({permission:{connect:{code}}}))},dataScopes:{create:{resource:'case',dataScopeId:all.id}}}});await db.userRole.create({data:{userId:editor,roleId:reviewRole.id}});
+      const outsider=await db.user.create({data:{username:'sq5-outsider',password:'unused',mustChangePassword:false}}),outsideToken=(await createApiSession(db,outsider.id)).token;
+      const org=(await db.organization.findFirstOrThrow()).id,customer=await db.customer.create({data:{customerNo:'SQ5_CUSTOMER',name:'评估隔离客户',phone:'13800000000',phoneHash:'test',createdBy:owner}}),caseRow=await db.case.create({data:{caseNo:'SQ5_CASE',title:'评估隔离案件',customerId:customer.id,caseType:'医疗纠纷',branchId:org,createdBy:owner,status:'CLOSED',closedAt:new Date(),satisfaction:4}});
+      const api=(method:'get'|'post',route:string,bearer=adminToken,body?:unknown)=>{const req=app.httpRequest()[method]('/api/v1'+route).set('Authorization','Bearer '+bearer).set('Idempotency-Key',randomUUID());return body===undefined?req:req.send(body);};
+      const table=(await api('post','/bases/'+baseId+'/tables',adminToken,{name:'专项分析',source:'QUALITY_ANALYSES'}).expect(200)).body.data;
+      const pages=[];for(const [id,bearer] of [[owner,adminToken],[editor,editorToken],[outsider.id,outsideToken]]){const context=await browser.newContext({viewport:{width:1440,height:1000}});await context.addInitScript('window.unifiedTestSession='+JSON.stringify({mode:'AUTHENTICATED',token:bearer,csrfToken:'test',expiresIn:900,user:{id,username:id,name:'SQ5验收',roles:[],permissions:[]}})+';');const page=await context.newPage();page.on('pageerror',(e:Error)=>errors.push(e.message));pages.push(page);}
+      const [admin,reviewer,denied]=pages,address=vite.resolvedUrls.local[0];
+      await admin.goto(address+'cases/'+caseRow.id+'/assessments');await admin.getByRole('button',{name:'登记评估',exact:true}).click();const dialog=admin.getByRole('dialog');await dialog.getByLabel('百分制分数（可空）',{exact:true}).fill('79');await dialog.getByLabel('评估来源',{exact:true}).fill('客户回访');await dialog.getByLabel('评估日期',{exact:true}).fill('2026-09-17T09:00');await dialog.getByLabel('证据或可核验引用',{exact:true}).fill('回访沟通记录与评价依据');await dialog.getByRole('button',{name:'保存评估',exact:true}).click();await dialog.waitFor({state:'hidden'});
+      const {createEventServices}=await import('../../app/application/events/event-services-factory');const events=createEventServices(db,{enabled:false,shutdownSeconds:30,pollMs:1000,batchSize:100,leaseSeconds:60});for(let i=0;i<3;i++)await events.worker.tick();const analysis=await db.specialAnalysis.findFirstOrThrow();await admin.getByRole('link',{name:'专项分析 · 待分析',exact:true}).click();
+      await admin.getByLabel('分析过程',{exact:true}).fill('第一轮分析过程');await admin.getByLabel('分析结论',{exact:true}).fill('初步结论');let offline=true;await admin.route('**/api/v1/quality/special-analyses/'+analysis.id,async(route:{request():{method():string};abort(reason:string):Promise<void>;continue():Promise<void>})=>{if(offline&&route.request().method()==='POST'){offline=false;return route.abort('internetdisconnected');}return route.continue();});await admin.getByRole('button',{name:'保存分析版本',exact:true}).click();await expect(admin.getByLabel('分析过程',{exact:true})).toHaveValue('第一轮分析过程');await expect(admin.getByRole('button',{name:'保存分析版本',exact:true})).toBeEnabled({timeout:15000});await db.specialAnalysis.update({where:{id:analysis.id},data:{version:{increment:1}}});await admin.getByRole('button',{name:'保存分析版本',exact:true}).click();await admin.getByRole('button',{name:'采用最新分析版本',exact:true}).click();await expect(admin.getByLabel('分析过程',{exact:true})).toHaveValue('第一轮分析过程');await admin.getByRole('button',{name:'保存分析版本',exact:true}).click();await expect.poll(()=>db.analysisRevision.count()).toBe(1);
+      async function closeAnalysis(){await admin.getByRole('button',{name:'申请关闭专项分析',exact:true}).click();const select=admin.getByLabel('关闭审核人',{exact:true});await select.click();const listId=await select.getAttribute('aria-controls');await admin.locator('.ant-select-dropdown').filter({has:admin.locator('[id='+JSON.stringify(listId)+']')}).locator('.ant-select-item-option-content').getByText('专项审核员',{exact:true}).click();await admin.getByRole('dialog').getByRole('button',{name:'提交关闭审核',exact:true}).click();await admin.getByRole('dialog').waitFor({state:'hidden'});}
+      async function openApproval(){const close=await db.analysisCloseRequest.findFirstOrThrow({where:{analysisId:analysis.id},orderBy:{createdAt:'desc'}});await reviewer.goto(address+'approvals?role=TODO&instance='+close.approvalInstanceId);await reviewer.getByRole('dialog',{name:'审批详情',exact:true}).locator('.ant-modal-close').click();}
+      await closeAnalysis();await openApproval();await reviewer.getByRole('button',{name:'驳回',exact:true}).click();await reviewer.getByRole('dialog',{name:'驳回审批'}).getByLabel('审批意见（可选）').fill('补充核实分析');await reviewer.getByRole('button',{name:'确认驳回',exact:true}).click();await expect(admin.getByLabel('分析过程',{exact:true})).toBeEnabled({timeout:15000});await admin.getByLabel('分析过程',{exact:true}).fill('第二轮分析：核实经过并补充证据');await admin.getByLabel('分析结论',{exact:true}).fill('已完成核实并形成结论');await admin.getByRole('button',{name:'保存分析版本',exact:true}).click();await expect.poll(()=>db.analysisRevision.count()).toBe(2);await closeAnalysis();
+      for(const width of [1440,1024,390]){await admin.setViewportSize({width,height:1000});await admin.screenshot({path:path.join(evidence,'analysis-'+width+'.png'),fullPage:true});assert.ok(await admin.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2));}await admin.setViewportSize({width:1440,height:1000});await openApproval();await reviewer.getByRole('button',{name:'审批通过',exact:true}).click();await reviewer.getByRole('button',{name:'确认通过',exact:true}).click();await expect.poll(async()=>(await db.specialAnalysis.findUniqueOrThrow({where:{id:analysis.id}})).status).toBe('CLOSED');
+      const rows=(await api('post','/tables/'+table.id+'/records/query',adminToken,{}).expect(200)).body.data.records;assert.equal(rows[0].id,analysis.id);assert.equal(await db.collabRecord.count({where:{tableId:table.id}}),0);assert.ok(await db.collabEvent.count({where:{baseId,kind:'business.changed'}}));assert.deepEqual(await db.case.findUniqueOrThrow({where:{id:caseRow.id}}),caseRow);
+      await api('get','/quality/special-analyses/'+analysis.id,outsideToken).expect(403);await denied.goto(address+'quality/special-analyses/'+analysis.id);await expect(denied.getByLabel('分析过程',{exact:true})).toHaveCount(0);await reviewer.goto(address+'quality/special-analyses/'+analysis.id);await reviewer.getByRole('heading',{name:'低满意度专项分析',exact:true}).waitFor();await db.userRole.deleteMany({where:{userId:editor}});await reviewer.getByRole('heading',{name:'低满意度专项分析',exact:true}).waitFor({state:'hidden',timeout:15000});assert.deepEqual(errors,[]);
+    }catch(error){for(const [i,context]of browser.contexts().entries())for(const page of context.pages()){await writeFile(path.join(evidence,'failed-aria-'+i+'.txt'),await page.locator('body').ariaSnapshot());await page.screenshot({path:path.join(evidence,'failed-'+i+'.png'),fullPage:true}).catch(()=>undefined);}throw error;
+    }finally{await browser.close();await vite.close();}
+  },
+);

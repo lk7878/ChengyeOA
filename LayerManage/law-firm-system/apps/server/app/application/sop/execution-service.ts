@@ -1,3 +1,4 @@
+import { employmentStamp } from './employment-stamp';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { AuthorizationContextLoader } from '../authorization/authorization-context-loader';
@@ -377,7 +378,7 @@ export class SopExecutionService {
           }
           if (assignee)
             await tx.sopTaskAccess.create({
-              data: { taskId: id, principalUserId: assignee, grantedBy: ctx.userId, validUntil: until },
+              data: { taskId: id, principalUserId: assignee, grantedBy: ctx.userId, validUntil: until, employmentStamp:await employmentStamp(tx,assignee) },
             });
           update.assignee = assignee ? { connect: { id: assignee } } : { disconnect: true };
         }

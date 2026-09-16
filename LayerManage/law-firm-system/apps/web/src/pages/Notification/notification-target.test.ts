@@ -41,3 +41,14 @@ test('untrusted notification routes cannot leave the app or introduce unknown de
     expect(notificationTarget({ routeUrl }, auth)).toBeNull();
   expect(notificationTarget({ routeUrl: '/approvals?instance=real' }, auth)).toBe('/approvals?instance=real');
 });
+
+test('SOP and quality notifications open original records only with current permissions', () => {
+  for (const [relatedType, routeUrl, permission] of [
+    ['SOP_TASK', '/sop/tasks/original-task', 'sop.task.read'],
+    ['QUALITY_ISSUE', '/quality/issues/original-issue', 'quality.issue.read'],
+  ] as const) {
+    const row = { relatedType, relatedId: routeUrl.split('/').at(-1), routeUrl };
+    expect(notificationTarget(row, { ...auth, permissions: [permission, 'case.read'], menus: ['menu.quality', 'menu.sop_tasks'] })).toBe(routeUrl);
+    expect(notificationTarget(row, { ...auth, permissions: [], menus: [] })).toBeNull();
+  }
+});

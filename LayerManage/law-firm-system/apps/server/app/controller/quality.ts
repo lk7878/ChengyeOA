@@ -1,7 +1,17 @@
+import { AnalysisService } from '../application/quality/analysis-service';
 import { Controller } from 'egg';
 import { QualityService } from '../application/quality/quality-service';
 import { auditActor } from '../application/master-data/master-data-factory';
 export default class QualityController extends Controller {
+  private analysisService(){return new AnalysisService(this.ctx.prisma,auditActor(this.ctx),this.ctx.state.authorization);}
+  async assessments(){this.respond(await this.analysisService().assessments(this.ctx.params.id));}
+  async assess(){this.respond(await this.analysisService().createAssessment(this.ctx.params.id,this.ctx.request.body));}
+  async analyses(){this.respond(await this.analysisService().list(this.ctx.query));}
+  async analysis(){this.respond(await this.analysisService().get(this.ctx.params.id));}
+  async saveAnalysis(){this.respond(await this.analysisService().save(this.ctx.params.id,this.ctx.request.body));}
+  async analysisReviewers(){this.respond(await this.analysisService().reviewers(this.ctx.params.id));}
+  async closeAnalysis(){this.respond(await this.analysisService().requestClose(this.ctx.params.id,this.ctx.request.body));}
+  async metrics(){this.respond(await this.analysisService().metrics());}
   private qualityService() {
     return new QualityService(this.ctx.prisma, auditActor(this.ctx), this.ctx.state.authorization);
   }

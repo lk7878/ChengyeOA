@@ -180,8 +180,8 @@ test('PERMISSION_CODES registers every SPEC-013 approval permission code', () =>
   }
 });
 
-test('PERMISSION_CODES matches the current catalog baseline (146)', () => {
-  assert.equal(PERMISSION_CODES.length, 146);
+test('PERMISSION_CODES exactly matches the current catalog', () => {
+  assert.deepEqual([...PERMISSION_CODES].sort(), PERMISSION_CATALOG.map(item => item.code).sort());
   assert.equal(new Set(PERMISSION_CODES).size, PERMISSION_CODES.length);
 });
 

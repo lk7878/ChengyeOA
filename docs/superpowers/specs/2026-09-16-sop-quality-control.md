@@ -2,7 +2,7 @@
 
 - ID：SPEC-SOP-QC-20260916
 - 日期：2026-09-16
-- 状态：分阶段实施；SQ1–SQ4已验收，完整交付待SQ7
+- 状态：分阶段实施；SQ1–SQ5已验收，完整交付待SQ7
 - 来源：用户要求继续规划 SOP 和质检；承接已验收 U5–U7，不重开已完成阶段。
 - 实施计划：[SQ 阶段计划](../plans/2026-09-16-sop-quality-control.md)
 
@@ -205,3 +205,6 @@ CaseTask增量sopInstanceId/nodeCode/nodeSnapshot/createdBy/updatedBy/assigneeUs
 新增/已实现页面：admin/quality-rules策略版本、quality/runs批次、quality/reviews二级共同表、quality/issues整改共同表及原ID详情。QUALITY_REVIEWS投影SamplingItem，QUALITY_ISSUES投影Issue，无CollabRecord镜像，系统状态不可经字段编辑绕过受控动作。
 
 已结案件整改可在SUBMIT中上传材料，但仍需独立case.file.manage，新增CaseFile并立即冻结引用；旧文件不覆盖，引用文件禁止删除。此入口不更新Case/Task/财务状态和版本；普通案件文件接口继续拒绝终态写入。单文件10MB、每次10个，失败事务清理确定未提交的本次文件，不删除提交结果不明的字节。历史下载重新核验文件范围与摘要。
+
+
+SQ5已按阶段计划验收，百分制评估/专项关闭审批/站内提醒/范围统计已落地，旧星级不变。SQ6的真源上下文、节点选择、独立前期材料及接续契约见[SQ阶段计划](../plans/2026-09-16-sop-quality-control.md#sq6-开工契约)，实现前期部分前仍不宣称完整三团队闭环。

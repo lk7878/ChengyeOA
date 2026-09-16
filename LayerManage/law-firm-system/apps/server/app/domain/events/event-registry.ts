@@ -1008,7 +1008,10 @@ const qualityChanged: EventDefinition<{id:string;version:number;action:string;ty
  sourceModule:'QUALITY',objectType:'QUALITY',filterFields:new Set(['action','type']),
  parsePayload(raw:unknown){assertSafeJson(raw);assertPayloadSize(raw);const v=requirePlainObject(raw,'Quality event');assertExactKeys(v,['id','version','action','type'],'Quality event');const version=requireNonNegativeInteger(v.version,'version');if(version<1)throw new Error('Invalid quality version');return {id:requireUuid(v.id,'id'),version,action:requireString(v.action,'action'),type:requireString(v.type,'type')};},extractObjectId(v){return v.id;}
 };
+function idOnlyDefinition(sourceModule:string,objectType:string):EventDefinition<{id:string}>{return {sourceModule,objectType,filterFields:new Set(),parsePayload(raw:unknown){assertSafeJson(raw);assertPayloadSize(raw);const v=requirePlainObject(raw,'Quality source');assertExactKeys(v,['id'],'Quality source');return {id:requireUuid(v.id,'id')};},extractObjectId(v){return v.id;}};}
 const EVENT_DEFINITIONS = new Map<string, EventDefinition<unknown>>([
+  [eventKey('quality.assessment.recorded',1),idOnlyDefinition('QUALITY','SATISFACTION_ASSESSMENT')],
+  [eventKey('sop.reminder.due',1),idOnlyDefinition('SOP','SOP_REMINDER')],
   [eventKey('quality.changed',1),qualityChanged],
   [eventKey('sop.guidance.created',1),sopGuidanceCreated],
   [eventKey('sop.instance.changed',1),sopChangedDefinition('SOP_INSTANCE')],

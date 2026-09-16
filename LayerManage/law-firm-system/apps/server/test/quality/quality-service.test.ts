@@ -321,3 +321,8 @@ test('SQ4 inspection conflicts and revoked record permission never duplicate iss
   await assert.rejects(svc.inspect(item.id, input));
   assert.equal(await db.qualityIssue.count(), 1);
 });
+
+test('SQ5 closed-case remediation notifications remain actionable and skip stale or revoked recipients',async()=>{
+ const {QualityChangeNotification}=await import('../../app/application/sop/change-notification');const issue=await failInspection();await svc.act(issue.id,action('ASSIGN',1,{assigneeUserId:staff,dueAt:'2026-10-01T00:00:00Z'}));const row=await db.qualityIssue.findUniqueOrThrow({where:{id:issue.id}});
+ const deliver=(version:number)=>db.$transaction(tx=>new QualityChangeNotification().handle(tx,{eventId:randomUUID(),deliveryId:randomUUID(),handlerCode:'QUALITY_CHANGE_NOTIFICATION',orderingKey:row.id,eventType:'quality.changed',eventVersion:1,payload:{id:row.id,type:'QUALITY_ISSUE',action:'ASSIGN',version},traceId:row.id,attemptNumber:1,workerId:'test'}));await deliver(row.version-1);assert.equal(await db.notification.count(),0);await deliver(row.version);await deliver(row.version);assert.equal(await db.notification.count({where:{userId:staff}}),1);assert.equal((await db.notification.findFirstOrThrow()).routeUrl,'/quality/issues/'+row.id);await db.notification.deleteMany();await db.userRole.deleteMany({where:{userId:staff}});await deliver(row.version);assert.equal(await db.notification.count(),0);
+});

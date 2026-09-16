@@ -174,6 +174,12 @@ model ProfessionalTeamMember {
 // ==================== 用户/权限模块 ====================
 
 model User {
+  assessments SatisfactionAssessment[] @relation("AssessmentCreator")
+  specialAnalyses SpecialAnalysis[] @relation("AnalysisCreator")
+  analysisRevisions AnalysisRevision[] @relation("AnalysisRevisionCreator")
+  analysisCloseRequests AnalysisCloseRequest[] @relation("AnalysisCloseCreator")
+  analysisCloseReviews AnalysisCloseRequest[] @relation("AnalysisCloseReviewer")
+  sopReminderEmissions SopReminderEmission[] @relation("SopReminderRecipient")
   qualityPolicies QualitySamplingPolicy[]
   qualityRuns QualitySamplingRun[]
   qualityInspections QualitySamplingItem[] @relation("QualityInspector")
@@ -1125,6 +1131,8 @@ model CostEntry {
 // ==================== 案件模块 ====================
 
 model Case {
+  assessments SatisfactionAssessment[]
+  specialAnalyses SpecialAnalysis[]
   qualitySamples QualitySamplingItem[]
   qualityIssues QualityIssue[]
   sopInstances SopInstance[]
@@ -1170,6 +1178,7 @@ model Case {
 
 // SPEC-042：案件文件/证据台账——base64 上传落盘，落盘用 UUID 文件名防路径穿越，fileName 仅存元数据。
 model CaseFile {
+  assessments SatisfactionAssessment[]
   qualityAttachments IssueAttachment[]
   sopAttachments SubmissionAttachment[]
   id         String   @id @default(uuid())
@@ -1189,6 +1198,7 @@ model CaseFile {
 }
 
 model CaseTask {
+  reminderEmissions SopReminderEmission[]
   activeSubmissionId String? @unique
   activeSubmission SopSubmission? @relation("SopCurrentSubmission", fields: [activeSubmissionId], references: [id], onDelete: Restrict)
   submissions SopSubmission[] @relation("SopTaskSubmissions")
@@ -1295,6 +1305,7 @@ model ApprovalDefinition {
 }
 
 model ApprovalInstance {
+  analysisClose AnalysisCloseRequest?
   qualityReview QualityReview?
   syncRecord        ApprovalSyncRecord?
   payrollBatch      PayrollBatch?
@@ -2083,6 +2094,7 @@ model SopInstance {
 
 
 model SopTaskAccess {
+  employmentStamp String?
   id String @id @default(uuid())
   taskId String
   principalUserId String
@@ -2282,4 +2294,96 @@ model IssueAttachment {
   file CaseFile @relation(fields:[fileId],references:[id],onDelete:Restrict)
   @@unique([revisionId,fileId])
   @@map("issue_attachment")
+}
+
+model SatisfactionAssessment {
+  id String @id @default(uuid())
+  caseId String
+  score Int?
+  scale String @default("HUNDRED_V1")
+  source String
+  evidence String
+  evidenceFileId String?
+  evidenceHash String?
+  assessedAt DateTime
+  correctionOfId String? @unique
+  correctionReason String?
+  number Int @default(1)
+  createdBy String
+  createdAt DateTime @default(now())
+  case Case @relation(fields:[caseId],references:[id],onDelete:Restrict)
+  file CaseFile? @relation(fields:[evidenceFileId],references:[id],onDelete:Restrict)
+  correctionOf SatisfactionAssessment? @relation("AssessmentCorrection",fields:[correctionOfId],references:[id],onDelete:Restrict)
+  correction SatisfactionAssessment? @relation("AssessmentCorrection")
+  creator User @relation("AssessmentCreator",fields:[createdBy],references:[id],onDelete:Restrict)
+  analysis SpecialAnalysis?
+  @@index([caseId,createdAt])
+  @@map("satisfaction_assessment")
+}
+model SpecialAnalysis {
+  name String @default("低满意度专项分析")
+  id String @id @default(uuid())
+  assessmentId String @unique
+  caseId String
+  status String @default("OPEN")
+  content String @default("")
+  conclusion String @default("")
+  currentCloseId String? @unique
+  createdBy String
+  updatedBy String?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  assessment SatisfactionAssessment @relation(fields:[assessmentId],references:[id],onDelete:Restrict)
+  case Case @relation(fields:[caseId],references:[id],onDelete:Restrict)
+  creator User @relation("AnalysisCreator",fields:[createdBy],references:[id],onDelete:Restrict)
+  currentClose AnalysisCloseRequest? @relation("CurrentAnalysisClose",fields:[currentCloseId],references:[id],onDelete:Restrict)
+  closes AnalysisCloseRequest[] @relation("AnalysisCloses")
+  revisions AnalysisRevision[]
+  @@index([caseId,status])
+  @@map("special_analysis")
+}
+model AnalysisRevision {
+  id String @id @default(uuid())
+  analysisId String
+  number Int
+  content String
+  conclusion String
+  createdBy String
+  createdAt DateTime @default(now())
+  analysis SpecialAnalysis @relation(fields:[analysisId],references:[id],onDelete:Restrict)
+  creator User @relation("AnalysisRevisionCreator",fields:[createdBy],references:[id],onDelete:Restrict)
+  @@unique([analysisId,number])
+  @@map("analysis_revision")
+}
+model AnalysisCloseRequest {
+  id String @id @default(uuid())
+  analysisId String
+  analysisVersion Int
+  contentSnapshot Json
+  contentHash String
+  createdBy String
+  reviewerUserId String
+  approvalInstanceId String? @unique
+  status String @default("PENDING")
+  createdAt DateTime @default(now())
+  analysis SpecialAnalysis @relation("AnalysisCloses",fields:[analysisId],references:[id],onDelete:Restrict)
+  currentFor SpecialAnalysis? @relation("CurrentAnalysisClose")
+  creator User @relation("AnalysisCloseCreator",fields:[createdBy],references:[id],onDelete:Restrict)
+  reviewer User @relation("AnalysisCloseReviewer",fields:[reviewerUserId],references:[id],onDelete:Restrict)
+  approval ApprovalInstance? @relation(fields:[approvalInstanceId],references:[id],onDelete:Restrict)
+  @@map("analysis_close_request")
+}
+model SopReminderEmission {
+  id String @id @default(uuid())
+  taskId String
+  taskVersion Int
+  kind String
+  recipientId String
+  dueAt DateTime
+  createdAt DateTime @default(now())
+  task CaseTask @relation(fields:[taskId],references:[id],onDelete:Restrict)
+  recipient User @relation("SopReminderRecipient",fields:[recipientId],references:[id],onDelete:Restrict)
+  @@unique([taskId,taskVersion,kind,recipientId])
+  @@map("sop_reminder_emission")
 }

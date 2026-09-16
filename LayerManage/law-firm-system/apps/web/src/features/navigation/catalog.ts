@@ -28,6 +28,11 @@ const lead: PermissionCode[] = ['menu.lead_crm', 'lead.read'];
 const customer: PermissionCode[] = ['menu.customer', 'customer.read'];
 const contract: PermissionCode[] = ['menu.contract', 'contract.read'];
 export const entries: NavigationEntry[] = [
+  {path:'/cases/:id/assessments',title:'百分制满意度',area:'apps',group:'质量管理',required:['quality.assessment.read','case.read'],hidden:true,parent:'/cases'},
+  {path:'/quality/special-analyses',title:'专项分析',area:'apps',group:'质量管理',required:['menu.quality','quality.analysis.read','case.read']},
+  {path:'/quality/special-analyses/:id',title:'专项分析办理',area:'apps',group:'质量管理',required:['quality.analysis.read','case.read'],hidden:true,parent:'/quality/special-analyses'},
+  {path:'/analytics/quality',title:'交付质量',area:'analytics',group:'业务指标',required:['quality.metric.read','case.read']},
+
   {path:'/admin/quality-rules',title:'抽检策略',area:'admin',group:'流程与质检配置',required:['menu.quality','quality.sample.read']},
   {path:'/quality/runs',title:'抽检批次',area:'apps',group:'质量管理',required:['menu.quality','quality.sample.read']},
   {path:'/quality/runs/:id',title:'抽检批次详情',area:'apps',group:'质量管理',required:['quality.sample.read'],hidden:true,parent:'/quality/runs'},

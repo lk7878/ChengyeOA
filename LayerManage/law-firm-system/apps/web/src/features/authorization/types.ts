@@ -1,5 +1,12 @@
 export const PERMISSION_CODES = [
   'menu.quality',
+  'quality.assessment.read',
+  'quality.assessment.record',
+  'quality.analysis.read',
+  'quality.analysis.manage',
+  'quality.analysis.close',
+  'quality.analysis.decide',
+  'quality.metric.read',
   'quality.sample.read',
   'quality.sample.manage',
   'quality.inspection.read',

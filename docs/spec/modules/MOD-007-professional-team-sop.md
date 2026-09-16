@@ -219,3 +219,6 @@ SOP 节点 / 字段配置（医疗 / 执行 / 刑事三团队的节点、材料�
 
 
 2026-09-17 SQ3已验收：SopSubmission/SubmissionAttachment、ExpertGuidance和QualityReview落地；SopSubmissionService与原ApprovalInstance/Sync服务完成冻结版本、一级检查、退回修订及同步失败重试，SopExecution/SubmissionPage提供真实办理入口。对应SQ-AC-05及SQ-AC-03/04/11/12本阶段范围；64迁移99模型。实际测试与失败修复见SQ阶段计划，二级抽检、专项分析及前期衔接仍属SQ4–SQ7，不将一级审核视为完整质检交付。
+
+
+2026-09-17 SQ5已验收：独立SatisfactionAssessment、SpecialAnalysis及原QUALITY_ANALYSIS审批适配、任职指纹与配置提醒、QUALITY_ANALYSES原ID工作表和当前范围指标落地。对应SQ-AC-08/09及本阶段03/07/11/12；110模型66迁移，测试/真实App/100会话负载与限制见SQ阶段计划。完整前期衔接及桌面恢复仍待SQ6/SQ7。

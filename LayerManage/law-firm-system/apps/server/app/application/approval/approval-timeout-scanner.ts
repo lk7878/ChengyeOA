@@ -1,3 +1,5 @@
+import { guardAnalysisApproval } from '../quality/analysis-review-policy';
+import { qualityActor } from '../quality/quality-scope';
 import { Prisma, PrismaClient } from '@prisma/client';
 
 /**
@@ -31,6 +33,7 @@ export interface ApprovalTimeoutScannerConfig {
 }
 
 export class ApprovalTimeoutScanner {
+  private cursor: { createdAt: Date; id: string } | null = null;
   constructor(
     private readonly prisma: PrismaClient,
     private readonly config: ApprovalTimeoutScannerConfig,
@@ -79,16 +82,29 @@ export class ApprovalTimeoutScanner {
       where: {
         status: 'PENDING',
         createdAt: { lt: cutoff },
+        ...(this.cursor ? { OR: [
+          { createdAt: { gt: this.cursor.createdAt } },
+          { createdAt: this.cursor.createdAt, id: { gt: this.cursor.id } },
+        ] } : {}),
         ...(notifiedTaskIds.length > 0 ? { id: { notIn: notifiedTaskIds } } : {}),
-        instance: { status: 'PENDING' },
+        instance: { status: 'PENDING',businessType:{not:'SOP_REVIEW'} },
       },
-      include: { instance: { select: { id: true, title: true, applicantId: true } } },
+      include: { instance: { select: { id: true, title: true, applicantId: true,businessType:true } } },
       take: this.config.batchSize,
-      orderBy: [{ createdAt: 'asc' }],
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
+    // Revoked managed reviewers produce no notification; still advance past them.
+    // Wrap after the last page so a subsequently restored grant is reconsidered.
+    const last = tasks.at(-1);
+    this.cursor = tasks.length === this.config.batchSize && last
+      ? { createdAt: last.createdAt, id: last.id } : null;
 
     let notifiedCount = 0;
     for (const task of tasks) {
+      if(task.instance.businessType==='QUALITY_ANALYSIS'){
+        try{const ctx=await qualityActor(this.prisma,task.assigneeId);await guardAnalysisApproval(this.prisma,ctx,task.instanceId,'APPROVE');const close=await this.prisma.analysisCloseRequest.findUnique({where:{approvalInstanceId:task.instanceId},include:{analysis:true}});if(!close||close.status!=='PENDING'||close.analysis.currentCloseId!==close.id||close.analysis.status!=='PENDING_CLOSE')continue;}catch(error){const status=(error as {status?:number})?.status;if(status&&status>=400&&status<500)continue;throw error;}
+      }
+
       const dedupKey = `${this.config.dedupPrefix}:${task.instanceId}:${task.id}:${dateKey(now)}`;
       const existing = await this.prisma.notification.findUnique({
         where: { deduplicationKey: dedupKey },
@@ -96,7 +112,12 @@ export class ApprovalTimeoutScanner {
       if (existing) continue;
 
       try {
-        await this.prisma.$transaction(async tx => {
+        const inserted = await this.prisma.$transaction(async tx => {
+          if (task.instance.businessType === 'QUALITY_ANALYSIS') {
+            const current = await tx.approvalTask.findUnique({ where: { id: task.id }, include: { instance: true } });
+            if (current?.status !== 'PENDING' || current.instance.status !== 'PENDING') return false;
+            await guardAnalysisApproval(tx, await qualityActor(tx, task.assigneeId), task.instanceId, 'APPROVE');
+          }
           await tx.notification.create({
             data: {
               userId: task.assigneeId,
@@ -124,9 +145,11 @@ export class ApprovalTimeoutScanner {
               ip: 'system',
             },
           });
+          return true;
         });
-        notifiedCount += 1;
+        if (inserted) notifiedCount += 1;
       } catch (error) {
+        if (task.instance.businessType === 'QUALITY_ANALYSIS' && [401, 403, 404, 409].includes((error as { status?: number }).status ?? 0)) continue;
         // 并发防重：同一 dedup key 唯一冲突 → 视为已提醒跳过。
         if (isUniqueConflictOn(error, 'deduplicationKey')) continue;
         throw error;

@@ -1,4 +1,4 @@
-import { guardSopApproval } from '../sop/review-policy';
+import { guardSopApproval } from '../quality/managed-approval-policy';
 import { createHash } from 'node:crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
@@ -23,7 +23,7 @@ export class ApprovalAttachmentService {
     if (!manage) this.authorization.requireAction(this.context, 'approval.read');
     const instance = await db.approvalInstance.findFirst({ where: { id: instanceId, ...(manage ? {} : { OR: [{ applicantId: this.actor.actorUserId }, { tasks: { some: { assigneeId: this.actor.actorUserId } } }] }) } });
     if (!instance) fileError('APPROVAL_FILE_NOT_FOUND', 404);
-    if (instance.businessType === 'SOP_REVIEW') await guardSopApproval(db,this.context,instance.id,'READ');
+    if (['SOP_REVIEW','QUALITY_ANALYSIS'].includes(instance.businessType)) await guardSopApproval(db,this.context,instance.id,'READ');
     return instance;
   }
   private async readable(db: Db, id: string) {

@@ -1,3 +1,4 @@
+import { employmentStamp } from './employment-stamp';
 import { Prisma } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
@@ -12,6 +13,7 @@ async function scopeParts(
   permission: PermissionCode,
   resource: 'sop_task' | 'sop_instance',
 ) {
+  if(ctx.employeeId&&!(await db.employee.count({where:{id:ctx.employeeId,status:{not:'LEAVED'},deletedAt:null}})))sopFail('QUALITY_ACTOR_INACTIVE',403);
   const auth = new AuthorizationService(new DataScopeService(db));
   auth.requireAction(ctx, permission);
   const scope = await auth.resolveScopeTargets(ctx, resource, permission);
@@ -54,10 +56,12 @@ export async function sopTaskScope(
     clauses.push({ sopInstance: { templateVersion: { template: { OR: p.templates } } } });
   if (['sop.task.read', 'sop.task.execute', 'sop.report.read', 'sop.report.submit', 'sop.guidance.read', 'sop.guidance.create'].includes(permission)) {
     const now = new Date();
+    const stamp=await employmentStamp(db,ctx.userId,now);
     clauses.push({
       sopAccesses: {
         some: {
           principalUserId: ctx.userId,
+          employmentStamp:stamp??'INVALID',
           revokedAt: null,
           validFrom: { lte: now },
           OR: [{ validUntil: null }, { validUntil: { gt: now } }],

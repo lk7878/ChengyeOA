@@ -1,3 +1,4 @@
+import {AssessmentPage,AnalysisPage,QualityMetricsPage} from './pages/Quality/AnalysisPages';
 import {QualityRulesPage,QualityRunsPage,QualityRunPage,QualityInspectionPage,QualityIssuePage} from './pages/Quality';
 import SopSubmissionPage from './pages/SopExecution/SubmissionPage';
 import SopTaskPage from './pages/SopExecution/TaskPage';
@@ -288,6 +289,10 @@ function SessionBootstrap() {
             }
           />
           <Route path="/cases" element={<CaseWorkspacePage />} />
+          <Route path="/cases/:id/assessments" element={<AssessmentPage/>}/>
+          <Route path="/quality/special-analyses" element={<BusinessWorkspacePage source="QUALITY_ANALYSES"/>}/>
+          <Route path="/quality/special-analyses/:id" element={<AnalysisPage/>}/>
+          <Route path="/analytics/quality" element={<QualityMetricsPage/>}/>
           <Route path="/admin/quality-rules" element={<QualityRulesPage/>}/>
           <Route path="/quality/runs" element={<QualityRunsPage/>}/>
           <Route path="/quality/runs/:id" element={<QualityRunPage/>}/>
