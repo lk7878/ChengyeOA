@@ -94,6 +94,8 @@ export const PERMISSION_CODES = [
   'sop.report.submit',
   'sop.guidance.read',
   'sop.guidance.create',
+  'sop.material.read',
+  'sop.material.manage',
   'quality.review.read',
   'quality.review.assign',
   'quality.review.decide',

@@ -54,7 +54,7 @@ export async function sopTaskScope(
   if (p.creators.length) clauses.push({ createdBy: { in: p.creators } });
   if (p.templates.length)
     clauses.push({ sopInstance: { templateVersion: { template: { OR: p.templates } } } });
-  if (['sop.task.read', 'sop.task.execute', 'sop.report.read', 'sop.report.submit', 'sop.guidance.read', 'sop.guidance.create'].includes(permission)) {
+  if (['sop.task.read', 'sop.task.execute', 'sop.report.read', 'sop.report.submit', 'sop.guidance.read', 'sop.guidance.create', 'sop.material.read', 'sop.material.manage'].includes(permission)) {
     const now = new Date();
     const stamp=await employmentStamp(db,ctx.userId,now);
     clauses.push({
@@ -65,7 +65,7 @@ export async function sopTaskScope(
           revokedAt: null,
           validFrom: { lte: now },
           OR: [{ validUntil: null }, { validUntil: { gt: now } }],
-          ...(['sop.task.execute','sop.report.submit','sop.guidance.create'].includes(permission) ? { canExecute: true } : {}),
+          ...(['sop.task.execute','sop.report.submit','sop.guidance.create','sop.material.manage'].includes(permission) ? { canExecute: true } : {}),
         },
       },
     });

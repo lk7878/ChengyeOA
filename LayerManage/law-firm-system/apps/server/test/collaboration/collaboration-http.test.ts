@@ -3965,7 +3965,6 @@ test(
   },
 );
 
-
 test(
   'SQ1 real App creates edits governs disables and rolls back SOP templates with MFA and role isolation',
   { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 360000 },
@@ -4199,7 +4198,6 @@ test(
   },
 );
 
-
 test(
   'SQ2 real App shares native SOP tasks across administrator manager and assignee with revocation',
   { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
@@ -4310,7 +4308,8 @@ test(
         data: { code: 'SQ2_TEAM', name: 'SQ2医疗团队', categoryCode: 'MEDICAL', homeOrganizationId: org },
       });
       const api = (method: 'get' | 'post', route: string, bearer = adminToken, body?: unknown) => {
-        const req = app.httpRequest()[method]('/api/v1' + route)
+        const client = app.httpRequest();
+        const req = client[method]('/api/v1' + route)
           .set('Authorization', 'Bearer ' + bearer)
           .set('Idempotency-Key', randomUUID());
         return body === undefined ? req : req.send(body);
@@ -4608,7 +4607,8 @@ test(
         data: { code: 'SQ3_TEAM', name: 'SQ3医疗团队', categoryCode: 'MEDICAL', homeOrganizationId: org },
       });
       const api = (method: 'get' | 'post', route: string, bearer = adminToken, body?: unknown) => {
-        const req = app.httpRequest()[method]('/api/v1' + route)
+        const client = app.httpRequest();
+        const req = client[method]('/api/v1' + route)
           .set('Authorization', 'Bearer ' + bearer)
           .set('Idempotency-Key', randomUUID());
         return body === undefined ? req : req.send(body);
@@ -4752,7 +4752,9 @@ test(
         if (injected < 3) {
           await expect.poll(() => injected).toBe(1);
           await expect(dialog.getByLabel('成果报告', { exact: true })).toHaveValue(report);
-          await expect(dialog.getByRole('button', { name: '提交成果', exact: true })).toBeEnabled({ timeout: 15000 });
+          await expect(dialog.getByRole('button', { name: '提交成果', exact: true })).toBeEnabled({
+            timeout: 15000,
+          });
           await dialog.getByRole('button', { name: '提交成果', exact: true }).click();
           await dialog.getByRole('button', { name: '采用最新任务版本', exact: true }).waitFor();
           await expect(dialog.getByLabel('成果报告', { exact: true })).toHaveValue(report);
@@ -4935,30 +4937,248 @@ test(
     await mkdir(evidence, { recursive: true });
     const errors: string[] = [];
     try {
-      const role=await db.role.create({data:{code:'SYSTEM_SUPER_ADMIN',name:'系统管理员',type:'SYSTEM'}});await db.userRole.create({data:{userId:owner,roleId:role.id}});const adminToken=(await createApiSession(db,owner,'MFA')).token;
-      const employee=await db.employee.create({data:{employeeNo:'SQ4_EMP',name:'SQ4整改员',phone:'13800000000',type:'ASSISTANT',entryDate:new Date()}});await db.user.update({where:{id:editor},data:{employeeId:employee.id}});
-      const all=await db.dataScope.create({data:{name:'获权整改范围',scopeType:'ALL'}});const staffRole=await db.role.create({data:{code:'SQ4_STAFF',name:'整改岗位',type:'BUSINESS',permissions:{create:['menu.quality','case.read','case.file.read','case.file.manage','quality.issue.read','quality.issue.resolve'].map(code=>({permission:{connect:{code}}}))},dataScopes:{create:{resource:'case',dataScopeId:all.id}}}});await db.userRole.create({data:{userId:editor,roleId:staffRole.id}});
-      const outsider=await db.user.create({data:{username:'sq4-outsider',password:'unused',mustChangePassword:false}}),outsideToken=(await createApiSession(db,outsider.id)).token;
-      const org=(await db.organization.findFirstOrThrow()).id,customer=await db.customer.create({data:{customerNo:'SQ4_CUSTOMER',name:'抽检隔离客户',phone:'13800000000',phoneHash:'test',createdBy:owner}}),caseRow=await db.case.create({data:{caseNo:'SQ4_CASE',title:'抽检隔离结案',customerId:customer.id,caseType:'医疗纠纷',branchId:org,createdBy:owner,status:'CLOSED',closedAt:new Date('2026-08-20T00:00:00Z'),satisfaction:4}});
-      const api=(method:'get'|'post',route:string,bearer=adminToken,body?:unknown)=>{const req=app.httpRequest()[method]('/api/v1'+route).set('Authorization','Bearer '+bearer).set('Idempotency-Key',randomUUID());return body===undefined?req:req.send(body);};
-      const sources=[];for(const source of ['QUALITY_REVIEWS','QUALITY_ISSUES']){const table=(await api('post','/bases/'+baseId+'/tables',adminToken,{name:source==='QUALITY_REVIEWS'?'二级抽检':'问题整改',source}).expect(200)).body.data;sources.push(table.id);}
-      const pages=[];for(const [id,bearer]of [[owner,adminToken],[editor,editorToken],[outsider.id,outsideToken]]){const context=await browser.newContext({viewport:{width:1440,height:1000}});await context.addInitScript('window.unifiedTestSession='+JSON.stringify({mode:'AUTHENTICATED',token:bearer,csrfToken:'test',expiresIn:900,user:{id,username:id,name:'SQ4验收',roles:[],permissions:[]}})+';');const page=await context.newPage();page.on('pageerror',(e:Error)=>errors.push(e.message));pages.push(page);}
-      const [admin,worker,denied]=pages,address=vite.resolvedUrls.local[0];
-      async function choose(page:typeof admin,label:string,value:string){const select=page.getByLabel(label,{exact:true});await select.click();const listId=await select.getAttribute('aria-controls');await page.locator('.ant-select-dropdown').filter({has:page.locator('[id='+JSON.stringify(listId)+']')}).locator('.ant-select-item-option-content').getByText(value,{exact:true}).click();}
-      await admin.goto(address+'admin/quality-rules');await admin.getByRole('button',{name:'新增策略版本',exact:true}).click();let dialog=admin.getByRole('dialog');await dialog.getByLabel('策略编码',{exact:true}).fill('SQ4_UI');await dialog.getByLabel('策略名称',{exact:true}).fill('医疗月度抽检');await choose(admin,'所属组织','协作接口测试');await dialog.getByLabel('检查项目（每行一项）',{exact:true}).fill('材料来源检查');await dialog.getByRole('button',{name:'保存策略',exact:true}).click();await dialog.waitFor({state:'hidden'});
-      await admin.goto(address+'quality/runs');await admin.getByRole('button',{name:'创建抽检批次',exact:true}).click();dialog=admin.getByRole('dialog');await choose(admin,'策略版本','医疗月度抽检 v1');await dialog.getByLabel('月份（留空取上月）',{exact:true}).fill('2026-08');await dialog.getByRole('button',{name:'执行抽样',exact:true}).click();await dialog.waitFor({state:'hidden'});const run=await db.qualitySamplingRun.findFirstOrThrow();await admin.getByRole('link',{name:'医疗月度抽检 · 2026-08 · PRIMARY',exact:true}).click();const inspection=await db.qualitySamplingItem.findFirstOrThrow({where:{runId:run.id}});await admin.getByRole('link',{name:inspection.name,exact:true}).click();await choose(admin,'材料来源检查检查结果','不通过');await admin.getByLabel('材料来源检查依据',{exact:true}).fill('缺少来源说明，需要补充证据');await admin.getByRole('button',{name:'提交检查结果',exact:true}).click();await expect.poll(async()=>await db.qualityIssue.count()).toBe(1);await admin.getByRole('link',{name:'整改问题：材料来源检查',exact:true}).click();const issue=await db.qualityIssue.findFirstOrThrow();
-      await admin.getByRole('button',{name:'分派整改',exact:true}).click();dialog=admin.getByRole('dialog');await choose(admin,'整改负责人','SQ4整改员');await dialog.getByLabel('整改期限',{exact:true}).fill('2026-10-01T09:00');await dialog.getByRole('button',{name:'确认办理',exact:true}).click();await dialog.waitFor({state:'hidden'});
-      await worker.goto(address+'quality/issues/'+issue.id);await worker.getByRole('button',{name:'开始整改',exact:true}).click();await worker.getByRole('dialog').getByRole('button',{name:'确认办理',exact:true}).click();await worker.getByRole('dialog').waitFor({state:'hidden'});
-      let offline=true;await worker.route('**/api/v1/quality/issues/'+issue.id+'/actions',async(route:{request():{method():string};abort(reason:string):Promise<void>;continue():Promise<void>})=>{if(offline&&route.request().method()==='POST'){offline=false;return route.abort('internetdisconnected');}return route.continue();});
-      async function submit(content:string,upload=false){await worker.getByRole('button',{name:'提交整改',exact:true}).click();const modal=worker.getByRole('dialog');await modal.getByLabel('办理依据',{exact:true}).fill(content);if(upload)await modal.getByLabel('新增整改材料',{exact:true}).setInputFiles({name:'整改来源.txt',mimeType:'text/plain',buffer:Buffer.from('整改新增材料')});await modal.getByRole('button',{name:'确认办理',exact:true}).click();if(upload){await expect(modal.getByLabel('办理依据',{exact:true})).toHaveValue(content);await expect(modal.getByRole('button',{name:'确认办理',exact:true})).toBeEnabled({timeout:15000});await db.qualityIssue.update({where:{id:issue.id},data:{version:{increment:1}}});await modal.getByRole('button',{name:'确认办理',exact:true}).click();await modal.getByRole('button',{name:'采用最新问题版本',exact:true}).waitFor();await expect(modal.getByLabel('办理依据',{exact:true})).toHaveValue(content);await modal.getByRole('button',{name:'采用最新问题版本',exact:true}).click();await modal.getByRole('button',{name:'确认办理',exact:true}).click();}await modal.waitFor({state:'hidden'});}
-      await submit('第一轮补正材料',true);await admin.getByRole('button',{name:'退回整改',exact:true}).click();dialog=admin.getByRole('dialog');await dialog.getByLabel('办理依据',{exact:true}).fill('请补充明确核验依据');await dialog.getByRole('button',{name:'确认办理',exact:true}).click();await dialog.waitFor({state:'hidden'});await submit('第二轮补正，核验依据已齐备');
-      for(const width of [1440,1024,390]){await worker.setViewportSize({width,height:1000});await worker.screenshot({path:path.join(evidence,'issue-'+width+'.png'),fullPage:true});assert.ok(await worker.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2));}
-      await admin.getByRole('button',{name:'复核通过',exact:true}).click();dialog=admin.getByRole('dialog');await dialog.getByLabel('办理依据',{exact:true}).fill('已复核整改材料与依据');await dialog.getByRole('button',{name:'确认办理',exact:true}).click();await dialog.waitFor({state:'hidden'});await expect.poll(async()=>(await db.qualityIssue.findUniqueOrThrow({where:{id:issue.id}})).status).toBe('CLOSED');assert.deepEqual(await db.case.findUniqueOrThrow({where:{id:caseRow.id}}),caseRow);assert.equal(await db.issueRevision.count({where:{issueId:issue.id}}),6);assert.equal(await db.issueAttachment.count(),1);
-      await api('get','/quality/issues/'+issue.id,outsideToken).expect(403);await denied.goto(address+'quality/issues/'+issue.id);await expect(denied.getByText('第二轮补正，核验依据已齐备',{exact:true})).toHaveCount(0);
-      const table=await api('post','/tables/'+sources[1]+'/records/query',adminToken,{}).expect(200);assert.equal(table.body.data.records[0].id,issue.id);assert.equal(await db.collabRecord.count({where:{tableId:{in:sources}}}),0);
-      await db.userRole.deleteMany({where:{userId:editor}});await worker.getByRole('heading',{name:'材料来源检查',exact:true}).waitFor({state:'hidden',timeout:15000});assert.deepEqual(errors,[]);
-    } catch(error){for(const [i,context]of browser.contexts().entries())for(const page of context.pages()){await writeFile(path.join(evidence,'failed-aria-'+i+'.txt'),await page.locator('body').ariaSnapshot());await page.screenshot({path:path.join(evidence,'failed-'+i+'.png'),fullPage:true}).catch(()=>undefined);}throw error;
-    } finally {await browser.close();await vite.close();}
+      const role = await db.role.create({
+        data: { code: 'SYSTEM_SUPER_ADMIN', name: '系统管理员', type: 'SYSTEM' },
+      });
+      await db.userRole.create({ data: { userId: owner, roleId: role.id } });
+      const adminToken = (await createApiSession(db, owner, 'MFA')).token;
+      const employee = await db.employee.create({
+        data: {
+          employeeNo: 'SQ4_EMP',
+          name: 'SQ4整改员',
+          phone: '13800000000',
+          type: 'ASSISTANT',
+          entryDate: new Date(),
+        },
+      });
+      await db.user.update({ where: { id: editor }, data: { employeeId: employee.id } });
+      const all = await db.dataScope.create({ data: { name: '获权整改范围', scopeType: 'ALL' } });
+      const staffRole = await db.role.create({
+        data: {
+          code: 'SQ4_STAFF',
+          name: '整改岗位',
+          type: 'BUSINESS',
+          permissions: {
+            create: [
+              'menu.quality',
+              'case.read',
+              'case.file.read',
+              'case.file.manage',
+              'quality.issue.read',
+              'quality.issue.resolve',
+            ].map((code) => ({ permission: { connect: { code } } })),
+          },
+          dataScopes: { create: { resource: 'case', dataScopeId: all.id } },
+        },
+      });
+      await db.userRole.create({ data: { userId: editor, roleId: staffRole.id } });
+      const outsider = await db.user.create({
+          data: { username: 'sq4-outsider', password: 'unused', mustChangePassword: false },
+        }),
+        outsideToken = (await createApiSession(db, outsider.id)).token;
+      const org = (await db.organization.findFirstOrThrow()).id,
+        customer = await db.customer.create({
+          data: {
+            customerNo: 'SQ4_CUSTOMER',
+            name: '抽检隔离客户',
+            phone: '13800000000',
+            phoneHash: 'test',
+            createdBy: owner,
+          },
+        }),
+        caseRow = await db.case.create({
+          data: {
+            caseNo: 'SQ4_CASE',
+            title: '抽检隔离结案',
+            customerId: customer.id,
+            caseType: '医疗纠纷',
+            branchId: org,
+            createdBy: owner,
+            status: 'CLOSED',
+            closedAt: new Date('2026-08-20T00:00:00Z'),
+            satisfaction: 4,
+          },
+        });
+      const api = (method: 'get' | 'post', route: string, bearer = adminToken, body?: unknown) => {
+        const client = app.httpRequest();
+        const req = client[method]('/api/v1' + route)
+          .set('Authorization', 'Bearer ' + bearer)
+          .set('Idempotency-Key', randomUUID());
+        return body === undefined ? req : req.send(body);
+      };
+      const sources = [];
+      for (const source of ['QUALITY_REVIEWS', 'QUALITY_ISSUES']) {
+        const table = (
+          await api('post', '/bases/' + baseId + '/tables', adminToken, {
+            name: source === 'QUALITY_REVIEWS' ? '二级抽检' : '问题整改',
+            source,
+          }).expect(200)
+        ).body.data;
+        sources.push(table.id);
+      }
+      const pages = [];
+      for (const [id, bearer] of [
+        [owner, adminToken],
+        [editor, editorToken],
+        [outsider.id, outsideToken],
+      ]) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          'window.unifiedTestSession=' +
+            JSON.stringify({
+              mode: 'AUTHENTICATED',
+              token: bearer,
+              csrfToken: 'test',
+              expiresIn: 900,
+              user: { id, username: id, name: 'SQ4验收', roles: [], permissions: [] },
+            }) +
+            ';',
+        );
+        const page = await context.newPage();
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [admin, worker, denied] = pages,
+        address = vite.resolvedUrls.local[0];
+      async function choose(page: typeof admin, label: string, value: string) {
+        const select = page.getByLabel(label, { exact: true });
+        await select.click();
+        const listId = await select.getAttribute('aria-controls');
+        await page
+          .locator('.ant-select-dropdown')
+          .filter({ has: page.locator('[id=' + JSON.stringify(listId) + ']') })
+          .locator('.ant-select-item-option-content')
+          .getByText(value, { exact: true })
+          .click();
+      }
+      await admin.goto(address + 'admin/quality-rules');
+      await admin.getByRole('button', { name: '新增策略版本', exact: true }).click();
+      let dialog = admin.getByRole('dialog');
+      await dialog.getByLabel('策略编码', { exact: true }).fill('SQ4_UI');
+      await dialog.getByLabel('策略名称', { exact: true }).fill('医疗月度抽检');
+      await choose(admin, '所属组织', '协作接口测试');
+      await dialog.getByLabel('检查项目（每行一项）', { exact: true }).fill('材料来源检查');
+      await dialog.getByRole('button', { name: '保存策略', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await admin.goto(address + 'quality/runs');
+      await admin.getByRole('button', { name: '创建抽检批次', exact: true }).click();
+      dialog = admin.getByRole('dialog');
+      await choose(admin, '策略版本', '医疗月度抽检 v1');
+      await dialog.getByLabel('月份（留空取上月）', { exact: true }).fill('2026-08');
+      await dialog.getByRole('button', { name: '执行抽样', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      const run = await db.qualitySamplingRun.findFirstOrThrow();
+      await admin.getByRole('link', { name: '医疗月度抽检 · 2026-08 · PRIMARY', exact: true }).click();
+      const inspection = await db.qualitySamplingItem.findFirstOrThrow({ where: { runId: run.id } });
+      await admin.getByRole('link', { name: inspection.name, exact: true }).click();
+      await choose(admin, '材料来源检查检查结果', '不通过');
+      await admin.getByLabel('材料来源检查依据', { exact: true }).fill('缺少来源说明，需要补充证据');
+      await admin.getByRole('button', { name: '提交检查结果', exact: true }).click();
+      await expect.poll(async () => await db.qualityIssue.count()).toBe(1);
+      await admin.getByRole('link', { name: '整改问题：材料来源检查', exact: true }).click();
+      const issue = await db.qualityIssue.findFirstOrThrow();
+      await admin.getByRole('button', { name: '分派整改', exact: true }).click();
+      dialog = admin.getByRole('dialog');
+      await choose(admin, '整改负责人', 'SQ4整改员');
+      await dialog.getByLabel('整改期限', { exact: true }).fill('2026-10-01T09:00');
+      await dialog.getByRole('button', { name: '确认办理', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await worker.goto(address + 'quality/issues/' + issue.id);
+      await worker.getByRole('button', { name: '开始整改', exact: true }).click();
+      await worker.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await worker.getByRole('dialog').waitFor({ state: 'hidden' });
+      let offline = true;
+      await worker.route(
+        '**/api/v1/quality/issues/' + issue.id + '/actions',
+        async (route: {
+          request(): { method(): string };
+          abort(reason: string): Promise<void>;
+          continue(): Promise<void>;
+        }) => {
+          if (offline && route.request().method() === 'POST') {
+            offline = false;
+            return route.abort('internetdisconnected');
+          }
+          return route.continue();
+        },
+      );
+      async function submit(content: string, upload = false) {
+        await worker.getByRole('button', { name: '提交整改', exact: true }).click();
+        const modal = worker.getByRole('dialog');
+        await modal.getByLabel('办理依据', { exact: true }).fill(content);
+        if (upload)
+          await modal
+            .getByLabel('新增整改材料', { exact: true })
+            .setInputFiles({
+              name: '整改来源.txt',
+              mimeType: 'text/plain',
+              buffer: Buffer.from('整改新增材料'),
+            });
+        await modal.getByRole('button', { name: '确认办理', exact: true }).click();
+        if (upload) {
+          await expect(modal.getByLabel('办理依据', { exact: true })).toHaveValue(content);
+          await expect(modal.getByRole('button', { name: '确认办理', exact: true })).toBeEnabled({
+            timeout: 15000,
+          });
+          await db.qualityIssue.update({ where: { id: issue.id }, data: { version: { increment: 1 } } });
+          await modal.getByRole('button', { name: '确认办理', exact: true }).click();
+          await modal.getByRole('button', { name: '采用最新问题版本', exact: true }).waitFor();
+          await expect(modal.getByLabel('办理依据', { exact: true })).toHaveValue(content);
+          await modal.getByRole('button', { name: '采用最新问题版本', exact: true }).click();
+          await modal.getByRole('button', { name: '确认办理', exact: true }).click();
+        }
+        await modal.waitFor({ state: 'hidden' });
+      }
+      await submit('第一轮补正材料', true);
+      await admin.getByRole('button', { name: '退回整改', exact: true }).click();
+      dialog = admin.getByRole('dialog');
+      await dialog.getByLabel('办理依据', { exact: true }).fill('请补充明确核验依据');
+      await dialog.getByRole('button', { name: '确认办理', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await submit('第二轮补正，核验依据已齐备');
+      for (const width of [1440, 1024, 390]) {
+        await worker.setViewportSize({ width, height: 1000 });
+        await worker.screenshot({ path: path.join(evidence, 'issue-' + width + '.png'), fullPage: true });
+        assert.ok(await worker.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2));
+      }
+      await admin.getByRole('button', { name: '复核通过', exact: true }).click();
+      dialog = admin.getByRole('dialog');
+      await dialog.getByLabel('办理依据', { exact: true }).fill('已复核整改材料与依据');
+      await dialog.getByRole('button', { name: '确认办理', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await expect
+        .poll(async () => (await db.qualityIssue.findUniqueOrThrow({ where: { id: issue.id } })).status)
+        .toBe('CLOSED');
+      assert.deepEqual(await db.case.findUniqueOrThrow({ where: { id: caseRow.id } }), caseRow);
+      assert.equal(await db.issueRevision.count({ where: { issueId: issue.id } }), 6);
+      assert.equal(await db.issueAttachment.count(), 1);
+      await api('get', '/quality/issues/' + issue.id, outsideToken).expect(403);
+      await denied.goto(address + 'quality/issues/' + issue.id);
+      await expect(denied.getByText('第二轮补正，核验依据已齐备', { exact: true })).toHaveCount(0);
+      const table = await api('post', '/tables/' + sources[1] + '/records/query', adminToken, {}).expect(200);
+      assert.equal(table.body.data.records[0].id, issue.id);
+      assert.equal(await db.collabRecord.count({ where: { tableId: { in: sources } } }), 0);
+      await db.userRole.deleteMany({ where: { userId: editor } });
+      await worker
+        .getByRole('heading', { name: '材料来源检查', exact: true })
+        .waitFor({ state: 'hidden', timeout: 15000 });
+      assert.deepEqual(errors, []);
+    } catch (error) {
+      for (const [i, context] of browser.contexts().entries())
+        for (const page of context.pages()) {
+          await writeFile(
+            path.join(evidence, 'failed-aria-' + i + '.txt'),
+            await page.locator('body').ariaSnapshot(),
+          );
+          await page
+            .screenshot({ path: path.join(evidence, 'failed-' + i + '.png'), fullPage: true })
+            .catch(() => undefined);
+        }
+      throw error;
+    } finally {
+      await browser.close();
+      await vite.close();
+    }
   },
 );
 
@@ -5000,25 +5220,668 @@ test(
     const errors: string[] = [];
 
     try {
-      const role=await db.role.create({data:{code:'SYSTEM_SUPER_ADMIN',name:'系统管理员',type:'SYSTEM'}});await db.userRole.create({data:{userId:owner,roleId:role.id}});const adminToken=(await createApiSession(db,owner,'MFA')).token;
-      const employee=await db.employee.create({data:{employeeNo:'SQ5_EMP',name:'专项审核员',phone:'13800000000',type:'ASSISTANT',entryDate:new Date()}});await db.user.update({where:{id:editor},data:{employeeId:employee.id}});
-      const all=await db.dataScope.create({data:{name:'获权分析范围',scopeType:'ALL'}}),reviewRole=await db.role.create({data:{code:'SQ5_REVIEWER',name:'专项审核岗位',type:'BUSINESS',permissions:{create:['menu.quality','case.read','quality.analysis.read','quality.analysis.decide','approval.read','approval.process','approval.manage'].map(code=>({permission:{connect:{code}}}))},dataScopes:{create:{resource:'case',dataScopeId:all.id}}}});await db.userRole.create({data:{userId:editor,roleId:reviewRole.id}});
-      const outsider=await db.user.create({data:{username:'sq5-outsider',password:'unused',mustChangePassword:false}}),outsideToken=(await createApiSession(db,outsider.id)).token;
-      const org=(await db.organization.findFirstOrThrow()).id,customer=await db.customer.create({data:{customerNo:'SQ5_CUSTOMER',name:'评估隔离客户',phone:'13800000000',phoneHash:'test',createdBy:owner}}),caseRow=await db.case.create({data:{caseNo:'SQ5_CASE',title:'评估隔离案件',customerId:customer.id,caseType:'医疗纠纷',branchId:org,createdBy:owner,status:'CLOSED',closedAt:new Date(),satisfaction:4}});
-      const api=(method:'get'|'post',route:string,bearer=adminToken,body?:unknown)=>{const req=app.httpRequest()[method]('/api/v1'+route).set('Authorization','Bearer '+bearer).set('Idempotency-Key',randomUUID());return body===undefined?req:req.send(body);};
-      const table=(await api('post','/bases/'+baseId+'/tables',adminToken,{name:'专项分析',source:'QUALITY_ANALYSES'}).expect(200)).body.data;
-      const pages=[];for(const [id,bearer] of [[owner,adminToken],[editor,editorToken],[outsider.id,outsideToken]]){const context=await browser.newContext({viewport:{width:1440,height:1000}});await context.addInitScript('window.unifiedTestSession='+JSON.stringify({mode:'AUTHENTICATED',token:bearer,csrfToken:'test',expiresIn:900,user:{id,username:id,name:'SQ5验收',roles:[],permissions:[]}})+';');const page=await context.newPage();page.on('pageerror',(e:Error)=>errors.push(e.message));pages.push(page);}
-      const [admin,reviewer,denied]=pages,address=vite.resolvedUrls.local[0];
-      await admin.goto(address+'cases/'+caseRow.id+'/assessments');await admin.getByRole('button',{name:'登记评估',exact:true}).click();const dialog=admin.getByRole('dialog');await dialog.getByLabel('百分制分数（可空）',{exact:true}).fill('79');await dialog.getByLabel('评估来源',{exact:true}).fill('客户回访');await dialog.getByLabel('评估日期',{exact:true}).fill('2026-09-17T09:00');await dialog.getByLabel('证据或可核验引用',{exact:true}).fill('回访沟通记录与评价依据');await dialog.getByRole('button',{name:'保存评估',exact:true}).click();await dialog.waitFor({state:'hidden'});
-      const {createEventServices}=await import('../../app/application/events/event-services-factory');const events=createEventServices(db,{enabled:false,shutdownSeconds:30,pollMs:1000,batchSize:100,leaseSeconds:60});for(let i=0;i<3;i++)await events.worker.tick();const analysis=await db.specialAnalysis.findFirstOrThrow();await admin.getByRole('link',{name:'专项分析 · 待分析',exact:true}).click();
-      await admin.getByLabel('分析过程',{exact:true}).fill('第一轮分析过程');await admin.getByLabel('分析结论',{exact:true}).fill('初步结论');let offline=true;await admin.route('**/api/v1/quality/special-analyses/'+analysis.id,async(route:{request():{method():string};abort(reason:string):Promise<void>;continue():Promise<void>})=>{if(offline&&route.request().method()==='POST'){offline=false;return route.abort('internetdisconnected');}return route.continue();});await admin.getByRole('button',{name:'保存分析版本',exact:true}).click();await expect(admin.getByLabel('分析过程',{exact:true})).toHaveValue('第一轮分析过程');await expect(admin.getByRole('button',{name:'保存分析版本',exact:true})).toBeEnabled({timeout:15000});await db.specialAnalysis.update({where:{id:analysis.id},data:{version:{increment:1}}});await admin.getByRole('button',{name:'保存分析版本',exact:true}).click();await admin.getByRole('button',{name:'采用最新分析版本',exact:true}).click();await expect(admin.getByLabel('分析过程',{exact:true})).toHaveValue('第一轮分析过程');await admin.getByRole('button',{name:'保存分析版本',exact:true}).click();await expect.poll(()=>db.analysisRevision.count()).toBe(1);
-      async function closeAnalysis(){await admin.getByRole('button',{name:'申请关闭专项分析',exact:true}).click();const select=admin.getByLabel('关闭审核人',{exact:true});await select.click();const listId=await select.getAttribute('aria-controls');await admin.locator('.ant-select-dropdown').filter({has:admin.locator('[id='+JSON.stringify(listId)+']')}).locator('.ant-select-item-option-content').getByText('专项审核员',{exact:true}).click();await admin.getByRole('dialog').getByRole('button',{name:'提交关闭审核',exact:true}).click();await admin.getByRole('dialog').waitFor({state:'hidden'});}
-      async function openApproval(){const close=await db.analysisCloseRequest.findFirstOrThrow({where:{analysisId:analysis.id},orderBy:{createdAt:'desc'}});await reviewer.goto(address+'approvals?role=TODO&instance='+close.approvalInstanceId);await reviewer.getByRole('dialog',{name:'审批详情',exact:true}).locator('.ant-modal-close').click();}
-      await closeAnalysis();await openApproval();await reviewer.getByRole('button',{name:'驳回',exact:true}).click();await reviewer.getByRole('dialog',{name:'驳回审批'}).getByLabel('审批意见（可选）').fill('补充核实分析');await reviewer.getByRole('button',{name:'确认驳回',exact:true}).click();await expect(admin.getByLabel('分析过程',{exact:true})).toBeEnabled({timeout:15000});await admin.getByLabel('分析过程',{exact:true}).fill('第二轮分析：核实经过并补充证据');await admin.getByLabel('分析结论',{exact:true}).fill('已完成核实并形成结论');await admin.getByRole('button',{name:'保存分析版本',exact:true}).click();await expect.poll(()=>db.analysisRevision.count()).toBe(2);await closeAnalysis();
-      for(const width of [1440,1024,390]){await admin.setViewportSize({width,height:1000});await admin.screenshot({path:path.join(evidence,'analysis-'+width+'.png'),fullPage:true});assert.ok(await admin.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2));}await admin.setViewportSize({width:1440,height:1000});await openApproval();await reviewer.getByRole('button',{name:'审批通过',exact:true}).click();await reviewer.getByRole('button',{name:'确认通过',exact:true}).click();await expect.poll(async()=>(await db.specialAnalysis.findUniqueOrThrow({where:{id:analysis.id}})).status).toBe('CLOSED');
-      const rows=(await api('post','/tables/'+table.id+'/records/query',adminToken,{}).expect(200)).body.data.records;assert.equal(rows[0].id,analysis.id);assert.equal(await db.collabRecord.count({where:{tableId:table.id}}),0);assert.ok(await db.collabEvent.count({where:{baseId,kind:'business.changed'}}));assert.deepEqual(await db.case.findUniqueOrThrow({where:{id:caseRow.id}}),caseRow);
-      await api('get','/quality/special-analyses/'+analysis.id,outsideToken).expect(403);await denied.goto(address+'quality/special-analyses/'+analysis.id);await expect(denied.getByLabel('分析过程',{exact:true})).toHaveCount(0);await reviewer.goto(address+'quality/special-analyses/'+analysis.id);await reviewer.getByRole('heading',{name:'低满意度专项分析',exact:true}).waitFor();await db.userRole.deleteMany({where:{userId:editor}});await reviewer.getByRole('heading',{name:'低满意度专项分析',exact:true}).waitFor({state:'hidden',timeout:15000});assert.deepEqual(errors,[]);
-    }catch(error){for(const [i,context]of browser.contexts().entries())for(const page of context.pages()){await writeFile(path.join(evidence,'failed-aria-'+i+'.txt'),await page.locator('body').ariaSnapshot());await page.screenshot({path:path.join(evidence,'failed-'+i+'.png'),fullPage:true}).catch(()=>undefined);}throw error;
-    }finally{await browser.close();await vite.close();}
+      const role = await db.role.create({
+        data: { code: 'SYSTEM_SUPER_ADMIN', name: '系统管理员', type: 'SYSTEM' },
+      });
+      await db.userRole.create({ data: { userId: owner, roleId: role.id } });
+      const adminToken = (await createApiSession(db, owner, 'MFA')).token;
+      const employee = await db.employee.create({
+        data: {
+          employeeNo: 'SQ5_EMP',
+          name: '专项审核员',
+          phone: '13800000000',
+          type: 'ASSISTANT',
+          entryDate: new Date(),
+        },
+      });
+      await db.user.update({ where: { id: editor }, data: { employeeId: employee.id } });
+      const all = await db.dataScope.create({ data: { name: '获权分析范围', scopeType: 'ALL' } }),
+        reviewRole = await db.role.create({
+          data: {
+            code: 'SQ5_REVIEWER',
+            name: '专项审核岗位',
+            type: 'BUSINESS',
+            permissions: {
+              create: [
+                'menu.quality',
+                'case.read',
+                'quality.analysis.read',
+                'quality.analysis.decide',
+                'approval.read',
+                'approval.process',
+                'approval.manage',
+              ].map((code) => ({ permission: { connect: { code } } })),
+            },
+            dataScopes: { create: { resource: 'case', dataScopeId: all.id } },
+          },
+        });
+      await db.userRole.create({ data: { userId: editor, roleId: reviewRole.id } });
+      const outsider = await db.user.create({
+          data: { username: 'sq5-outsider', password: 'unused', mustChangePassword: false },
+        }),
+        outsideToken = (await createApiSession(db, outsider.id)).token;
+      const org = (await db.organization.findFirstOrThrow()).id,
+        customer = await db.customer.create({
+          data: {
+            customerNo: 'SQ5_CUSTOMER',
+            name: '评估隔离客户',
+            phone: '13800000000',
+            phoneHash: 'test',
+            createdBy: owner,
+          },
+        }),
+        caseRow = await db.case.create({
+          data: {
+            caseNo: 'SQ5_CASE',
+            title: '评估隔离案件',
+            customerId: customer.id,
+            caseType: '医疗纠纷',
+            branchId: org,
+            createdBy: owner,
+            status: 'CLOSED',
+            closedAt: new Date(),
+            satisfaction: 4,
+          },
+        });
+      const api = (method: 'get' | 'post', route: string, bearer = adminToken, body?: unknown) => {
+        const client = app.httpRequest();
+        const req = client[method]('/api/v1' + route)
+          .set('Authorization', 'Bearer ' + bearer)
+          .set('Idempotency-Key', randomUUID());
+        return body === undefined ? req : req.send(body);
+      };
+      const table = (
+        await api('post', '/bases/' + baseId + '/tables', adminToken, {
+          name: '专项分析',
+          source: 'QUALITY_ANALYSES',
+        }).expect(200)
+      ).body.data;
+      const pages = [];
+      for (const [id, bearer] of [
+        [owner, adminToken],
+        [editor, editorToken],
+        [outsider.id, outsideToken],
+      ]) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          'window.unifiedTestSession=' +
+            JSON.stringify({
+              mode: 'AUTHENTICATED',
+              token: bearer,
+              csrfToken: 'test',
+              expiresIn: 900,
+              user: { id, username: id, name: 'SQ5验收', roles: [], permissions: [] },
+            }) +
+            ';',
+        );
+        const page = await context.newPage();
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [admin, reviewer, denied] = pages,
+        address = vite.resolvedUrls.local[0];
+      await admin.goto(address + 'cases/' + caseRow.id + '/assessments');
+      await admin.getByRole('button', { name: '登记评估', exact: true }).click();
+      const dialog = admin.getByRole('dialog');
+      await dialog.getByLabel('百分制分数（可空）', { exact: true }).fill('79');
+      await dialog.getByLabel('评估来源', { exact: true }).fill('客户回访');
+      await dialog.getByLabel('评估日期', { exact: true }).fill('2026-09-17T09:00');
+      await dialog.getByLabel('证据或可核验引用', { exact: true }).fill('回访沟通记录与评价依据');
+      await dialog.getByRole('button', { name: '保存评估', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      const { createEventServices } = await import('../../app/application/events/event-services-factory');
+      const events = createEventServices(db, {
+        enabled: false,
+        shutdownSeconds: 30,
+        pollMs: 1000,
+        batchSize: 100,
+        leaseSeconds: 60,
+      });
+      for (let i = 0; i < 3; i++) await events.worker.tick();
+      const analysis = await db.specialAnalysis.findFirstOrThrow();
+      await admin.getByRole('link', { name: '专项分析 · 待分析', exact: true }).click();
+      await admin.getByLabel('分析过程', { exact: true }).fill('第一轮分析过程');
+      await admin.getByLabel('分析结论', { exact: true }).fill('初步结论');
+      let offline = true;
+      await admin.route(
+        '**/api/v1/quality/special-analyses/' + analysis.id,
+        async (route: {
+          request(): { method(): string };
+          abort(reason: string): Promise<void>;
+          continue(): Promise<void>;
+        }) => {
+          if (offline && route.request().method() === 'POST') {
+            offline = false;
+            return route.abort('internetdisconnected');
+          }
+          return route.continue();
+        },
+      );
+      await admin.getByRole('button', { name: '保存分析版本', exact: true }).click();
+      await expect(admin.getByLabel('分析过程', { exact: true })).toHaveValue('第一轮分析过程');
+      await expect(admin.getByRole('button', { name: '保存分析版本', exact: true })).toBeEnabled({
+        timeout: 15000,
+      });
+      await db.specialAnalysis.update({ where: { id: analysis.id }, data: { version: { increment: 1 } } });
+      await admin.getByRole('button', { name: '保存分析版本', exact: true }).click();
+      await admin.getByRole('button', { name: '采用最新分析版本', exact: true }).click();
+      await expect(admin.getByLabel('分析过程', { exact: true })).toHaveValue('第一轮分析过程');
+      await admin.getByRole('button', { name: '保存分析版本', exact: true }).click();
+      await expect.poll(() => db.analysisRevision.count()).toBe(1);
+      async function closeAnalysis() {
+        await admin.getByRole('button', { name: '申请关闭专项分析', exact: true }).click();
+        const select = admin.getByLabel('关闭审核人', { exact: true });
+        await select.click();
+        const listId = await select.getAttribute('aria-controls');
+        await admin
+          .locator('.ant-select-dropdown')
+          .filter({ has: admin.locator('[id=' + JSON.stringify(listId) + ']') })
+          .locator('.ant-select-item-option-content')
+          .getByText('专项审核员', { exact: true })
+          .click();
+        await admin.getByRole('dialog').getByRole('button', { name: '提交关闭审核', exact: true }).click();
+        await admin.getByRole('dialog').waitFor({ state: 'hidden' });
+      }
+      async function openApproval() {
+        const close = await db.analysisCloseRequest.findFirstOrThrow({
+          where: { analysisId: analysis.id },
+          orderBy: { createdAt: 'desc' },
+        });
+        await reviewer.goto(address + 'approvals?role=TODO&instance=' + close.approvalInstanceId);
+        await reviewer
+          .getByRole('dialog', { name: '审批详情', exact: true })
+          .locator('.ant-modal-close')
+          .click();
+      }
+      await closeAnalysis();
+      await openApproval();
+      await reviewer.getByRole('button', { name: '驳回', exact: true }).click();
+      await reviewer
+        .getByRole('dialog', { name: '驳回审批' })
+        .getByLabel('审批意见（可选）')
+        .fill('补充核实分析');
+      await reviewer.getByRole('button', { name: '确认驳回', exact: true }).click();
+      await expect(admin.getByLabel('分析过程', { exact: true })).toBeEnabled({ timeout: 15000 });
+      await admin.getByLabel('分析过程', { exact: true }).fill('第二轮分析：核实经过并补充证据');
+      await admin.getByLabel('分析结论', { exact: true }).fill('已完成核实并形成结论');
+      await admin.getByRole('button', { name: '保存分析版本', exact: true }).click();
+      await expect.poll(() => db.analysisRevision.count()).toBe(2);
+      await closeAnalysis();
+      for (const width of [1440, 1024, 390]) {
+        await admin.setViewportSize({ width, height: 1000 });
+        await admin.screenshot({ path: path.join(evidence, 'analysis-' + width + '.png'), fullPage: true });
+        assert.ok(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2));
+      }
+      await admin.setViewportSize({ width: 1440, height: 1000 });
+      await openApproval();
+      await reviewer.getByRole('button', { name: '审批通过', exact: true }).click();
+      await reviewer.getByRole('button', { name: '确认通过', exact: true }).click();
+      await expect
+        .poll(async () => (await db.specialAnalysis.findUniqueOrThrow({ where: { id: analysis.id } })).status)
+        .toBe('CLOSED');
+      const rows = (await api('post', '/tables/' + table.id + '/records/query', adminToken, {}).expect(200))
+        .body.data.records;
+      assert.equal(rows[0].id, analysis.id);
+      assert.equal(await db.collabRecord.count({ where: { tableId: table.id } }), 0);
+      assert.ok(await db.collabEvent.count({ where: { baseId, kind: 'business.changed' } }));
+      assert.deepEqual(await db.case.findUniqueOrThrow({ where: { id: caseRow.id } }), caseRow);
+      await api('get', '/quality/special-analyses/' + analysis.id, outsideToken).expect(403);
+      await denied.goto(address + 'quality/special-analyses/' + analysis.id);
+      await expect(denied.getByLabel('分析过程', { exact: true })).toHaveCount(0);
+      await reviewer.goto(address + 'quality/special-analyses/' + analysis.id);
+      await reviewer.getByRole('heading', { name: '低满意度专项分析', exact: true }).waitFor();
+      await db.userRole.deleteMany({ where: { userId: editor } });
+      await reviewer
+        .getByRole('heading', { name: '低满意度专项分析', exact: true })
+        .waitFor({ state: 'hidden', timeout: 15000 });
+      assert.deepEqual(errors, []);
+    } catch (error) {
+      for (const [i, context] of browser.contexts().entries())
+        for (const page of context.pages()) {
+          await writeFile(
+            path.join(evidence, 'failed-aria-' + i + '.txt'),
+            await page.locator('body').ariaSnapshot(),
+          );
+          await page
+            .screenshot({ path: path.join(evidence, 'failed-' + i + '.png'), fullPage: true })
+            .catch(() => undefined);
+        }
+      throw error;
+    } finally {
+      await browser.close();
+      await vite.close();
+    }
+  },
+);
+
+test(
+  'SQ6 real App preserves pre-case materials and original business continuation',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web'),
+      load = new Function('url', 'return import(url)');
+    const { chromium, expect } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'sq3-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence/sq6');
+    await mkdir(evidence, { recursive: true });
+    const errors: string[] = [];
+
+    try {
+      const role = await db.role.create({
+        data: { code: 'SYSTEM_SUPER_ADMIN', name: '系统管理员', type: 'SYSTEM' },
+      });
+      await db.userRole.create({ data: { userId: owner, roleId: role.id } });
+      const adminToken = (await createApiSession(db, owner, 'MFA')).token,
+        org = (await db.organization.findFirstOrThrow()).id,
+        team = await db.professionalTeam.create({
+          data: { code: 'SQ6_UI', name: '医疗前期团队', categoryCode: 'MEDICAL', homeOrganizationId: org },
+        });
+      const employee = await db.employee.create({
+        data: {
+          employeeNo: 'SQ6_REVIEW',
+          name: '前期审核员',
+          phone: '13800000000',
+          type: 'ASSISTANT',
+          entryDate: new Date(),
+        },
+      });
+      await db.user.update({ where: { id: editor }, data: { employeeId: employee.id } });
+      const all = await db.dataScope.create({ data: { name: '获权前期范围', scopeType: 'ALL' } }),
+        reviewRole = await db.role.create({
+          data: {
+            code: 'SQ6_REVIEW',
+            name: '审核岗位',
+            type: 'BUSINESS',
+            permissions: {
+              create: [
+                'sop.task.read',
+                'sop.report.read',
+                'sop.material.read',
+                'quality.review.read',
+                'quality.review.decide',
+                'approval.read',
+                'approval.process',
+                'lead.read',
+                'contract.read',
+                'case.read',
+              ].map((code) => ({ permission: { connect: { code } } })),
+            },
+            dataScopes: {
+              create: ['sop_task', 'lead', 'contract', 'case'].map((resource) => ({
+                resource,
+                dataScopeId: all.id,
+              })),
+            },
+          },
+        });
+      await db.userRole.create({ data: { userId: editor, roleId: reviewRole.id } });
+      const workerEmployee = await db.employee.create({
+          data: {
+            employeeNo: 'SQ6_WORKER',
+            name: '仅任务协作员',
+            phone: '13800000000',
+            type: 'ASSISTANT',
+            entryDate: new Date(),
+          },
+        }),
+        self = await db.dataScope.create({ data: { name: '本人前期', scopeType: 'SELF' } }),
+        workerRole = await db.role.create({
+          data: {
+            code: 'SQ6_WORKER',
+            name: '任务协作',
+            type: 'BUSINESS',
+            permissions: {
+              create: ['sop.task.read', 'sop.task.execute', 'sop.report.read', 'sop.material.read'].map(
+                (code) => ({ permission: { connect: { code } } }),
+              ),
+            },
+            dataScopes: { create: { resource: 'sop_task', dataScopeId: self.id } },
+          },
+        }),
+        workerUser = await db.user.create({
+          data: {
+            username: 'sq6-worker',
+            password: 'unused',
+            mustChangePassword: false,
+            employeeId: workerEmployee.id,
+            userRoles: { create: { roleId: workerRole.id } },
+          },
+        }),
+        workerToken = (await createApiSession(db, workerUser.id)).token;
+      const api = (method: 'get' | 'post' | 'put', route: string, bearer = adminToken, body?: unknown) => {
+        const client = app.httpRequest();
+        const req = client[method]('/api/v1' + route)
+          .set('Authorization', 'Bearer ' + bearer)
+          .set('Idempotency-Key', randomUUID());
+        return body === undefined ? req : req.send(body);
+      };
+      const template = (
+          await api('post', '/sop/templates', adminToken, {
+            code: 'SQ6_UI',
+            name: '医疗前期样例',
+            organizationId: org,
+            professionalTeamId: team.id,
+            caseType: '医疗纠纷',
+            requestKey: randomUUID(),
+            content: {
+              schemaVersion: 1,
+              nodes: [
+                {
+                  code: 'PRE',
+                  name: '前期报告',
+                  reviewRequired: true,
+                  materials: [{ code: 'DOC', name: '来源材料', required: true }],
+                },
+                { code: 'ANALYSIS', name: '委托分析' },
+                { code: 'CASE', name: '案件办理' },
+              ],
+            },
+          }).expect(200)
+        ).body.data,
+        version = await db.sopTemplateVersion.findFirstOrThrow({ where: { templateId: template.id } });
+      await db.sopTemplateVersion.update({ where: { id: version.id }, data: { status: 'PUBLISHED' } });
+      await db.sopTemplate.update({ where: { id: template.id }, data: { activeVersionId: version.id } });
+      const lead = await db.lead.create({
+          data: {
+            leadNo: 'SQ6_UI_LEAD',
+            name: '前期隔离客户',
+            phone: '13800000000',
+            phoneHash: 'test',
+            status: 'VISITED',
+            branchId: org,
+            professionalTeamId: team.id,
+            createdBy: owner,
+          },
+        }),
+        table = (
+          await api('post', '/bases/' + baseId + '/tables', adminToken, {
+            name: '前期与案件任务',
+            source: 'SOP_TASKS',
+          }).expect(200)
+        ).body.data;
+      const pages = [];
+      for (const [id, bearer] of [
+        [owner, adminToken],
+        [editor, editorToken],
+        [workerUser.id, workerToken],
+      ]) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          'window.unifiedTestSession=' +
+            JSON.stringify({
+              mode: 'AUTHENTICATED',
+              token: bearer,
+              csrfToken: 'test',
+              expiresIn: 900,
+              user: { id, username: id, name: 'SQ6验收', roles: [], permissions: [] },
+            }) +
+            ';',
+        );
+        const page = await context.newPage();
+        page.on('pageerror', (e: Error) => errors.push(e.message));
+        pages.push(page);
+      }
+      const [admin, reviewer, worker] = pages,
+        address = vite.resolvedUrls.local[0];
+      async function choose(page: typeof admin, label: string, value: string) {
+        const select = page.getByLabel(label, { exact: true });
+        await select.click();
+        const listId = await select.getAttribute('aria-controls');
+        await page
+          .locator('.ant-select-dropdown')
+          .filter({ has: page.locator('[id=' + JSON.stringify(listId) + ']') })
+          .locator('.ant-select-item-option-content')
+          .getByText(value, { exact: true })
+          .click();
+      }
+      async function startUi(selected: string) {
+        await choose(admin, '已发布模板', '医疗前期样例 · 医疗纠纷');
+        await admin.getByRole('checkbox', { name: '前期报告', exact: true }).waitFor();
+        for (const label of ['前期报告', '委托分析', '案件办理'])
+          await admin.getByRole('checkbox', { name: label, exact: true }).setChecked(label === selected);
+        await admin.getByRole('button', { name: '确认启动', exact: true }).click();
+        await admin.waitForURL(/\/sop\/instances\/[0-9a-f-]+$/);
+        return admin.url().split('/').at(-1)!;
+      }
+      await admin.goto(address + 'leads/' + lead.id);
+      await admin.getByRole('button', { name: '启动前期SOP', exact: true }).click();
+      const firstId = await startUi('前期报告');
+      assert.equal(await db.case.count(), 0);
+      assert.equal(await db.contract.count(), 0);
+      const firstTask = await db.caseTask.findFirstOrThrow({ where: { sopInstanceId: firstId } });
+      await api('post', '/sop/tasks/' + firstTask.id + '/actions', adminToken, {
+        action: 'ASSIGN',
+        expectedVersion: firstTask.version,
+        requestKey: randomUUID(),
+        assigneeUserId: workerUser.id,
+      }).expect(200);
+      await admin.getByRole('link', { name: '前期报告', exact: true }).click();
+      await admin.getByRole('button', { name: '开始办理', exact: true }).click();
+      await admin.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await admin.getByRole('dialog').waitFor({ state: 'hidden' });
+      let offline = true;
+      await admin.route(
+        '**/api/v1/sop/tasks/' + firstTask.id + '/source-materials',
+        async (route: {
+          request(): { method(): string };
+          abort(reason: string): Promise<void>;
+          continue(): Promise<void>;
+        }) => {
+          if (offline && route.request().method() === 'POST') {
+            offline = false;
+            return route.abort('internetdisconnected');
+          }
+          return route.continue();
+        },
+      );
+      await admin
+        .getByLabel('前期材料文件', { exact: true })
+        .setInputFiles({
+          name: '线索原始材料.txt',
+          mimeType: 'text/plain',
+          buffer: Buffer.from('隔离前期原始材料'),
+        });
+      await admin.getByRole('button', { name: '保存前期材料', exact: true }).click();
+      await expect(admin.getByRole('button', { name: '保存前期材料', exact: true })).toBeEnabled({
+        timeout: 15000,
+      });
+      await admin.getByRole('button', { name: '保存前期材料', exact: true }).click();
+      await expect.poll(() => db.sopSourceFile.count()).toBe(1);
+      const file = await db.sopSourceFile.findFirstOrThrow();
+      async function submit(report: string) {
+        await admin.getByRole('button', { name: '提交节点成果', exact: true }).click();
+        await admin.getByRole('dialog').getByLabel('成果报告', { exact: true }).fill(report);
+        await choose(admin, '来源材料（必需）', '线索原始材料.txt');
+        await admin.getByLabel('来源材料（必需）', { exact: true }).press('Escape');
+        await choose(admin, '审核人', '前期审核员');
+        await admin.getByRole('dialog').getByRole('button', { name: '提交成果', exact: true }).click();
+        await admin.getByRole('dialog').waitFor({ state: 'hidden' });
+        return db.sopSubmission.findFirstOrThrow({
+          where: { taskId: firstTask.id },
+          orderBy: { number: 'desc' },
+        });
+      }
+      let sub = await submit('第一轮前期分析报告');
+      await reviewer.goto(address + 'sop/submissions/' + sub.id);
+      const download = reviewer.waitForEvent('download');
+      await reviewer.getByRole('button', { name: '线索原始材料.txt', exact: true }).click();
+      assert.equal((await download).suggestedFilename(), '线索原始材料.txt');
+      await reviewer.getByRole('link', { name: '进入原审批中心办理', exact: true }).click();
+      await reviewer
+        .getByRole('dialog', { name: '审批详情', exact: true })
+        .locator('.ant-modal-close')
+        .click();
+      await reviewer.getByRole('button', { name: '驳回', exact: true }).click();
+      await reviewer
+        .getByRole('dialog', { name: '驳回审批' })
+        .getByLabel('审批意见（可选）')
+        .fill('补充核验依据');
+      await reviewer.getByRole('button', { name: '确认驳回', exact: true }).click();
+      await admin.getByRole('button', { name: '开始办理', exact: true }).click();
+      await admin.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await admin.getByRole('dialog').waitFor({ state: 'hidden' });
+      sub = await submit('第二轮前期分析，核验依据齐备');
+      await reviewer.goto(address + 'sop/submissions/' + sub.id);
+      for (const label of ['MATERIALS检查结果', 'REPORT检查结果']) await choose(reviewer, label, '通过');
+      await reviewer.getByRole('button', { name: '保存检查清单', exact: true }).click();
+      await expect
+        .poll(async () =>
+          JSON.stringify(
+            (await db.qualityReview.findUniqueOrThrow({ where: { submissionId: sub.id } })).checklist,
+          ),
+        )
+        .toContain('PASS');
+      await reviewer.getByRole('link', { name: '进入原审批中心办理', exact: true }).click();
+      await reviewer
+        .getByRole('dialog', { name: '审批详情', exact: true })
+        .locator('.ant-modal-close')
+        .click();
+      await reviewer.getByRole('button', { name: '审批通过', exact: true }).click();
+      await reviewer.getByRole('button', { name: '确认通过', exact: true }).click();
+      await expect
+        .poll(async () => (await db.caseTask.findUniqueOrThrow({ where: { id: firstTask.id } })).status)
+        .toBe('COMPLETED');
+      const frozenTask = await db.caseTask.findUniqueOrThrow({ where: { id: firstTask.id } });
+      await worker.goto(address + 'sop/tasks/' + firstTask.id);
+      await worker.getByRole('heading', { name: '前期报告', exact: true }).waitFor();
+      await api('get', '/sop/tasks/' + firstTask.id + '/source-materials', workerToken).expect(403);
+      await expect(worker.getByRole('button', { name: '线索原始材料.txt', exact: true })).toHaveCount(0);
+      const customer = (
+        await api('post', '/leads/' + lead.id + '/convert', adminToken, {
+          customer: { name: '真实转换客户', phone: '13800000000' },
+          contact: { name: '联系人', phone: '13800000000', relation: '本人', isPrimary: true },
+        }).expect(200)
+      ).body.data;
+      async function contract(type: string, sourceId?: string) {
+        const row = (
+          await api('post', '/contracts', adminToken, {
+            contractType: type,
+            title: type + '前期合同',
+            customerId: customer.id,
+            branchId: org,
+            professionalTeamId: team.id,
+            amount: '100',
+            ...(sourceId ? { sourceType: 'ANALYSIS', sourceId } : {}),
+          }).expect(200)
+        ).body.data;
+        const state = (await api('post', '/contracts/' + row.id + '/submit', adminToken, {}).expect(200)).body
+          .data;
+        if (state.status === 'PENDING_APPROVAL')
+          await api('post', '/contracts/' + row.id + '/approve', adminToken, {}).expect(200);
+        await api('post', '/contracts/' + row.id + '/sign', adminToken, {}).expect(200);
+        if (type !== 'RISK_NOTICE')
+          await api('post', '/contracts/' + row.id + '/effect', adminToken, {}).expect(200);
+        return row;
+      }
+      const firstContract = await contract('FIRST_SIGN'),
+        engagement = await db.analysisEngagement.findUniqueOrThrow({
+          where: { contractId: firstContract.id },
+        });
+      await admin.goto(address + 'contracts/' + firstContract.id);
+      await admin.getByRole('button', { name: '启动分析委托SOP', exact: true }).click();
+      const midId = await startUi('委托分析');
+      await contract('RISK_NOTICE');
+      const formal = await contract('FORMAL', engagement.id),
+        caseRow = await db.case.findUniqueOrThrow({ where: { contractId: formal.id } });
+      await api('put', '/cases/' + caseRow.id, adminToken, {
+        version: caseRow.version,
+        caseType: '医疗纠纷',
+        teamIds: [team.id],
+      }).expect(200);
+      await admin.goto(address + 'cases/' + caseRow.id);
+      await admin.getByRole('link', { name: '启动SOP流程', exact: true }).click();
+      const lastId = await startUi('案件办理');
+      for (const [from, to] of [
+        [firstId, midId],
+        [midId, lastId],
+      ]) {
+        await admin.goto(address + 'sop/instances/' + from);
+        await admin.getByRole('button', { name: '关联后续流程', exact: true }).focus();
+        await admin.keyboard.press('Enter');
+        const target = to === midId ? engagement.engagementNo : caseRow.title;
+        await choose(admin, '后续流程', target + ' · PRIMARY');
+        await admin.getByLabel('接续依据', { exact: true }).fill('真实客户和生效合同接续');
+        if (from === firstId) {
+          await db.sopInstance.update({ where: { id: from }, data: { version: { increment: 1 } } });
+          const conflict = admin.waitForResponse((r: { url(): string; status(): number }) => r.url().endsWith('/continuations') && r.status() === 409);
+          await admin.getByRole('dialog').getByRole('button', { name: '确认接续', exact: true }).click();
+          await conflict;
+          await expect(admin.getByLabel('接续依据', { exact: true })).toHaveValue('真实客户和生效合同接续');
+          await admin.getByRole('button', { name: '刷新接续候选并采用最新版本', exact: true }).click();
+          await expect(admin.getByRole('dialog').getByRole('button', { name: '确认接续', exact: true })).toBeEnabled();
+        }
+        await admin.getByRole('dialog').getByRole('button', { name: '确认接续', exact: true }).click();
+        await admin.getByRole('dialog').waitFor({ state: 'hidden' });
+      }
+      for (const width of [1440, 1024, 390]) {
+        await admin.setViewportSize({ width, height: 1000 });
+        await admin.screenshot({
+          path: path.join(evidence, 'continuation-' + width + '.png'),
+          fullPage: true,
+        });
+        assert.ok(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2));
+      }
+      assert.equal(await db.sopContinuation.count(), 2);
+      assert.equal(await db.caseTask.count(), 3);
+      assert.equal(await db.case.count(), 1);
+      assert.equal(await db.contract.count(), 3);
+      assert.equal(await db.caseFile.count(), 0);
+      assert.equal(await db.sopSourceFile.count(), 1);
+      assert.deepEqual(await db.caseTask.findUniqueOrThrow({ where: { id: firstTask.id } }), frozenTask);
+      const records = (
+        await api('post', '/tables/' + table.id + '/records/query', adminToken, {}).expect(200)
+      ).body.data.records;
+      assert.equal(records.length, 3);
+      assert.ok(records.some((r: { id: string }) => r.id === firstTask.id));
+      assert.equal(await db.collabRecord.count({ where: { tableId: table.id } }), 0);
+      await api('get', '/sop/tasks/' + firstTask.id + '/source-materials/' + file.id, workerToken).expect(
+        403,
+      );
+      await db.userRole.deleteMany({ where: { userId: workerUser.id } });
+      await worker
+        .getByRole('heading', { name: '前期报告', exact: true })
+        .waitFor({ state: 'hidden', timeout: 15000 });
+      assert.deepEqual(errors, []);
+    } catch (error) {
+      for (const [i, context] of browser.contexts().entries())
+        for (const page of context.pages()) {
+          await writeFile(
+            path.join(evidence, 'failed-aria-' + i + '.txt'),
+            await page.locator('body').ariaSnapshot(),
+          );
+          await page
+            .screenshot({ path: path.join(evidence, 'failed-' + i + '.png'), fullPage: true })
+            .catch(() => undefined);
+        }
+      throw error;
+    } finally {
+      await browser.close();
+      await vite.close();
+    }
   },
 );

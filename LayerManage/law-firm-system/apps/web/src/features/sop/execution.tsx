@@ -14,6 +14,8 @@ export const sopStates: Record<string, string> = {
   CANCELLED: '已取消',
 };
 export interface SopTask {
+  sourceKind: 'CASE' | 'LEAD' | 'ANALYSIS_ENGAGEMENT';
+  source: {id:string;kind:string;title:string;route:string} | null;
   id: string;
   name: string;
   status: string;
@@ -31,6 +33,8 @@ export interface SopTask {
   permissions: string[];
 }
 export interface SopInstance {
+  sourceKind: 'CASE' | 'LEAD' | 'ANALYSIS_ENGAGEMENT';
+  source: {id:string;kind:string;title:string;route:string} | null;
   id: string;
   status: string;
   version: number;

@@ -1,3 +1,4 @@
+import { sopSourceActive, lockSopSource } from './source-context';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { qualityActor } from '../quality/quality-scope';
 import { requireSopTask } from './execution-scope';
@@ -15,7 +16,7 @@ export async function sopReminderRecipient(db: DB, taskId: string) {
   if (
     !task?.sopInstance ||
     task.sopInstance.status !== 'ACTIVE' ||
-    ['CLOSED', 'ARCHIVED'].includes(task.case.status) ||
+    !(await sopSourceActive(db,task.sopInstance)) ||
     ['COMPLETED', 'SKIPPED'].includes(task.status)
   )
     return null;
@@ -57,7 +58,7 @@ export class SopReminderScanner {
         continue;
       const kind = now >= candidate.dueDate ? 'DUE' : 'BEFORE';
       await this.db.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT id FROM "case" WHERE id=${candidate.caseId} FOR UPDATE`;
+        await lockSopSource(tx,await tx.sopInstance.findUniqueOrThrow({where:{id:candidate.sopInstanceId!}}));
         await tx.$queryRaw`SELECT id FROM sop_instance WHERE id=${candidate.sopInstanceId} FOR UPDATE`;
         await tx.$queryRaw`SELECT id FROM case_task WHERE id=${candidate.id} FOR UPDATE`;
         const target = await sopReminderRecipient(tx, candidate.id);
@@ -93,8 +94,8 @@ export class SopReminderScanner {
           objectType: 'SOP_REMINDER',
           objectId: row.id,
           operatorUserId: target.userId,
-          organizationId: target.task.case.branchId,
-          branchId: target.task.case.branchId,
+          organizationId: (await tx.sopTemplateVersion.findUniqueOrThrow({where:{id:target.task.sopInstance!.templateVersionId},include:{template:true}})).template.organizationId,
+          branchId: (await tx.sopTemplateVersion.findUniqueOrThrow({where:{id:target.task.sopInstance!.templateVersionId},include:{template:true}})).template.organizationId,
           teamId: null,
           payload: { id: row.id },
           traceId: row.id,

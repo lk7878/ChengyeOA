@@ -54,6 +54,8 @@ export const PERMISSION_CATALOG = Object.freeze([
   permission('sop.report.submit', '提交SOP成果', 'ACTION', 'sop_task', 'submit', 'MEDIUM'),
   permission('sop.guidance.read', '查看专家指导', 'ACTION', 'sop_task', 'read', 'MEDIUM'),
   permission('sop.guidance.create', '记录专家指导', 'ACTION', 'sop_task', 'create', 'MEDIUM'),
+  permission('sop.material.read','读取前期材料','ACTION','sop_task','read','MEDIUM'),
+  permission('sop.material.manage','上传前期材料','ACTION','sop_task','manage','MEDIUM'),
   permission('quality.review.read', '查看一级审核', 'ACTION', 'sop_task', 'read', 'MEDIUM'),
   permission('quality.review.assign', '分派一级审核', 'ACTION', 'sop_task', 'assign', 'MEDIUM'),
   permission('quality.review.decide', '决定一级审核', 'ACTION', 'sop_task', 'decide', 'MEDIUM'),

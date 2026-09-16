@@ -232,6 +232,13 @@ export default (app: Application) => {
   router.get('/api/v1/sop/task-options', requirePermission('sop.task.manage'), controller.sop.taskOptions);
   router.get('/api/v1/sop/templates', requirePermission('sop.template.read'), controller.sop.templates);
   router.get('/api/v1/sop/templates/:id', requirePermission('sop.template.read'), controller.sop.template);
+  router.get('/api/v1/sop/source-context', requirePermission('sop.instance.start'), controller.sop.sourceContext);
+  router.get('/api/v1/sop/tasks/:id/source-materials', requirePermission('sop.material.read'), controller.sop.sourceMaterials);
+  router.post('/api/v1/sop/tasks/:id/source-materials', requirePermission('sop.material.manage'), controller.sop.uploadSourceMaterial);
+  router.get('/api/v1/sop/tasks/:id/source-materials/:fileId', requirePermission('sop.material.read'), controller.sop.sourceMaterial);
+  router.get('/api/v1/sop/instances/:id/continuations', requirePermission('sop.instance.read'), controller.sop.continuations);
+  router.get('/api/v1/sop/instances/:id/continuation-options', requirePermission('sop.instance.manage'), controller.sop.continuationOptions);
+  router.post('/api/v1/sop/instances/:id/continuations', requirePermission('sop.instance.manage'), controller.sop.continueInstance);
   router.get('/api/v1/sop/template-versions/:id', requirePermission('sop.template.read'), controller.sop.templateVersion);
   router.post('/api/v1/sop/templates', requirePermission('sop.template.manage'), controller.sop.createTemplate);
   router.post('/api/v1/sop/templates/:id/versions', requirePermission('sop.template.manage'), controller.sop.copyVersion);

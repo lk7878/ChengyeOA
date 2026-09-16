@@ -1,3 +1,4 @@
+import { sopSourceActive } from './source-context';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { EventHandler, EventHandlerContext } from '../events/event-delivery-store';
 import { parseEventPayload } from '../../domain/events/event-registry';
@@ -16,7 +17,7 @@ export class SopChangeNotification implements EventHandler {
       where: { id: event.id },
       include: { sopInstance: true, activeSubmission: true, case: true },
     });
-    if (!row || ['CLOSED', 'ARCHIVED'].includes(row.case.status) || row.version !== event.version || row.sopInstance?.status !== 'ACTIVE') return;
+    if (!row || (row.sopInstance && !(await sopSourceActive(tx,row.sopInstance))) || row.version !== event.version || row.sopInstance?.status !== 'ACTIVE') return;
     let userId: string | null;
     if (event.action === 'REVIEW' && row.status === 'CHANGES_REQUESTED' && row.activeSubmission) {
       userId = row.activeSubmission.submittedBy;

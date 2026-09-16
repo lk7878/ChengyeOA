@@ -1,3 +1,12 @@
+import { buildContractScopeWhere } from '../contract/contract-scope';
+import {
+  SopSource,
+  sourceKind,
+  requireSopSource,
+  lockSopSource,
+  sopSourceActive,
+  bumpSopCase,
+} from './source-context';
 import { employmentStamp } from './employment-stamp';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
@@ -13,7 +22,7 @@ import { PermissionCode } from '../../domain/authorization/authorization-types';
 import { parseSopContent, sopFail, SopNode } from '../../domain/sop/template-content';
 import { requireSopVersion } from './template-service';
 import { requireSopTask, requireSopInstance, sopInstanceScope, sopTaskScope } from './execution-scope';
-import { buildCaseScopeWhere, requireCaseAccess } from '../case/case-scope';
+import { buildCaseScopeWhere } from '../case/case-scope';
 import { createOnce } from '../finance/domain-mutation';
 import { hashPayload } from '../../domain/admin-governance/canonical-json';
 import { PrismaEventOutboxWriter } from '../events/event-outbox-writer';
@@ -49,15 +58,67 @@ export class SopExecutionService {
   ) {
     this.auth = new AuthorizationService(new DataScopeService(db));
   }
+  async sourceContext(raw: unknown) {
+    assertExactKeys(raw, ['caseId', 'leadId', 'analysisEngagementId', 'contractId']);
+    this.auth.requireAction(this.ctx, 'sop.instance.start');
+    const ref = {
+      caseId: raw.caseId ? normalizeRequiredText(raw.caseId, 1, 100) : null,
+      leadId: raw.leadId ? normalizeRequiredText(raw.leadId, 1, 100) : null,
+      analysisEngagementId: raw.analysisEngagementId
+        ? normalizeRequiredText(raw.analysisEngagementId, 1, 100)
+        : null,
+    };
+    if (raw.contractId) {
+      if (Object.values(ref).some(Boolean)) sopFail('SOP_SOURCE_INVALID');
+      this.auth.requireAction(this.ctx, 'contract.read');
+      const contractId = normalizeRequiredText(raw.contractId, 1, 100),
+        contract = await this.db.contract.findFirst({
+          where: {
+            AND: [
+              { id: contractId, deletedAt: null },
+              await buildContractScopeWhere(this.db, this.auth, this.ctx, 'contract.read'),
+            ],
+          },
+          include: { analysisEngagement: true },
+        });
+      if (!contract?.analysisEngagement) sopFail('SOP_SOURCE_NOT_FOUND', 404);
+      ref.analysisEngagementId = contract!.analysisEngagement!.id;
+    }
+    const source = await requireSopSource(this.db, this.ctx, ref, true);
+    return { ref, source: { kind: source.kind, id: source.id, title: source.title, route: source.route } };
+  }
   async start(raw: unknown) {
-    assertExactKeys(raw, ['caseId', 'templateVersionId', 'batchKey', 'requestKey']);
-    const caseId = normalizeRequiredText(raw.caseId, 1, 100),
+    assertExactKeys(raw, [
+      'caseId',
+      'leadId',
+      'analysisEngagementId',
+      'templateVersionId',
+      'batchKey',
+      'requestKey',
+      'nodeCodes',
+    ]);
+    const ref = {
+        caseId: raw.caseId ? normalizeRequiredText(raw.caseId, 1, 100) : null,
+        leadId: raw.leadId ? normalizeRequiredText(raw.leadId, 1, 100) : null,
+        analysisEngagementId: raw.analysisEngagementId
+          ? normalizeRequiredText(raw.analysisEngagementId, 1, 100)
+          : null,
+      },
+      kind = sourceKind(ref),
       versionId = normalizeRequiredText(raw.templateVersionId, 1, 100),
       batchKey = normalizeRequiredText(raw.batchKey, 1, 100),
       key = normalizeRequiredText(raw.requestKey, 8, 128);
+    let nodeCodes: string[] | null = null;
+    if (raw.nodeCodes !== undefined) {
+      if (!Array.isArray(raw.nodeCodes) || !raw.nodeCodes.length || raw.nodeCodes.length > 50)
+        sopFail('VALIDATION_FAILED');
+      nodeCodes = (raw.nodeCodes as unknown[]).map((code) => normalizeRequiredText(code, 1, 100));
+      if (new Set(nodeCodes).size !== nodeCodes.length) sopFail('VALIDATION_FAILED');
+      nodeCodes.sort();
+    }
+    if (kind !== 'CASE' && !nodeCodes) sopFail('SOP_NODE_SELECTION_REQUIRED', 400);
     this.auth.requireAction(this.ctx, 'sop.instance.start');
-    await requireCaseAccess(this.db, this.ctx, caseId, 'case.task.manage');
-    await requireCaseAccess(this.db, this.ctx, caseId, 'case.read');
+    await requireSopSource(this.db, this.ctx, ref, true);
     await requireSopVersion(this.db, this.ctx, versionId, 'sop.template.read');
     return createOnce(
       this.db,
@@ -65,47 +126,64 @@ export class SopExecutionService {
         actorId: this.ctx.userId,
         key,
         operation: 'SOP_INSTANCE_START',
-        normalized: { caseId, versionId, batchKey },
+        normalized:
+          kind === 'CASE' && nodeCodes === null
+            ? { caseId: ref.caseId, versionId, batchKey }
+            : { ...ref, versionId, batchKey, nodeCodes },
       },
       async (tx) => {
         const ctx = await new AuthorizationContextLoader(tx).load(this.ctx.userId);
-        await tx.$queryRaw`SELECT id FROM "case" WHERE id=${caseId} FOR UPDATE`;
-        const caseRow = await requireCaseAccess(this.db, ctx, caseId, 'case.task.manage', tx);
-        await requireCaseAccess(this.db, ctx, caseId, 'case.read', tx);
+        await lockSopSource(tx, ref);
+        const source = await requireSopSource(tx, ctx, ref, true);
         await tx.$queryRaw`SELECT id FROM sop_template_version WHERE id=${versionId} FOR UPDATE`;
-        const revision = await requireSopVersion(tx, ctx, versionId, 'sop.template.read');
-        const existing = await tx.sopInstance.findUnique({
-          where: { caseId_templateVersionId_batchKey: { caseId, templateVersionId: versionId, batchKey } },
+        const revision = await requireSopVersion(tx, ctx, versionId, 'sop.template.read'),
+          content = parseSopContent(revision.content),
+          nodes = content.nodes.filter((node) => nodeCodes === null || nodeCodes.includes(node.code));
+        if (
+          !nodes.length ||
+          (nodeCodes && nodes.length !== nodeCodes.length) ||
+          nodes.some((node) => node.dependsOn.some((code) => !nodes.some((n) => n.code === code)))
+        )
+          sopFail('SOP_NODE_SELECTION_INVALID', 400);
+        const existing = await tx.sopInstance.findFirst({
+          where: { ...ref, templateVersionId: versionId, batchKey },
+          include: { tasks: { select: { nodeCode: true } } },
         });
-        if (existing) return requireSopInstance(tx, ctx, existing.id, 'sop.instance.start');
-        if (['CLOSED', 'ARCHIVED'].includes(caseRow.status)) sopFail('CASE_STATE_INVALID', 409);
+        if (existing) {
+          if (
+            existing.tasks
+              .map((t) => t.nodeCode)
+              .sort()
+              .join('|') !==
+            nodes
+              .map((n) => n.code)
+              .sort()
+              .join('|')
+          )
+            sopFail('SOP_BATCH_CONFLICT', 409);
+          return requireSopInstance(tx, ctx, existing.id, 'sop.instance.start');
+        }
+        if (!(await sopSourceActive(tx, ref)))
+          sopFail(kind === 'CASE' ? 'CASE_STATE_INVALID' : 'SOP_SOURCE_INACTIVE', 409);
         if (
           revision.status !== 'PUBLISHED' ||
           revision.template.activeVersionId !== revision.id ||
           hashPayload(revision.content) !== revision.contentHash
         )
           sopFail('SOP_TEMPLATE_NOT_ACTIVE', 409);
-        let teams: unknown;
-        try {
-          teams = JSON.parse(caseRow.teamIds || 'null');
-        } catch {
-          teams = null;
-        }
         if (
-          caseRow.branchId !== revision.template.organizationId ||
-          caseRow.caseType !== revision.template.caseType ||
-          !Array.isArray(teams) ||
-          !teams.includes(revision.template.professionalTeamId)
+          source.organizationId !== revision.template.organizationId ||
+          (source.caseType !== null && source.caseType !== revision.template.caseType) ||
+          !source.teamIds.includes(revision.template.professionalTeamId)
         )
           sopFail('SOP_CASE_SCOPE_MISMATCH', 409);
-        const content = parseSopContent(revision.content);
         const row = await tx.sopInstance.create({
-          data: { caseId, templateVersionId: versionId, batchKey, createdBy: ctx.userId },
+          data: { ...ref, templateVersionId: versionId, batchKey, createdBy: ctx.userId },
         });
         await requireSopInstance(tx, ctx, row.id, 'sop.instance.start');
         await tx.caseTask.createMany({
-          data: content.nodes.map((node) => ({
-            caseId,
+          data: nodes.map((node) => ({
+            caseId: ref.caseId,
             sopInstanceId: row.id,
             nodeCode: node.code,
             nodeSnapshot: json(node),
@@ -114,26 +192,33 @@ export class SopExecutionService {
             createdBy: ctx.userId,
           })),
         });
-        await tx.case.update({
-          where: { id: caseId },
-          data: { version: { increment: 1 }, updatedBy: ctx.userId },
-        });
+        await bumpSopCase(tx, ref, ctx.userId);
         await this.recordChange(tx, 'SOP_INSTANCE', row, 'START', revision.template.organizationId, {
+          ...ref,
           templateVersionId: versionId,
           batchKey,
+          nodeCodes: nodes.map((n) => n.code),
         });
         return row;
       },
-      (tx, id) => requireSopInstance(tx, this.ctx, id, 'sop.instance.start'),
+      async (tx, id) => {
+        const ctx = await new AuthorizationContextLoader(tx).load(this.ctx.userId);
+        await requireSopSource(tx, ctx, ref, true);
+        return requireSopInstance(tx, ctx, id, 'sop.instance.start');
+      },
     );
   }
   async instances(raw: unknown) {
-    assertExactKeys(raw, ['page', 'pageSize', 'caseId']);
+    assertExactKeys(raw, ['page', 'pageSize', 'caseId', 'leadId', 'analysisEngagementId']);
     const p = paging(raw);
     const where: Prisma.SopInstanceWhereInput = {
       AND: [
         await sopInstanceScope(this.db, this.ctx, 'sop.instance.read'),
         ...(raw.caseId ? [{ caseId: normalizeRequiredText(raw.caseId, 1, 100) }] : []),
+        ...(raw.leadId ? [{ leadId: normalizeRequiredText(raw.leadId, 1, 100) }] : []),
+        ...(raw.analysisEngagementId
+          ? [{ analysisEngagementId: normalizeRequiredText(raw.analysisEngagementId, 1, 100) }]
+          : []),
       ],
     };
     const [total, rows] = await this.db.$transaction([
@@ -165,6 +250,8 @@ export class SopExecutionService {
       templateName: row.templateVersion.template.name,
       templateNumber: row.templateVersion.number,
       case: caseRow,
+      sourceKind: sourceKind(row),
+      source: await this.visibleSource(row),
       tasks: tasks.map((t) => this.projectTask(t)),
       progress: { visible: tasks.length, completed: tasks.filter((t) => terminal.includes(t.status)).length },
     };
@@ -212,7 +299,16 @@ export class SopExecutionService {
   async task(id: string) {
     const row = await requireSopTask(this.db, this.ctx, id, 'sop.task.read');
     const permissions: PermissionCode[] = [];
-    for (const permission of ['sop.task.execute', 'sop.task.manage', 'sop.report.read', 'sop.report.submit', 'sop.guidance.read', 'sop.guidance.create', 'quality.review.assign', 'quality.review.decide'] as const) {
+    for (const permission of [
+      'sop.task.execute',
+      'sop.task.manage',
+      'sop.report.read',
+      'sop.report.submit',
+      'sop.guidance.read',
+      'sop.guidance.create',
+      'quality.review.assign',
+      'quality.review.decide',
+    ] as const) {
       if (
         this.ctx.permissionCodes.includes(permission) &&
         (await this.db.caseTask.findFirst({
@@ -227,6 +323,8 @@ export class SopExecutionService {
       node: row.nodeSnapshot,
       instanceStatus: row.sopInstance!.status,
       case: await this.visibleCase(row.caseId),
+      sourceKind: sourceKind(row.sopInstance!),
+      source: await this.visibleSource(row.sopInstance!),
       permissions,
     };
   }
@@ -256,7 +354,17 @@ export class SopExecutionService {
       completedAt: row.completedAt,
     };
   }
-  private async visibleCase(id: string) {
+  private async visibleSource(ref: SopSource) {
+    try {
+      const source = await requireSopSource(this.db, this.ctx, ref);
+      return { kind: source.kind, id: source.id, title: source.title, route: source.route };
+    } catch (error) {
+      if ([401, 403, 404].includes((error as { status?: number }).status ?? 0)) return null;
+      throw error;
+    }
+  }
+  private async visibleCase(id: string | null) {
+    if (!id) return null;
     if (!this.ctx.permissionCodes.includes('case.read')) return null;
     return this.db.case.findFirst({
       where: { AND: [{ id }, await buildCaseScopeWhere(this.db, this.ctx, 'case.read')] },
@@ -301,18 +409,14 @@ export class SopExecutionService {
       { actorId: this.ctx.userId, key, operation: 'SOP_TASK_' + action, normalized: { id, ...raw } },
       async (tx) => {
         const ctx = await new AuthorizationContextLoader(tx).load(this.ctx.userId);
-        await tx.$queryRaw`SELECT id FROM "case" WHERE id=${initial.caseId} FOR UPDATE`;
+        await lockSopSource(tx, initial.sopInstance!);
         await tx.$queryRaw`SELECT id FROM sop_instance WHERE id=${initial.sopInstanceId} FOR UPDATE`;
         await tx.$queryRaw`SELECT id FROM case_task WHERE id=${id} FOR UPDATE`;
         const row = await requireSopTask(tx, ctx, id, permission),
           instance = row.sopInstance!;
-        const caseRow = await tx.case.findUniqueOrThrow({ where: { id: row.caseId } });
+        const sourceActive = await sopSourceActive(tx, instance);
         if (row.version !== version) sopFail('SOP_VERSION_CONFLICT', 409);
-        if (
-          instance.status !== 'ACTIVE' ||
-          ['CLOSED', 'ARCHIVED'].includes(caseRow.status) ||
-          terminal.includes(row.status)
-        )
+        if (instance.status !== 'ACTIVE' || !sourceActive || terminal.includes(row.status))
           sopFail('SOP_STATE_INVALID', 409);
         const node = row.nodeSnapshot as unknown as SopNode;
         const update: Prisma.CaseTaskUpdateInput = { version: { increment: 1 }, updatedBy: ctx.userId };
@@ -378,25 +482,38 @@ export class SopExecutionService {
           }
           if (assignee)
             await tx.sopTaskAccess.create({
-              data: { taskId: id, principalUserId: assignee, grantedBy: ctx.userId, validUntil: until, employmentStamp:await employmentStamp(tx,assignee) },
+              data: {
+                taskId: id,
+                principalUserId: assignee,
+                grantedBy: ctx.userId,
+                validUntil: until,
+                employmentStamp: await employmentStamp(tx, assignee),
+              },
             });
           update.assignee = assignee ? { connect: { id: assignee } } : { disconnect: true };
         }
         const next = await tx.caseTask.update({ where: { id }, data: update });
         await tx.sopInstance.update({ where: { id: instance.id }, data: { version: { increment: 1 } } });
-        await tx.case.update({
-          where: { id: row.caseId },
-          data: { version: { increment: 1 }, updatedBy: ctx.userId },
-        });
-        await this.recordChange(tx, 'SOP_TASK', next, action, instance.templateVersion.template.organizationId, {
-          fromStatus: row.status,
-          toStatus: next.status,
-          assigneeUserId: next.assigneeUserId,
-          dueDate: next.dueDate,
-        });
+        await bumpSopCase(tx, row.sopInstance!, ctx.userId);
+        await this.recordChange(
+          tx,
+          'SOP_TASK',
+          next,
+          action,
+          instance.templateVersion.template.organizationId,
+          {
+            fromStatus: row.status,
+            toStatus: next.status,
+            assigneeUserId: next.assigneeUserId,
+            dueDate: next.dueDate,
+          },
+        );
         return this.projectTask(next);
       },
-      async (tx, taskId) => this.projectTask(await requireSopTask(tx, this.ctx, taskId, permission)),
+      async (tx, taskId) => {
+        const ctx = await new AuthorizationContextLoader(tx).load(this.ctx.userId);
+        return this.projectTask(await requireSopTask(tx, ctx, taskId, permission));
+      },
     );
   }
   async instanceAction(id: string, raw: unknown) {
@@ -406,19 +523,20 @@ export class SopExecutionService {
       key = normalizeRequiredText(raw.requestKey, 8, 128);
     if (!['PAUSE', 'RESUME', 'CANCEL', 'COMPLETE'].includes(action)) sopFail('VALIDATION_FAILED');
     const initial = await requireSopInstance(this.db, this.ctx, id, 'sop.instance.manage');
-    await requireCaseAccess(this.db, this.ctx, initial.caseId, 'case.task.manage');
+    await requireSopSource(this.db, this.ctx, initial, true);
     const reason = action === 'CANCEL' ? normalizeRequiredText(raw.reason, 1, 500) : null;
     return createOnce(
       this.db,
       { actorId: this.ctx.userId, key, operation: 'SOP_INSTANCE_' + action, normalized: { id, ...raw } },
       async (tx) => {
         const ctx = await new AuthorizationContextLoader(tx).load(this.ctx.userId);
-        await tx.$queryRaw`SELECT id FROM "case" WHERE id=${initial.caseId} FOR UPDATE`;
+        await lockSopSource(tx, initial);
         await tx.$queryRaw`SELECT id FROM sop_instance WHERE id=${id} FOR UPDATE`;
         const row = await requireSopInstance(tx, ctx, id, 'sop.instance.manage');
-        const caseRow = await requireCaseAccess(this.db, ctx, row.caseId, 'case.task.manage', tx);
+        await requireSopSource(tx, ctx, row, true);
         if (row.version !== version) sopFail('SOP_VERSION_CONFLICT', 409);
-        if (['CLOSED', 'ARCHIVED'].includes(caseRow.status)) sopFail('CASE_STATE_INVALID', 409);
+        if (!(await sopSourceActive(tx, row)))
+          sopFail(row.caseId ? 'CASE_STATE_INVALID' : 'SOP_SOURCE_INACTIVE', 409);
         const valid =
           action === 'RESUME'
             ? row.status === 'PAUSED'
@@ -443,18 +561,27 @@ export class SopExecutionService {
           where: { id },
           data: { status, version: { increment: 1 } },
         });
-        await tx.case.update({
-          where: { id: row.caseId },
-          data: { version: { increment: 1 }, updatedBy: ctx.userId },
-        });
-        await this.recordChange(tx, 'SOP_INSTANCE', next, action, row.templateVersion.template.organizationId, {
-          fromStatus: row.status,
-          status,
-          reason,
-        });
+        await bumpSopCase(tx, row, ctx.userId);
+        await this.recordChange(
+          tx,
+          'SOP_INSTANCE',
+          next,
+          action,
+          row.templateVersion.template.organizationId,
+          {
+            fromStatus: row.status,
+            status,
+            reason,
+          },
+        );
         return next;
       },
-      (tx, targetId) => requireSopInstance(tx, this.ctx, targetId, 'sop.instance.manage'),
+      async (tx, targetId) => {
+        const ctx = await new AuthorizationContextLoader(tx).load(this.ctx.userId);
+        const row = await requireSopInstance(tx, ctx, targetId, 'sop.instance.manage');
+        await requireSopSource(tx, ctx, row, true);
+        return row;
+      },
     );
   }
   async recordChange(

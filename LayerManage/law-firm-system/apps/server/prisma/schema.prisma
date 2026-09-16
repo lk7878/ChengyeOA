@@ -230,6 +230,8 @@ model User {
   eventLogsOperated        EventLog[]             @relation("EventOperator")
 
   @@map("user")
+  sopSourceFiles SopSourceFile[]
+  sopContinuations SopContinuation[]
 }
 
 model MfaFactor {
@@ -700,6 +702,7 @@ model Lead {
   @@index([branchId])
   @@index([professionalTeamId])
   @@map("lead")
+  sopInstances SopInstance[]
 }
 
 model LeadFollow {
@@ -997,6 +1000,7 @@ model AnalysisEngagement {
 
   @@index([customerId])
   @@map("analysis_engagement")
+  sopInstances SopInstance[]
 }
 
 // ==================== 财务/收款模块 ====================
@@ -1217,7 +1221,7 @@ model CaseTask {
   @@index([assigneeUserId, status, dueDate])
   @@index([createdBy])
   id          String    @id @default(uuid())
-  caseId      String
+  caseId      String?
   name        String // 任务名称
   nodeType    String // 立案准备 | 材料收集 | 立案提交 | 开庭 | 文书提交 | 裁判反馈 | 执行 | 结案
   status      String    @default("PENDING") // PENDING | IN_PROGRESS | COMPLETED | OVERDUE
@@ -1227,7 +1231,7 @@ model CaseTask {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  case Case? @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
   @@index([caseId])
   @@map("case_task")
@@ -2079,17 +2083,26 @@ model SopInstance {
   tasks CaseTask[]
   @@unique([caseId, templateVersionId, batchKey])
   id String @id @default(uuid())
-  caseId String
+  caseId String?
+  leadId String?
+  analysisEngagementId String?
   templateVersionId String
   createdBy String
   version Int @default(1)
   status String @default("ACTIVE")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  case Case @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  case Case? @relation(fields: [caseId], references: [id], onDelete: Restrict)
   templateVersion SopTemplateVersion @relation(fields: [templateVersionId], references: [id], onDelete: Restrict)
   @@index([caseId])
   @@map("sop_instance")
+  lead Lead? @relation(fields:[leadId],references:[id],onDelete:Restrict)
+  analysisEngagement AnalysisEngagement? @relation(fields:[analysisEngagementId],references:[id],onDelete:Restrict)
+  sourceFiles SopSourceFile[]
+  outgoingContinuations SopContinuation[] @relation("SopContinuationSource")
+  incomingContinuations SopContinuation[] @relation("SopContinuationTarget")
+  @@unique([leadId,templateVersionId,batchKey])
+  @@unique([analysisEngagementId,templateVersionId,batchKey])
 }
 
 
@@ -2138,16 +2151,19 @@ model SopSubmission {
 model SubmissionAttachment {
   id String @id @default(uuid())
   submissionId String
-  fileId String
+  fileId String?
+  sourceFileId String?
   materialCode String
   sha256 String
   fileSize Int
   createdAt DateTime @default(now())
   submission SopSubmission @relation(fields: [submissionId], references: [id], onDelete: Restrict)
-  file CaseFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  file CaseFile? @relation(fields: [fileId], references: [id], onDelete: Restrict)
   @@unique([submissionId, materialCode, fileId])
   @@index([fileId])
   @@map("submission_attachment")
+  sourceFile SopSourceFile? @relation(fields:[sourceFileId],references:[id],onDelete:Restrict)
+  @@unique([submissionId,materialCode,sourceFileId])
 }
 
 model QualityReview {
@@ -2386,4 +2402,36 @@ model SopReminderEmission {
   recipient User @relation("SopReminderRecipient",fields:[recipientId],references:[id],onDelete:Restrict)
   @@unique([taskId,taskVersion,kind,recipientId])
   @@map("sop_reminder_emission")
+}
+
+model SopSourceFile {
+  id String @id @default(uuid())
+  instanceId String
+  fileName String
+  fileType String
+  filePath String @unique
+  fileSize Int
+  sha256 String
+  createdBy String
+  createdAt DateTime @default(now())
+  instance SopInstance @relation(fields:[instanceId],references:[id],onDelete:Restrict)
+  creator User @relation(fields:[createdBy],references:[id],onDelete:Restrict)
+  attachments SubmissionAttachment[]
+  @@index([instanceId,createdAt])
+  @@map("sop_source_file")
+}
+model SopContinuation {
+  id String @id @default(uuid())
+  sourceInstanceId String
+  targetInstanceId String
+  sourceVersion Int
+  targetVersion Int
+  reason String
+  createdBy String
+  createdAt DateTime @default(now())
+  source SopInstance @relation("SopContinuationSource",fields:[sourceInstanceId],references:[id],onDelete:Restrict)
+  target SopInstance @relation("SopContinuationTarget",fields:[targetInstanceId],references:[id],onDelete:Restrict)
+  creator User @relation(fields:[createdBy],references:[id],onDelete:Restrict)
+  @@unique([sourceInstanceId,targetInstanceId])
+  @@map("sop_continuation")
 }

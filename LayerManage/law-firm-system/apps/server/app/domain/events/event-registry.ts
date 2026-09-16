@@ -999,7 +999,7 @@ function sopChangedDefinition(objectType: 'SOP_INSTANCE' | 'SOP_TASK'): EventDef
  return {sourceModule:'SOP',objectType,filterFields:new Set(['action']),parsePayload(raw:unknown){
   assertSafeJson(raw);assertPayloadSize(raw);const value=requirePlainObject(raw,'SOP event');assertExactKeys(value,['id','version','action'],'SOP event');
   const version=requireNonNegativeInteger(value.version,'version');if(version<1)throw new Error('SOP event version must be positive');
-  const action=requireString(value.action,'action');if(!['START','COMPLETE','PAUSE','RESUME','CANCEL','SKIP','ASSIGN','RESCHEDULE','SUBMIT','REVIEW'].includes(action))throw new Error('Invalid SOP action');
+  const action=requireString(value.action,'action');if(!['START','COMPLETE','PAUSE','RESUME','CANCEL','SKIP','ASSIGN','RESCHEDULE','SUBMIT','REVIEW',...(objectType==='SOP_TASK'?['MATERIAL']:['CONTINUE'])].includes(action))throw new Error('Invalid SOP action');
   return {id:requireUuid(value.id,'id'),version,action};},extractObjectId(value){return value.id;}};
 }
 

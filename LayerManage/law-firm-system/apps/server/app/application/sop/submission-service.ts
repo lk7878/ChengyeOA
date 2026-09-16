@@ -1,31 +1,29 @@
-import { createHash } from "node:crypto";
-import { CaseFileService } from "../case/case-file-service";
-import { PrismaEventOutboxWriter } from "../events/event-outbox-writer";
-import { Prisma, PrismaClient } from "@prisma/client";
-import {
-  AuthorizationContext,
-  AuthorizationService,
-} from "../authorization/authorization-service";
-import { AuthorizationContextLoader } from "../authorization/authorization-context-loader";
-import { DataScopeService } from "../authorization/data-scope-service";
-import { AuditActor } from "../master-data/master-data-types";
+import { lockSopSource, sopSourceActive, bumpSopCase } from './source-context';
+import { requireSourceMaterials, sourceMaterialBytes, SopSourceFileService } from './source-file-service';
+import { createHash } from 'node:crypto';
+import { CaseFileService } from '../case/case-file-service';
+import { PrismaEventOutboxWriter } from '../events/event-outbox-writer';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
+import { AuthorizationContextLoader } from '../authorization/authorization-context-loader';
+import { DataScopeService } from '../authorization/data-scope-service';
+import { AuditActor } from '../master-data/master-data-types';
 import {
   assertExactKeys,
   normalizeRequiredText,
   normalizeVersion,
-} from "../../domain/master-data/master-data-validation";
-import { SopNode, sopFail } from "../../domain/sop/template-content";
-import { requireSopTask, sopTaskScope } from "./execution-scope";
-import { requireCaseAccess, buildCaseScopeWhere } from "../case/case-scope";
-import { createOnce } from "../finance/domain-mutation";
-import { hashPayload } from "../../domain/admin-governance/canonical-json";
-import { checkReviewer, materialBytes } from "./review-policy";
-import { ApprovalInstanceService } from "../approval/approval-instance-service";
-import { SopExecutionService } from "./execution-service";
-const json = (value: unknown) =>
-  JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+} from '../../domain/master-data/master-data-validation';
+import { SopNode, sopFail } from '../../domain/sop/template-content';
+import { requireSopTask, sopTaskScope } from './execution-scope';
+import { requireCaseAccess } from '../case/case-scope';
+import { createOnce } from '../finance/domain-mutation';
+import { hashPayload } from '../../domain/admin-governance/canonical-json';
+import { checkReviewer, materialBytes } from './review-policy';
+import { ApprovalInstanceService } from '../approval/approval-instance-service';
+import { SopExecutionService } from './execution-service';
+const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const includeSubmission = {
-  attachments: { include: { file: true } },
+  attachments: { include: { file: true, sourceFile: true } },
   review: { include: { approval: { include: { syncRecord: true } } } },
 } as const;
 export class SopSubmissionService {
@@ -35,15 +33,15 @@ export class SopSubmissionService {
     private ctx: AuthorizationContext,
   ) {}
   private async taskRead(taskId: string) {
-    await requireSopTask(this.db, this.ctx, taskId, "sop.task.read");
-    return requireSopTask(this.db, this.ctx, taskId, "sop.report.read");
+    await requireSopTask(this.db, this.ctx, taskId, 'sop.task.read');
+    return requireSopTask(this.db, this.ctx, taskId, 'sop.report.read');
   }
   async list(taskId: string) {
     await this.taskRead(taskId);
     const rows = await this.db.sopSubmission.findMany({
       where: { taskId },
       include: includeSubmission,
-      orderBy: { number: "desc" },
+      orderBy: { number: 'desc' },
     });
     return Promise.all(rows.map((row) => this.project(row)));
   }
@@ -52,85 +50,62 @@ export class SopSubmissionService {
       where: { id },
       include: includeSubmission,
     });
-    if (!row) sopFail("SOP_SUBMISSION_NOT_FOUND", 404);
+    if (!row) sopFail('SOP_SUBMISSION_NOT_FOUND', 404);
     await this.taskRead(row!.taskId);
     return this.project(row!);
   }
   async downloadMaterial(id: string, fileId: string) {
     const sub = await this.db.sopSubmission.findUnique({ where: { id } });
-    if (!sub) sopFail("SOP_SUBMISSION_NOT_FOUND", 404);
+    if (!sub) sopFail('SOP_SUBMISSION_NOT_FOUND', 404);
     await this.taskRead(sub!.taskId);
     const attachment = await this.db.submissionAttachment.findFirst({
-      where: { submissionId: id, fileId },
+      where: { submissionId: id, OR: [{ fileId }, { sourceFileId: fileId }] },
     });
-    if (!attachment) sopFail("SOP_MATERIAL_NOT_FOUND", 404);
-    const file = await new CaseFileService(
-      this.db,
-      this.actor,
-      this.ctx,
-    ).download(fileId);
-    if (
-      createHash("sha256")
-        .update(Buffer.from(file.base64, "base64"))
-        .digest("hex") !== attachment!.sha256
-    )
-      sopFail("SOP_MATERIAL_CHANGED", 409);
+    if (!attachment) sopFail('SOP_MATERIAL_NOT_FOUND', 404);
+    const file = attachment!.sourceFileId
+      ? await new SopSourceFileService(this.db, this.actor, this.ctx).download(sub!.taskId, fileId)
+      : await new CaseFileService(this.db, this.actor, this.ctx).download(fileId);
+    if (createHash('sha256').update(Buffer.from(file.base64, 'base64')).digest('hex') !== attachment!.sha256)
+      sopFail('SOP_MATERIAL_CHANGED', 409);
     return file;
   }
-  private async project(
-    row: Prisma.SopSubmissionGetPayload<{ include: typeof includeSubmission }>,
-  ) {
+  private async project(row: Prisma.SopSubmissionGetPayload<{ include: typeof includeSubmission }>) {
     const task = await this.db.caseTask.findUniqueOrThrow({
       where: { id: row.taskId },
     });
-    const filesVisible =
-      this.ctx.permissionCodes.includes("case.file.read") &&
-      !!(await this.db.case.findFirst({
-        where: {
-          AND: [
-            { id: task.caseId },
-            await buildCaseScopeWhere(this.db, this.ctx, "case.file.read"),
-          ],
-        },
-        select: { id: true },
-      }));
+    let filesVisible = false;
+    try {
+      if (task.caseId) {
+        await requireCaseAccess(this.db, this.ctx, task.caseId, 'case.file.read');
+      } else await requireSourceMaterials(this.db, this.ctx, task.id);
+      filesVisible = true;
+    } catch (error) {
+      if (![401, 403, 404].includes((error as { status?: number }).status ?? 0)) throw error;
+    }
     const canAssign =
-      this.ctx.permissionCodes.includes("quality.review.assign") &&
+      this.ctx.permissionCodes.includes('quality.review.assign') &&
       !!(await this.db.caseTask.findFirst({
         where: {
-          AND: [
-            { id: row.taskId },
-            await sopTaskScope(this.db, this.ctx, "quality.review.assign"),
-          ],
+          AND: [{ id: row.taskId }, await sopTaskScope(this.db, this.ctx, 'quality.review.assign')],
         },
         select: { id: true },
       }));
     const canReadReview =
       row.submittedBy === this.ctx.userId ||
-      (this.ctx.permissionCodes.includes("quality.review.read") &&
+      (this.ctx.permissionCodes.includes('quality.review.read') &&
         !!(await this.db.caseTask.findFirst({
           where: {
-            AND: [
-              { id: row.taskId },
-              await sopTaskScope(this.db, this.ctx, "quality.review.read"),
-            ],
+            AND: [{ id: row.taskId }, await sopTaskScope(this.db, this.ctx, 'quality.review.read')],
           },
           select: { id: true },
         })));
     let canDecide = false;
     if (row.review?.reviewerUserId === this.ctx.userId) {
       try {
-        await checkReviewer(
-          this.db,
-          this.ctx.userId,
-          row.taskId,
-          row.submittedBy,
-          row.executorUserId,
-        );
+        await checkReviewer(this.db, this.ctx.userId, row.taskId, row.submittedBy, row.executorUserId);
         canDecide = true;
       } catch (error) {
-        if (!(error && typeof error === "object" && "status" in error))
-          throw error;
+        if (!(error && typeof error === 'object' && 'status' in error)) throw error;
       }
     }
     return {
@@ -145,11 +120,10 @@ export class SopSubmissionService {
         ? row.attachments.map((a) => ({
             code: a.materialCode,
             name:
-              (row.nodeSnapshot as unknown as SopNode).materials.find(
-                (m) => m.code === a.materialCode,
-              )?.name ?? a.materialCode,
-            fileId: a.fileId,
-            fileName: a.file.fileName,
+              (row.nodeSnapshot as unknown as SopNode).materials.find((m) => m.code === a.materialCode)
+                ?.name ?? a.materialCode,
+            fileId: a.fileId ?? a.sourceFileId!,
+            fileName: (a.file ?? a.sourceFile)!.fileName,
             sha256: a.sha256,
           }))
         : [],
@@ -161,9 +135,7 @@ export class SopSubmissionService {
             version: row.review.version,
             checklist: canReadReview ? row.review.checklist : [],
             approvalId: canReadReview ? row.review.approvalInstanceId : null,
-            businessSync: canReadReview
-              ? (row.review.approval?.syncRecord ?? null)
-              : null,
+            businessSync: canReadReview ? (row.review.approval?.syncRecord ?? null) : null,
             reviewerIsMe: canDecide,
             canAssign,
           }
@@ -171,124 +143,81 @@ export class SopSubmissionService {
     };
   }
   async submit(taskId: string, raw: unknown) {
-    assertExactKeys(raw, [
-      "expectedVersion",
-      "requestKey",
-      "report",
-      "materials",
-      "reviewerUserId",
-    ]);
+    assertExactKeys(raw, ['expectedVersion', 'requestKey', 'report', 'materials', 'reviewerUserId']);
     const expectedVersion = normalizeVersion(raw.expectedVersion),
       key = normalizeRequiredText(raw.requestKey, 8, 128),
       report = normalizeRequiredText(raw.report, 1, 20000);
-    const reviewer =
-      raw.reviewerUserId == null
-        ? null
-        : normalizeRequiredText(raw.reviewerUserId, 1, 100);
-    if (!Array.isArray(raw.materials) || raw.materials.length > 100)
-      sopFail("VALIDATION_FAILED");
+    const reviewer = raw.reviewerUserId == null ? null : normalizeRequiredText(raw.reviewerUserId, 1, 100);
+    if (!Array.isArray(raw.materials) || raw.materials.length > 100) sopFail('VALIDATION_FAILED');
     const materials = (raw.materials as unknown[]).map((value) => {
-      assertExactKeys(value, ["code", "fileId"]);
+      assertExactKeys(value, ['code', 'fileId']);
       return {
         code: normalizeRequiredText(value.code, 1, 100),
         fileId: normalizeRequiredText(value.fileId, 1, 100),
       };
     });
-    if (
-      new Set(materials.map((m) => m.code + ":" + m.fileId)).size !==
-      materials.length
-    )
-      sopFail("VALIDATION_FAILED");
+    if (new Set(materials.map((m) => m.code + ':' + m.fileId)).size !== materials.length)
+      sopFail('VALIDATION_FAILED');
     await this.taskRead(taskId);
-    const initial = await requireSopTask(
-      this.db,
-      this.ctx,
-      taskId,
-      "sop.report.submit",
-    );
+    const initial = await requireSopTask(this.db, this.ctx, taskId, 'sop.report.submit');
     return createOnce(
       this.db,
       {
         actorId: this.ctx.userId,
         key,
-        operation: "SOP_SUBMIT",
+        operation: 'SOP_SUBMIT',
         normalized: { taskId, expectedVersion, report, materials, reviewer },
       },
       async (tx) => {
-        const ctx = await new AuthorizationContextLoader(tx).load(
-          this.ctx.userId,
-        );
-        await tx.$queryRaw`SELECT id FROM "case" WHERE id=${initial.caseId} FOR UPDATE`;
+        const ctx = await new AuthorizationContextLoader(tx).load(this.ctx.userId);
+        await lockSopSource(tx, initial.sopInstance!);
         await tx.$queryRaw`SELECT id FROM sop_instance WHERE id=${initial.sopInstanceId} FOR UPDATE`;
         await tx.$queryRaw`SELECT id FROM case_task WHERE id=${taskId} FOR UPDATE`;
-        await requireSopTask(tx, ctx, taskId, "sop.task.read");
-        await requireSopTask(tx, ctx, taskId, "sop.task.execute");
-        const task = await requireSopTask(tx, ctx, taskId, "sop.report.submit");
-        const parent = await tx.case.findUniqueOrThrow({
-          where: { id: task.caseId },
-        });
-        if (task.version !== expectedVersion)
-          sopFail("SOP_VERSION_CONFLICT", 409);
-        if (
-          task.status !== "IN_PROGRESS" ||
-          task.sopInstance!.status !== "ACTIVE" ||
-          ["CLOSED", "ARCHIVED"].includes(parent.status)
-        )
-          sopFail("SOP_STATE_INVALID", 409);
+        await requireSopTask(tx, ctx, taskId, 'sop.task.read');
+        await requireSopTask(tx, ctx, taskId, 'sop.task.execute');
+        const task = await requireSopTask(tx, ctx, taskId, 'sop.report.submit');
+        const sourceActive = await sopSourceActive(tx, task.sopInstance!);
+        if (task.version !== expectedVersion) sopFail('SOP_VERSION_CONFLICT', 409);
+        if (task.status !== 'IN_PROGRESS' || task.sopInstance!.status !== 'ACTIVE' || !sourceActive)
+          sopFail('SOP_STATE_INVALID', 409);
         const node = task.nodeSnapshot as unknown as SopNode;
-        if (
-          materials.some(
-            (m) =>
-              !node.materials.some(
-                (requirement) => requirement.code === m.code,
-              ),
-          )
-        )
-          sopFail("SOP_MATERIALS_INVALID");
-        if (
-          node.materials.some(
-            (m) =>
-              m.required && !materials.some((entry) => entry.code === m.code),
-          )
-        )
-          sopFail("SOP_MATERIALS_REQUIRED", 409);
+        if (materials.some((m) => !node.materials.some((requirement) => requirement.code === m.code)))
+          sopFail('SOP_MATERIALS_INVALID');
+        if (node.materials.some((m) => m.required && !materials.some((entry) => entry.code === m.code)))
+          sopFail('SOP_MATERIALS_REQUIRED', 409);
         if (
           node.dependsOn.length &&
           (await tx.caseTask.count({
             where: {
               sopInstanceId: task.sopInstanceId,
               nodeCode: { in: node.dependsOn },
-              status: { in: ["COMPLETED", "SKIPPED"] },
+              status: { in: ['COMPLETED', 'SKIPPED'] },
             },
           })) !== node.dependsOn.length
         )
-          sopFail("SOP_DEPENDENCY_BLOCKED", 409);
-        if (materials.length)
-          await requireCaseAccess(
-            this.db,
-            ctx,
-            task.caseId,
-            "case.file.read",
-            tx,
-          );
+          sopFail('SOP_DEPENDENCY_BLOCKED', 409);
+        if (materials.length) {
+          if (task.caseId) await requireCaseAccess(this.db, ctx, task.caseId, 'case.file.read', tx);
+          else await requireSourceMaterials(tx, ctx, taskId);
+        }
         const frozen = [];
         for (const material of materials) {
-          const file = await tx.caseFile.findFirst({
-            where: { id: material.fileId, caseId: task.caseId },
-          });
-          if (!file) sopFail("SOP_MATERIAL_NOT_FOUND", 404);
-          frozen.push({
-            ...material,
-            sha256: materialBytes(file!),
-            fileSize: file!.fileSize,
-          });
+          const file = task.caseId
+            ? await tx.caseFile.findFirst({ where: { id: material.fileId, caseId: task.caseId } })
+            : await tx.sopSourceFile.findFirst({
+                where: { id: material.fileId, instanceId: task.sopInstanceId! },
+              });
+          if (!file) sopFail('SOP_MATERIAL_NOT_FOUND', 404);
+          const sha256 = task.caseId
+            ? materialBytes(file!)
+            : createHash('sha256')
+                .update(sourceMaterialBytes(file as { filePath: string; fileSize: number; sha256: string }))
+                .digest('hex');
+          frozen.push({ ...material, sha256, fileSize: file!.fileSize });
         }
         if (node.reviewRequired)
-          new AuthorizationService(new DataScopeService(tx)).requireAction(
-            ctx,
-            "approval.apply",
-          );
-        else if (reviewer) sopFail("VALIDATION_FAILED");
+          new AuthorizationService(new DataScopeService(tx)).requireAction(ctx, 'approval.apply');
+        else if (reviewer) sopFail('VALIDATION_FAILED');
         const previous = await tx.sopSubmission.aggregate({
           where: { taskId },
           _max: { number: true },
@@ -316,7 +245,8 @@ export class SopSubmissionService {
             executorUserId: task.assigneeUserId,
             attachments: {
               create: frozen.map((m) => ({
-                fileId: m.fileId,
+                fileId: task.caseId ? m.fileId : null,
+                sourceFileId: task.caseId ? null : m.fileId,
                 materialCode: m.code,
                 sha256: m.sha256,
                 fileSize: m.fileSize,
@@ -327,7 +257,7 @@ export class SopSubmissionService {
         const next = await tx.caseTask.update({
           where: { id: taskId },
           data: {
-            status: node.reviewRequired ? "IN_REVIEW" : "COMPLETED",
+            status: node.reviewRequired ? 'IN_REVIEW' : 'COMPLETED',
             activeSubmissionId: sub.id,
             completedAt: node.reviewRequired ? null : new Date(),
             version: { increment: 1 },
@@ -341,16 +271,16 @@ export class SopSubmissionService {
               createdBy: ctx.userId,
               checklist: json([
                 {
-                  code: "MATERIALS",
-                  label: "材料及版本符合节点要求",
-                  result: "PENDING",
-                  reason: "",
+                  code: 'MATERIALS',
+                  label: '材料及版本符合节点要求',
+                  result: 'PENDING',
+                  reason: '',
                 },
                 {
-                  code: "REPORT",
-                  label: "成果、风险及目标说明已核验",
-                  result: "PENDING",
-                  reason: "",
+                  code: 'REPORT',
+                  label: '成果、风险及目标说明已核验',
+                  result: 'PENDING',
+                  reason: '',
                 },
               ]),
             },
@@ -361,15 +291,12 @@ export class SopSubmissionService {
           where: { id: task.sopInstanceId! },
           data: { version: { increment: 1 } },
         });
-        await tx.case.update({
-          where: { id: task.caseId },
-          data: { version: { increment: 1 }, updatedBy: ctx.userId },
-        });
+        await bumpSopCase(tx, task.sopInstance!, ctx.userId);
         await new SopExecutionService(this.db, this.actor, ctx).recordChange(
           tx,
-          "SOP_TASK",
+          'SOP_TASK',
           next,
-          "SUBMIT",
+          'SUBMIT',
           task.sopInstance!.templateVersion.template.organizationId,
           { submissionId: sub.id, number, reviewRequired: node.reviewRequired },
         );
@@ -377,7 +304,7 @@ export class SopSubmissionService {
       },
       async (tx, id) => {
         const row = await tx.sopSubmission.findUniqueOrThrow({ where: { id } });
-        await requireSopTask(tx, this.ctx, row.taskId, "sop.report.submit");
+        await requireSopTask(tx, this.ctx, row.taskId, 'sop.report.submit');
         return { id: row.id, taskId: row.taskId, number: row.number };
       },
     );
@@ -394,64 +321,49 @@ export class SopSubmissionService {
     });
     const sub = review.submission;
     const auth = new AuthorizationService(new DataScopeService(tx));
-    auth.requireAction(assigner, "employee.read");
-    const employeeWhere = await auth.buildScopeWhere(
-      assigner,
-      "employee",
-      "employee.read",
-    );
+    auth.requireAction(assigner, 'employee.read');
+    const employeeWhere = await auth.buildScopeWhere(assigner, 'employee', 'employee.read');
     if (
       !(await tx.user.findFirst({
         where: {
           id: reviewer,
-          status: "ENABLED",
+          status: 'ENABLED',
           employee: {
-            AND: [
-              employeeWhere,
-              { deletedAt: null, status: { not: "LEAVED" } },
-            ],
+            AND: [employeeWhere, { deletedAt: null, status: { not: 'LEAVED' } }],
           },
         },
       }))
     )
-      sopFail("SOP_REVIEWER_INVALID", 404);
-    await checkReviewer(
-      tx,
-      reviewer,
-      sub.taskId,
-      sub.submittedBy,
-      sub.executorUserId,
-    );
-    const applicant = await new AuthorizationContextLoader(tx).load(
-      sub.submittedBy,
-    );
-    await requireSopTask(tx, applicant, sub.taskId, "sop.report.submit");
-    const code = "SOP_" + sub.id.replaceAll("-", "_").toUpperCase();
+      sopFail('SOP_REVIEWER_INVALID', 404);
+    await checkReviewer(tx, reviewer, sub.taskId, sub.submittedBy, sub.executorUserId);
+    const applicant = await new AuthorizationContextLoader(tx).load(sub.submittedBy);
+    await requireSopTask(tx, applicant, sub.taskId, 'sop.report.submit');
+    const code = 'SOP_' + sub.id.replaceAll('-', '_').toUpperCase();
     await tx.approvalDefinition.create({
       data: {
         code,
-        name: "SOP节点成果审核",
-        businessType: "SOP_REVIEW",
+        name: 'SOP节点成果审核',
+        businessType: 'SOP_REVIEW',
         ownerUserId: sub.submittedBy,
         createdBy: assigner.userId,
         formSchema: {
           fields: [
             {
-              key: "submissionId",
-              label: "提交版本",
-              type: "text",
+              key: 'submissionId',
+              label: '提交版本',
+              type: 'text',
               required: true,
             },
             {
-              key: "contentHash",
-              label: "内容摘要",
-              type: "text",
+              key: 'contentHash',
+              label: '内容摘要',
+              type: 'text',
               required: true,
             },
           ],
         },
-        approverRule: { type: "USER", userIds: [reviewer] },
-        status: "ACTIVE",
+        approverRule: { type: 'USER', userIds: [reviewer] },
+        status: 'ACTIVE',
       },
     });
     await new ApprovalInstanceService(
@@ -462,15 +374,15 @@ export class SopSubmissionService {
       tx,
       {
         definitionCode: code,
-        title: "SOP成果审核 · 修订 " + sub.number,
+        title: 'SOP成果审核 · 修订 ' + sub.number,
         content: { submissionId: sub.id, contentHash: sub.contentHash },
-        idempotencyKey: "sop-review-" + sub.id,
+        idempotencyKey: 'sop-review-' + sub.id,
       },
       sub.id,
     );
   }
   async assign(reviewId: string, raw: unknown) {
-    assertExactKeys(raw, ["reviewerUserId", "expectedVersion", "requestKey"]);
+    assertExactKeys(raw, ['reviewerUserId', 'expectedVersion', 'requestKey']);
     const reviewer = normalizeRequiredText(raw.reviewerUserId, 1, 100),
       version = normalizeVersion(raw.expectedVersion),
       key = normalizeRequiredText(raw.requestKey, 8, 128);
@@ -478,52 +390,43 @@ export class SopSubmissionService {
       where: { id: reviewId },
       include: { submission: { include: { task: true } } },
     });
-    if (!initial) sopFail("SOP_REVIEW_NOT_FOUND", 404);
-    await requireSopTask(
-      this.db,
-      this.ctx,
-      initial!.submission.taskId,
-      "quality.review.assign",
-    );
+    if (!initial) sopFail('SOP_REVIEW_NOT_FOUND', 404);
+    await requireSopTask(this.db, this.ctx, initial!.submission.taskId, 'quality.review.assign');
     return createOnce(
       this.db,
       {
         actorId: this.ctx.userId,
         key,
-        operation: "SOP_REVIEW_ASSIGN",
+        operation: 'SOP_REVIEW_ASSIGN',
         normalized: { reviewId, reviewer, version },
       },
       async (tx) => {
         const task = initial!.submission.task;
-        await tx.$queryRaw`SELECT id FROM "case" WHERE id=${task.caseId} FOR UPDATE`;
+        await lockSopSource(
+          tx,
+          await tx.sopInstance.findUniqueOrThrow({ where: { id: task.sopInstanceId! } }),
+        );
         await tx.$queryRaw`SELECT id FROM sop_instance WHERE id=${task.sopInstanceId} FOR UPDATE`;
         await tx.$queryRaw`SELECT id FROM case_task WHERE id=${task.id} FOR UPDATE`;
-        const ctx = await new AuthorizationContextLoader(tx).load(
-          this.ctx.userId,
-        );
-        const current = await requireSopTask(
-          tx,
-          ctx,
-          task.id,
-          "quality.review.assign",
-        );
+        const ctx = await new AuthorizationContextLoader(tx).load(this.ctx.userId);
+        const current = await requireSopTask(tx, ctx, task.id, 'quality.review.assign');
         const review = await tx.qualityReview.findUniqueOrThrow({
           where: { id: reviewId },
         });
-        if (review.version !== version) sopFail("SOP_VERSION_CONFLICT", 409);
+        if (review.version !== version) sopFail('SOP_VERSION_CONFLICT', 409);
         if (
-          review.status !== "WAITING_ASSIGNMENT" ||
-          current.status !== "IN_REVIEW" ||
+          review.status !== 'WAITING_ASSIGNMENT' ||
+          current.status !== 'IN_REVIEW' ||
           current.activeSubmissionId !== review.submissionId ||
-          current.sopInstance!.status !== "ACTIVE"
+          current.sopInstance!.status !== 'ACTIVE'
         )
-          sopFail("SOP_STATE_INVALID", 409);
+          sopFail('SOP_STATE_INVALID', 409);
         await this.bindReview(tx, reviewId, reviewer, ctx);
         await tx.operationLog.create({
           data: {
             userId: ctx.userId,
-            action: "SOP_REVIEW_ASSIGN",
-            targetType: "QUALITY_REVIEW",
+            action: 'SOP_REVIEW_ASSIGN',
+            targetType: 'QUALITY_REVIEW',
             targetId: reviewId,
             newValues: JSON.stringify({ reviewerUserId: reviewer }),
             ip: this.actor.ip,
@@ -536,46 +439,35 @@ export class SopSubmissionService {
           where: { id },
           include: { submission: true },
         });
-        await requireSopTask(
-          tx,
-          this.ctx,
-          review.submission.taskId,
-          "quality.review.assign",
-        );
+        await requireSopTask(tx, this.ctx, review.submission.taskId, 'quality.review.assign');
         return { id };
       },
     );
   }
   async checklist(reviewId: string, raw: unknown) {
-    assertExactKeys(raw, ["expectedVersion", "checks"]);
+    assertExactKeys(raw, ['expectedVersion', 'checks']);
     const version = normalizeVersion(raw.expectedVersion);
-    if (!Array.isArray(raw.checks) || raw.checks.length !== 2)
-      sopFail("VALIDATION_FAILED");
+    if (!Array.isArray(raw.checks) || raw.checks.length !== 2) sopFail('VALIDATION_FAILED');
     const checks = (raw.checks as unknown[]).map((value) => {
-      assertExactKeys(value, ["code", "result", "reason"]);
+      assertExactKeys(value, ['code', 'result', 'reason']);
       const code = normalizeRequiredText(value.code, 1, 100),
         result = normalizeRequiredText(value.result, 1, 20),
-        reason =
-          value.reason === ""
-            ? ""
-            : normalizeRequiredText(value.reason, 1, 1000);
+        reason = value.reason === '' ? '' : normalizeRequiredText(value.reason, 1, 1000);
       if (
-        !["MATERIALS", "REPORT"].includes(code) ||
-        !["PASS", "FAIL", "NA"].includes(result) ||
-        (result !== "PASS" && !reason)
+        !['MATERIALS', 'REPORT'].includes(code) ||
+        !['PASS', 'FAIL', 'NA'].includes(result) ||
+        (result !== 'PASS' && !reason)
       )
-        sopFail("VALIDATION_FAILED");
+        sopFail('VALIDATION_FAILED');
       return { code, result, reason };
     });
-    if (new Set(checks.map((c) => c.code)).size !== 2)
-      sopFail("VALIDATION_FAILED");
+    if (new Set(checks.map((c) => c.code)).size !== 2) sopFail('VALIDATION_FAILED');
     return this.db.$transaction(async (tx) => {
       const review = await tx.qualityReview.findUniqueOrThrow({
         where: { id: reviewId },
         include: { submission: true, approval: { select: { status: true } } },
       });
-      if (review.reviewerUserId !== this.ctx.userId)
-        sopFail("SOP_REVIEW_NOT_FOUND", 404);
+      if (review.reviewerUserId !== this.ctx.userId) sopFail('SOP_REVIEW_NOT_FOUND', 404);
       await checkReviewer(
         tx,
         this.ctx.userId,
@@ -583,18 +475,18 @@ export class SopSubmissionService {
         review.submission.submittedBy,
         review.submission.executorUserId,
       );
-      if (review.status !== "PENDING" || review.approval?.status !== "PENDING")
-        sopFail("SOP_STATE_INVALID", 409);
+      if (review.status !== 'PENDING' || review.approval?.status !== 'PENDING')
+        sopFail('SOP_STATE_INVALID', 409);
       const changed = await tx.qualityReview.updateMany({
-        where: { id: reviewId, version, status: "PENDING" },
+        where: { id: reviewId, version, status: 'PENDING' },
         data: { checklist: json(checks), version: { increment: 1 } },
       });
-      if (!changed.count) sopFail("SOP_VERSION_CONFLICT", 409);
+      if (!changed.count) sopFail('SOP_VERSION_CONFLICT', 409);
       await tx.operationLog.create({
         data: {
           userId: this.ctx.userId,
-          action: "SOP_REVIEW_CHECKLIST",
-          targetType: "QUALITY_REVIEW",
+          action: 'SOP_REVIEW_CHECKLIST',
+          targetType: 'QUALITY_REVIEW',
           targetId: reviewId,
           newValues: JSON.stringify({ version: version + 1 }),
           ip: this.actor.ip,
@@ -604,9 +496,9 @@ export class SopSubmissionService {
     });
   }
   async options(taskId: string) {
-    await requireSopTask(this.db, this.ctx, taskId, "sop.task.read");
+    await requireSopTask(this.db, this.ctx, taskId, 'sop.task.read');
     const auth = new AuthorizationService(new DataScopeService(this.db));
-    auth.requireAction(this.ctx, "employee.read");
+    auth.requireAction(this.ctx, 'employee.read');
     const task = await this.db.caseTask.findUniqueOrThrow({
       where: { id: taskId },
     });
@@ -617,17 +509,17 @@ export class SopSubmissionService {
       : null;
     const users = await this.db.user.findMany({
       where: {
-        status: "ENABLED",
+        status: 'ENABLED',
         employee: {
           AND: [
-            await auth.buildScopeWhere(this.ctx, "employee", "employee.read"),
-            { deletedAt: null, status: { not: "LEAVED" } },
+            await auth.buildScopeWhere(this.ctx, 'employee', 'employee.read'),
+            { deletedAt: null, status: { not: 'LEAVED' } },
           ],
         },
       },
       select: { id: true, employee: { select: { name: true } } },
       take: 500,
-      orderBy: { id: "asc" },
+      orderBy: { id: 'asc' },
     });
     const result = [];
     for (const user of users) {
@@ -641,36 +533,27 @@ export class SopSubmissionService {
         );
         result.push({ id: user.id, name: user.employee!.name });
       } catch (error) {
-        if (!(error && typeof error === "object" && "status" in error))
-          throw error;
+        if (!(error && typeof error === 'object' && 'status' in error)) throw error;
       }
     }
     return result;
   }
   async materialOptions(taskId: string, raw: unknown) {
-    assertExactKeys(raw, ["page"]);
+    assertExactKeys(raw, ['page']);
     const page = Number(raw.page ?? 1);
-    if (
-      !Number.isSafeInteger(page) ||
-      page < 1 ||
-      !Number.isSafeInteger((page - 1) * 100)
-    )
-      sopFail("VALIDATION_FAILED");
-    await requireSopTask(this.db, this.ctx, taskId, "sop.task.read");
-    const task = await requireSopTask(
-      this.db,
-      this.ctx,
-      taskId,
-      "sop.report.read",
-    );
-    await requireCaseAccess(this.db, this.ctx, task.caseId, "case.file.read");
+    if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger((page - 1) * 100))
+      sopFail('VALIDATION_FAILED');
+    await requireSopTask(this.db, this.ctx, taskId, 'sop.task.read');
+    const task = await requireSopTask(this.db, this.ctx, taskId, 'sop.report.read');
+    if (!task.caseId) return new SopSourceFileService(this.db, this.actor, this.ctx).list(taskId, { page });
+    await requireCaseAccess(this.db, this.ctx, task.caseId, 'case.file.read');
     const where = { caseId: task.caseId };
     const [total, list] = await this.db.$transaction([
       this.db.caseFile.count({ where }),
       this.db.caseFile.findMany({
         where,
         select: { id: true, fileName: true },
-        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
         skip: (page - 1) * 100,
         take: 100,
       }),
@@ -678,8 +561,8 @@ export class SopSubmissionService {
     return { list, total, page };
   }
   async guidance(taskId: string) {
-    await requireSopTask(this.db, this.ctx, taskId, "sop.task.read");
-    await requireSopTask(this.db, this.ctx, taskId, "sop.guidance.read");
+    await requireSopTask(this.db, this.ctx, taskId, 'sop.task.read');
+    await requireSopTask(this.db, this.ctx, taskId, 'sop.guidance.read');
     return this.db.expertGuidance.findMany({
       where: { taskId },
       select: {
@@ -689,67 +572,56 @@ export class SopSubmissionService {
         createdBy: true,
         createdAt: true,
       },
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
       take: 100,
     });
   }
   async guide(taskId: string, raw: unknown) {
-    assertExactKeys(raw, ["content", "submissionId", "requestKey"]);
+    assertExactKeys(raw, ['content', 'submissionId', 'requestKey']);
     const content = normalizeRequiredText(raw.content, 1, 10000),
       key = normalizeRequiredText(raw.requestKey, 8, 128),
-      submissionId =
-        raw.submissionId == null
-          ? null
-          : normalizeRequiredText(raw.submissionId, 1, 100);
-    await requireSopTask(this.db, this.ctx, taskId, "sop.task.read");
-    await requireSopTask(this.db, this.ctx, taskId, "sop.guidance.create");
+      submissionId = raw.submissionId == null ? null : normalizeRequiredText(raw.submissionId, 1, 100);
+    await requireSopTask(this.db, this.ctx, taskId, 'sop.task.read');
+    await requireSopTask(this.db, this.ctx, taskId, 'sop.guidance.create');
     return createOnce(
       this.db,
       {
         actorId: this.ctx.userId,
         key,
-        operation: "SOP_GUIDANCE",
+        operation: 'SOP_GUIDANCE',
         normalized: { taskId, content, submissionId },
       },
       async (tx) => {
-        const ctx = await new AuthorizationContextLoader(tx).load(
-          this.ctx.userId,
-        );
-        await requireSopTask(tx, ctx, taskId, "sop.task.read");
-        const task = await requireSopTask(
-          tx,
-          ctx,
-          taskId,
-          "sop.guidance.create",
-        );
+        const ctx = await new AuthorizationContextLoader(tx).load(this.ctx.userId);
+        await requireSopTask(tx, ctx, taskId, 'sop.task.read');
+        const task = await requireSopTask(tx, ctx, taskId, 'sop.guidance.create');
         if (
           submissionId &&
           !(await tx.sopSubmission.findFirst({
             where: { id: submissionId, taskId },
           }))
         )
-          sopFail("SOP_SUBMISSION_NOT_FOUND", 404);
+          sopFail('SOP_SUBMISSION_NOT_FOUND', 404);
         const row = await tx.expertGuidance.create({
           data: { taskId, content, submissionId, createdBy: ctx.userId },
         });
         await tx.operationLog.create({
           data: {
             userId: ctx.userId,
-            action: "SOP_GUIDANCE_CREATE",
-            targetType: "EXPERT_GUIDANCE",
+            action: 'SOP_GUIDANCE_CREATE',
+            targetType: 'EXPERT_GUIDANCE',
             targetId: row.id,
             newValues: JSON.stringify({ taskId, submissionId }),
             ip: this.actor.ip,
           },
         });
         await new PrismaEventOutboxWriter().append(tx, {
-          eventType: "sop.guidance.created",
+          eventType: 'sop.guidance.created',
           eventVersion: 1,
-          objectType: "EXPERT_GUIDANCE",
+          objectType: 'EXPERT_GUIDANCE',
           objectId: row.id,
           operatorUserId: ctx.userId,
-          organizationId:
-            task.sopInstance!.templateVersion.template.organizationId,
+          organizationId: task.sopInstance!.templateVersion.template.organizationId,
           branchId: task.sopInstance!.templateVersion.template.organizationId,
           teamId: null,
           payload: { id: row.id, taskId },
@@ -762,7 +634,7 @@ export class SopSubmissionService {
         const row = await tx.expertGuidance.findUniqueOrThrow({
           where: { id },
         });
-        await requireSopTask(tx, this.ctx, row.taskId, "sop.guidance.create");
+        await requireSopTask(tx, this.ctx, row.taskId, 'sop.guidance.create');
         return { id };
       },
     );

@@ -107,7 +107,7 @@ export function SopDeliverables({
       setFileError("");
     } catch {
       setFiles([]);
-      setFileError("当前没有材料读取权限或材料暂不可用；请核实案件文件授权。");
+      setFileError("当前没有材料读取权限或材料暂不可用；请核实原业务来源和材料授权。");
     }
   }
   function begin() {

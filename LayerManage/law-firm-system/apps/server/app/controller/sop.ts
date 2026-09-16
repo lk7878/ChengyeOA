@@ -1,10 +1,21 @@
 import { SopSubmissionService } from '../application/sop/submission-service';
+import { SopSourceFileService } from '../application/sop/source-file-service';
+import { SopContinuationService } from '../application/sop/continuation-service';
 import { SopExecutionService } from '../application/sop/execution-service';
 import { Controller } from 'egg';
 import { SopTemplateService } from '../application/sop/template-service';
 import { auditActor } from '../application/master-data/master-data-factory';
 import { SOP_PRESETS } from '../domain/sop/template-content';
 export default class SopController extends Controller {
+  private sourceFiles() { return new SopSourceFileService(this.ctx.prisma,auditActor(this.ctx),this.ctx.state.authorization); }
+  private continuationService() { return new SopContinuationService(this.ctx.prisma,auditActor(this.ctx),this.ctx.state.authorization); }
+  async sourceContext() { this.respond(await this.execution().sourceContext(this.ctx.query)); }
+  async sourceMaterials() { this.respond(await this.sourceFiles().list(this.ctx.params.id,this.ctx.query)); }
+  async uploadSourceMaterial() { this.respond(await this.sourceFiles().upload(this.ctx.params.id,this.ctx.request.body)); }
+  async sourceMaterial() { this.respond(await this.sourceFiles().download(this.ctx.params.id,this.ctx.params.fileId)); }
+  async continuations() { this.respond(await this.continuationService().list(this.ctx.params.id)); }
+  async continuationOptions() { this.respond(await this.continuationService().options(this.ctx.params.id)); }
+  async continueInstance() { this.respond(await this.continuationService().create(this.ctx.params.id,this.ctx.request.body)); }
   private submissionsService() { return new SopSubmissionService(this.ctx.prisma,auditActor(this.ctx),this.ctx.state.authorization); }
   async submissions() { this.respond(await this.submissionsService().list(this.ctx.params.id)); }
   async material() { this.respond(await this.submissionsService().downloadMaterial(this.ctx.params.id,this.ctx.params.fileId)); }

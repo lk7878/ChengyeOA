@@ -1,4 +1,5 @@
 import { BusinessTableLinks } from '@/features/crm/BusinessWorkspacePage';
+import { useAuthStore } from '@/stores/authStore';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -63,6 +64,7 @@ interface EmployeeOption {
 }
 
 const LeadDetailPage: React.FC = () => {
+  const canStartSop = useAuthStore(s=>s.hasPermission('sop.instance.start') && s.hasPermission('lead.update'));
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const {
@@ -183,6 +185,7 @@ const LeadDetailPage: React.FC = () => {
           <Space wrap>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>返回</Button>
             <BusinessTableLinks recordId={id} />
+            {canStartSop && <Button onClick={()=>navigate('/sop/instances/new?lead='+id)}>启动前期SOP</Button>}
             <span>{lead.name}</span>
             <Tag color={statusMeta.color}>{statusMeta.text}</Tag>
             <Tag color={poolMeta.color}>{poolMeta.text}</Tag>

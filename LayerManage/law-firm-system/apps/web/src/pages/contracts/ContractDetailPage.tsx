@@ -222,6 +222,7 @@ const ContractDetailPage: React.FC = () => {
       <Space style={{ marginBottom: 16 }} wrap>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/contracts')}>返回列表</Button>
           <BusinessTableLinks source="CONTRACTS" recordId={id} />
+          {contract.contractType==='FIRST_SIGN' && contract.status==='EFFECTIVE' && hasPermission('sop.instance.start') && <Button onClick={()=>navigate('/sop/instances/new?analysisContract='+id)}>启动分析委托SOP</Button>}
         {visibleActions.map(action => {
           const meta = CONTRACT_ACTION_META[action];
           const disabled = !available.has(action);

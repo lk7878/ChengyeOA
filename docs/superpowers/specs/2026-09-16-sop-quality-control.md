@@ -2,7 +2,7 @@
 
 - ID：SPEC-SOP-QC-20260916
 - 日期：2026-09-16
-- 状态：分阶段实施；SQ1–SQ5已验收，完整交付待SQ7
+- 状态：分阶段实施；SQ1–SQ6已验收，完整交付待SQ7
 - 来源：用户要求继续规划 SOP 和质检；承接已验收 U5–U7，不重开已完成阶段。
 - 实施计划：[SQ 阶段计划](../plans/2026-09-16-sop-quality-control.md)
 
@@ -208,3 +208,16 @@ CaseTask增量sopInstanceId/nodeCode/nodeSnapshot/createdBy/updatedBy/assigneeUs
 
 
 SQ5已按阶段计划验收，百分制评估/专项关闭审批/站内提醒/范围统计已落地，旧星级不变。SQ6的真源上下文、节点选择、独立前期材料及接续契约见[SQ阶段计划](../plans/2026-09-16-sop-quality-control.md#sq6-开工契约)，实现前期部分前仍不宣称完整三团队闭环。
+
+
+## SQ6 实施契约（2026-09-17）
+
+112模型、67迁移。SopInstance具有互斥CASE/LEAD/ANALYSIS_ENGAGEMENT真实FK，CaseTask继续使用原ID和单一状态；前期任务caseId可空但必须有SOP实例。数据库校验任务来源、材料来源和实例来源不可迁改。新增SopSourceFile归属原前期实例；SubmissionAttachment只引用CaseFile或SourceFile其中一种并冻结SHA-256，不复制文件、不补造案件。
+
+启动API接受caseId/leadId/analysisEngagementId之一与nodeCodes。旧CASE省略nodeCodes保持全节点和原幂等请求摘要；前期必须明确选择且包含依赖闭包。同一来源、模板版本、batchKey不能以不同节点集合重开。GET /sop/source-context解析当前获权原业务来源（含contractId→真实分析委托），不创建客户或合同。线索入口须lead.read/update，分析委托须contract.read，案件须case.read/task.manage，另与SOP启动/管理范围求交。
+
+前期材料GET/POST /sop/tasks/:id/source-materials及GET /:fileId，独立sop.material.read/manage作用于sop_task并与当前lead/contract读取范围求交。显式节点协作不能扩大来源范围；新增文件不可覆盖/删除，单个1字节至10MB，列表每页100。后来的case.file.read不能解锁原前期文件。原成果提交和原SOP_REVIEW审批继续复验冻结材料字节与当前权限。
+
+SopContinuation记录双方原实例、版本和依据；GET /sop/instances/:id/continuations、/continuation-options，POST /continuations。只接受真实客户相同、组织/团队相符的LEAD→分析委托/CASE或分析委托→CASE；后者核验正式合同的分析委托来源。客户转换、合同签署/生效和建案沿原服务。候选先按客户/团队/组织缩小，再取最近100个，并逐个复验双方权限；历史链接只向同时获权者显示。关联不改变原任务、成果或材料，也不自动完成节点。409保留依据，刷新从服务器读取双方当前版本。
+
+医疗/执行/刑事完整九/九/十二节点通过真实前期与案件接续验证，三套均含退回重提；刑事资料默认非强制。范围内质量指标中的“案件SOP节点”只计案件来源，前期任务统计在同源SOP任务工作表查看，避免混淆口径。

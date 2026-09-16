@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { SopContinuations } from './Continuations';
 import { Link, useParams } from 'react-router';
 import { Alert, Button, Input, Modal, Space, Spin, Table, Tag, message } from 'antd';
 import { post } from '@/features/workspaces/api';
@@ -74,6 +75,12 @@ function InstanceContent({ data, refresh }: { data: SopInstance; refresh: () => 
         )}
       </Space>
       <p>批次：{data.batchKey}。完成流程不会自动结案。</p>
+      {data.sourceKind !== 'CASE' && data.source && (
+        <p>
+          <Link to={data.source.route}>{data.source.title}</Link>
+        </p>
+      )}
+      <SopContinuations id={data.id} version={data.version} kind={data.sourceKind} refresh={refresh} />
       <Space wrap>
         {canManage &&
           actions.map((action) => (

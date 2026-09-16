@@ -367,7 +367,7 @@ export function QualityMetricsPage() {
           <Card
             key={key}
             title={
-              { tasks: 'SOP节点', issues: '问题整改', inspections: '二级检查', analyses: '专项分析' }[key]
+              { tasks: '案件SOP节点', issues: '问题整改', inspections: '二级检查', analyses: '专项分析' }[key]
             }
             style={{ marginTop: 12 }}
           >
