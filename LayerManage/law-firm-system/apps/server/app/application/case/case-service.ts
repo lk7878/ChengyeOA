@@ -716,6 +716,7 @@ export class CaseService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
       await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.close', tx);
+      if (await tx.caseTask.count({where:{caseId:id,sopInstance:{status:{not:'CANCELLED'}},nodeSnapshot:{path:['closeGate'],equals:true},status:{not:'COMPLETED'}}})) throw new MasterDataError('SOP_CLOSE_GATE_BLOCKED',409);
       const flipped = await tx.case.updateMany({
         where: { id, status: { notIn: ['CLOSED', 'ARCHIVED'] } },
         data: {

@@ -1,4 +1,11 @@
 export const PERMISSION_CODES = [
+  'sop.report.read',
+  'sop.report.submit',
+  'sop.guidance.read',
+  'sop.guidance.create',
+  'quality.review.read',
+  'quality.review.assign',
+  'quality.review.decide',
   'menu.sop_tasks', 'sop.instance.read', 'sop.instance.start', 'sop.instance.manage', 'sop.task.read', 'sop.task.execute', 'sop.task.manage',
   'menu.sop_templates', 'sop.template.read', 'sop.template.manage', 'sop.template.publish',
   'menu.channel',

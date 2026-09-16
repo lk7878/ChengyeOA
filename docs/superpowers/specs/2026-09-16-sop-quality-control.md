@@ -2,7 +2,7 @@
 
 - ID：SPEC-SOP-QC-20260916
 - 日期：2026-09-16
-- 状态：分阶段实施；SQ1–SQ2已验收，完整交付待SQ7
+- 状态：分阶段实施；SQ1–SQ3已验收，完整交付待SQ7
 - 来源：用户要求继续规划 SOP 和质检；承接已验收 U5–U7，不重开已完成阶段。
 - 实施计划：[SQ 阶段计划](../plans/2026-09-16-sop-quality-control.md)
 
@@ -180,3 +180,15 @@ CaseTask增量sopInstanceId/nodeCode/nodeSnapshot/createdBy/updatedBy/assigneeUs
 实际页面为/sop/tasks共同工作表、/sop/tasks/:id办理、/sop/instances/new启动与/sop/instances/:id实例进度；原案件详情提供启动/办理入口。共用视图、字段及个人“分派给我”筛选。案件详情的SOP任务也复验独立task.read，旧CaseTask更新拒绝SOP节点；系统受控动作通过expectedVersion/requestKey办理。逾期与状态组合取交集，逾期不覆写执行状态。已配置强制材料或审核的完成动作在SQ3提供成果提交前保持拒绝。
 
 启动要求原案件读/任务管理、模板读及实例启动范围，以及发布生效版本、组织/团队/类型匹配；冻结节点内容不随模板变化。开始/完成检查依赖，实例暂停、取消或案件终态均不可继续。改派撤销旧对象授权；普通获派者不能改派、跳过或管理实例。列表、详情、错误清除和5秒/焦点刷新沿统一范围约束。
+
+## SQ3 实施补充（已验收）
+
+新增SopSubmission、SubmissionAttachment、QualityReview、ExpertGuidance四个物理表，CaseTask.activeSubmissionId指向当前修订；唯一(taskId,number)、唯一review.submissionId及approvalInstanceId，材料和人员引用使用RESTRICT外键。CaseFile原ID是不可变材料版本，提交冻结真实文件SHA-256/大小/资料项；审批同步同时核验引用集合、文件字节、提交摘要、当前节点版本及状态。
+
+审核沿原ApprovalInstance/Task，新增SOP_REVIEW业务类型和业务同步目标。可信提交适配器在同一事务创建本轮私有审核定义与实例；通用申请、定义编辑/导入/停用不能伪造或修改SOP审核。回避提交人和本轮执行人，复核冻结候选角色、有效账号/任职、独立审核及文件权限；无审核人保留WAITING_ASSIGNMENT。转交/加签首期不开放，需退回/撤回再修订。审核检查清单在决定时冻结摘要；原审批已定稿后清单不得编辑。原同步台账FAILED可重试，但只接受仍获权且版本/材料未变化的目标。
+
+实际新增权限sop.report.read/submit、sop.guidance.read/create、quality.review.read/assign/decide均以sop_task为资源范围。报告/指导还需task.read交集；已有显式任务授权可用于必要报告/指导动作，但材料清单、文件名和下载始终独立case.file.read。无审核范围的报告读者不获得检查意见及原审批明细入口。原审批列表/详情/导出/统计/同步台账也与SOP范围求交。
+
+提交接口与SQ3开工契约一致，补GET /sop/tasks/:id/material-options分页100、POST /sop/reviews/:id/checklist（expectedVersion，材料及成果检查项PASS/FAIL/NA，后两者依据必填）。新页面/sop/submissions/:id承接不可变报告、冻结材料、清单与原审批深链/approvals?instance=原ID；任务页承接提交及专家指导。原closeCase只检查绑定模板closeGate=true、未取消实例的节点真实COMPLETED，跳过不算通过，默认模板和旧案件不增加门槛。
+
+成果材料下载为GET /sop/submissions/:id/materials/:fileId，独立校验task/report及case.file.read后核验冻结SHA-256，不通过当前文件替换历史版本。指导创建写入sop.guidance.created事务事件；检查清单最终审批时冻结到原审批内容与摘要。候选人员首期最多500人，材料候选每页100条。

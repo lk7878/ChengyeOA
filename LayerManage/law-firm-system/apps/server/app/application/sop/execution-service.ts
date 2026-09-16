@@ -117,7 +117,7 @@ export class SopExecutionService {
           where: { id: caseId },
           data: { version: { increment: 1 }, updatedBy: ctx.userId },
         });
-        await this.audit(tx, 'SOP_INSTANCE', row, 'START', revision.template.organizationId, {
+        await this.recordChange(tx, 'SOP_INSTANCE', row, 'START', revision.template.organizationId, {
           templateVersionId: versionId,
           batchKey,
         });
@@ -211,7 +211,7 @@ export class SopExecutionService {
   async task(id: string) {
     const row = await requireSopTask(this.db, this.ctx, id, 'sop.task.read');
     const permissions: PermissionCode[] = [];
-    for (const permission of ['sop.task.execute', 'sop.task.manage'] as const) {
+    for (const permission of ['sop.task.execute', 'sop.task.manage', 'sop.report.read', 'sop.report.submit', 'sop.guidance.read', 'sop.guidance.create', 'quality.review.assign', 'quality.review.decide'] as const) {
       if (
         this.ctx.permissionCodes.includes(permission) &&
         (await this.db.caseTask.findFirst({
@@ -387,7 +387,7 @@ export class SopExecutionService {
           where: { id: row.caseId },
           data: { version: { increment: 1 }, updatedBy: ctx.userId },
         });
-        await this.audit(tx, 'SOP_TASK', next, action, instance.templateVersion.template.organizationId, {
+        await this.recordChange(tx, 'SOP_TASK', next, action, instance.templateVersion.template.organizationId, {
           fromStatus: row.status,
           toStatus: next.status,
           assigneeUserId: next.assigneeUserId,
@@ -446,7 +446,7 @@ export class SopExecutionService {
           where: { id: row.caseId },
           data: { version: { increment: 1 }, updatedBy: ctx.userId },
         });
-        await this.audit(tx, 'SOP_INSTANCE', next, action, row.templateVersion.template.organizationId, {
+        await this.recordChange(tx, 'SOP_INSTANCE', next, action, row.templateVersion.template.organizationId, {
           fromStatus: row.status,
           status,
           reason,
@@ -456,7 +456,7 @@ export class SopExecutionService {
       (tx, targetId) => requireSopInstance(tx, this.ctx, targetId, 'sop.instance.manage'),
     );
   }
-  private async audit(
+  async recordChange(
     tx: Prisma.TransactionClient,
     type: 'SOP_TASK' | 'SOP_INSTANCE',
     row: { id: string; version: number },

@@ -13,7 +13,7 @@ import type { PagedResult } from './types';
 export const APPROVAL_ROLES = ['APPLIED', 'TODO', 'DONE', 'ALL'] as const;
 export type ApprovalRoleFilter = (typeof APPROVAL_ROLES)[number];
 
-export const APPROVAL_BUSINESS_TYPES = ['EXPENSE', 'CONTRACT_CHANGE', 'SEAL', 'LEAVE', 'TRANSFER', 'CUSTOM', 'PAYROLL'] as const;
+export const APPROVAL_BUSINESS_TYPES = ['EXPENSE', 'CONTRACT_CHANGE', 'SEAL', 'LEAVE', 'TRANSFER', 'CUSTOM', 'PAYROLL', 'SOP_REVIEW'] as const;
 export type ApprovalBusinessType = (typeof APPROVAL_BUSINESS_TYPES)[number];
 
 export const INSTANCE_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN'] as const;

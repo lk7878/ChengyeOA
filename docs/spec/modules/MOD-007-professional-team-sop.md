@@ -216,3 +216,6 @@ SOP 节点 / 字段配置（医疗 / 执行 / 刑事三团队的节点、材料�
 ## SQ2实现边界（2026-09-17）
 
 案件显式启用已发布模板、冻结CaseTask节点、版本/幂等办理、分派及有效期/撤权、同源SOP任务工作表与个人视图、依赖/暂停/取消/逾期已实现。普通任务与原案件入口继续兼容；任务授权不能读取案件与附件。报告材料冻结、一级审核和专家指导由SQ3承接，抽检与专项分析由SQ4/5承接。阶段验收以SQ计划实际日志为准，不把SOP执行工作台视为全部七阶段完成。
+
+
+2026-09-17 SQ3已验收：SopSubmission/SubmissionAttachment、ExpertGuidance和QualityReview落地；SopSubmissionService与原ApprovalInstance/Sync服务完成冻结版本、一级检查、退回修订及同步失败重试，SopExecution/SubmissionPage提供真实办理入口。对应SQ-AC-05及SQ-AC-03/04/11/12本阶段范围；64迁移99模型。实际测试与失败修复见SQ阶段计划，二级抽检、专项分析及前期衔接仍属SQ4–SQ7，不将一级审核视为完整质检交付。

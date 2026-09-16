@@ -4,7 +4,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { decodeBase32 } from '../../app/domain/security/base32';
 import { MfaSecretCrypto } from '../../app/domain/security/mfa-factor-crypto';
 import { createServer, Server } from 'node:http';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PrismaClient } from '@prisma/client';
@@ -4467,6 +4467,424 @@ test(
       assert.equal(await db.caseTask.count(), 2);
       assert.deepEqual(errors, []);
     } catch (error) {
+      for (const [i, context] of browser.contexts().entries())
+        for (const page of context.pages())
+          await page
+            .screenshot({ path: path.join(evidence, 'failed-' + i + '.png'), fullPage: true })
+            .catch(() => undefined);
+      throw error;
+    } finally {
+      await browser.close();
+      await vite.close();
+    }
+  },
+);
+
+test(
+  'SQ3 real App freezes deliverables returns revisions and uses original approvals',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web'),
+      load = new Function('url', 'return import(url)');
+    const { chromium, expect } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'sq3-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence/sq3');
+    await mkdir(evidence, { recursive: true });
+    const errors: string[] = [];
+    try {
+      const adminRole = await db.role.create({
+        data: { code: 'SYSTEM_SUPER_ADMIN', name: '系统管理员', type: 'SYSTEM' },
+      });
+      await db.userRole.create({ data: { userId: owner, roleId: adminRole.id } });
+      const adminToken = (await createApiSession(db, owner, 'MFA')).token;
+      const employee = await db.employee.create({
+        data: {
+          employeeNo: 'SQ3_STAFF',
+          name: 'SQ3办案人',
+          phone: '13800000000',
+          type: 'ASSISTANT',
+          entryDate: new Date(),
+        },
+      });
+      await db.user.update({ where: { id: editor }, data: { employeeId: employee.id } });
+      const self = await db.dataScope.create({ data: { name: '本人SOP', scopeType: 'SELF' } });
+      const staffRole = await db.role.create({
+        data: {
+          code: 'SQ3_STAFF',
+          name: '办理岗',
+          type: 'BUSINESS',
+          permissions: {
+            create: ['menu.sop_tasks', 'sop.task.read', 'sop.task.execute'].map((code) => ({
+              permission: { connect: { code } },
+            })),
+          },
+          dataScopes: { create: { resource: 'sop_task', dataScopeId: self.id } },
+        },
+      });
+      await db.userRole.create({ data: { userId: editor, roleId: staffRole.id } });
+      await db.collabMember.updateMany({
+        where: { workspaceId, principalId: editor },
+        data: { rowScope: 'SELF' },
+      });
+      const manager = await db.user.create({
+        data: { username: 'sq3-manager', password: 'unused', mustChangePassword: false },
+      });
+      const reviewerEmployee = await db.employee.create({
+        data: {
+          employeeNo: 'SQ3_REVIEWER',
+          name: 'SQ3审核负责人',
+          phone: '13800000000',
+          type: 'LAWYER',
+          entryDate: new Date(),
+        },
+      });
+      await db.user.update({ where: { id: manager.id }, data: { employeeId: reviewerEmployee.id } });
+      const all = await db.dataScope.create({ data: { name: '团队验收全范围', scopeType: 'ALL' } });
+      const managerRole = await db.role.create({
+        data: {
+          code: 'SQ3_MANAGER',
+          name: '负责人',
+          type: 'BUSINESS',
+          permissions: {
+            create: [
+              'menu.sop_tasks',
+              'sop.task.read',
+              'sop.task.manage',
+              'sop.task.execute',
+              'sop.report.read',
+              'sop.guidance.read',
+              'sop.guidance.create',
+              'quality.review.read',
+              'quality.review.decide',
+              'approval.read',
+              'approval.process',
+              'case.file.read',
+              'sop.instance.read',
+              'sop.instance.manage',
+              'case.task.manage',
+              'employee.read',
+            ].map((code) => ({ permission: { connect: { code } } })),
+          },
+          dataScopes: {
+            create: ['sop_task', 'sop_instance', 'case', 'employee'].map((resource) => ({
+              resource,
+              dataScopeId: all.id,
+            })),
+          },
+        },
+      });
+      await db.userRole.create({ data: { userId: manager.id, roleId: managerRole.id } });
+      await db.collabMember.create({
+        data: { workspaceId, principalId: manager.id, role: 'MANAGER', rowScope: 'ALL', canCreate: true },
+      });
+      const managerToken = (await createApiSession(db, manager.id)).token;
+      const org = (await db.organization.findFirstOrThrow()).id;
+      const team = await db.professionalTeam.create({
+        data: { code: 'SQ3_TEAM', name: 'SQ3医疗团队', categoryCode: 'MEDICAL', homeOrganizationId: org },
+      });
+      const api = (method: 'get' | 'post', route: string, bearer = adminToken, body?: unknown) => {
+        const req = app.httpRequest()[method]('/api/v1' + route)
+          .set('Authorization', 'Bearer ' + bearer)
+          .set('Idempotency-Key', randomUUID());
+        return body === undefined ? req : req.send(body);
+      };
+      const template = (
+        await api('post', '/sop/templates', adminToken, {
+          code: 'SQ3_UI',
+          name: 'SQ3医疗交付',
+          organizationId: org,
+          professionalTeamId: team.id,
+          caseType: '医疗纠纷',
+          requestKey: randomUUID(),
+          content: {
+            schemaVersion: 1,
+            nodes: [
+              {
+                code: 'REPORT',
+                name: 'SQ3分析报告',
+                reviewRequired: true,
+                closeGate: true,
+                materials: [{ code: 'MATERIAL', name: '分析材料', required: true }],
+              },
+            ],
+          },
+        }).expect(200)
+      ).body.data;
+      const version = await db.sopTemplateVersion.findFirstOrThrow({ where: { templateId: template.id } });
+      await db.sopTemplateVersion.update({ where: { id: version.id }, data: { status: 'PUBLISHED' } });
+      await db.sopTemplate.update({ where: { id: template.id }, data: { activeVersionId: version.id } });
+      const customer = await db.customer.create({
+        data: {
+          customerNo: 'SQ3_CUSTOMER',
+          name: '保密客户',
+          phone: '13800000000',
+          phoneHash: 'test',
+          createdBy: owner,
+        },
+      });
+      const caseRow = await db.case.create({
+        data: {
+          caseNo: 'SQ3_CASE',
+          title: '不向仅获派任务人员公开的案件',
+          caseType: '医疗纠纷',
+          customerId: customer.id,
+          branchId: org,
+          teamIds: JSON.stringify([team.id]),
+          createdBy: owner,
+        },
+      });
+      const table = (
+        await api('post', '/bases/' + baseId + '/tables', adminToken, {
+          name: 'SOP交付工作表',
+          source: 'SOP_TASKS',
+        }).expect(200)
+      ).body.data;
+      const started = (
+        await api('post', '/sop/instances', adminToken, {
+          caseId: caseRow.id,
+          templateVersionId: version.id,
+          batchKey: 'PRIMARY',
+          requestKey: randomUUID(),
+        }).expect(200)
+      ).body.data;
+      const task = await db.caseTask.findFirstOrThrow({ where: { sopInstanceId: started.id } });
+      await api('post', '/sop/tasks/' + task.id + '/actions', adminToken, {
+        action: 'START',
+        expectedVersion: task.version,
+        requestKey: randomUUID(),
+      }).expect(200);
+      await api('post', '/cases/' + caseRow.id + '/files', adminToken, {
+        fileName: '医疗分析材料.txt',
+        fileType: 'text/plain',
+        base64: Buffer.from('医疗试点隔离材料').toString('base64'),
+      }).expect(200);
+      const pages = [];
+      for (const [id, bearer] of [
+        [owner, adminToken],
+        [manager.id, managerToken],
+        [editor, editorToken],
+      ]) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+        await context.addInitScript(
+          'window.unifiedTestSession=' +
+            JSON.stringify({
+              mode: 'AUTHENTICATED',
+              token: bearer,
+              csrfToken: 'test',
+              expiresIn: 900,
+              user: { id, username: id, name: 'SQ3验收', roles: [], permissions: [] },
+            }) +
+            ';',
+        );
+        const page = await context.newPage();
+        page.on('pageerror', (error: Error) => errors.push(error.message));
+        pages.push(page);
+      }
+      const [admin, reviewer, staff] = pages,
+        address = vite.resolvedUrls.local[0];
+      await admin.goto(address + 'sop/tasks/' + task.id);
+      await admin.getByLabel('指导内容').fill('先核对材料来源和风险说明，再提交审核');
+      await admin.getByRole('button', { name: '保存指导', exact: true }).click();
+      await expect.poll(async () => await db.expertGuidance.count()).toBe(1);
+      let injected = 0;
+      await admin.route(
+        '**/api/v1/sop/tasks/' + task.id + '/submissions',
+        async (route: {
+          request(): { method(): string };
+          continue(): Promise<void>;
+          abort(reason: string): Promise<void>;
+          fulfill(value: { status: number; contentType: string; body: string }): Promise<void>;
+        }) => {
+          if (route.request().method() !== 'POST') return route.continue();
+          injected++;
+          if (injected === 1) return route.abort('internetdisconnected');
+          if (injected === 2)
+            return route.fulfill({
+              status: 409,
+              contentType: 'application/json',
+              body: JSON.stringify({ code: 409, message: 'SOP_VERSION_CONFLICT' }),
+            });
+          return route.continue();
+        },
+      );
+      async function submit(report: string) {
+        await admin.getByRole('button', { name: '提交节点成果', exact: true }).click();
+        const dialog = admin.getByRole('dialog', { name: '提交节点成果' });
+        await dialog.getByLabel('成果报告', { exact: true }).fill(report);
+        await dialog.getByLabel('分析材料（必需）', { exact: true }).click();
+        await admin
+          .locator('.ant-select-item-option-content')
+          .getByText('医疗分析材料.txt', { exact: true })
+          .click();
+        await dialog.getByLabel('成果报告', { exact: true }).click();
+        await dialog.getByLabel('审核人', { exact: true }).click();
+        await admin
+          .locator('.ant-select-item-option-content')
+          .getByText('SQ3审核负责人', { exact: true })
+          .click();
+        await dialog.getByLabel('成果报告', { exact: true }).click();
+        await dialog.getByRole('button', { name: '提交成果', exact: true }).click();
+        if (injected < 3) {
+          await expect.poll(() => injected).toBe(1);
+          await expect(dialog.getByLabel('成果报告', { exact: true })).toHaveValue(report);
+          await expect(dialog.getByRole('button', { name: '提交成果', exact: true })).toBeEnabled({ timeout: 15000 });
+          await dialog.getByRole('button', { name: '提交成果', exact: true }).click();
+          await dialog.getByRole('button', { name: '采用最新任务版本', exact: true }).waitFor();
+          await expect(dialog.getByLabel('成果报告', { exact: true })).toHaveValue(report);
+          await dialog.getByRole('button', { name: '采用最新任务版本', exact: true }).click();
+          await dialog
+            .getByRole('button', { name: '采用最新任务版本', exact: true })
+            .waitFor({ state: 'hidden' });
+          await dialog.getByRole('button', { name: '提交成果', exact: true }).click();
+        }
+        await dialog.waitFor({ state: 'hidden' });
+      }
+      await submit('第一版报告，需要负责人检查风险');
+      let submission = await db.sopSubmission.findFirstOrThrow({
+        where: { taskId: task.id },
+        orderBy: { number: 'desc' },
+      });
+      await reviewer.goto(address + 'sop/submissions/' + submission.id);
+      await reviewer.getByRole('heading', { name: '成果修订 1', exact: true }).waitFor();
+      const downloadPromise = reviewer.waitForEvent('download');
+      await reviewer.getByRole('button', { name: '医疗分析材料.txt', exact: true }).click();
+      assert.equal((await downloadPromise).suggestedFilename(), '医疗分析材料.txt');
+      await reviewer.getByRole('link', { name: '进入原审批中心办理', exact: true }).click();
+      await reviewer
+        .getByRole('dialog', { name: '审批详情', exact: true })
+        .locator('.ant-modal-close')
+        .click();
+      await reviewer.getByRole('button', { name: '驳回', exact: true }).click();
+      await reviewer
+        .getByRole('dialog', { name: '驳回审批' })
+        .getByLabel('审批意见（可选）')
+        .fill('请补充风险与目标对齐说明');
+      await reviewer.getByRole('button', { name: '确认驳回', exact: true }).click();
+      await expect
+        .poll(async () => (await db.caseTask.findUniqueOrThrow({ where: { id: task.id } })).status)
+        .toBe('CHANGES_REQUESTED');
+      await admin.getByRole('button', { name: '开始办理', exact: true }).click();
+      await admin.getByRole('dialog').getByRole('button', { name: '确认办理', exact: true }).click();
+      await submit('第二版报告：已补充风险与目标对齐说明');
+      submission = await db.sopSubmission.findFirstOrThrow({
+        where: { taskId: task.id },
+        orderBy: { number: 'desc' },
+      });
+      assert.equal(submission.number, 2);
+      await reviewer.goto(address + 'sop/submissions/' + submission.id);
+      for (const label of ['MATERIALS检查结果', 'REPORT检查结果']) {
+        await reviewer.getByLabel(label, { exact: true }).click();
+        const listId = await reviewer.getByLabel(label, { exact: true }).getAttribute('aria-controls');
+        assert.ok(listId);
+        await reviewer
+          .locator('.ant-select-dropdown')
+          .filter({ has: reviewer.locator('[id=' + JSON.stringify(listId) + ']') })
+          .locator('.ant-select-item-option-content')
+          .getByText('通过', { exact: true })
+          .click();
+      }
+      await reviewer.getByRole('button', { name: '保存检查清单', exact: true }).click();
+      await expect
+        .poll(async () =>
+          JSON.stringify(
+            (await db.qualityReview.findUniqueOrThrow({ where: { submissionId: submission.id } })).checklist,
+          ),
+        )
+        .toContain('PASS');
+      for (const width of [1440, 1024, 390]) {
+        await reviewer.setViewportSize({ width, height: 1000 });
+        await reviewer.screenshot({
+          path: path.join(evidence, 'submission-' + width + '.png'),
+          fullPage: true,
+        });
+        assert.ok(await reviewer.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2));
+      }
+      await reviewer.setViewportSize({ width: 1440, height: 1000 });
+      await reviewer.getByRole('link', { name: '进入原审批中心办理', exact: true }).click();
+      await reviewer
+        .getByRole('dialog', { name: '审批详情', exact: true })
+        .locator('.ant-modal-close')
+        .click();
+      await reviewer.getByRole('button', { name: '审批通过', exact: true }).click();
+      await reviewer.getByRole('button', { name: '确认通过', exact: true }).click();
+      await expect
+        .poll(async () => (await db.caseTask.findUniqueOrThrow({ where: { id: task.id } })).status)
+        .toBe('COMPLETED');
+      await api('get', '/sop/submissions/' + submission.id, editorToken).expect(403);
+      await staff.goto(address + 'sop/submissions/' + submission.id);
+      await expect(staff.getByText('第二版报告：已补充风险与目标对齐说明', { exact: true })).toHaveCount(0);
+      await reviewer.goto(address + 'sop/submissions/' + submission.id);
+      await reviewer.getByRole('heading', { name: '成果修订 2', exact: true }).waitFor();
+      await db.userRole.deleteMany({ where: { userId: manager.id } });
+      await reviewer
+        .getByRole('heading', { name: '成果修订 2', exact: true })
+        .waitFor({ state: 'hidden', timeout: 15000 });
+      assert.equal(await db.sopSubmission.count(), 2);
+      assert.equal(await db.collabRecord.count({ where: { tableId: table.id } }), 0);
+      assert.deepEqual(errors, []);
+    } catch (error) {
+      for (const [index, context] of browser.contexts().entries())
+        for (const page of context.pages()) {
+          await writeFile(
+            path.join(evidence, 'failed-aria-' + index + '.txt'),
+            await page.locator('body').ariaSnapshot(),
+          );
+          await writeFile(
+            path.join(evidence, 'failed-dom-' + index + '.json'),
+            JSON.stringify(
+              await page.locator('[role=dialog]').evaluateAll((nodes: Element[]) =>
+                nodes.map((node) => ({
+                  hiddenAncestors: (() => {
+                    const rows = [];
+                    let n: Element | null = node;
+                    while (n) {
+                      if (n.hasAttribute('aria-hidden') || n.hasAttribute('inert'))
+                        rows.push(n.outerHTML.slice(0, 220));
+                      n = n.parentElement;
+                    }
+                    return rows;
+                  })(),
+                  text: node.textContent,
+                  label: node.getAttribute('aria-label'),
+                  labelledBy: node.getAttribute('aria-labelledby'),
+                  title: document.getElementById(node.getAttribute('aria-labelledby') || '')?.textContent,
+                  buttons: [...node.querySelectorAll('button')].map((b) => ({
+                    text: b.textContent,
+                    label: b.getAttribute('aria-label'),
+                  })),
+                })),
+              ),
+              null,
+              2,
+            ),
+          );
+        }
+
       for (const [i, context] of browser.contexts().entries())
         for (const page of context.pages())
           await page

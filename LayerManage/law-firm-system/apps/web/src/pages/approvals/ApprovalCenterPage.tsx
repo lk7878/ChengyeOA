@@ -73,6 +73,7 @@ const TABS: Array<{ key: ApprovalRoleFilter; label: string }> = [
 
 const BUSINESS_TYPE_META: Record<string, { text: string; color: string }> = {
   PAYROLL: { text: '工资发放', color: 'gold' },
+  SOP_REVIEW: { text: 'SOP成果审核', color: 'blue' },
   CUSTOM: { text: '自定义审批', color: 'geekblue' },
   EXPENSE: { text: '费用报销', color: 'cyan' },
   CONTRACT_CHANGE: { text: '合同变更', color: 'blue' },
@@ -899,10 +900,10 @@ const ApprovalCenterPage: React.FC<{ initialInstanceId?: string; initialRole?: A
                 <Button type="link" size="small" onClick={() => openAction('reject', record, pendingTask)}>
                   驳回
                 </Button>
-                <Button type="link" size="small" onClick={() => openForward(pendingTask)}>
+                <Button hidden={record.businessType === 'SOP_REVIEW'} type="link" size="small" onClick={() => openForward(pendingTask)}>
                   转交
                 </Button>
-                <Button type="link" size="small" onClick={() => openAddSigners(pendingTask)}>
+                <Button hidden={record.businessType === 'SOP_REVIEW'} type="link" size="small" onClick={() => openAddSigners(pendingTask)}>
                   加签
                 </Button>
               </>
@@ -942,7 +943,7 @@ const ApprovalCenterPage: React.FC<{ initialInstanceId?: string; initialRole?: A
       width: 140,
       render: (_: unknown, task: ApprovalTaskView) => {
         const isMyPending = task.status === 'PENDING' && !!currentUserId && task.assigneeId === currentUserId;
-        return canProcess && isMyPending ? (
+        return canProcess && isMyPending && activeRecord?.businessType !== 'SOP_REVIEW' ? (
           <>
             <Button type="link" size="small" onClick={() => openForward(task)}>
               转交
@@ -1412,6 +1413,7 @@ const ApprovalCenterPage: React.FC<{ initialInstanceId?: string; initialRole?: A
       >
         {activeRecord && (
           <>
+            {activeRecord.businessType === 'SOP_REVIEW' && typeof activeRecord.content.submissionId === 'string' && <p><Link to={'/sop/submissions/'+activeRecord.content.submissionId}>核验SOP成果版本与检查清单</Link></p>}
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="标题">{activeRecord.title}</Descriptions.Item>
               <Descriptions.Item label="类型">
@@ -1461,7 +1463,7 @@ const ApprovalCenterPage: React.FC<{ initialInstanceId?: string; initialRole?: A
               >
                 打印 / 另存 PDF
               </Button>
-              {canApply &&
+              {canApply && activeRecord.businessType !== 'SOP_REVIEW' &&
                 activeRecord.applicantId === currentUserId &&
                 ['WITHDRAWN', 'REJECTED'].includes(activeRecord.status) && (
                   <Button onClick={() => void reapply(activeRecord)}>修改后重新申请</Button>
@@ -1608,7 +1610,7 @@ const ApprovalCenterPage: React.FC<{ initialInstanceId?: string; initialRole?: A
             <Select
               aria-label="业务类型"
               disabled={!!editingDefinition}
-              options={APPROVAL_BUSINESS_TYPES.map((type) => ({
+              options={APPROVAL_BUSINESS_TYPES.filter(type=>type!=='SOP_REVIEW').map((type) => ({
                 value: type,
                 label: BUSINESS_TYPE_META[type]?.text ?? type,
               }))}

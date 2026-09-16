@@ -193,6 +193,16 @@ export default (app: Application) => {
   router.post('/api/v1/sop/instances', requirePermission('sop.instance.start'), controller.sop.startInstance);
   router.get('/api/v1/sop/instances/:id', requirePermission('sop.instance.read'), controller.sop.instance);
   router.post('/api/v1/sop/instances/:id/actions', requirePermission('sop.instance.manage'), controller.sop.instanceAction);
+  router.get('/api/v1/sop/tasks/:id/submissions', requirePermission('sop.report.read'), controller.sop.submissions);
+  router.post('/api/v1/sop/tasks/:id/submissions', requirePermission('sop.report.submit'), controller.sop.submit);
+  router.get('/api/v1/sop/submissions/:id/materials/:fileId', requirePermission('sop.report.read'), controller.sop.material);
+  router.get('/api/v1/sop/submissions/:id', requirePermission('sop.report.read'), controller.sop.submission);
+  router.post('/api/v1/sop/reviews/:id/assign', requirePermission('quality.review.assign'), controller.sop.assignReview);
+  router.post('/api/v1/sop/reviews/:id/checklist', requirePermission('quality.review.decide'), controller.sop.reviewChecklist);
+  router.get('/api/v1/sop/tasks/:id/review-options', requirePermission('sop.task.read'), controller.sop.reviewOptions);
+  router.get('/api/v1/sop/tasks/:id/material-options', requirePermission('sop.report.read'), controller.sop.materialOptions);
+  router.get('/api/v1/sop/tasks/:id/guidance', requirePermission('sop.guidance.read'), controller.sop.guidance);
+  router.post('/api/v1/sop/tasks/:id/guidance', requirePermission('sop.guidance.create'), controller.sop.guide);
   router.get('/api/v1/sop/tasks', requirePermission('sop.task.read'), controller.sop.tasks);
   router.get('/api/v1/sop/tasks/:id', requirePermission('sop.task.read'), controller.sop.task);
   router.post('/api/v1/sop/tasks/:id/actions', requireAnyPermission(['sop.task.execute', 'sop.task.manage']), controller.sop.taskAction);

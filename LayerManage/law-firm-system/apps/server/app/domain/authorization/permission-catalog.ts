@@ -32,6 +32,13 @@ function permission(
 }
 
 export const PERMISSION_CATALOG = Object.freeze([
+  permission('sop.report.read', '查看SOP成果', 'ACTION', 'sop_task', 'read', 'MEDIUM'),
+  permission('sop.report.submit', '提交SOP成果', 'ACTION', 'sop_task', 'submit', 'MEDIUM'),
+  permission('sop.guidance.read', '查看专家指导', 'ACTION', 'sop_task', 'read', 'MEDIUM'),
+  permission('sop.guidance.create', '记录专家指导', 'ACTION', 'sop_task', 'create', 'MEDIUM'),
+  permission('quality.review.read', '查看一级审核', 'ACTION', 'sop_task', 'read', 'MEDIUM'),
+  permission('quality.review.assign', '分派一级审核', 'ACTION', 'sop_task', 'assign', 'MEDIUM'),
+  permission('quality.review.decide', '决定一级审核', 'ACTION', 'sop_task', 'decide', 'MEDIUM'),
   permission('menu.sop_tasks', 'SOP任务', 'MENU', 'menu', 'view', 'LOW', '/sop/tasks'),
   permission('sop.instance.read', '查看SOP流程', 'ACTION', 'sop_instance', 'read', 'LOW'),
   permission('sop.instance.start', '启动SOP流程', 'ACTION', 'sop_instance', 'start', 'MEDIUM'),

@@ -1,9 +1,21 @@
+import { SopSubmissionService } from '../application/sop/submission-service';
 import { SopExecutionService } from '../application/sop/execution-service';
 import { Controller } from 'egg';
 import { SopTemplateService } from '../application/sop/template-service';
 import { auditActor } from '../application/master-data/master-data-factory';
 import { SOP_PRESETS } from '../domain/sop/template-content';
 export default class SopController extends Controller {
+  private submissionsService() { return new SopSubmissionService(this.ctx.prisma,auditActor(this.ctx),this.ctx.state.authorization); }
+  async submissions() { this.respond(await this.submissionsService().list(this.ctx.params.id)); }
+  async material() { this.respond(await this.submissionsService().downloadMaterial(this.ctx.params.id,this.ctx.params.fileId)); }
+  async submission() { this.respond(await this.submissionsService().get(this.ctx.params.id)); }
+  async submit() { this.respond(await this.submissionsService().submit(this.ctx.params.id,this.ctx.request.body)); }
+  async assignReview() { this.respond(await this.submissionsService().assign(this.ctx.params.id,this.ctx.request.body)); }
+  async reviewChecklist() { this.respond(await this.submissionsService().checklist(this.ctx.params.id,this.ctx.request.body)); }
+  async reviewOptions() { this.respond(await this.submissionsService().options(this.ctx.params.id)); }
+  async materialOptions() { this.respond(await this.submissionsService().materialOptions(this.ctx.params.id,this.ctx.query)); }
+  async guidance() { this.respond(await this.submissionsService().guidance(this.ctx.params.id)); }
+  async guide() { this.respond(await this.submissionsService().guide(this.ctx.params.id,this.ctx.request.body)); }
   private execution() {
     return new SopExecutionService(this.ctx.prisma, auditActor(this.ctx), this.ctx.state.authorization);
   }

@@ -1,3 +1,4 @@
+import SopSubmissionPage from './pages/SopExecution/SubmissionPage';
 import SopTaskPage from './pages/SopExecution/TaskPage';
 import SopInstancePage from './pages/SopExecution/InstancePage';
 import SopStartPage from './pages/SopExecution/StartPage';
@@ -287,6 +288,7 @@ function SessionBootstrap() {
           />
           <Route path="/cases" element={<CaseWorkspacePage />} />
           <Route path="/sop/tasks" element={<BusinessWorkspacePage source="SOP_TASKS" />} />
+          <Route path="/sop/submissions/:id" element={<SopSubmissionPage />} />
           <Route path="/sop/tasks/:id" element={<SopTaskPage />} />
           <Route path="/sop/instances/new" element={<SopStartPage />} />
           <Route path="/sop/instances/:id" element={<SopInstancePage />} />

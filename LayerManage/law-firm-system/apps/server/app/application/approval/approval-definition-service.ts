@@ -86,7 +86,7 @@ export class ApprovalDefinitionService {
     this.authorization.requireAction(this.authorizationContext, 'approval.apply');
     const definitionCode = normalizeRequiredText(code, 1, 100);
     const definition = await this.prisma.approvalDefinition.findFirst({
-      where: { code: definitionCode, status: 'ACTIVE', OR: [{ ownerUserId: null }, { ownerUserId: this.actor.actorUserId }] },
+      where: { businessType: {not:'SOP_REVIEW'}, code: definitionCode, status: 'ACTIVE', OR: [{ ownerUserId: null }, { ownerUserId: this.actor.actorUserId }] },
     });
     if (!definition) {
       throw new ApprovalError(
@@ -102,7 +102,7 @@ export class ApprovalDefinitionService {
   async listDefinitions(): Promise<ApprovalDefinitionView[]> {
     this.authorization.requireAction(this.authorizationContext, 'approval.apply');
     const rows = await this.prisma.approvalDefinition.findMany({
-      where: { status: 'ACTIVE', OR: [{ ownerUserId: null }, { ownerUserId: this.actor.actorUserId }] },
+      where: { businessType: {not:'SOP_REVIEW'}, status: 'ACTIVE', OR: [{ ownerUserId: null }, { ownerUserId: this.actor.actorUserId }] },
       orderBy: [{ code: 'asc' }],
     });
     return rows.map(projectApprovalDefinition);
@@ -139,6 +139,7 @@ export class ApprovalDefinitionService {
     }
     const name = normalizeRequiredText(input.name, 1, 100);
     const businessType = normalizeAllowedValue(input.businessType, APPROVAL_BUSINESS_TYPES);
+    if (businessType === 'SOP_REVIEW' || code.startsWith('SOP_')) throw new MasterDataError('SOP_REVIEW_ADAPTER_REQUIRED',409);
 
     const existing = await this.prisma.approvalDefinition.findUnique({ where: { code } });
     if (existing) {
@@ -201,6 +202,7 @@ export class ApprovalDefinitionService {
     assertExactKeys(input, ['name', 'formSchema', 'approverRule', 'nodeSchema']);
     const definitionCode = normalizeRequiredText(code, 1, 100);
     const existing = await this.prisma.approvalDefinition.findUnique({ where: { code: definitionCode } });
+    if (existing?.businessType === 'SOP_REVIEW') throw new MasterDataError('SOP_REVIEW_ROUTING_FIXED',409);
     if (!existing) {
       throw new ApprovalError(
         APPROVAL_ERROR_CODES.APPROVAL_DEFINITION_NOT_FOUND,
@@ -279,6 +281,7 @@ export class ApprovalDefinitionService {
     const definitionCode = normalizeRequiredText(code, 1, 100);
     const nextStatus = normalizeAllowedValue(status, APPROVAL_DEFINITION_STATUSES);
     const existing = await this.prisma.approvalDefinition.findUnique({ where: { code: definitionCode } });
+    if (existing?.businessType === 'SOP_REVIEW') throw new MasterDataError('SOP_REVIEW_ROUTING_FIXED',409);
     if (!existing) {
       throw new ApprovalError(
         APPROVAL_ERROR_CODES.APPROVAL_DEFINITION_NOT_FOUND,
@@ -394,6 +397,7 @@ export class ApprovalDefinitionService {
 
     const updated = await this.prisma.$transaction(async tx => {
       const existing = await tx.approvalDefinition.findUnique({ where: { code: definitionCode } });
+      if (existing?.businessType === 'SOP_REVIEW') throw new MasterDataError('SOP_REVIEW_ROUTING_FIXED',409);
       if (!existing) {
         throw new ApprovalError(
           APPROVAL_ERROR_CODES.APPROVAL_DEFINITION_NOT_FOUND,
@@ -468,6 +472,7 @@ export class ApprovalDefinitionService {
   async listAllDefinitions(): Promise<ApprovalDefinitionView[]> {
     this.authorization.requireAction(this.authorizationContext, 'approval.manage');
     const rows = await this.prisma.approvalDefinition.findMany({
+      where: {businessType:{not:'SOP_REVIEW'}},
       orderBy: [{ code: 'asc' }],
     });
     return rows.map(projectApprovalDefinition);
@@ -481,7 +486,7 @@ export class ApprovalDefinitionService {
   async exportDefinitions(query?: ExportDefinitionsQuery): Promise<DefinitionExportPayload> {
     this.authorization.requireAction(this.authorizationContext, 'approval.manage');
     assertExactKeys(query ?? {}, ['codes', 'businessType']);
-    const where: Prisma.ApprovalDefinitionWhereInput = {};
+    const where: Prisma.ApprovalDefinitionWhereInput = {AND:[{businessType:{not:'SOP_REVIEW'}}]};
     if (query?.businessType !== undefined) {
       where.businessType = normalizeAllowedValue(query.businessType, APPROVAL_BUSINESS_TYPES);
     }
@@ -542,6 +547,7 @@ export class ApprovalDefinitionService {
         }
         const name = normalizeRequiredText(rawDef.name, 1, 100);
         const businessType = normalizeAllowedValue(rawDef.businessType, APPROVAL_BUSINESS_TYPES);
+        if (businessType === 'SOP_REVIEW' || code.startsWith('SOP_')) throw new MasterDataError('SOP_REVIEW_ADAPTER_REQUIRED',409);
         const status = rawDef.status === undefined
           ? undefined
           : normalizeAllowedValue(rawDef.status, APPROVAL_DEFINITION_STATUSES);
@@ -551,6 +557,7 @@ export class ApprovalDefinitionService {
         this.assertApproverRuleValid(approverRule);
 
         const existing = await tx.approvalDefinition.findUnique({ where: { code } });
+        if (existing?.businessType === 'SOP_REVIEW') throw new MasterDataError('SOP_REVIEW_ROUTING_FIXED',409);
         if (existing) {
           // version 前置条件（可选）：提供且 !== existing.version → 409 整事务回滚。
           if (version !== undefined && version !== existing.version) {

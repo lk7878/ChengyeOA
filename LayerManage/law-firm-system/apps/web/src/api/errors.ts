@@ -2,6 +2,19 @@ import { message } from 'antd';
 
 const reported = new WeakSet<object>();
 const messages: Record<string, string> = {
+  SOP_SUBMISSION_NOT_FOUND: '成果版本不存在或无权查看',
+  SOP_SELF_REVIEW: '提交人及本轮执行人不能审核自己的成果',
+  SOP_REVIEW_NOT_FOUND: '审核不存在或无权查看',
+  SOP_REVIEWER_INVALID: '审核人当前不可用或不在授权范围',
+  SOP_REVIEW_STALE: '成果版本或流程状态已变化，请核实后重新提交',
+  SOP_MATERIAL_CHANGED: '冻结材料缺失或内容已变化，不能通过审核',
+  SOP_MATERIAL_REFERENCED: '该材料已被历史成果引用，不能删除',
+  SOP_MATERIAL_NOT_FOUND: '材料不存在或无权读取',
+  SOP_CLOSE_GATE_BLOCKED: '配置的SOP结案门槛尚未完成',
+  SOP_CHECKLIST_INCOMPLETE: '请先完成成果版本的检查清单',
+  SOP_REVIEW_REASON_REQUIRED: '退回时请填写修订依据',
+  SOP_REVIEW_ROUTING_FIXED: '此审核绑定了冻结版本，请退回或撤回后重新分派',
+  SOP_REVIEW_ADAPTER_REQUIRED: '请从SOP成果提交入口发起此类审核',
   SOP_TASK_ACTION_REQUIRED: '请在SOP任务详情办理此节点',
   SOP_STATE_INVALID: '任务或流程状态已变化，请刷新核对；当前输入已保留',
   SOP_DEPENDENCY_BLOCKED: '前置节点尚未完成，暂时不能执行此操作',

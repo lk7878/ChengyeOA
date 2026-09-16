@@ -172,6 +172,10 @@ model ProfessionalTeamMember {
 // ==================== 用户/权限模块 ====================
 
 model User {
+  sopSubmissions SopSubmission[] @relation("SopSubmissionAuthor")
+  sopReviewsAssigned QualityReview[] @relation("SopReviewAssignee")
+  sopReviewsCreated QualityReview[] @relation("SopReviewCreator")
+  sopGuidance ExpertGuidance[] @relation("SopGuidanceAuthor")
   sopAssignedTasks CaseTask[] @relation("SopAssignee")
   sopTaskAccesses SopTaskAccess[] @relation("SopAccessPrincipal")
   sopTaskAccessGrants SopTaskAccess[] @relation("SopAccessIssuer")
@@ -1155,6 +1159,7 @@ model Case {
 
 // SPEC-042：案件文件/证据台账——base64 上传落盘，落盘用 UUID 文件名防路径穿越，fileName 仅存元数据。
 model CaseFile {
+  sopAttachments SubmissionAttachment[]
   id         String   @id @default(uuid())
   caseId     String
   fileName   String // 原始文件名（元数据，落盘用 UUID）
@@ -1172,6 +1177,10 @@ model CaseFile {
 }
 
 model CaseTask {
+  activeSubmissionId String? @unique
+  activeSubmission SopSubmission? @relation("SopCurrentSubmission", fields: [activeSubmissionId], references: [id], onDelete: Restrict)
+  submissions SopSubmission[] @relation("SopTaskSubmissions")
+  guidance ExpertGuidance[]
   sopInstanceId String?
   nodeCode String?
   nodeSnapshot Json?
@@ -1274,6 +1283,7 @@ model ApprovalDefinition {
 }
 
 model ApprovalInstance {
+  qualityReview QualityReview?
   syncRecord        ApprovalSyncRecord?
   payrollBatch      PayrollBatch?
   costEntry         CostEntry?
@@ -2076,4 +2086,75 @@ model SopTaskAccess {
   issuer User @relation("SopAccessIssuer", fields: [grantedBy], references: [id], onDelete: Restrict)
   @@index([principalUserId, revokedAt, validUntil])
   @@map("sop_task_access")
+}
+
+model SopSubmission {
+  id String @id @default(uuid())
+  taskId String
+  number Int
+  taskVersion Int
+  report String
+  nodeSnapshot Json
+  materialChecklist Json
+  contentHash String
+  submittedBy String
+  executorUserId String?
+  createdAt DateTime @default(now())
+  task CaseTask @relation("SopTaskSubmissions", fields: [taskId], references: [id], onDelete: Restrict)
+  currentForTask CaseTask? @relation("SopCurrentSubmission")
+  submitter User @relation("SopSubmissionAuthor", fields: [submittedBy], references: [id], onDelete: Restrict)
+  attachments SubmissionAttachment[]
+  review QualityReview?
+  guidance ExpertGuidance[]
+  @@unique([taskId, number])
+  @@index([submittedBy])
+  @@map("sop_submission")
+}
+
+model SubmissionAttachment {
+  id String @id @default(uuid())
+  submissionId String
+  fileId String
+  materialCode String
+  sha256 String
+  fileSize Int
+  createdAt DateTime @default(now())
+  submission SopSubmission @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  file CaseFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  @@unique([submissionId, materialCode, fileId])
+  @@index([fileId])
+  @@map("submission_attachment")
+}
+
+model QualityReview {
+  id String @id @default(uuid())
+  submissionId String @unique
+  approvalInstanceId String? @unique
+  reviewerUserId String?
+  createdBy String
+  status String @default("WAITING_ASSIGNMENT")
+  checklist Json
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  submission SopSubmission @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  approval ApprovalInstance? @relation(fields: [approvalInstanceId], references: [id], onDelete: Restrict)
+  reviewer User? @relation("SopReviewAssignee", fields: [reviewerUserId], references: [id], onDelete: Restrict)
+  creator User @relation("SopReviewCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  @@index([reviewerUserId, status])
+  @@map("quality_review")
+}
+
+model ExpertGuidance {
+  id String @id @default(uuid())
+  taskId String
+  submissionId String?
+  content String
+  createdBy String
+  createdAt DateTime @default(now())
+  task CaseTask @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  submission SopSubmission? @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  author User @relation("SopGuidanceAuthor", fields: [createdBy], references: [id], onDelete: Restrict)
+  @@index([taskId, createdAt])
+  @@map("expert_guidance")
 }

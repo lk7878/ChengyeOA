@@ -1,3 +1,4 @@
+import { freezeSopReviewChecklist, guardSopApproval, lockSopApproval, sopApprovalScope, syncSopReview } from '../sop/review-policy';
 // SPEC-013 Task 5: approval-instance-service —— 审批实例全生命周期（审批中心业务核心）。
 // 形态逐段镜像 invoice-service：3 参构造 (prisma, actor, authorizationContext) + 可选
 // outbox；requireAction 每公开方法第一行；assertExactKeys 入参白名单；同事务 EventLog +
@@ -108,7 +109,9 @@ export class ApprovalInstanceService {
    * + approval.instance.created（恰 5 键）+ APPROVAL_APPLY 审计（DRAFT→PENDING、currentNode:0、
    * hasReason 恒 false——apply 无 reason 入参）。
    */
-  async applyForApproval(input: ApplyApprovalInput): Promise<ApprovalInstanceView> {
+  async applyForApproval(input: ApplyApprovalInput): Promise<ApprovalInstanceView> { return this.applyInternal(input); }
+  async applySopReview(tx: Prisma.TransactionClient, input: ApplyApprovalInput, submissionId: string): Promise<ApprovalInstanceView> { return this.applyInternal(input,tx,submissionId); }
+  private async applyInternal(input: ApplyApprovalInput, transaction?: Prisma.TransactionClient, sopSubmissionId?: string): Promise<ApprovalInstanceView> {
     this.authorization.requireAction(this.authorizationContext, 'approval.apply');
     assertExactKeys(input, ['definitionCode', 'title', 'content', 'idempotencyKey', 'attachmentIds', 'payrollBatchId', 'payrollVersion']);
     const definitionCode = normalizeRequiredText(input.definitionCode, 1, 100);
@@ -119,14 +122,22 @@ export class ApprovalInstanceService {
     const requestKey = key ? createHash('sha256').update(this.actor.actorUserId + ':' + key).digest('hex') : null;
     const requestHash = createHash('sha256').update(JSON.stringify({ definitionCode, title, content: input.content, attachmentIds, payrollBatchId: input.payrollBatchId, payrollVersion: input.payrollVersion })).digest('hex');
     if (requestKey) {
-      const existing = await this.prisma.approvalInstance.findUnique({ where: { requestKey } });
+      const existing = await (transaction ?? this.prisma).approvalInstance.findUnique({ where: { requestKey } });
       if (existing) {
+        if (existing.businessType === 'SOP_REVIEW' && !sopSubmissionId) fileError('SOP_REVIEW_ADAPTER_REQUIRED', 409);
         if (existing.requestHash !== requestHash) fileError('APPROVAL_APPLY_KEY_CONFLICT', 409);
-        return this.loadInstanceView(this.prisma, existing.id);
+        return this.loadInstanceView(transaction ?? this.prisma, existing.id);
       }
     }
 
-    const definition = await this.definitions.getActiveDefinition(definitionCode);
+    const definition = transaction
+      ? await transaction.approvalDefinition.findFirstOrThrow({where:{code:definitionCode,status:'ACTIVE',OR:[{ownerUserId:null},{ownerUserId:this.actor.actorUserId}]}})
+      : await this.definitions.getActiveDefinition(definitionCode);
+    if (definition.businessType === 'SOP_REVIEW') {
+      if (!transaction || !sopSubmissionId) fileError('SOP_REVIEW_ADAPTER_REQUIRED',409);
+      const sub = await transaction!.sopSubmission.findUniqueOrThrow({where:{id:sopSubmissionId!}});
+      if (sub.submittedBy !== this.actor.actorUserId || input.content.submissionId !== sub.id || input.content.contentHash !== sub.contentHash) fileError('SOP_REVIEW_ADAPTER_REQUIRED',409);
+    } else if (sopSubmissionId) fileError('SOP_REVIEW_ADAPTER_REQUIRED',409);
     this.assertContentMatchesSchema(input.content, definition.formSchema);
     if (definition.businessType === 'PAYROLL') {
       this.authorization.requireAction(this.authorizationContext, 'performance.update');
@@ -134,7 +145,7 @@ export class ApprovalInstanceService {
       normalizeRequiredText(input.payrollBatchId, 1, 100);
     } else if (input.payrollBatchId || input.payrollVersion) fileError('PAYROLL_BATCH_REQUIRED', 400);
     const chain = buildApprovalChain(definition);
-    const node0ApproverIds = await this.resolveApproverIds(chain[0].approverRule, this.actor.actorUserId);
+    const node0ApproverIds = await this.resolveApproverIds(chain[0].approverRule, this.actor.actorUserId, transaction ?? this.prisma);
     if (node0ApproverIds.length === 0) {
       throw new ApprovalError(
         APPROVAL_ERROR_CODES.APPROVAL_ASSIGNEE_INVALID,
@@ -144,12 +155,13 @@ export class ApprovalInstanceService {
     }
     assertNotSelfReview(this.actor.actorUserId, node0ApproverIds);
 
-    return this.prisma.$transaction(async tx => {
+    const write = async (tx: Prisma.TransactionClient) => {
       if (requestKey) {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${requestKey}))::text`;
         const existing = await tx.approvalInstance.findUnique({ where: { requestKey } });
         if (existing) {
-          if (existing.requestHash !== requestHash) fileError('APPROVAL_APPLY_KEY_CONFLICT', 409);
+          if (existing.businessType === 'SOP_REVIEW' && !sopSubmissionId) fileError('SOP_REVIEW_ADAPTER_REQUIRED', 409);
+        if (existing.requestHash !== requestHash) fileError('APPROVAL_APPLY_KEY_CONFLICT', 409);
           return this.loadInstanceView(tx, existing.id);
         }
       }
@@ -182,6 +194,7 @@ export class ApprovalInstanceService {
         });
       }
 
+      if (sopSubmissionId) await tx.qualityReview.update({where:{submissionId:sopSubmissionId},data:{approvalInstanceId:instance.id,reviewerUserId:node0ApproverIds[0],status:'PENDING',version:{increment:1}}});
       const payload: ApprovalInstanceCreatedV1 = {
         instanceId: instance.id,
         businessType: definition.businessType,
@@ -210,7 +223,8 @@ export class ApprovalInstanceService {
       });
 
       return this.loadInstanceView(tx, instance.id);
-    });
+    };
+    return transaction ? write(transaction) : this.prisma.$transaction(write);
   }
 
   /**
@@ -247,6 +261,7 @@ export class ApprovalInstanceService {
       );
     }
     const targetInstanceId = taskRow.instanceId;
+    await guardSopApproval(this.prisma,this.authorizationContext,targetInstanceId,action,remark);
 
     try {
       return await this.prisma.$transaction(async tx => {
@@ -282,7 +297,9 @@ export class ApprovalInstanceService {
         }
 
         // 锁实例行：同一实例的并发审批决策整体串行（互斥依据——写事务首把锁恒实例行）。
+        await lockSopApproval(tx,task.instanceId);
         await tx.$queryRaw`SELECT id FROM approval_instance WHERE id = ${task.instanceId} FOR UPDATE`;
+        await guardSopApproval(tx,this.authorizationContext,task.instanceId,action,remark);
 
         const fresh = await tx.approvalTask.findUniqueOrThrow({ where: { id: task.id } });
         if (fresh.status === 'APPROVED' || fresh.status === 'REJECTED') {
@@ -496,7 +513,9 @@ export class ApprovalInstanceService {
           businessType: definition.businessType,
           status: target,
         };
+        if (target === 'APPROVED' && instance.businessType === 'SOP_REVIEW') await freezeSopReviewChecklist(tx,instance.id);
         if (target === 'APPROVED') await syncApproved(tx, instance.id, this.actor, this.authorizationContext);
+        else await syncSopReview(tx,instance.id,this.actor);
         await this.outbox.append(tx, this.envelope(instance.id, payload, APPROVAL_INSTANCE_COMPLETED));
         await tx.operationLog.create({
           data: {
@@ -586,6 +605,7 @@ export class ApprovalInstanceService {
     // 评审 Important 修复：转交目标 = 申请人 → 自审绕过 → 409（沿 apply 首节点/process 下节点同款不变量）。
     assertNotSelfReview(task.instance.applicantId, [forwardToUserId]);
 
+    await guardSopApproval(this.prisma,this.authorizationContext,task.instanceId,'FORWARD');
     return this.prisma.$transaction(async tx => {
       const flipped = await tx.approvalTask.updateMany({
         where: { id: task.id, version: task.version, status: 'PENDING' },
@@ -683,6 +703,7 @@ export class ApprovalInstanceService {
       }
     }
 
+    await guardSopApproval(this.prisma,this.authorizationContext,task.instanceId,'FORWARD');
     return this.prisma.$transaction(async tx => {
       // D4.1 首把锁 = 实例行 FOR UPDATE：与 processTask/推进互斥（沿 processTask 锁点），
       // 防加签与推进竞速产生孤儿 PENDING task（推进先锁则 currentNode 已变）。
@@ -776,6 +797,9 @@ export class ApprovalInstanceService {
     }
 
     return this.prisma.$transaction(async tx => {
+      await lockSopApproval(tx,instance.id);
+      await tx.$queryRaw`SELECT id FROM approval_instance WHERE id=${instance.id} FOR UPDATE`;
+      await guardSopApproval(tx,this.authorizationContext,instance.id,'WITHDRAW');
       const flipped = await tx.approvalInstance.updateMany({
         where: { id: instance.id, version: instance.version, status: 'PENDING' },
         data: { status: 'WITHDRAWN', version: { increment: 1 } },
@@ -783,7 +807,8 @@ export class ApprovalInstanceService {
       if (flipped.count === 0) {
         const current = await tx.approvalInstance.findUniqueOrThrow({ where: { id: instance.id } });
         if (current.status === 'WITHDRAWN') {
-          return this.loadInstanceView(tx, instance.id);
+          await syncSopReview(tx,instance.id,this.actor);
+      return this.loadInstanceView(tx, instance.id);
         }
         throw new ApprovalError(
           APPROVAL_ERROR_CODES.APPROVAL_STATE_INVALID,
@@ -824,6 +849,7 @@ export class ApprovalInstanceService {
         },
       });
 
+      await syncSopReview(tx,instance.id,this.actor);
       return this.loadInstanceView(tx, instance.id);
     });
   }
@@ -852,7 +878,7 @@ export class ApprovalInstanceService {
     if (role !== 'ALL' && hasFilter) {
       throw new MasterDataError('VALIDATION_FAILED', 400);
     }
-    const where: Prisma.ApprovalInstanceWhereInput = {};
+    const where: Prisma.ApprovalInstanceWhereInput = { AND: [await sopApprovalScope(this.prisma,this.authorizationContext)] };
     if (role === 'ALL' && hasFilter) {
       buildAllViewWhere(where, query);
     }
@@ -896,7 +922,7 @@ export class ApprovalInstanceService {
     this.authorization.requireAction(this.authorizationContext, 'approval.manage');
     assertExactKeys(query, ['businessType', 'status', 'applicantId', 'keyword', 'maxRows']);
     const maxRows = query.maxRows === undefined ? 5000 : normalizeExportMaxRows(query.maxRows);
-    const where: Prisma.ApprovalInstanceWhereInput = {};
+    const where: Prisma.ApprovalInstanceWhereInput = { AND: [await sopApprovalScope(this.prisma,this.authorizationContext)] };
     buildAllViewWhere(where, query);
     const rows = await this.prisma.approvalInstance.findMany({
       where,
@@ -914,7 +940,7 @@ export class ApprovalInstanceService {
   async getStats(query: ApprovalStatsQuery): Promise<ApprovalStatsView> {
     this.authorization.requireAction(this.authorizationContext, 'approval.manage');
     assertExactKeys(query, ['businessType', 'status', 'applicantId', 'keyword']);
-    const where: Prisma.ApprovalInstanceWhereInput = {};
+    const where: Prisma.ApprovalInstanceWhereInput = { AND: [await sopApprovalScope(this.prisma,this.authorizationContext)] };
     buildAllViewWhere(where, query);
 
     const [total, pendingCount, decidedCount, byBusinessType, byStatus] = await Promise.all([
@@ -989,6 +1015,7 @@ export class ApprovalInstanceService {
         'approval instance not found',
       );
     }
+    await guardSopApproval(this.prisma,this.authorizationContext,instance.id,'READ');
     return projectApprovalInstance(instance);
   }
 
@@ -1131,6 +1158,7 @@ export class ApprovalInstanceService {
           syncRecord: true,
       },
     });
+    await guardSopApproval(tx,this.authorizationContext,instance.id,'READ');
     return projectApprovalInstance(instance);
   }
 

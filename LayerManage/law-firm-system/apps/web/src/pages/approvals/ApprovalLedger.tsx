@@ -15,6 +15,7 @@ const targets: Record<string, string> = {
   CONTRACT_CHANGE: '合同变更台账',
   TRANSFER: '员工调动台账',
   PAYROLL: '工资台账',
+  SOP_REVIEW: 'SOP成果审核',
   CUSTOM: '自定义业务台账',
   UNCONFIGURED: '待配置台账',
 };

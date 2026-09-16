@@ -52,7 +52,7 @@ export async function sopTaskScope(
   if (p.creators.length) clauses.push({ createdBy: { in: p.creators } });
   if (p.templates.length)
     clauses.push({ sopInstance: { templateVersion: { template: { OR: p.templates } } } });
-  if (permission === 'sop.task.read' || permission === 'sop.task.execute') {
+  if (['sop.task.read', 'sop.task.execute', 'sop.report.read', 'sop.report.submit', 'sop.guidance.read', 'sop.guidance.create'].includes(permission)) {
     const now = new Date();
     clauses.push({
       sopAccesses: {
@@ -61,7 +61,7 @@ export async function sopTaskScope(
           revokedAt: null,
           validFrom: { lte: now },
           OR: [{ validUntil: null }, { validUntil: { gt: now } }],
-          ...(permission === 'sop.task.execute' ? { canExecute: true } : {}),
+          ...(['sop.task.execute','sop.report.submit','sop.guidance.create'].includes(permission) ? { canExecute: true } : {}),
         },
       },
     });

@@ -97,3 +97,6 @@ MAT-04B 遵循 [SPEC-AI-DESKTOP-20260913 §7](../../superpowers/specs/2026-09-13
 ### SOP与质检增量（规划，2026-09-16）
 
 [增量规格](../../superpowers/specs/2026-09-16-sop-quality-control.md)及[SQ阶段计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)承接MAT-03/04A/06/07/08和复盘整改。一级审核复用审批基础；二级抽检与问题闭环独立；专项分析不强制固定负责人/期限，关闭沿原审批策略。旧Case.satisfaction为1–5，新专项触发采用独立0–100量表，禁止擅自换算。MAT-04B主动归档仍单列，尚未实施。
+
+
+2026-09-17 SQ3已验收：SopSubmission/SubmissionAttachment、ExpertGuidance和QualityReview落地；SopSubmissionService与原ApprovalInstance/Sync服务完成冻结版本、一级检查、退回修订及同步失败重试，SopExecution/SubmissionPage提供真实办理入口。对应SQ-AC-05及SQ-AC-03/04/11/12本阶段范围；64迁移99模型。实际测试与失败修复见SQ阶段计划，二级抽检、专项分析及前期衔接仍属SQ4–SQ7，不将一级审核视为完整质检交付。

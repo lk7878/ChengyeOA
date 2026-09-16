@@ -28,6 +28,7 @@ const lead: PermissionCode[] = ['menu.lead_crm', 'lead.read'];
 const customer: PermissionCode[] = ['menu.customer', 'customer.read'];
 const contract: PermissionCode[] = ['menu.contract', 'contract.read'];
 export const entries: NavigationEntry[] = [
+  { path: '/sop/submissions/:id', title: 'SOP成果修订', area: 'apps', group: '签约交付', required: ['sop.task.read', 'sop.report.read'], hidden: true, parent: '/sop/tasks' },
   {path:'/sop/tasks',title:'SOP任务',area:'apps',group:'案件交付',required:['menu.sop_tasks','sop.task.read']},
   {path:'/sop/tasks/:id',title:'SOP任务办理',area:'apps',group:'案件交付',required:['sop.task.read'],hidden:true,parent:'/sop/tasks'},
   {path:'/sop/instances/new',title:'启动SOP',area:'apps',group:'案件交付',required:['sop.instance.start'],hidden:true,parent:'/sop/tasks'},

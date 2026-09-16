@@ -1,3 +1,5 @@
+import { requireSopTask } from '../sop/execution-scope';
+import { guardSopApproval, lockSopApproval, sopApprovalScope, syncSopReview } from '../sop/review-policy';
 import { channelScope } from '../channel/channel-scope';
 import { randomUUID } from 'node:crypto';
 import { PrismaEventOutboxWriter } from '../events/event-outbox-writer';
@@ -21,6 +23,7 @@ export const SYNC_TARGETS = [
   'TRANSFER',
   'CUSTOM',
   'PAYROLL',
+  'SOP_REVIEW',
 ] as const;
 const DEFAULT_TARGETS: Record<string, string> = {
   EXPENSE: 'COST',
@@ -29,6 +32,7 @@ const DEFAULT_TARGETS: Record<string, string> = {
   CONTRACT_CHANGE: 'CONTRACT_CHANGE',
   TRANSFER: 'TRANSFER',
   PAYROLL: 'PAYROLL',
+  SOP_REVIEW: 'SOP_REVIEW',
 };
 const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 class SyncIncomplete extends Error {}
@@ -54,7 +58,7 @@ export async function syncApproved(
   await tx.$executeRawUnsafe('SAVEPOINT approval_business_sync');
   try {
     if (target === 'UNCONFIGURED') throw new SyncIncomplete('请管理员配置此自定义审批的目标台账后重试');
-    if (target === 'COST') {
+    if (target === 'SOP_REVIEW') { targetId = await syncSopReview(tx,instanceId,actor); } else if (target === 'COST') {
       const rawAmount = String(data.amount ?? '');
       if (!/^\d{1,16}(\.\d{1,2})?$/.test(rawAmount) || new Prisma.Decimal(rawAmount).lte(0))
         throw new SyncIncomplete('缺少有效报销金额（amount），须大于零且最多两位小数');
@@ -196,7 +200,7 @@ export async function syncApproved(
     await tx.$executeRawUnsafe('RELEASE SAVEPOINT approval_business_sync');
     status = target === 'UNCONFIGURED' ? 'PENDING_CONFIG' : 'FAILED';
     reason =
-      error instanceof SyncIncomplete
+      target === 'SOP_REVIEW' ? 'SOP成果版本、流程状态、材料或审核权限已变化，请核实后重试' : error instanceof SyncIncomplete
         ? error.message
         : '业务关联或权限校验未通过，请核实原申请中的金额、分类、案件及岗位信息后重试';
   }
@@ -230,6 +234,7 @@ export class ApprovalSyncService {
     if (!Number.isSafeInteger(page) || page < 1) throw new MasterDataError('VALIDATION_FAILED', 400);
     const manage = this.context.permissionCodes.includes('approval.manage');
     const where: Prisma.ApprovalInstanceWhereInput = {
+      AND: [await sopApprovalScope(this.prisma,this.context)],
       status: 'APPROVED',
       ...(manage
         ? {}
@@ -272,6 +277,10 @@ export class ApprovalSyncService {
     this.auth.requireAction(this.context, 'approval.manage');
     const instanceId = normalizeRequiredText(id, 1, 100);
     return this.prisma.$transaction(async (tx) => {
+      await guardSopApproval(tx,this.context,instanceId,'READ');
+      const sop = await tx.qualityReview.findUnique({where:{approvalInstanceId:instanceId},include:{submission:true}});
+      if(sop) await requireSopTask(tx,this.context,sop.submission.taskId,'quality.review.decide');
+      await lockSopApproval(tx,instanceId);
       await tx.$queryRaw`SELECT id FROM approval_instance WHERE id = ${instanceId} FOR UPDATE`;
       return syncApproved(tx, instanceId, this.actor, this.context);
     });

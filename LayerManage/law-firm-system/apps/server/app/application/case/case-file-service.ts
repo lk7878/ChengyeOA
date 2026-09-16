@@ -143,6 +143,7 @@ export class CaseFileService {
       if (['CLOSED', 'ARCHIVED'].includes(parent.status)) throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
       const current = await tx.caseFile.findUnique({ where: { id } });
       if (!current) throw new CaseError(CASE_ERROR_CODES.CASE_FILE_NOT_FOUND, 404, 'case file not found');
+      if (await tx.submissionAttachment.count({where:{fileId:id}})) throw new MasterDataError('SOP_MATERIAL_REFERENCED',409);
       await tx.caseFile.delete({ where: { id } });
       await tx.case.update({ where: { id: parent.id }, data: { version: { increment: 1 }, updatedBy: this.actor.actorUserId } });
       await tx.operationLog.create({ data: {

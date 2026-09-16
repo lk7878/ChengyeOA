@@ -200,3 +200,6 @@ U6-C最终补充：第60项权限目录增量与SQL重入通过；开发库60迁
 2026-09-17 SQ1：MOD-007模板配置部分落地；SQ-AC-01的模板生命周期/双人审核/版本冻结、SQ-AC-03配置范围、SQ-AC-11配置页三宽度、SQ-AC-12本阶段迁移及案件删除保护已验证。物理SopTemplate/SopTemplateVersion/SopInstance骨架、sop服务/控制器、SopTemplateAdapter、SopTemplates页面及治理版本直链对应57个不同后端测试、303前端测试及真实App完整发布停用回滚冒烟；61迁移94模型。详细失败修复及限制见[SQ阶段计划](../superpowers/plans/2026-09-16-sop-quality-control.md)。实例执行/完整SQ-AC及SQ2–SQ7未验收。
 
 2026-09-17 SQ2：MOD-007节点执行工作台增加CaseTask增量与SopTaskAccess、SopExecutionService及SOP_TASKS原生来源，前端SopExecution与原Workspaces/CaseRecordPage衔接。对应SQ-AC-02启动幂等/旧接口保护、SQ-AC-03任务/案件/附件独立授权及共同表、SQ-AC-04依赖/生命周期/逾期/并发、SQ-AC-11三宽度及SQ-AC-12增量迁移。具体结果见SQ阶段计划；SQ3–SQ7仍待后续验收。
+
+
+2026-09-17 SQ3已验收：SopSubmission/SubmissionAttachment、ExpertGuidance和QualityReview落地；SopSubmissionService与原ApprovalInstance/Sync服务完成冻结版本、一级检查、退回修订及同步失败重试，SopExecution/SubmissionPage提供真实办理入口。对应SQ-AC-05及SQ-AC-03/04/11/12本阶段范围；64迁移99模型。实际测试与失败修复见SQ阶段计划，二级抽检、专项分析及前期衔接仍属SQ4–SQ7，不将一级审核视为完整质检交付。
