@@ -2,7 +2,7 @@
 
 - ID：SPEC-SOP-QC-20260916
 - 日期：2026-09-16
-- 状态：分阶段实施；SQ1–SQ3已验收，完整交付待SQ7
+- 状态：分阶段实施；SQ1–SQ4已验收，完整交付待SQ7
 - 来源：用户要求继续规划 SOP 和质检；承接已验收 U5–U7，不重开已完成阶段。
 - 实施计划：[SQ 阶段计划](../plans/2026-09-16-sop-quality-control.md)
 
@@ -192,3 +192,16 @@ CaseTask增量sopInstanceId/nodeCode/nodeSnapshot/createdBy/updatedBy/assigneeUs
 提交接口与SQ3开工契约一致，补GET /sop/tasks/:id/material-options分页100、POST /sop/reviews/:id/checklist（expectedVersion，材料及成果检查项PASS/FAIL/NA，后两者依据必填）。新页面/sop/submissions/:id承接不可变报告、冻结材料、清单与原审批深链/approvals?instance=原ID；任务页承接提交及专家指导。原closeCase只检查绑定模板closeGate=true、未取消实例的节点真实COMPLETED，跳过不算通过，默认模板和旧案件不增加门槛。
 
 成果材料下载为GET /sop/submissions/:id/materials/:fileId，独立校验task/report及case.file.read后核验冻结SHA-256，不通过当前文件替换历史版本。指导创建写入sop.guidance.created事务事件；检查清单最终审批时冻结到原审批内容与摘要。候选人员首期最多500人，材料候选每页100条。
+
+
+## SQ4 实施契约
+
+新增QualitySamplingPolicy不可变版本，QualitySamplingRun唯一(policyId,scopeHash,month,batchKey)，QualitySamplingItem绑定原Case作为二级事实检查，QualityIssue/IssueRevision/IssueAttachment承接独立整改历史。一级SopSubmission的批准继续由SQ3 QualityReview/原审批承接；二级观察不改写一级批准事实。检查清单固定在样本，完成后不可覆写，FAIL项生成唯一(inspectionId,checkCode)问题。
+
+月度边界为Asia/Shanghai自然月，默认上月，限定策略组织/可选团队与当前case.read/sample.manage范围。候选快照保留Case ID、closedAt、version及唯一分层归属；HASH_SORT_V1以SHA-256(seed + ':' + caseId)排序取无放回样本。多团队案件按排序首个团队归层，未知归组单独层；按层COUNT/RATIO，比例向上取整。范围摘要只取规范化授权目标、不包含求值时间。同批并发返回已存在批次，补抽必须先有PRIMARY和原因，排除历史已抽对象；当前范围收紧后批次详情裁剪候选/排除和检查项，不再返回完整候选摘要。
+
+新增权限menu.quality、quality.sample.read/manage、quality.inspection.read/record、quality.issue.read/manage/resolve/verify。业务资源为case，均与case.read求交；策略按创建人及明确组织/团队锚点限定。负责人候选需独立employee.read及本人当前案件/整改权限；不因分派扩张案件读取。检查人回避案件主办及已提交成果作者/执行人；整改复核回避负责人和本轮提交人。所有写入expectedVersion/requestKey、行锁、实际操作者审计及quality.changed事务事件。
+
+新增/已实现页面：admin/quality-rules策略版本、quality/runs批次、quality/reviews二级共同表、quality/issues整改共同表及原ID详情。QUALITY_REVIEWS投影SamplingItem，QUALITY_ISSUES投影Issue，无CollabRecord镜像，系统状态不可经字段编辑绕过受控动作。
+
+已结案件整改可在SUBMIT中上传材料，但仍需独立case.file.manage，新增CaseFile并立即冻结引用；旧文件不覆盖，引用文件禁止删除。此入口不更新Case/Task/财务状态和版本；普通案件文件接口继续拒绝终态写入。单文件10MB、每次10个，失败事务清理确定未提交的本次文件，不删除提交结果不明的字节。历史下载重新核验文件范围与摘要。

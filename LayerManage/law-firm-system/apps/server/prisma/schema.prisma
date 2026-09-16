@@ -10,6 +10,7 @@ datasource db {
 // ==================== 组织架构模块 ====================
 
 model Organization {
+  qualityPolicies QualitySamplingPolicy[]
   sopTemplates SopTemplate[]
 
   collabWorkspaces   CollabWorkspace[]   @relation("CollabOrganization")
@@ -126,6 +127,7 @@ model EmployeeAssignment {
 }
 
 model ProfessionalTeam {
+  qualityPolicies QualitySamplingPolicy[]
   sopTemplates SopTemplate[]
 
   id                 String   @id @default(uuid())
@@ -172,6 +174,13 @@ model ProfessionalTeamMember {
 // ==================== 用户/权限模块 ====================
 
 model User {
+  qualityPolicies QualitySamplingPolicy[]
+  qualityRuns QualitySamplingRun[]
+  qualityInspections QualitySamplingItem[] @relation("QualityInspector")
+  qualityCreatedItems QualitySamplingItem[] @relation("QualityItemCreator")
+  qualityCreatedIssues QualityIssue[] @relation("QualityIssueCreator")
+  qualityAssignedIssues QualityIssue[] @relation("QualityIssueAssignee")
+  qualityRevisions IssueRevision[]
   sopSubmissions SopSubmission[] @relation("SopSubmissionAuthor")
   sopReviewsAssigned QualityReview[] @relation("SopReviewAssignee")
   sopReviewsCreated QualityReview[] @relation("SopReviewCreator")
@@ -1116,6 +1125,8 @@ model CostEntry {
 // ==================== 案件模块 ====================
 
 model Case {
+  qualitySamples QualitySamplingItem[]
+  qualityIssues QualityIssue[]
   sopInstances SopInstance[]
 
   createdBy String? // U5-B: unknown historical creators remain null
@@ -1159,6 +1170,7 @@ model Case {
 
 // SPEC-042：案件文件/证据台账——base64 上传落盘，落盘用 UUID 文件名防路径穿越，fileName 仅存元数据。
 model CaseFile {
+  qualityAttachments IssueAttachment[]
   sopAttachments SubmissionAttachment[]
   id         String   @id @default(uuid())
   caseId     String
@@ -2157,4 +2169,117 @@ model ExpertGuidance {
   author User @relation("SopGuidanceAuthor", fields: [createdBy], references: [id], onDelete: Restrict)
   @@index([taskId, createdAt])
   @@map("expert_guidance")
+}
+
+
+model QualitySamplingPolicy {
+  id String @id @default(uuid())
+  code String
+  number Int
+  name String
+  organizationId String
+  professionalTeamId String?
+  mode String
+  amount Int
+  stratified Boolean @default(false)
+  checklist Json
+  createdBy String
+  createdAt DateTime @default(now())
+  organization Organization @relation(fields:[organizationId],references:[id],onDelete:Restrict)
+  professionalTeam ProfessionalTeam? @relation(fields:[professionalTeamId],references:[id],onDelete:Restrict)
+  creator User @relation(fields:[createdBy],references:[id],onDelete:Restrict)
+  runs QualitySamplingRun[]
+  @@unique([code,number])
+  @@map("quality_sampling_policy")
+}
+model QualitySamplingRun {
+  id String @id @default(uuid())
+  policyId String
+  scopeHash String
+  month String
+  batchKey String
+  reason String?
+  seed String
+  algorithm String @default("HASH_SORT_V1")
+  candidateSnapshot Json
+  candidateHash String
+  exclusions Json
+  createdBy String
+  createdAt DateTime @default(now())
+  policy QualitySamplingPolicy @relation(fields:[policyId],references:[id],onDelete:Restrict)
+  creator User @relation(fields:[createdBy],references:[id],onDelete:Restrict)
+  items QualitySamplingItem[]
+  @@unique([policyId,scopeHash,month,batchKey])
+  @@map("quality_sampling_run")
+}
+model QualitySamplingItem {
+  id String @id @default(uuid())
+  runId String
+  caseId String
+  name String
+  status String @default("PENDING")
+  checklist Json
+  inspectorUserId String?
+  resultHash String?
+  createdBy String
+  updatedBy String?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  run QualitySamplingRun @relation(fields:[runId],references:[id],onDelete:Restrict)
+  case Case @relation(fields:[caseId],references:[id],onDelete:Restrict)
+  inspector User? @relation("QualityInspector",fields:[inspectorUserId],references:[id],onDelete:Restrict)
+  creator User @relation("QualityItemCreator",fields:[createdBy],references:[id],onDelete:Restrict)
+  issues QualityIssue[]
+  @@unique([runId,caseId])
+  @@map("quality_sampling_item")
+}
+model QualityIssue {
+  id String @id @default(uuid())
+  inspectionId String
+  caseId String
+  checkCode String
+  name String
+  evidence String
+  assigneeUserId String?
+  dueAt DateTime?
+  status String @default("OPEN")
+  version Int @default(1)
+  createdBy String
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  case Case @relation(fields:[caseId],references:[id],onDelete:Restrict)
+  inspection QualitySamplingItem @relation(fields:[inspectionId],references:[id],onDelete:Restrict)
+  creator User @relation("QualityIssueCreator",fields:[createdBy],references:[id],onDelete:Restrict)
+  assignee User? @relation("QualityIssueAssignee",fields:[assigneeUserId],references:[id],onDelete:Restrict)
+  revisions IssueRevision[]
+  @@unique([inspectionId,checkCode])
+  @@index([caseId,status])
+  @@map("quality_issue")
+}
+model IssueRevision {
+  id String @id @default(uuid())
+  issueId String
+  number Int
+  action String
+  content String
+  createdBy String
+  createdAt DateTime @default(now())
+  issue QualityIssue @relation(fields:[issueId],references:[id],onDelete:Restrict)
+  creator User @relation(fields:[createdBy],references:[id],onDelete:Restrict)
+  attachments IssueAttachment[]
+  @@unique([issueId,number])
+  @@map("issue_revision")
+}
+model IssueAttachment {
+  id String @id @default(uuid())
+  revisionId String
+  fileId String
+  sha256 String
+  fileSize Int
+  revision IssueRevision @relation(fields:[revisionId],references:[id],onDelete:Restrict)
+  file CaseFile @relation(fields:[fileId],references:[id],onDelete:Restrict)
+  @@unique([revisionId,fileId])
+  @@map("issue_attachment")
 }

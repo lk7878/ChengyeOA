@@ -4897,3 +4897,67 @@ test(
     }
   },
 );
+
+test(
+  'SQ4 real App samples closed cases and remediates without altering original lifecycle',
+  { skip: process.env.COLLAB_BROWSER_REHEARSAL !== 'true', timeout: 300000 },
+  async () => {
+    const webRoot = path.resolve(process.cwd(), '../web'),
+      load = new Function('url', 'return import(url)');
+    const { chromium, expect } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/@playwright/test/index.mjs')).href,
+    );
+    const { createServer: createViteServer } = await load(
+      pathToFileURL(path.join(webRoot, 'node_modules/vite/dist/node/index.js')).href,
+    );
+    const vite = await createViteServer({
+      root: webRoot,
+      cacheDir: path.join(webRoot, 'node_modules/.vite-collaboration-rehearsal'),
+      define: { 'process.env.NODE_ENV': JSON.stringify('development') },
+      optimizeDeps: {
+        rolldownOptions: { transform: { define: { 'process.env.NODE_ENV': JSON.stringify('development') } } },
+      },
+      configFile: path.join(webRoot, 'vite.config.ts'),
+      plugins: [
+        {
+          name: 'sq3-real-app',
+          transformIndexHtml: (html: string) => html.replace('/src/main.tsx', '/e2e/unified-harness.tsx'),
+        },
+      ],
+      server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: origin, changeOrigin: true } } },
+    });
+    await vite.listen();
+    const browser = await chromium.launch({
+      headless: true,
+      channel: process.env.COLLAB_BROWSER_CHANNEL || undefined,
+    });
+    const evidence = path.resolve(process.cwd(), '../../var/collaboration-evidence/sq4');
+    await mkdir(evidence, { recursive: true });
+    const errors: string[] = [];
+    try {
+      const role=await db.role.create({data:{code:'SYSTEM_SUPER_ADMIN',name:'系统管理员',type:'SYSTEM'}});await db.userRole.create({data:{userId:owner,roleId:role.id}});const adminToken=(await createApiSession(db,owner,'MFA')).token;
+      const employee=await db.employee.create({data:{employeeNo:'SQ4_EMP',name:'SQ4整改员',phone:'13800000000',type:'ASSISTANT',entryDate:new Date()}});await db.user.update({where:{id:editor},data:{employeeId:employee.id}});
+      const all=await db.dataScope.create({data:{name:'获权整改范围',scopeType:'ALL'}});const staffRole=await db.role.create({data:{code:'SQ4_STAFF',name:'整改岗位',type:'BUSINESS',permissions:{create:['menu.quality','case.read','case.file.read','case.file.manage','quality.issue.read','quality.issue.resolve'].map(code=>({permission:{connect:{code}}}))},dataScopes:{create:{resource:'case',dataScopeId:all.id}}}});await db.userRole.create({data:{userId:editor,roleId:staffRole.id}});
+      const outsider=await db.user.create({data:{username:'sq4-outsider',password:'unused',mustChangePassword:false}}),outsideToken=(await createApiSession(db,outsider.id)).token;
+      const org=(await db.organization.findFirstOrThrow()).id,customer=await db.customer.create({data:{customerNo:'SQ4_CUSTOMER',name:'抽检隔离客户',phone:'13800000000',phoneHash:'test',createdBy:owner}}),caseRow=await db.case.create({data:{caseNo:'SQ4_CASE',title:'抽检隔离结案',customerId:customer.id,caseType:'医疗纠纷',branchId:org,createdBy:owner,status:'CLOSED',closedAt:new Date('2026-08-20T00:00:00Z'),satisfaction:4}});
+      const api=(method:'get'|'post',route:string,bearer=adminToken,body?:unknown)=>{const req=app.httpRequest()[method]('/api/v1'+route).set('Authorization','Bearer '+bearer).set('Idempotency-Key',randomUUID());return body===undefined?req:req.send(body);};
+      const sources=[];for(const source of ['QUALITY_REVIEWS','QUALITY_ISSUES']){const table=(await api('post','/bases/'+baseId+'/tables',adminToken,{name:source==='QUALITY_REVIEWS'?'二级抽检':'问题整改',source}).expect(200)).body.data;sources.push(table.id);}
+      const pages=[];for(const [id,bearer]of [[owner,adminToken],[editor,editorToken],[outsider.id,outsideToken]]){const context=await browser.newContext({viewport:{width:1440,height:1000}});await context.addInitScript('window.unifiedTestSession='+JSON.stringify({mode:'AUTHENTICATED',token:bearer,csrfToken:'test',expiresIn:900,user:{id,username:id,name:'SQ4验收',roles:[],permissions:[]}})+';');const page=await context.newPage();page.on('pageerror',(e:Error)=>errors.push(e.message));pages.push(page);}
+      const [admin,worker,denied]=pages,address=vite.resolvedUrls.local[0];
+      async function choose(page:typeof admin,label:string,value:string){const select=page.getByLabel(label,{exact:true});await select.click();const listId=await select.getAttribute('aria-controls');await page.locator('.ant-select-dropdown').filter({has:page.locator('[id='+JSON.stringify(listId)+']')}).locator('.ant-select-item-option-content').getByText(value,{exact:true}).click();}
+      await admin.goto(address+'admin/quality-rules');await admin.getByRole('button',{name:'新增策略版本',exact:true}).click();let dialog=admin.getByRole('dialog');await dialog.getByLabel('策略编码',{exact:true}).fill('SQ4_UI');await dialog.getByLabel('策略名称',{exact:true}).fill('医疗月度抽检');await choose(admin,'所属组织','协作接口测试');await dialog.getByLabel('检查项目（每行一项）',{exact:true}).fill('材料来源检查');await dialog.getByRole('button',{name:'保存策略',exact:true}).click();await dialog.waitFor({state:'hidden'});
+      await admin.goto(address+'quality/runs');await admin.getByRole('button',{name:'创建抽检批次',exact:true}).click();dialog=admin.getByRole('dialog');await choose(admin,'策略版本','医疗月度抽检 v1');await dialog.getByLabel('月份（留空取上月）',{exact:true}).fill('2026-08');await dialog.getByRole('button',{name:'执行抽样',exact:true}).click();await dialog.waitFor({state:'hidden'});const run=await db.qualitySamplingRun.findFirstOrThrow();await admin.getByRole('link',{name:'医疗月度抽检 · 2026-08 · PRIMARY',exact:true}).click();const inspection=await db.qualitySamplingItem.findFirstOrThrow({where:{runId:run.id}});await admin.getByRole('link',{name:inspection.name,exact:true}).click();await choose(admin,'材料来源检查检查结果','不通过');await admin.getByLabel('材料来源检查依据',{exact:true}).fill('缺少来源说明，需要补充证据');await admin.getByRole('button',{name:'提交检查结果',exact:true}).click();await expect.poll(async()=>await db.qualityIssue.count()).toBe(1);await admin.getByRole('link',{name:'整改问题：材料来源检查',exact:true}).click();const issue=await db.qualityIssue.findFirstOrThrow();
+      await admin.getByRole('button',{name:'分派整改',exact:true}).click();dialog=admin.getByRole('dialog');await choose(admin,'整改负责人','SQ4整改员');await dialog.getByLabel('整改期限',{exact:true}).fill('2026-10-01T09:00');await dialog.getByRole('button',{name:'确认办理',exact:true}).click();await dialog.waitFor({state:'hidden'});
+      await worker.goto(address+'quality/issues/'+issue.id);await worker.getByRole('button',{name:'开始整改',exact:true}).click();await worker.getByRole('dialog').getByRole('button',{name:'确认办理',exact:true}).click();await worker.getByRole('dialog').waitFor({state:'hidden'});
+      let offline=true;await worker.route('**/api/v1/quality/issues/'+issue.id+'/actions',async(route:{request():{method():string};abort(reason:string):Promise<void>;continue():Promise<void>})=>{if(offline&&route.request().method()==='POST'){offline=false;return route.abort('internetdisconnected');}return route.continue();});
+      async function submit(content:string,upload=false){await worker.getByRole('button',{name:'提交整改',exact:true}).click();const modal=worker.getByRole('dialog');await modal.getByLabel('办理依据',{exact:true}).fill(content);if(upload)await modal.getByLabel('新增整改材料',{exact:true}).setInputFiles({name:'整改来源.txt',mimeType:'text/plain',buffer:Buffer.from('整改新增材料')});await modal.getByRole('button',{name:'确认办理',exact:true}).click();if(upload){await expect(modal.getByLabel('办理依据',{exact:true})).toHaveValue(content);await expect(modal.getByRole('button',{name:'确认办理',exact:true})).toBeEnabled({timeout:15000});await db.qualityIssue.update({where:{id:issue.id},data:{version:{increment:1}}});await modal.getByRole('button',{name:'确认办理',exact:true}).click();await modal.getByRole('button',{name:'采用最新问题版本',exact:true}).waitFor();await expect(modal.getByLabel('办理依据',{exact:true})).toHaveValue(content);await modal.getByRole('button',{name:'采用最新问题版本',exact:true}).click();await modal.getByRole('button',{name:'确认办理',exact:true}).click();}await modal.waitFor({state:'hidden'});}
+      await submit('第一轮补正材料',true);await admin.getByRole('button',{name:'退回整改',exact:true}).click();dialog=admin.getByRole('dialog');await dialog.getByLabel('办理依据',{exact:true}).fill('请补充明确核验依据');await dialog.getByRole('button',{name:'确认办理',exact:true}).click();await dialog.waitFor({state:'hidden'});await submit('第二轮补正，核验依据已齐备');
+      for(const width of [1440,1024,390]){await worker.setViewportSize({width,height:1000});await worker.screenshot({path:path.join(evidence,'issue-'+width+'.png'),fullPage:true});assert.ok(await worker.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2));}
+      await admin.getByRole('button',{name:'复核通过',exact:true}).click();dialog=admin.getByRole('dialog');await dialog.getByLabel('办理依据',{exact:true}).fill('已复核整改材料与依据');await dialog.getByRole('button',{name:'确认办理',exact:true}).click();await dialog.waitFor({state:'hidden'});await expect.poll(async()=>(await db.qualityIssue.findUniqueOrThrow({where:{id:issue.id}})).status).toBe('CLOSED');assert.deepEqual(await db.case.findUniqueOrThrow({where:{id:caseRow.id}}),caseRow);assert.equal(await db.issueRevision.count({where:{issueId:issue.id}}),6);assert.equal(await db.issueAttachment.count(),1);
+      await api('get','/quality/issues/'+issue.id,outsideToken).expect(403);await denied.goto(address+'quality/issues/'+issue.id);await expect(denied.getByText('第二轮补正，核验依据已齐备',{exact:true})).toHaveCount(0);
+      const table=await api('post','/tables/'+sources[1]+'/records/query',adminToken,{}).expect(200);assert.equal(table.body.data.records[0].id,issue.id);assert.equal(await db.collabRecord.count({where:{tableId:{in:sources}}}),0);
+      await db.userRole.deleteMany({where:{userId:editor}});await worker.getByRole('heading',{name:'材料来源检查',exact:true}).waitFor({state:'hidden',timeout:15000});assert.deepEqual(errors,[]);
+    } catch(error){for(const [i,context]of browser.contexts().entries())for(const page of context.pages()){await writeFile(path.join(evidence,'failed-aria-'+i+'.txt'),await page.locator('body').ariaSnapshot());await page.screenshot({path:path.join(evidence,'failed-'+i+'.png'),fullPage:true}).catch(()=>undefined);}throw error;
+    } finally {await browser.close();await vite.close();}
+  },
+);

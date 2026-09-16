@@ -1,4 +1,6 @@
 export const businessSources = {
+  QUALITY_REVIEWS:{title:'二级抽检工作表',path:'/quality/reviews',personal:'我创建的检查'},
+  QUALITY_ISSUES:{title:'质检问题工作表',path:'/quality/issues',personal:'我创建的问题'},
   SOP_TASKS: { title:'SOP任务工作表', path:'/sop/tasks', personal:'分派给我的任务' },
   CHANNELS: { title: '渠道工作表', path: '/channels', personal: '我登记的渠道' },
   INVENTORY_ITEMS: { title: '物品库存工作表', path: '/inventory/items', personal: '我登记的物品' },

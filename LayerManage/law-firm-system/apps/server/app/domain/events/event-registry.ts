@@ -1004,7 +1004,12 @@ function sopChangedDefinition(objectType: 'SOP_INSTANCE' | 'SOP_TASK'): EventDef
 }
 
 const sopGuidanceCreated: EventDefinition<{id:string;taskId:string}> = {sourceModule:'SOP',objectType:'EXPERT_GUIDANCE',filterFields:new Set(),parsePayload(raw:unknown){assertSafeJson(raw);assertPayloadSize(raw);const value=requirePlainObject(raw,'SOP guidance');assertExactKeys(value,['id','taskId'],'SOP guidance');return {id:requireUuid(value.id,'id'),taskId:requireUuid(value.taskId,'taskId')};},extractObjectId(value){return value.id;}};
+const qualityChanged: EventDefinition<{id:string;version:number;action:string;type:string}> = {
+ sourceModule:'QUALITY',objectType:'QUALITY',filterFields:new Set(['action','type']),
+ parsePayload(raw:unknown){assertSafeJson(raw);assertPayloadSize(raw);const v=requirePlainObject(raw,'Quality event');assertExactKeys(v,['id','version','action','type'],'Quality event');const version=requireNonNegativeInteger(v.version,'version');if(version<1)throw new Error('Invalid quality version');return {id:requireUuid(v.id,'id'),version,action:requireString(v.action,'action'),type:requireString(v.type,'type')};},extractObjectId(v){return v.id;}
+};
 const EVENT_DEFINITIONS = new Map<string, EventDefinition<unknown>>([
+  [eventKey('quality.changed',1),qualityChanged],
   [eventKey('sop.guidance.created',1),sopGuidanceCreated],
   [eventKey('sop.instance.changed',1),sopChangedDefinition('SOP_INSTANCE')],
   [eventKey('sop.task.changed',1),sopChangedDefinition('SOP_TASK')],

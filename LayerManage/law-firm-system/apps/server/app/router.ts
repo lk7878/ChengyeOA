@@ -5,6 +5,20 @@ import { requireAnyPermission } from './middleware/requireAnyPermission';
 
 export default (app: Application) => {
   const { router, controller } = app;
+  router.get('/api/v1/quality/options',controller.quality.options);
+  router.get('/api/v1/quality/policies',controller.quality.policies);
+  router.post('/api/v1/quality/policies',controller.quality.createPolicy);
+  router.get('/api/v1/quality/runs',controller.quality.runs);
+  router.post('/api/v1/quality/runs',controller.quality.createRun);
+  router.get('/api/v1/quality/runs/:id',controller.quality.run);
+  router.get('/api/v1/quality/inspections/:id',controller.quality.inspection);
+  router.post('/api/v1/quality/inspections/:id',controller.quality.inspect);
+  router.get('/api/v1/quality/issues',controller.quality.issues);
+  router.get('/api/v1/quality/issues/:id',controller.quality.issue);
+  router.post('/api/v1/quality/issues/:id/actions',controller.quality.act);
+  router.get('/api/v1/quality/issues/:id/assignees',controller.quality.assignees);
+  router.get('/api/v1/quality/issues/:id/materials',controller.quality.materials);
+  router.get('/api/v1/quality/issues/:id/materials/:fileId',controller.quality.download);
 
   // SPEC-COLLAB: authenticated endpoints; services enforce resource permissions.
   router.get('/api/v1/collaboration/business-tables', controller.collaboration.businessTables);

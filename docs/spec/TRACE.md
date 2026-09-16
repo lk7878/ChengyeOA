@@ -203,3 +203,6 @@ U6-C最终补充：第60项权限目录增量与SQL重入通过；开发库60迁
 
 
 2026-09-17 SQ3已验收：SopSubmission/SubmissionAttachment、ExpertGuidance和QualityReview落地；SopSubmissionService与原ApprovalInstance/Sync服务完成冻结版本、一级检查、退回修订及同步失败重试，SopExecution/SubmissionPage提供真实办理入口。对应SQ-AC-05及SQ-AC-03/04/11/12本阶段范围；64迁移99模型。实际测试与失败修复见SQ阶段计划，二级抽检、专项分析及前期衔接仍属SQ4–SQ7，不将一级审核视为完整质检交付。
+
+
+2026-09-17 SQ4已验收：QualityService及6表实现不可变抽检策略、月度固定候选/种子、无放回补抽、二级检查与问题整改修订，QUALITY_REVIEWS/QUALITY_ISSUES读取原ID，Quality页面按原授权办理；已结案件新增整改材料不修改原生命周期。对应SQ-AC-06/07及本阶段03/11/12；105模型65迁移，真实App与条件负载结果见SQ阶段计划。满意度专项分析/提醒/前期衔接仍待SQ5–SQ7。

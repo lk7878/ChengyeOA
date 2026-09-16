@@ -32,6 +32,16 @@ function permission(
 }
 
 export const PERMISSION_CATALOG = Object.freeze([
+  permission('menu.quality', '质量管理', 'MENU', 'menu', 'read', 'MEDIUM'),
+  permission('quality.sample.read', '查看抽检批次', 'ACTION', 'case', 'read', 'MEDIUM'),
+  permission('quality.sample.manage', '配置执行抽检', 'ACTION', 'case', 'manage', 'MEDIUM'),
+  permission('quality.inspection.read', '查看二级检查', 'ACTION', 'case', 'read', 'MEDIUM'),
+  permission('quality.inspection.record', '记录二级检查', 'ACTION', 'case', 'record', 'MEDIUM'),
+  permission('quality.issue.read', '查看质检问题', 'ACTION', 'case', 'read', 'MEDIUM'),
+  permission('quality.issue.manage', '分派质检问题', 'ACTION', 'case', 'manage', 'MEDIUM'),
+  permission('quality.issue.resolve', '提交整改', 'ACTION', 'case', 'resolve', 'MEDIUM'),
+  permission('quality.issue.verify', '复核整改', 'ACTION', 'case', 'verify', 'MEDIUM'),
+
   permission('sop.report.read', '查看SOP成果', 'ACTION', 'sop_task', 'read', 'MEDIUM'),
   permission('sop.report.submit', '提交SOP成果', 'ACTION', 'sop_task', 'submit', 'MEDIUM'),
   permission('sop.guidance.read', '查看专家指导', 'ACTION', 'sop_task', 'read', 'MEDIUM'),

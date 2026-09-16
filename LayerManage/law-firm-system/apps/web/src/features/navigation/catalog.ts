@@ -28,6 +28,14 @@ const lead: PermissionCode[] = ['menu.lead_crm', 'lead.read'];
 const customer: PermissionCode[] = ['menu.customer', 'customer.read'];
 const contract: PermissionCode[] = ['menu.contract', 'contract.read'];
 export const entries: NavigationEntry[] = [
+  {path:'/admin/quality-rules',title:'抽检策略',area:'admin',group:'流程与质检配置',required:['menu.quality','quality.sample.read']},
+  {path:'/quality/runs',title:'抽检批次',area:'apps',group:'质量管理',required:['menu.quality','quality.sample.read']},
+  {path:'/quality/runs/:id',title:'抽检批次详情',area:'apps',group:'质量管理',required:['quality.sample.read'],hidden:true,parent:'/quality/runs'},
+  {path:'/quality/reviews',title:'二级抽检',area:'apps',group:'质量管理',required:['menu.quality','quality.inspection.read','case.read']},
+  {path:'/quality/reviews/:id',title:'二级检查办理',area:'apps',group:'质量管理',required:['quality.inspection.read','case.read'],hidden:true,parent:'/quality/reviews'},
+  {path:'/quality/issues',title:'质检整改',area:'apps',group:'质量管理',required:['menu.quality','quality.issue.read','case.read']},
+  {path:'/quality/issues/:id',title:'整改办理',area:'apps',group:'质量管理',required:['quality.issue.read','case.read'],hidden:true,parent:'/quality/issues'},
+
   { path: '/sop/submissions/:id', title: 'SOP成果修订', area: 'apps', group: '签约交付', required: ['sop.task.read', 'sop.report.read'], hidden: true, parent: '/sop/tasks' },
   {path:'/sop/tasks',title:'SOP任务',area:'apps',group:'案件交付',required:['menu.sop_tasks','sop.task.read']},
   {path:'/sop/tasks/:id',title:'SOP任务办理',area:'apps',group:'案件交付',required:['sop.task.read'],hidden:true,parent:'/sop/tasks'},

@@ -1,4 +1,13 @@
 export const PERMISSION_CODES = [
+  'menu.quality',
+  'quality.sample.read',
+  'quality.sample.manage',
+  'quality.inspection.read',
+  'quality.inspection.record',
+  'quality.issue.read',
+  'quality.issue.manage',
+  'quality.issue.resolve',
+  'quality.issue.verify',
   'sop.report.read',
   'sop.report.submit',
   'sop.guidance.read',
