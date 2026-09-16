@@ -226,3 +226,8 @@ Performance 增 nullable createdBy/updatedBy 与 version=1、创建人索引；�
 Channel新增nullable createdBy/updatedBy/branchId与version，唯一真实创建审计才可回填createdBy；组织保持未知直至有依据人工补录。模型91、迁移59；开发库尚未部署。 阶段未完成，验证与限制见[实施计划](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)第12节。
 
 U6-C验收最终基线：91个Prisma模型、60项迁移。第59项渠道身份，第60项渠道权限目录定义；开发库增量部署数量保持，未知历史组织未自动改写。
+
+
+### SOP/质检规划增量（2026-09-16，待实施）
+
+新增模板版本、实例节点、任务扩展、成果冻结版本、质检记录/问题、抽样批次及百分制满意度评估的逻辑模型；Case保持唯一案件源，CaseTask单一执行状态，材料引用与删除保护、前期Lead/AnalysisEngagement接续见增量规格。物理schema在SQ1锁定，当前没有新增数据库表。 [SPEC-SOP-QC-20260916](../../superpowers/specs/2026-09-16-sop-quality-control.md)。

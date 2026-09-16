@@ -160,3 +160,8 @@ Case 原 API 使用真实创建人/组织/团队解析对应 case.* 动作范围
 
 
 2026-09-16 U7：U7 requireAnyPermission只吞当前候选动作的PERMISSION_DENIED；授权成功后next仅调用一次，下游版本/事务错误原样传播。案件历史补录同时校验账户与组织目录范围。四类CRM详情增加每5秒/焦点恢复记录权限复核，失败清除详情及草稿；菜单可见性不能替代记录授权。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。
+
+
+### SOP/质检规划增量（2026-09-16，待实施）
+
+普通岗位SELF默认真实创建人；获派任务另经显式对象协作授权，不自动扩大Case/材料读取。TEAM采用明确实例团队和有效任职；候选、审批摘要、导出、统计、SSE及下载统一复验范围。配置权不代替业务审核权。详见增量规格§5。 [SPEC-SOP-QC-20260916](../../superpowers/specs/2026-09-16-sop-quality-control.md)。

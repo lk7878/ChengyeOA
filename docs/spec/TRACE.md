@@ -31,7 +31,7 @@ last_updated: 2026-09-15
 | MOD-004 | 线索销转 | 页面与接口清单 | SPEC-009(部分,已验收2026-07-30); SPEC-010(立项,CRM-07) | ⚠️部分落地；⬜多维工作区适配待实施 |
 | MOD-005 | 客户主数据 | 页面与接口清单 | SPEC-009(部分,已验收2026-07-30) | ⚠️部分落地；⬜多维工作区适配待实施 |
 | MOD-006 | 合同财务 | SPEC-010设计(已批准2026-07-30) | SPEC-010(立项,待实施;CON-01~07+FIN-01) | 📋有设计无SPEC |
-| MOD-007 | 专业团队SOP | 三大团队SOP字段清单 | — | ⚠️有代码无SPEC |
+| MOD-007 | 专业团队SOP | 三大团队SOP字段清单 | [SPEC-SOP-QC-20260916](../superpowers/specs/2026-09-16-sop-quality-control.md)（规划） | 团队主数据已存在；SOP模板/执行/审核⬜待开发，见SQ计划 |
 | MOD-008 | 案件交付质控 | 三大团队SOP字段清单 | [SPEC-CASE-20260914](../superpowers/specs/2026-09-14-case-management-extension.md)；[SPEC-CASE-CRUD-20260914](../superpowers/specs/2026-09-14-case-management-crud.md)；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md) | ✅案件建档、客户联动、完整字段展示、查询修改及受保护删除已验证；⬜MAT-04B 待开发 |
 | MOD-009 | 满意度转介绍 | — | — | ⬜待开发 |
 | MOD-010 | AI录音文件 | 文件录音AI任务设计 | SPEC-AI-DECOUPLED/AI-UI 历史已实施；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md) 实施中 | 📋录音专项待开发；AI-08 桌面基础、AI-09 只读查询与 AI-10 视觉链路已验证；完整交付待验收 |
@@ -193,3 +193,6 @@ U6-C最终补充：第60项权限目录增量与SQL重入通过；开发库60迁
 
 
 2026-09-16 U7（本轮实现与验收完成）：全来源单一表目录、记录权限失效卸载、案件归属候选范围、requireAnyPermission单次下游语义、原审批/成本链接与旧列表清理，对应MOD-001/002/004/005/006/008、FTN-003/004。[统一导航契约](../superpowers/specs/2026-09-15-unified-navigation-contract.md)补清理与回归映射；[阶段计划第13节](../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)逐项核对UNIFY-AC-01–10及未实现边界。权限9/9、完整前端303/303、最后布局相关40/40，14个不同真实App场景均有通过记录；完整桌面和浏览器Wiki/Harness流程通过（OA认证、模型及外部响应为夹具），桌面12单元、2集成脚本及9267源文件完整性核对通过。构建/契约检查通过，U7沿用U6-C有条件通用协作负载。各轮失败及限制不因最终通过而删除。U5–U7已有业务整合完成，不代表独立SOP/质检/获客/满意度与G3全部规划能力完成。
+
+
+2026-09-16：SOP与质检转入独立规划SPEC-SOP-QC-20260916及[SQ1–SQ7计划](../superpowers/plans/2026-09-16-sop-quality-control.md)，覆盖MOD-007/008并关联FTN-001/002/003/005/006。新增规格已明确模板版本、同源UI、对象协作授权、一级审核、抽检整改、满意度量表差异、前期衔接及每阶段冒烟要求。本次仅文档，所有SQ开发阶段待执行，U5–U7已完成状态不变。

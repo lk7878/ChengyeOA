@@ -117,3 +117,8 @@ last_updated: 2026-07-28
 - 落地 SPEC: SPEC-007（审批实例与通知部分）
 - 主要代码: apps/server/app/controller/approval.ts、apps/server/app/controller/notification.ts；ApprovalDefinition / ApprovalInstance / ApprovalTask / ApprovalCc / Notification 数据模型（apps/server/prisma/schema.prisma）
 - 测试: 无
+
+
+### SOP/质检规划增量（2026-09-16，待实施）
+
+SOP成果/质检业务对象复用原ApprovalInstance/Task及结果同步，不新增旁路审批系统。专项分析关闭沿原批准/二次确认策略；提醒为获权站内待办，改期撤权及旧回调不能误更新。详见增量规格§9，新增适配器仍待开发。 [SPEC-SOP-QC-20260916](../../superpowers/specs/2026-09-16-sop-quality-control.md)。
