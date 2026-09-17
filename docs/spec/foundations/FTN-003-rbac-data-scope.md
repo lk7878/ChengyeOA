@@ -162,6 +162,13 @@ Case 原 API 使用真实创建人/组织/团队解析对应 case.* 动作范围
 2026-09-16 U7：U7 requireAnyPermission只吞当前候选动作的PERMISSION_DENIED；授权成功后next仅调用一次，下游版本/事务错误原样传播。案件历史补录同时校验账户与组织目录范围。四类CRM详情增加每5秒/焦点恢复记录权限复核，失败清除详情及草稿；菜单可见性不能替代记录授权。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。
 
 
-### SOP/质检规划增量（2026-09-16，待实施）
+### SOP/质检规划记录（2026-09-16，实施现状见下）
 
 普通岗位SELF默认真实创建人；获派任务另经显式对象协作授权，不自动扩大Case/材料读取。TEAM采用明确实例团队和有效任职；候选、审批摘要、导出、统计、SSE及下载统一复验范围。配置权不代替业务审核权。详见增量规格§5。 [SPEC-SOP-QC-20260916](../../superpowers/specs/2026-09-16-sop-quality-control.md)。
+
+
+### SOP/质检实施现状（2026-09-17）
+
+新增sop_template/sop_instance/sop_task资源范围与对应动作，沿原角色/岗位配置。SELF真实创建人、TEAM/ORG绑定模板真实锚点；SopTaskAccess只开放必要任务内容并绑定有效期、任职指纹，调岗后需重新分派。材料独立case.file.*或sop.material.*且与原Case/Lead/Contract权限求交；后续Case权限不能读取前期资料。质检动作取case范围与case.read交集；当前权限约束候选、审批台账、统计、下载及幂等重放。菜单/视图不扩大范围。
+
+实现与验证见[SQ阶段计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)及[验收追溯](../../superpowers/reports/2026-09-17-sop-quality-acceptance.md)。SQ7最终运行结果以验收记录为准。

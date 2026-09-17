@@ -238,15 +238,23 @@ test('returns bounded summaries, strict filtered pages, and safe subscription vi
   );
 
   const subscriptions = await operations.subscriptions(authorization());
-  assert.equal(subscriptions.length, 3);
+  assert.equal(subscriptions.length, 7);
   const byCode = (code: string) => subscriptions.find(item => item.code === code);
   const governance = byCode('admin-operation-reviewed-notification-v1');
   const quarantine = byCode('event-dispatch-quarantine-v1');
   const pilot = byCode('lead-first-response-monitor-v1');
+  const assessment = byCode('quality-assessment-analysis-v1');
+  const sopReminder = byCode('sop-reminder-notification-v1');
+  const sopChange = byCode('sop-change-notification-v1');
+  const qualityChange = byCode('quality-change-notification-v1');
   assert.deepEqual(quarantine?.filterSummary, { mode: 'ALL' });
   assert.equal(governance?.status, 'ENABLED');
   assert.equal(quarantine?.status, 'DISABLED');
   assert.equal(pilot?.status, 'ENABLED');
+  assert.equal(assessment?.status, 'ENABLED');
+  assert.equal(sopReminder?.status, 'ENABLED');
+  assert.equal(sopChange?.status, 'ENABLED');
+  assert.equal(qualityChange?.status, 'ENABLED');
   assert.equal(subscriptions.filter(item => item.internal).length, 1);
   assert.equal(quarantine?.internal, true);
   assert.doesNotMatch(JSON.stringify(subscriptions), /filterJson|handler\W|constructor/i);

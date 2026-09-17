@@ -264,6 +264,13 @@ CASES 沿用非 CUSTOM 表每 5 秒 business.refresh 失效通知，客户端按
 通知关联路径不具有授权效力，前端仅允许导航目录中已授权的站内地址并优先从正式记录ID构造路径。渠道办理仍用正式服务事务及审计，经营看板回源获权聚合；没有新增“审批已支付”事件，也不把五秒回源等同所有领域即时SSE。
 
 
-### SOP/质检规划增量（2026-09-16，待实施）
+### SOP/质检规划记录（2026-09-16，实施现状见下）
 
 SOP实例化、提交审核、质检和专项分析事实与审计/Outbox同事务，通知统计异步；重复/乱序/权限变化重查。抽样批次及低满意度触发有业务唯一键，自动化执行身份须有明确范围。详见增量规格§8–9。 [SPEC-SOP-QC-20260916](../../superpowers/specs/2026-09-16-sop-quality-control.md)。
+
+
+### SOP/质检实施现状（2026-09-17）
+
+SOP/Quality原事实、OperationLog及Outbox同事务，来源工作表继续回源原ID，无CollabRecord镜像。低分评估事件按持久assessmentId唯一生成专项，79/80/null、重复/乱序/回滚重试已覆盖；task/version/kind/recipient唯一提醒复验当前状态和授权，默认未配置不发。MATERIAL/CONTINUE只记录材料/接续事实，不触发无关人员通知；站内消息不带业务正文。SOP及质检创建使用原DomainMutation，重复请求复验当前权限。
+
+实现与验证见[SQ阶段计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)及[验收追溯](../../superpowers/reports/2026-09-17-sop-quality-acceptance.md)。SQ7最终运行结果以验收记录为准。

@@ -4,7 +4,7 @@ title: 模块级追溯矩阵
 type: meta-spec
 status: approved
 created: 2026-07-28
-last_updated: 2026-09-15
+last_updated: 2026-09-17
 ---
 
 # 模块级追溯矩阵（TRACE）
@@ -31,9 +31,9 @@ last_updated: 2026-09-15
 | MOD-004 | 线索销转 | 页面与接口清单 | SPEC-009(部分,已验收2026-07-30); SPEC-010(立项,CRM-07) | ⚠️部分落地；⬜多维工作区适配待实施 |
 | MOD-005 | 客户主数据 | 页面与接口清单 | SPEC-009(部分,已验收2026-07-30) | ⚠️部分落地；⬜多维工作区适配待实施 |
 | MOD-006 | 合同财务 | SPEC-010设计(已批准2026-07-30) | SPEC-010(立项,待实施;CON-01~07+FIN-01) | 📋有设计无SPEC |
-| MOD-007 | 专业团队SOP | 三大团队SOP字段清单 | [SPEC-SOP-QC-20260916](../superpowers/specs/2026-09-16-sop-quality-control.md)（规划） | 团队主数据已存在；SOP模板/执行/审核⬜待开发，见SQ计划 |
-| MOD-008 | 案件交付质控 | 三大团队SOP字段清单 | [SPEC-CASE-20260914](../superpowers/specs/2026-09-14-case-management-extension.md)；[SPEC-CASE-CRUD-20260914](../superpowers/specs/2026-09-14-case-management-crud.md)；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md) | ✅案件建档、客户联动、完整字段展示、查询修改及受保护删除已验证；⬜MAT-04B 待开发 |
-| MOD-009 | 满意度转介绍 | — | — | ⬜待开发 |
+| MOD-007 | 专业团队SOP | 三大团队SOP字段清单 | [SPEC-SOP-QC-20260916](../superpowers/specs/2026-09-16-sop-quality-control.md) | ✅SQ1–SQ6模板治理、同源任务、成果/专家/一级审核及三团队真源接续；SQ7整体交付结果见验收报告。专用文书模板库/模拟法庭等仍待开发 |
+| MOD-008 | 案件交付质控 | 三大团队SOP字段清单 | [SPEC-CASE-20260914](../superpowers/specs/2026-09-14-case-management-extension.md)；[SPEC-CASE-CRUD-20260914](../superpowers/specs/2026-09-14-case-management-crud.md)；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md)；[SPEC-SOP-QC-20260916](../superpowers/specs/2026-09-16-sop-quality-control.md) | ✅案件建档、客户联动、完整字段展示、查询修改及受保护删除已验证；SQ1–SQ6节点资料、一级审核、二级抽检整改和专项分析已验收；⬜MAT-04B 待开发 |
+| MOD-009 | 满意度转介绍 | — | SPEC-SOP-QC-20260916（百分制评估与低分专项部分） | ✅百分制记录/历史更正/低分专项；⬜完整问卷及复购转介绍待开发，旧星级不转换 |
 | MOD-010 | AI录音文件 | 文件录音AI任务设计 | SPEC-AI-DECOUPLED/AI-UI 历史已实施；[SPEC-AI-DESKTOP-20260913](../superpowers/specs/2026-09-13-unified-desktop-local-harness.md) 实施中 | 📋录音专项待开发；AI-08 桌面基础、AI-09 只读查询与 AI-10 视觉链路已验证；完整交付待验收 |
 | MOD-011 | 组织人事 | 数据库核心表设计 | SPEC-003(部分) | ⚠️有代码无SPEC |
 | MOD-012 | 驾驶舱 | — | — | ⚠️有代码无SPEC |

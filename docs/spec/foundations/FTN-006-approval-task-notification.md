@@ -119,6 +119,13 @@ last_updated: 2026-07-28
 - 测试: 无
 
 
-### SOP/质检规划增量（2026-09-16，待实施）
+### SOP/质检规划记录（2026-09-16，实施现状见下）
 
 SOP成果/质检业务对象复用原ApprovalInstance/Task及结果同步，不新增旁路审批系统。专项分析关闭沿原批准/二次确认策略；提醒为获权站内待办，改期撤权及旧回调不能误更新。详见增量规格§9，新增适配器仍待开发。 [SPEC-SOP-QC-20260916](../../superpowers/specs/2026-09-16-sop-quality-control.md)。
+
+
+### SOP/质检实施现状（2026-09-17）
+
+SOP_REVIEW与QUALITY_ANALYSIS已适配原ApprovalInstance/Task和原ApprovalSyncRecord。私有定义禁止通用申请/编辑伪造；冻结版本/摘要/清单、回避提交人和本轮执行人、当前岗位与材料权限均在办理及同步复验。同步失败沿原台账重试，审核通过不等于业务已同步。二级SamplingItem是检查事实，不另造审批待办。已结案件整改继续可投递获权待办；原审批超时扫描跳过失权人员并分页继续，恢复权限后再检查。
+
+实现与验证见[SQ阶段计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)及[验收追溯](../../superpowers/reports/2026-09-17-sop-quality-acceptance.md)。SQ7最终运行结果以验收记录为准。

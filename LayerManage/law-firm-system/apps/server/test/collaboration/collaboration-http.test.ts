@@ -756,7 +756,11 @@ test(
         .locator('.ant-drawer:visible')
         .getByRole('button', { name: /^保\s*存$/ })
         .click();
-      await p2.getByRole('button', { name: '保留本地并复核提交', exact: true }).click();
+      const rebaseButton = p2.getByRole('button', { name: '保留本地并复核提交', exact: true });
+      // Exercise keyboard confirmation without racing drawer auto-scroll and live layout updates.
+      await rebaseButton.focus();
+      await rebaseButton.press('Enter');
+      await rebaseButton.waitFor({ state: 'hidden' });
 
       await p2
         .locator('.ant-drawer:visible')

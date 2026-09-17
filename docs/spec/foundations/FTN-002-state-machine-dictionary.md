@@ -82,6 +82,13 @@ last_updated: 2026-07-28
 - 测试: 无
 
 
-### SOP/质检规划增量（2026-09-16，待实施）
+### SOP/质检规划记录（2026-09-16，实施现状见下）
 
 模板、实例、节点、提交审核、问题单与专项分析各独立状态；逾期为计算标记，资料默认不强制，自审/旧回调/取消后推进被拒绝。质检不自动改变Case生命周期。编码与动作约束见增量规格§7，尚未实施。 [SPEC-SOP-QC-20260916](../../superpowers/specs/2026-09-16-sop-quality-control.md)。
+
+
+### SOP/质检实施现状（2026-09-17）
+
+SQ1–SQ6状态与受控动作已实现。物理CaseTask初始状态为PENDING（规格逻辑NOT_STARTED），审批退回为CHANGES_REQUESTED；实例ACTIVE/PAUSED/COMPLETED/CANCELLED，终态与原结案分离。提交版本不可覆盖，原审批同步失败不虚假完成；问题OPEN/IN_PROGRESS/PENDING_VERIFY/CLOSED/CANCELLED，专项OPEN/ANALYZING/PENDING_CLOSE/CLOSED。前期接续只保存关系，不移动来源、不代填状态。
+
+实现与验证见[SQ阶段计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)及[验收追溯](../../superpowers/reports/2026-09-17-sop-quality-acceptance.md)。SQ7最终运行结果以验收记录为准。

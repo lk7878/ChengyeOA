@@ -228,6 +228,13 @@ Channel新增nullable createdBy/updatedBy/branchId与version，唯一真实创�
 U6-C验收最终基线：91个Prisma模型、60项迁移。第59项渠道身份，第60项渠道权限目录定义；开发库增量部署数量保持，未知历史组织未自动改写。
 
 
-### SOP/质检规划增量（2026-09-16，待实施）
+### SOP/质检规划记录（2026-09-16，实施现状见下）
 
 新增模板版本、实例节点、任务扩展、成果冻结版本、质检记录/问题、抽样批次及百分制满意度评估的逻辑模型；Case保持唯一案件源，CaseTask单一执行状态，材料引用与删除保护、前期Lead/AnalysisEngagement接续见增量规格。物理schema在SQ1锁定，当前没有新增数据库表。 [SPEC-SOP-QC-20260916](../../superpowers/specs/2026-09-16-sop-quality-control.md)。
+
+
+### SOP/质检实施现状（2026-09-17）
+
+当前112个Prisma模型、67项迁移。SopTemplate/Version/Instance、SopTaskAccess、SopSubmission/SubmissionAttachment/ExpertGuidance/QualityReview、QualitySamplingPolicy/Run/Item、QualityIssue/IssueRevision/IssueAttachment、SatisfactionAssessment/SpecialAnalysis/AnalysisRevision/AnalysisCloseRequest/SopReminderEmission、SopSourceFile/SopContinuation均已落地。CaseTask继续保存原任务ID与唯一状态；前期来源三选一真FK，文件二选一真FK；未知创建人/组织不猜测回填，旧星级不转换。各阶段开发库增量部署和业务/授权计数保持，演练覆盖60→67及新安装重入。
+
+实现与验证见[SQ阶段计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)及[验收追溯](../../superpowers/reports/2026-09-17-sop-quality-acceptance.md)。SQ7最终运行结果以验收记录为准。
