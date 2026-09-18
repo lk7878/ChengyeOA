@@ -1,6 +1,7 @@
+import Modal from '@/components/DraggableModal';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Spin, Tag } from 'antd';
+import { Alert, Button, Card, Form, Input, InputNumber, Select, Space, Spin, Tag } from 'antd';
 import { get, post } from '@/features/workspaces/api';
 import { useLiveSop } from '@/features/sop/execution';
 import { showRequestError } from '@/api/errors';

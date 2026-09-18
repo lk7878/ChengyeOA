@@ -1,5 +1,6 @@
+import Modal from '@/components/DraggableModal';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Spin } from 'antd';
+import { Alert, Button, Descriptions, Form, Input, InputNumber, Select, Space, Spin } from 'antd';
 import { Link, useNavigate, useParams } from 'react-router';
 import { customerApi } from '@/api/customer';
 import { negotiationApi, type NegotiationView, type CreateNegotiationInput } from '@/api/negotiation';

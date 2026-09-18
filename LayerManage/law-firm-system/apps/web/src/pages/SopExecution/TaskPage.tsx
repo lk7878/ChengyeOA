@@ -1,8 +1,9 @@
+import Modal from '@/components/DraggableModal';
 import { SopDeliverables, SopGuidance } from './SubmissionPage';
 import { SopSourceMaterials } from './SourceMaterials';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { Alert, Button, Descriptions, Form, Input, Modal, Select, Space, Spin, Tag, message } from 'antd';
+import { Alert, Button, Descriptions, Form, Input, Select, Space, Spin, Tag, message } from 'antd';
 import { get, post } from '@/features/workspaces/api';
 import { BusinessTableLinks } from '@/features/crm/BusinessWorkspacePage';
 import { showRequestError } from '@/api/errors';

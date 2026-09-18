@@ -1,5 +1,6 @@
+import Modal from '@/components/DraggableModal';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Checkbox, Form, Modal, Select, Space } from 'antd';
+import { Alert, Button, Checkbox, Form, Select, Space } from 'antd';
 import { errorMessage, get, post } from '../workspaces/api';
 import type { Directory, Member } from '../workspaces/types';
 

@@ -1,3 +1,4 @@
+import Modal from '@/components/DraggableModal';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import {
@@ -8,7 +9,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Select,
   Space,
   Spin,

@@ -1,5 +1,6 @@
+import Modal from '@/components/DraggableModal';
 import { useState } from 'react';
-import { Alert, Button, Input, Modal, Space, Table } from 'antd';
+import { Alert, Button, Input, Space, Table } from 'antd';
 import { errorMessage, post } from './api';
 import { preparePaste, type PasteSnapshot } from './clipboard';
 import { displayValue } from './display-value';

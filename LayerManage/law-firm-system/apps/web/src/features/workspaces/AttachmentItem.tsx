@@ -1,5 +1,6 @@
+import Modal from '@/components/DraggableModal';
 import { useEffect, useState } from 'react';
-import { Button, Modal, message } from 'antd';
+import { Button, message } from 'antd';
 import { authenticatedFetch, get } from './api';
 
 export default function AttachmentItem({ tableId, id }: { tableId: string; id: string }) {

@@ -1,5 +1,6 @@
+import Modal from '@/components/DraggableModal';
 import { useEffect, useState } from 'react';
-import { Alert, Button, Form, Input, List, Modal, Select } from 'antd';
+import { Alert, Button, Form, Input, List, Select } from 'antd';
 import { Link } from 'react-router';
 import { get, post, errorMessage } from '@/features/workspaces/api';
 interface Gap {

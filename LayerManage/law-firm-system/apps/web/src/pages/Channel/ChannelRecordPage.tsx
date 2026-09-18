@@ -1,3 +1,4 @@
+import Modal from '@/components/DraggableModal';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -7,7 +8,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Popconfirm,
   Select,
   Space,

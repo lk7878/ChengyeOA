@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- Preserve AntD static APIs on the shared modal component. */
 import { Modal as AntModal } from 'antd';
-import type { ModalProps } from 'antd';
+import type { ModalFuncProps, ModalProps } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import './DraggableModal.css';
@@ -52,9 +52,24 @@ function DraggableModal(props: ModalProps) {
     modalRender={node => <DragSurface key={session.key}>{props.modalRender ? props.modalRender(node) : node}</DragSurface>} />;
 }
 
-// Preserve Ant Design's imperative confirmation APIs used by existing pages.
+// Static confirmation dialogs render through the imperative API, so inject the same drag surface.
+function draggableConfig(config: ModalFuncProps): ModalFuncProps {
+  const original = config.modalRender;
+  return {
+    ...config,
+    modalRender: node => <DragSurface>{original ? original(node) : node}</DragSurface>,
+  };
+}
+
+// Preserve Ant Design imperative confirmation APIs used by existing pages.
 export default Object.assign(DraggableModal, {
-  confirm: AntModal.confirm, info: AntModal.info, success: AntModal.success,
-  error: AntModal.error, warning: AntModal.warning, warn: AntModal.warn,
-  destroyAll: AntModal.destroyAll, useModal: AntModal.useModal, config: AntModal.config,
+  confirm: (config: ModalFuncProps) => AntModal.confirm(draggableConfig(config)),
+  info: (config: ModalFuncProps) => AntModal.info(draggableConfig(config)),
+  success: (config: ModalFuncProps) => AntModal.success(draggableConfig(config)),
+  error: (config: ModalFuncProps) => AntModal.error(draggableConfig(config)),
+  warning: (config: ModalFuncProps) => AntModal.warning(draggableConfig(config)),
+  warn: (config: ModalFuncProps) => AntModal.warn(draggableConfig(config)),
+  destroyAll: AntModal.destroyAll,
+  useModal: AntModal.useModal,
+  config: AntModal.config,
 });

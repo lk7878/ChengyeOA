@@ -1,3 +1,4 @@
+import Modal from '@/components/DraggableModal';
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -5,7 +6,6 @@ import {
   DatePicker,
   Form,
   Input,
-  Modal,
   Pagination,
   Select,
   Space,

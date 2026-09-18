@@ -1,5 +1,6 @@
+import Modal from '@/components/DraggableModal';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Form, Input, InputNumber, Modal, Select } from 'antd';
+import { Alert, Form, Input, InputNumber, Select } from 'antd';
 import { LEAD_SOURCE_TYPES } from '@/api/types';
 import { SOURCE_TYPE_META } from '@/pages/leads/meta';
 import { crmNameRules, phoneRules } from './form-rules';

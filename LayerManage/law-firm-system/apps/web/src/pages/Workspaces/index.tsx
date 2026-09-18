@@ -1,3 +1,4 @@
+import Modal from '@/components/DraggableModal';
 import { inventoryViewConfig } from '@/pages/Inventory/context';
 import { financialSources, financialViewConfig, financeContextParams } from '@/pages/finance/context';
 import { useAuthStore } from '@/stores/authStore';
@@ -20,7 +21,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Pagination,
   Select,
   Space,

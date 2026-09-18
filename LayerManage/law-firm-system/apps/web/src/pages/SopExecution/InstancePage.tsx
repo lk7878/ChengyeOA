@@ -1,7 +1,8 @@
+import Modal from '@/components/DraggableModal';
 import { useState } from 'react';
 import { SopContinuations } from './Continuations';
 import { Link, useParams } from 'react-router';
-import { Alert, Button, Input, Modal, Space, Spin, Table, Tag, message } from 'antd';
+import { Alert, Button, Input, Space, Spin, Table, Tag, message } from 'antd';
 import { post } from '@/features/workspaces/api';
 import { useAuthStore } from '@/stores/authStore';
 import { showRequestError } from '@/api/errors';

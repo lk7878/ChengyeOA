@@ -1,3 +1,4 @@
+import Modal from '@/components/DraggableModal';
 import { useUnifiedShell } from '../navigation/shell-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -9,7 +10,6 @@ import {
   Dropdown,
   Empty,
   Input,
-  Modal,
   Pagination,
   Select,
   Space,

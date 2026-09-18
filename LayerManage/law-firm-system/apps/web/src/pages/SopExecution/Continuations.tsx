@@ -1,6 +1,7 @@
+import Modal from '@/components/DraggableModal';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Alert, Button, Card, Input, Modal, Select } from 'antd';
+import { Alert, Button, Card, Input, Select } from 'antd';
 import { useAuthStore } from '@/stores/authStore';
 import { get, post } from '@/features/workspaces/api';
 import { useLiveSop } from '@/features/sop/execution';

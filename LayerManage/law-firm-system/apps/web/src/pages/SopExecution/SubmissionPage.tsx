@@ -1,3 +1,4 @@
+import Modal from '@/components/DraggableModal';
 import { downloadBlob } from "@/api/approval-materials";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
@@ -7,7 +8,6 @@ import {
   Card,
   Form,
   Input,
-  Modal,
   Select,
   Space,
   Spin,

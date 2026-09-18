@@ -1,9 +1,10 @@
+import Modal from '@/components/DraggableModal';
 import ChannelIdentityGaps from '@/pages/Channel/ChannelIdentityGaps';
 import { financeContextParams, financialSources } from '@/pages/finance/context';
 import { useAuthStore } from '@/stores/authStore';
 import { businessSources, domainCreate, type BusinessSource } from './business-sources';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Empty, Form, Input, Modal, Select, Spin } from 'antd';
+import { Alert, Button, Empty, Form, Input, Select, Spin } from 'antd';
 import { Link, useSearchParams } from 'react-router';
 import { get, post, errorMessage } from '../workspaces/api';
 import { WorkspaceEditor } from '@/pages/Workspaces';
