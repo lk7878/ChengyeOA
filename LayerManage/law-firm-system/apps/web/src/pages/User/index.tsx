@@ -11,6 +11,8 @@ import {
 import { userApi, roleApi } from '@/api/user';
 import type { User, Role } from '@/types';
 import dayjs from 'dayjs';
+import EmployeeTreeSelect, { type SelectedEmployee } from '@/features/master-data/components/EmployeeTreeSelect';
+import { masterDataApi } from '@/features/master-data/api';
 
 const UserPage: React.FC = () => {
   const [data, setData] = useState<User[]>([]);
@@ -22,6 +24,8 @@ const UserPage: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [selectedEmployee, setSelectedEmployee] = useState<SelectedEmployee | null>(null);
   const [form] = Form.useForm();
 
   useEffect(() => { fetchData(); fetchRoles(); }, [pagination.current, pagination.pageSize]);
@@ -58,6 +62,32 @@ const UserPage: React.FC = () => {
     const currentRoleIds = user.userRoles?.map(ur => ur.roleId) || [];
     setSelectedRoles(currentRoleIds);
     setRoleModal(true);
+  };
+
+  const handleSubmit = async (v: Record<string, unknown>) => {
+    const username = String(v.username ?? '').trim();
+    const password = typeof v.password === 'string' ? v.password : undefined;
+    const status = v.status === 'DISABLED' ? 'DISABLED' : 'ENABLED';
+    if (editingUser) {
+      await userApi.update(editingUser.id, { username, status });
+      message.success('更新成功');
+    } else {
+      const created = await userApi.create({ username, password, status });
+      if (selectedEmployee) {
+        try {
+          await masterDataApi.employees.bindAccount(selectedEmployee.id, { userId: created.data.id, employeeVersion: selectedEmployee.version });
+          message.success('创建成功，员工已关联');
+        } catch {
+          message.warning('账号已创建，但员工关联失败，请前往员工详情重新绑定');
+        }
+      } else {
+        message.success('创建成功');
+      }
+    }
+    setModalVisible(false);
+    setEditingUser(null);
+    setSelectedEmployee(null);
+    fetchData();
   };
 
   const handleRoleSubmit = async () => {
@@ -99,7 +129,7 @@ const UserPage: React.FC = () => {
       render: (_: unknown, record: User) => (
         <Space size="small">
           <Button type="link" size="small" icon={<SafetyOutlined />} onClick={() => handleAssignRoles(record)}>分配角色</Button>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { form.setFieldsValue(record); setModalVisible(true); }}>编辑</Button>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { setEditingUser(record); form.setFieldsValue({ id: record.id, username: record.username, status: record.status }); setModalVisible(true); }}>编辑</Button>
           <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
             <Button type="link" danger size="small" icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
@@ -120,7 +150,7 @@ const UserPage: React.FC = () => {
             </Space>
           </Col>
           <Col>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setModalVisible(true); }}>新建用户</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingUser(null); setSelectedEmployee(null); form.resetFields(); setModalVisible(true); }}>新建用户</Button>
           </Col>
         </Row>
       </Card>
@@ -130,14 +160,10 @@ const UserPage: React.FC = () => {
 
       {/* 新建/编辑 */}
       <Modal title="用户信息" open={modalVisible} onCancel={() => setModalVisible(false)} onOk={() => form.submit()}>
-        <Form form={form} onFinish={async (v) => {
-          if (v.id) { await userApi.update(v.id, v); message.success('更新成功'); }
-          else { await userApi.create(v); message.success('创建成功'); }
-          setModalVisible(false); fetchData();
-        }}>
+        <Form form={form} onFinish={handleSubmit}>
           <Form.Item name="id" hidden><Input /></Form.Item>
           <Form.Item name="username" label="用户名" rules={[{ required: true }]}><Input /></Form.Item>
-          {!form.getFieldValue('id') && (
+          {!editingUser && (
             <Form.Item name="password" label="密码" rules={[{ required: true }]}><Input.Password />
             </Form.Item>
           )}
@@ -147,7 +173,15 @@ const UserPage: React.FC = () => {
               <option value="DISABLED">禁用</option>
             </select>
           </Form.Item>
-          <Form.Item name="employeeId" label="关联员工"><Input placeholder="员工ID" /></Form.Item>
+          {editingUser ? (
+            <Form.Item label="关联员工" extra="关联或更换员工请在「组织与人员」的对应员工详情中操作。">
+              <Input value={editingUser.employee ? `${editingUser.employee.employeeNo} · ${editingUser.employee.name}` : '未关联员工'} disabled />
+            </Form.Item>
+          ) : (
+            <Form.Item label="关联员工" extra="创建账号后可关联一名在职员工，按组织-部门-员工逐级选择。">
+              <EmployeeTreeSelect value={selectedEmployee?.id} onChange={setSelectedEmployee} />
+            </Form.Item>
+          )}
         </Form>
       </Modal>
 

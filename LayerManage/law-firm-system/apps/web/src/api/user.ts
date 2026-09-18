@@ -11,7 +11,7 @@ export const userApi = {
     request.get<ApiResponse<User>>(`/v1/users/${id}`),
 
   // 创建用户
-  create: (data: Partial<User>) =>
+  create: (data: Partial<User> & { password?: string }) =>
     request.post<ApiResponse<User>>('/v1/users', data),
 
   // 更新用户
