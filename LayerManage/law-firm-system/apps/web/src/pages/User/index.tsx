@@ -6,13 +6,14 @@ import { Button, Input, Tag, Space, Form, message,
 import Modal from '@/components/DraggableModal';
 import {
   PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined,
-  SyncOutlined, SafetyOutlined
+  SyncOutlined, SafetyOutlined, KeyOutlined
 } from '@ant-design/icons';
 import { userApi, roleApi } from '@/api/user';
 import type { User, Role } from '@/types';
 import dayjs from 'dayjs';
 import EmployeeTreeSelect, { type SelectedEmployee } from '@/features/master-data/components/EmployeeTreeSelect';
 import { masterDataApi } from '@/features/master-data/api';
+import { useAuthStore } from '@/stores/authStore';
 
 const UserPage: React.FC = () => {
   const [data, setData] = useState<User[]>([]);
@@ -27,6 +28,11 @@ const UserPage: React.FC = () => {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<SelectedEmployee | null>(null);
   const [form] = Form.useForm();
+  const canResetPassword = useAuthStore(state => state.hasPermission('user.password.reset'));
+  const selfUserId = useAuthStore(state => state.authorization?.userId);
+  const [resetTarget, setResetTarget] = useState<User | null>(null);
+  const [resetSaving, setResetSaving] = useState(false);
+  const [resetForm] = Form.useForm();
 
   useEffect(() => { fetchData(); fetchRoles(); }, [pagination.current, pagination.pageSize]);
 
@@ -100,6 +106,19 @@ const UserPage: React.FC = () => {
     } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
+  const handleResetPassword = async (values: { password: string; confirmation: string }) => {
+    if (!resetTarget) return;
+    setResetSaving(true);
+    try {
+      await userApi.resetPassword(resetTarget.id, values);
+      message.success('密码已重置，该账号下次登录需修改密码');
+      setResetTarget(null);
+      resetForm.resetFields();
+      fetchData();
+    } catch { /* Request errors are handled by the shared interceptor. */ }
+    finally { setResetSaving(false); }
+  };
+
   const columns = [
     { title: '用户名', dataIndex: 'username', key: 'username' },
     { title: '姓名', dataIndex: 'employee', key: 'employee', render: (e: User['employee']) => e?.name || '-' },
@@ -130,6 +149,7 @@ const UserPage: React.FC = () => {
         <Space size="small">
           <Button type="link" size="small" icon={<SafetyOutlined />} onClick={() => handleAssignRoles(record)}>分配角色</Button>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { setEditingUser(record); form.setFieldsValue({ id: record.id, username: record.username, status: record.status }); setModalVisible(true); }}>编辑</Button>
+          {canResetPassword && record.id !== selfUserId && <Button type="link" size="small" icon={<KeyOutlined />} onClick={() => { resetForm.resetFields(); setResetTarget(record); }}>重置密码</Button>}
           <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
             <Button type="link" danger size="small" icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
@@ -203,6 +223,20 @@ const UserPage: React.FC = () => {
             </label>
           ))}
         </div>
+      </Modal>
+
+      {/* 重置密码 */}
+      <Modal title={`重置密码 · ${resetTarget?.username ?? ''}`} open={Boolean(resetTarget)} onCancel={() => setResetTarget(null)} onOk={() => resetForm.submit()} confirmLoading={resetSaving} destroyOnHidden>
+        <Form form={resetForm} layout="vertical" onFinish={values => void handleResetPassword(values)}>
+          <Form.Item name="password" label="新密码" rules={[{ required: true, min: 12, max: 128 }]} extra="至少 12 位，包含大写、小写、数字、符号中的至少三类，且不含用户名。">
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item name="confirmation" label="确认新密码" dependencies={['password']} rules={[
+            { required: true },
+            ({ getFieldValue }) => ({ validator: (_, value) => value === getFieldValue('password') ? Promise.resolve() : Promise.reject(new Error('两次输入的密码不一致')) }),
+          ]}><Input.Password autoComplete="new-password" /></Form.Item>
+          <p style={{ color: '#888', marginTop: -4 }}>重置后该账号所有会话将失效，下次登录须先修改密码。</p>
+        </Form>
       </Modal>
     </div>
   );

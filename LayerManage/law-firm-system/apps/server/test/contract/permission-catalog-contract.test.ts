@@ -78,8 +78,8 @@ test('PERMISSION_CODES registers every SPEC-010 negotiation/contract/payment per
   }
 });
 
-test('PERMISSION_CODES matches the current catalog baseline (146)', () => {
-  assert.equal(PERMISSION_CODES.length, 146);
+test('PERMISSION_CODES matches the current catalog baseline (189)', () => {
+  assert.equal(PERMISSION_CODES.length, 189);
   assert.equal(new Set(PERMISSION_CODES).size, PERMISSION_CODES.length);
 });
 

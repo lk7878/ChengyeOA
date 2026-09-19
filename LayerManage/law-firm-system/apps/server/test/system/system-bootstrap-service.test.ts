@@ -314,6 +314,10 @@ test('bootstraps with the migration-owned event subscription catalog in PG C col
       'admin-operation-reviewed-notification-v1',
       'event-dispatch-quarantine-v1',
       'lead-first-response-monitor-v1',
+      'quality-assessment-analysis-v1',
+      'quality-change-notification-v1',
+      'sop-change-notification-v1',
+      'sop-reminder-notification-v1',
     ]);
   } finally {
     await prisma.$disconnect();

@@ -33,7 +33,7 @@ const EVENT_OPERATION_CODES = [
 ] as const;
 
 test('catalog contains every unique immutable permission code exactly once', () => {
-  assert.equal(PERMISSION_CODES.length, 147);
+  assert.equal(PERMISSION_CODES.length, 189);
   assert.equal(new Set(PERMISSION_CODES).size, PERMISSION_CODES.length);
   assert.equal(PERMISSION_CATALOG.length, PERMISSION_CODES.length);
   assert.deepEqual(

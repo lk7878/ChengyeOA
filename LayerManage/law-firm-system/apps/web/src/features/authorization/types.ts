@@ -80,6 +80,7 @@ export const PERMISSION_CODES = [
   'user.create',
   'user.update',
   'user.status.manage',
+  'user.password.reset',
   'role.read',
   'role.create',
   'role.update',

@@ -182,6 +182,7 @@ export const PERMISSION_CATALOG = Object.freeze([
   permission('user.create', '创建用户', 'ACTION', 'user', 'create', 'HIGH'),
   permission('user.update', '修改用户', 'ACTION', 'user', 'update', 'HIGH'),
   permission('user.status.manage', '管理用户状态', 'ACTION', 'user', 'status.manage', 'CRITICAL'),
+  permission('user.password.reset', '重置用户密码', 'ACTION', 'user', 'password.reset', 'CRITICAL'),
   permission('role.read', '查看角色', 'ACTION', 'role', 'read', 'MEDIUM'),
   permission('role.create', '创建角色', 'ACTION', 'role', 'create', 'HIGH'),
   permission('role.update', '修改角色', 'ACTION', 'role', 'update', 'HIGH'),

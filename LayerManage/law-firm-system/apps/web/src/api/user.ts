@@ -18,6 +18,10 @@ export const userApi = {
   update: (id: string, data: Partial<User>) =>
     request.put<ApiResponse<User>>(`/v1/users/${id}`, data),
 
+  // 重置用户密码（仅管理员）
+  resetPassword: (id: string, data: { password: string; confirmation: string }) =>
+    request.post<ApiResponse<null>>(`/v1/users/${id}/password-reset`, data),
+
   // 删除用户
   delete: (id: string) =>
     request.delete<ApiResponse<null>>(`/v1/users/${id}`),

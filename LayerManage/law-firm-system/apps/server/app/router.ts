@@ -134,6 +134,7 @@ export default (app: Application) => {
   router.post('/api/v1/users', requirePermission('user.create'), controller.user.create);
   router.put('/api/v1/users/:id', requirePermission('user.update'), controller.user.update);
   router.delete('/api/v1/users/:id', requirePermission('user.status.manage'), controller.user.destroy);
+  router.post('/api/v1/users/:id/password-reset', requirePermission('user.password.reset'), controller.user.resetPassword);
   router.get('/api/v1/users/:id/authorization', requirePermission('user.read'), controller.user.authorization);
   // SPEC-015 follow-up（业务角色成员指派）：治理码 user.role.manage 或委派码
   // user_role.membership.manage 任一可过 router 门控；治理语义由 service 层 assertMayManage 收紧。

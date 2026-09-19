@@ -17,6 +17,9 @@ import { BcryptPasswordHasher } from '../domain/security/password-hasher';
 import { authorizationInputError } from '../domain/authorization/authorization-errors';
 import { assertAuthorizationExactKeys } from '../domain/authorization/authorization-validation';
 import { normalizeUsername, validatePassword, validateUsername } from '../domain/security/password-policy';
+import { SecurityError } from '../domain/security/security-errors';
+import { MasterDataError } from '../domain/master-data/master-data-errors';
+import { writeAuditLog } from '../application/system/audit-writer';
 
 const passwordHasher = new BcryptPasswordHasher();
 
@@ -237,6 +240,72 @@ export default class UserController extends Controller {
 
   async authorization() {
     this.respond(await this.grantService().summary(this.ctx.params.id));
+  }
+
+  /**
+   * 管理员重置用户密码
+   */
+  async resetPassword() {
+    const { ctx } = this;
+    const { id } = ctx.params;
+
+    await this.authorizationService().requireRecord(
+      this.authorizationContext(),
+      'user',
+      'user.password.reset',
+      id,
+    );
+    await assertMutableUser(ctx.prisma, id);
+    await assertNonAdministratorUserMutable(ctx.prisma, id);
+    const actorUserId = ctx.state.user?.userId as string;
+    if (actorUserId === id) {
+      ctx.throw(400, 'SELF_PASSWORD_RESET_FORBIDDEN');
+      return;
+    }
+    const body = ctx.request.body as Record<string, unknown>;
+    const { password, confirmation } = body;
+    if (typeof password !== 'string' || typeof confirmation !== 'string') {
+      ctx.throw(400, 'PASSWORD_AND_CONFIRMATION_REQUIRED');
+      return;
+    }
+    if (password !== confirmation) {
+      ctx.throw(400, 'PASSWORD_CONFIRMATION_MISMATCH');
+      return;
+    }
+
+    await ctx.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "user" WHERE "id" = ${id} FOR UPDATE`;
+      const target = await tx.user.findUnique({
+        where: { id },
+        select: { id: true, username: true, password: true },
+      });
+      if (!target) throw new MasterDataError('USER_NOT_FOUND', 404);
+      validatePassword(password, target.username);
+      if (await passwordHasher.compare(password, target.password)) {
+        throw new SecurityError('PASSWORD_REUSED');
+      }
+      await tx.user.update({
+        where: { id },
+        data: {
+          password: await passwordHasher.hash(password),
+          mustChangePassword: true,
+          passwordChangedAt: new Date(),
+          failedLoginCount: 0,
+          lockedUntil: null,
+          credentialVersion: { increment: 1 },
+        },
+      });
+      await writeAuditLog(tx, {
+        userId: actorUserId,
+        action: 'PASSWORD_RESET_BY_ADMIN',
+        targetType: 'USER',
+        targetId: id,
+        newValues: JSON.stringify({ targetUserId: id }),
+        ip: ctx.ip,
+      });
+    });
+
+    ctx.body = { code: 200, message: '密码已重置', data: null };
   }
 
   async grantRole() {

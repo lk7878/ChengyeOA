@@ -31,6 +31,7 @@ last_updated: 2026-09-15
 | ORG-12 | 部门负责人 | 从现有在职员工设置、更换或清空负责人，不隐式授予权限 | 已实现 |
 | ORG-13 | 组织树折叠与排序 | 各节点独立展开/收起；全部组织排序号全局唯一，占用号不可重复选择 | 已实现 |
 | ORG-14 | 协作资源授权 | 工作区/应用/表成员及建表能力，分享委派、行列权限和撤权后的协作会话失效；扩展文件夹继承 | G1 及 G2-A 已实现：工作区/文件夹/应用/表、岗位主体、行列范围、分享委派、订阅撤权、移动预览和回收状态；验收见云盘实施记录 |
+| ORG-15 | 账号密码重置 | 管理员在线重置普通用户密码，重置后强制改密并使该账号全部旧会话失效 | 已实现（见 SPEC-PW-RESET-20260919） |
 
 ORG-14 工程输入见 [SPEC-COLLAB-20260914](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md) §6/10；原组织与账号验收不代表协作资源授权完成。
 
@@ -98,3 +99,8 @@ G2-B [导航授权边界](../../superpowers/specs/2026-09-15-cloud-drive-g2b-sho
 
 
 2026-09-16 U7：U7继续复用组织、岗位、人员、角色与权限管理专用页面；旧未路由Role列表移除。案件历史补录另核验user.read/organization.read和候选范围，case.update ALL不隐含人员目录授权。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。
+
+
+### 账号密码重置（SPEC-PW-RESET-20260919）
+
+账号管理新增管理员在线重置普通用户密码能力，见[增量规格](../../superpowers/specs/2026-09-19-user-password-reset.md)。新增 CRITICAL 权限 `user.password.reset`（资源 user，动作 password.reset），接口 `POST /api/v1/users/:id/password-reset` 按该权限及数据范围门控；操作者不得重置自己，初始超级管理员（信任根）与持有 SYSTEM_ADMIN/SYSTEM_SUPER_ADMIN 角色的账号不得在线重置。重置后写入新密码、`mustChangePassword=true`、`credentialVersion` 自增使旧会话失效，并写入审计（不含密码明文）。
