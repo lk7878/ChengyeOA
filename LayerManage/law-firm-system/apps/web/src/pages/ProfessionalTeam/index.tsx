@@ -1,4 +1,5 @@
 import { categoryLabel } from '@/locales/business-labels';
+import { useAuthStore } from '@/stores/authStore';
 import Table from '@/components/ResizableTable';
 import { validateForm } from '@/features/master-data/form-rules';
 import { showRequestError } from '@/api/errors';
@@ -18,6 +19,9 @@ type MemberValues = { employeeId: string; memberRole: TeamMemberRole };
 function flatten(nodes: OrganizationNode[]): OrganizationNode[] { return nodes.flatMap(node => [node, ...flatten(node.children)]); }
 
 export default function ProfessionalTeamPage() {
+  const canDelete = useAuthStore(state => state.hasPermission('professional_team.status.manage'));
+  const canRemoveMember = useAuthStore(state => state.hasPermission('professional_team.member.manage'));
+  const [deleteTarget, setDeleteTarget] = useState<ProfessionalTeam | null>(null);
   const [teams, setTeams] = useState<ProfessionalTeam[]>([]);
   const [detail, setDetail] = useState<ProfessionalTeamDetail | null>(null);
   const [organizations, setOrganizations] = useState<OrganizationNode[]>([]);
@@ -65,13 +69,20 @@ export default function ProfessionalTeamPage() {
   async function submitMember(values: MemberValues) { if (!detail || !memberMode) return; setSubmitting(true); try { if (memberMode === 'lead') await masterDataApi.professionalTeams.replaceLead(detail.id, { employeeId: values.employeeId, teamVersion: detail.version }); else await masterDataApi.professionalTeams.addMember(detail.id, { employeeId: values.employeeId, memberRole: values.memberRole }); setMemberMode(undefined); await refreshDetail(); } catch (error) { showRequestError(error, '成员变更未完成，当前输入已保留'); } finally { setSubmitting(false); } }
   async function endMember(memberId: string, version: number) { if (!detail) return; try { await masterDataApi.professionalTeams.endMember(detail.id, memberId, { version }); await refreshDetail(); } catch (error) { showRequestError(error, '结束成员关系失败'); } }
   async function searchEmployees(keyword: string) { try { const response = await masterDataApi.employees.list({ page: 1, pageSize: 100, keyword: keyword || undefined }); setEmployees(response.data.list); } catch (error) { showRequestError(error, '员工选项加载失败'); } }
+  async function removeTeam() {
+    if (!deleteTarget) return;
+    setSubmitting(true);
+    try { await masterDataApi.professionalTeams.remove(deleteTarget.id, { version: deleteTarget.version }); if (detail?.id === deleteTarget.id) setDetail(null); setDeleteTarget(null); await load(); message.success('团队已删除'); }
+    catch (error) { showRequestError(error, '删除团队失败'); }
+    finally { setSubmitting(false); }
+  }
 
   return <section className="md-page"><header className="md-toolbar"><div><h1>专业团队</h1><p>团队分类开放扩展，成员可跨分所任职，历史关系持续保留。</p></div><Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增团队</Button></header>
     <div className="md-filter-bar"><Input placeholder="团队名称或编码" value={keyword} onChange={event => setKeyword(event.target.value)} onPressEnter={() => void load(1)} /><Select aria-label="团队状态" allowClear placeholder="状态" value={status} options={[{ value: 'ENABLED', label: '启用' }, { value: 'DISABLED', label: '停用' }]} onChange={setStatus} /><Button type="primary" onClick={() => { setPage(1); void load(1); }}>查询</Button><Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button></div>
     {error && <Alert type="error" showIcon title="专业团队数据加载失败" action={<Button onClick={() => void load()}>重试</Button>} />}
     <div className="md-team-layout"><div className="md-team-list"><Table rowKey="id" size="small" loading={loading} dataSource={teams} scroll={{ x: 560 }} pagination={{ current: page, pageSize, total, onChange: (nextPage, nextSize) => { setPage(nextPage); setPageSize(nextSize); void load(nextPage, nextSize); } }} locale={{ emptyText: <div className="md-empty"><span>暂无专业团队</span><Button onClick={() => void load()}>重试</Button></div> }} columns={[
       { title: '团队', dataIndex: 'name' }, { title: '分类', dataIndex: 'categoryCode', render: (value: string) => <span title={`分类编码：${value}`}>{categoryLabel(value)}</span> }, { title: '成员', dataIndex: 'activeMemberCount' }, { title: '状态', dataIndex: 'status', render: (value: MasterDataStatus) => <Tag>{value === 'ENABLED' ? '启用' : '停用'}</Tag> },
-      { title: '操作', width: 70, render: (_: unknown, row: ProfessionalTeam) => <Button type="text" icon={<EyeOutlined />} aria-label={`查看${row.name}`} onClick={() => void openDetail(row)} /> },
+      { title: '操作', width: 140, render: (_: unknown, row: ProfessionalTeam) => <Space><Button type="text" icon={<EyeOutlined />} aria-label={`查看${row.name}`} onClick={() => void openDetail(row)} />{canDelete && <Button danger onClick={() => setDeleteTarget(row)}>删除</Button>}</Space> },
     ]} /></div>
       <aside className="md-team-detail">{detail ? <><div className="md-detail-heading"><div><h2>{detail.name}</h2><p>{detail.code} · {categoryLabel(detail.categoryCode)} · {organizationNames.get(detail.homeOrganizationId) || detail.homeOrganizationId}</p></div><Space wrap><Button onClick={openEdit}>编辑</Button><Popconfirm title={detail.status === 'ENABLED' ? '确认停用团队？' : '确认启用团队？'} onConfirm={() => void toggleTeam(detail)}><Button danger={detail.status === 'ENABLED'}>{detail.status === 'ENABLED' ? '停用' : '启用'}</Button></Popconfirm></Space></div>
         <div className="md-section-actions"><Button type="primary" onClick={() => { memberForm.resetFields(); setMemberMode('add'); }}>添加成员</Button><Button onClick={() => { memberForm.resetFields(); setMemberMode('lead'); }}>更换负责人</Button></div>
@@ -79,10 +90,11 @@ export default function ProfessionalTeamPage() {
           { title: '成员', dataIndex: 'employeeId', render: (id: string) => employeeNames.get(id) || id },
           { title: '角色', dataIndex: 'memberRole', render: (role: TeamMemberRole) => role === 'LEAD' ? '负责人' : role },
           { title: '期间', render: (_: unknown, row: ProfessionalTeamDetail['members'][number]) => row.endedAt ? `${row.startedAt.slice(0, 10)} 至 ${row.endedAt.slice(0, 10)}` : `${row.startedAt.slice(0, 10)} 至今` },
-          { title: '操作', render: (_: unknown, row: ProfessionalTeamDetail['members'][number]) => !row.endedAt && row.memberRole !== 'LEAD' ? <Popconfirm title="确认结束该成员关系？" onConfirm={() => void endMember(row.id, row.version)}><Button size="small">结束</Button></Popconfirm> : null },
+          { title: '操作', render: (_: unknown, row: ProfessionalTeamDetail['members'][number]) => !row.endedAt && canRemoveMember ? <Popconfirm title="确认删除该成员？历史成员关系将保留。" onConfirm={() => void endMember(row.id, row.version)}><Button size="small" danger>删除成员</Button></Popconfirm> : null },
         ]} />
       </> : <div className="md-empty"><span>请选择团队查看详情</span></div>}</aside></div>
     <Modal title={editing ? '编辑专业团队' : '新增专业团队'} open={formOpen} confirmLoading={submitting} onCancel={() => setFormOpen(false)} onOk={() => void submitTeam()} destroyOnHidden><ProfessionalTeamForm form={teamForm} editing={editing} organizations={organizationOptions} /></Modal>
     <TeamMemberDialog open={Boolean(memberMode)} title={memberMode === 'lead' ? '更换负责人' : '添加成员'} form={memberForm} employees={employeeOptions} replaceLead={memberMode === 'lead'} submitting={submitting} onSearch={keyword => void searchEmployees(keyword)} onCancel={() => setMemberMode(undefined)} onSubmit={values => void submitMember(values)} />
+    <Modal title="删除专业团队" open={Boolean(deleteTarget)} confirmLoading={submitting} onCancel={() => setDeleteTarget(null)} onOk={() => void removeTeam()} okText="确认删除" cancelText="取消" okButtonProps={{ danger: true }}><p>确认删除“{deleteTarget?.name}”？将结束全部成员关系，保留历史记录。</p></Modal>
   </section>;
 }

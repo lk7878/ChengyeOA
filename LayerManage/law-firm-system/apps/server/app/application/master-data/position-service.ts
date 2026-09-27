@@ -26,6 +26,7 @@ export interface CreatePositionInput {
 }
 
 export interface UpdatePositionInput {
+  code?: string;
   name?: string;
   categoryCode?: string;
   level?: number;
@@ -36,6 +37,7 @@ export interface UpdatePositionInput {
 export type PositionDetail = PositionView;
 
 export interface PositionListQuery {
+  includeDescendants?: boolean;
   organizationId?: string;
   status?: MasterDataStatus;
   keyword?: string;
@@ -56,7 +58,7 @@ export class PositionService {
     this.authorization.requireAction(this.authorizationContext, 'position.create');
     assertExactKeys(input, ['organizationId', 'code', 'name', 'categoryCode', 'level', 'responsibilities']);
     const organizationId = normalizeRequiredText(input.organizationId, 1, 100);
-    const code = normalizeStableCode(input.code);
+    const code = normalizeRequiredText(input.code, 1, 32);
     const name = normalizeName(input.name);
     const categoryCode = normalizeStableCode(input.categoryCode);
     const level = normalizeNonNegativeInteger(input.level);
@@ -92,20 +94,21 @@ export class PositionService {
 
   async update(id: string, input: UpdatePositionInput): Promise<PositionView> {
     this.authorization.requireAction(this.authorizationContext, 'position.update');
-    assertExactKeys(input, ['name', 'categoryCode', 'level', 'responsibilities', 'version']);
+    assertExactKeys(input, ['code', 'name', 'categoryCode', 'level', 'responsibilities', 'version']);
     const version = normalizeVersion(input.version);
     const data: Prisma.PositionUpdateManyMutationInput = { version: { increment: 1 } };
+    if (input.code !== undefined) data.code = normalizeRequiredText(input.code, 1, 32);
     if (input.name !== undefined) data.name = normalizeName(input.name);
     if (input.categoryCode !== undefined) data.categoryCode = normalizeStableCode(input.categoryCode);
     if (input.level !== undefined) data.level = normalizeNonNegativeInteger(input.level);
     if (input.responsibilities !== undefined) data.responsibilities = normalizeOptionalText(input.responsibilities, 2000);
-    if (input.name === undefined && input.categoryCode === undefined && input.level === undefined && input.responsibilities === undefined) {
+    if (input.code === undefined && input.name === undefined && input.categoryCode === undefined && input.level === undefined && input.responsibilities === undefined) {
       validationFailed();
     }
     await this.authorization.requireRecord(this.authorizationContext, 'position', 'position.update', id);
 
     if (
-      input.name === undefined
+      input.code === undefined && input.name === undefined
       && input.categoryCode === undefined
       && input.level === undefined
       && input.responsibilities !== undefined
@@ -118,7 +121,7 @@ export class PositionService {
 
     return this.prisma.$transaction(async tx => {
       const before = await tx.position.findUnique({ where: { id } });
-      if (!before) notFound();
+      if (!before || before.deletedAt) notFound();
       const changed = await tx.position.updateMany({ where: { id, version }, data });
       if (changed.count !== 1) versionConflict();
       const after = await tx.position.findUniqueOrThrow({ where: { id } });
@@ -132,7 +135,7 @@ export class PositionService {
         after: auditShape(after),
       });
       return toView(after, activeAssignmentCount);
-    });
+    }).catch(error => { if (isUniqueConstraintError(error)) codeConflict(); throw error; });
   }
 
   async disable(id: string, versionValue: number): Promise<PositionView> {
@@ -150,17 +153,16 @@ export class PositionService {
   }
 
   async remove(id: string, versionValue: number): Promise<void> {
-    if (!this.authorizationContext.isSystemSuperAdmin) throw new MasterDataError('SUPER_ADMIN_REQUIRED', 403);
-    this.authorization.requireAction(this.authorizationContext, 'position.update');
+    this.authorization.requireAction(this.authorizationContext, 'position.delete');
+    await this.authorization.requireRecord(this.authorizationContext, 'position', 'position.delete', id);
     const version = normalizeVersion(versionValue);
     try {
       await this.prisma.$transaction(async tx => {
         await tx.$queryRaw`SELECT "id" FROM "position" WHERE "id" = ${id} FOR UPDATE`;
         const before = await tx.position.findUnique({ where: { id } });
-        if (!before) notFound();
+        if (!before || before.deletedAt) notFound();
         if (before.version !== version) versionConflict();
-        if (await tx.employeeAssignment.count({ where: { positionId: id } })) throw new MasterDataError('POSITION_DELETE_IN_USE', 409);
-        await tx.position.delete({ where: { id } });
+        await tx.position.update({ where: { id }, data: { deletedAt: new Date(), status: 'DISABLED', version: { increment: 1 } } });
         await writeMasterDataAudit(tx, { ...this.actor, action: 'DELETE', targetType: 'POSITION', targetId: id, before: auditShape(before) });
       });
     } catch (error) {
@@ -171,7 +173,8 @@ export class PositionService {
 
   async list(query: PositionListQuery): Promise<PositionView[]> {
     this.authorization.requireAction(this.authorizationContext, 'position.read');
-    assertExactKeys(query, ['organizationId', 'status', 'keyword']);
+    assertExactKeys(query, ['organizationId', 'status', 'keyword', 'includeDescendants']);
+    if (query.includeDescendants !== undefined && typeof query.includeDescendants !== 'boolean') validationFailed();
     const organizationId = query.organizationId === undefined
       ? undefined
       : normalizeRequiredText(query.organizationId, 1, 100);
@@ -184,10 +187,14 @@ export class PositionService {
       'position',
       'position.read',
     );
+    const selectedOrganization = organizationId && query.includeDescendants
+      ? await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { path: true } }) : null;
     const positions = await this.prisma.position.findMany({
       where: {
         AND: [scopeWhere],
-        organizationId,
+        deletedAt: null,
+        organizationId: selectedOrganization ? undefined : organizationId,
+        organization: selectedOrganization ? { OR: [{ id: organizationId }, { path: { startsWith: `${selectedOrganization.path}/` } }] } : undefined,
         status,
         OR: keyword
           ? [
@@ -197,7 +204,7 @@ export class PositionService {
           : undefined,
       },
       include: { _count: { select: { assignments: { where: { endedAt: null } } } } },
-      orderBy: [{ level: 'desc' }, { code: 'asc' }],
+      orderBy: [{ organization: { path: 'asc' } }, { level: 'desc' }, { code: 'asc' }],
     });
     return positions.map(position => toView(position, position._count.assignments));
   }
@@ -210,7 +217,7 @@ export class PositionService {
       'position.read',
     );
     const position = await this.prisma.position.findFirst({
-      where: { AND: [scopeWhere, { id }] },
+      where: { AND: [scopeWhere, { id, deletedAt: null }] },
       include: { _count: { select: { assignments: { where: { endedAt: null } } } } },
     });
     if (!position) authorizationHidden();

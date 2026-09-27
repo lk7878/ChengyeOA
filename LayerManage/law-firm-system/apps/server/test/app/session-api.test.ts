@@ -90,6 +90,9 @@ async function login(): Promise<BrowserSession> {
     .post('/api/v1/auth/login')
     .send({ username, password })
     .expect(200);
+  const cookies = response.headers['set-cookie'] as string[];
+  assert.ok(cookies.some(cookie => cookie.startsWith('chengye_csrf=') && /Path=\/(?:;|$)/i.test(cookie) && !/HttpOnly/i.test(cookie)));
+  assert.ok(cookies.some(cookie => cookie.startsWith('chengye_refresh=') && /Path=\/api\/v1\/auth(?:;|$)/i.test(cookie) && /HttpOnly/i.test(cookie)));
   return {
     token: response.body.data.token,
     csrfToken: response.body.data.csrfToken,

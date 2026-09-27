@@ -58,6 +58,7 @@ export const PERMISSION_CODES = [
   'position.read',
   'position.create',
   'position.update',
+  'position.delete',
   'position.status.manage',
   'employee.read',
   'employee.create',

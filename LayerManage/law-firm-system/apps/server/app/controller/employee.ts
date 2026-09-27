@@ -53,9 +53,9 @@ export default class EmployeeController extends Controller {
 
   async destroy() {
     const input = this.ctx.request.body;
-    assertExactKeys(input, ['version', 'confirmed']);
+    assertExactKeys(input, ['version', 'confirmed', 'recipientUserId']);
     if (input.confirmed !== true) throw new MasterDataError('VALIDATION_FAILED', 400);
-    await employeeService(this.ctx).remove(this.ctx.params.id, { version: normalizeVersion(input.version), confirmed: true });
+    await employeeService(this.ctx).remove(this.ctx.params.id, { version: normalizeVersion(input.version), confirmed: true, recipientUserId: input.recipientUserId === undefined ? undefined : normalizeRequiredText(input.recipientUserId, 1, 100) });
     this.respond(null);
   }
 

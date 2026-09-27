@@ -139,6 +139,7 @@ export default (app: Application) => {
   // SPEC-015 follow-up（业务角色成员指派）：治理码 user.role.manage 或委派码
   // user_role.membership.manage 任一可过 router 门控；治理语义由 service 层 assertMayManage 收紧。
   router.post('/api/v1/users/:id/role-grants', requireAnyPermission(['user.role.manage', 'user_role.membership.manage']), controller.user.grantRole);
+  router.post('/api/v1/users/:id/roles', requireAnyPermission(['user.role.manage', 'user_role.membership.manage']), controller.user.assignRoles);
   router.post('/api/v1/users/:id/role-grants/:grantId/revoke', requireAnyPermission(['user.role.manage', 'user_role.membership.manage']), controller.user.revokeRoleGrant);
   router.post('/api/v1/users/:id/special-grants', requirePermission('temporary_grant.manage'), controller.user.grantSpecial);
   router.post('/api/v1/users/:id/special-grants/:grantId/revoke', requirePermission('temporary_grant.manage'), controller.user.revokeSpecialGrant);
@@ -180,7 +181,7 @@ export default (app: Application) => {
   router.get('/api/v1/positions/:id', requirePermission('position.read'), controller.position.show);
   router.post('/api/v1/positions', requirePermission('position.create'), controller.position.create);
   router.patch('/api/v1/positions/:id', requirePermission('position.update'), controller.position.update);
-  router.delete('/api/v1/positions/:id', requirePermission('position.update'), controller.position.destroy);
+  router.delete('/api/v1/positions/:id', requirePermission('position.delete'), controller.position.destroy);
   router.post('/api/v1/positions/:id/disable', requirePermission('position.status.manage'), controller.position.disable);
   router.post('/api/v1/positions/:id/enable', requirePermission('position.status.manage'), controller.position.enable);
 
@@ -206,6 +207,7 @@ export default (app: Application) => {
   router.get('/api/v1/professional-teams/:id', requirePermission('professional_team.read'), controller.professionalTeam.show);
   router.post('/api/v1/professional-teams', requirePermission('professional_team.create'), controller.professionalTeam.create);
   router.patch('/api/v1/professional-teams/:id', requirePermission('professional_team.update'), controller.professionalTeam.update);
+  router.delete('/api/v1/professional-teams/:id', requirePermission('professional_team.status.manage'), controller.professionalTeam.destroy);
   router.post('/api/v1/professional-teams/:id/disable', requirePermission('professional_team.status.manage'), controller.professionalTeam.disable);
   router.post('/api/v1/professional-teams/:id/enable', requirePermission('professional_team.status.manage'), controller.professionalTeam.enable);
   router.post('/api/v1/professional-teams/:id/members', requirePermission('professional_team.member.manage'), controller.professionalTeam.addMember);

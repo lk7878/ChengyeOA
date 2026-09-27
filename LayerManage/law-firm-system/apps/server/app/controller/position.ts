@@ -19,6 +19,7 @@ export default class PositionController extends Controller {
   async index() {
     const { organizationId, status, keyword } = this.ctx.query;
     this.respond(await positionService(this.ctx).list({
+      includeDescendants: this.ctx.query.includeDescendants === undefined ? undefined : normalizeAllowedValue(this.ctx.query.includeDescendants, ['true', 'false'] as const) === 'true',
       organizationId: organizationId === undefined ? undefined : normalizeRequiredText(organizationId, 1, 100),
       status: status === undefined ? undefined : normalizeAllowedValue(status, ['ENABLED', 'DISABLED'] as const),
       keyword: keyword === undefined ? undefined : normalizeRequiredText(keyword, 1, 100),
@@ -59,7 +60,7 @@ function parseCreate(input: unknown): CreatePositionInput {
   assertExactKeys(input, ['organizationId', 'code', 'name', 'categoryCode', 'level', 'responsibilities']);
   return {
     organizationId: normalizeRequiredText(input.organizationId, 1, 100),
-    code: normalizeStableCode(input.code),
+    code: normalizeRequiredText(input.code, 1, 32),
     name: normalizeName(input.name),
     categoryCode: normalizeStableCode(input.categoryCode),
     level: normalizeNonNegativeInteger(input.level),
@@ -70,8 +71,9 @@ function parseCreate(input: unknown): CreatePositionInput {
 }
 
 function parseUpdate(input: unknown): UpdatePositionInput {
-  assertExactKeys(input, ['name', 'categoryCode', 'level', 'responsibilities', 'version']);
+  assertExactKeys(input, ['code', 'name', 'categoryCode', 'level', 'responsibilities', 'version']);
   const parsed: UpdatePositionInput = { version: normalizeVersion(input.version) };
+  if (input.code !== undefined) parsed.code = normalizeRequiredText(input.code, 1, 32);
   if (input.name !== undefined) parsed.name = normalizeName(input.name);
   if (input.categoryCode !== undefined) parsed.categoryCode = normalizeStableCode(input.categoryCode);
   if (input.level !== undefined) parsed.level = normalizeNonNegativeInteger(input.level);

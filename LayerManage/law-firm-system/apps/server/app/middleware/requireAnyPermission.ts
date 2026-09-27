@@ -19,7 +19,7 @@ export function requireAnyPermission(permissionCodes: readonly PermissionCode[])
       try {
         service.requireAction(authorization, permissionCode);
       } catch (error) {
-        if (!(error instanceof AuthorizationError) || error.code !== AUTHORIZATION_CODES.permission)
+        if (!(error instanceof AuthorizationError) || (error.code !== AUTHORIZATION_CODES.permission && error.code !== AUTHORIZATION_CODES.special))
           throw error;
         continue;
       }

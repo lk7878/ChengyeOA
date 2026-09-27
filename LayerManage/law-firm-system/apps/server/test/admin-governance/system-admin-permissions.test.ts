@@ -14,6 +14,8 @@ test('SYSTEM_ADMIN uses an immutable explicit permission allowlist', () => {
     'governance.audit.read',
     'organization.read',
     'position.read',
+    'position.update',
+    'position.delete',
     'professional_team.read',
     'permission.trace.self',
     'menu.event_operations',

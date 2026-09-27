@@ -1,6 +1,7 @@
 import { businessLabel } from '@/locales/business-labels';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, DatePicker, Drawer, Form, Input, InputNumber, Select, Space, Spin, Tag, Typography } from 'antd';
+import { Alert, DatePicker, Form, Input, InputNumber, Select, Space, Spin, Tag, Typography } from 'antd';
+import Drawer from '@/components/DraggableDrawer';
 import { masterDataApi } from '@/features/master-data/api';
 import type { OrganizationNode, Position, ProfessionalTeam } from '@/features/master-data/types';
 import { governanceApi } from '../api';

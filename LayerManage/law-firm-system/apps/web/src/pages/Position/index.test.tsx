@@ -26,7 +26,7 @@ test('super-admin deletion confirms first, sends the displayed version and refre
   render(<PositionPage />);
   fireEvent.click(await screen.findByRole('button', { name: '删除待删岗位' }));
   expect(masterDataApi.positions.remove).not.toHaveBeenCalled();
-  expect(screen.getByText(/存在当前或历史任职关联/)).toBeInTheDocument();
+  expect(screen.getByText(/当前及历史任职记录保留/)).toBeInTheDocument();
   vi.mocked(masterDataApi.positions.list).mockResolvedValue({ code: 200, message: 'success', data: [] });
   fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
   await waitFor(() => expect(masterDataApi.positions.remove).toHaveBeenCalledWith('p1', { version: 4 }));
@@ -52,8 +52,8 @@ test('opens organization-bound position creation', async () => {
   render(<PositionPage />);
   await screen.findByText('暂无岗位');
   fireEvent.click(screen.getByRole('button', { name: /新增岗位/ }));
-  expect(screen.getByDisplayValue('北京分所')).toBeDisabled();
-  expect(screen.getByLabelText('岗位编码')).toBeInTheDocument();
+  expect(screen.getByRole('combobox', { name: '所属分所' })).toBeEnabled();
+  expect(screen.getByLabelText('岗位编号')).toBeInTheDocument();
 });
 
 test('creation uses Chinese category selection while submitting a stable generated code', async () => {
@@ -61,15 +61,15 @@ test('creation uses Chinese category selection while submitting a stable generat
   render(<PositionPage />);
   await screen.findByText('暂无岗位');
   fireEvent.click(screen.getByRole('button', { name: /新增岗位/ }));
-  expect(screen.getByLabelText('岗位编码')).toBeDisabled();
-  expect(screen.getByDisplayValue(/^岗位编号 \d+$/)).toBeInTheDocument();
+  expect(screen.getByLabelText('岗位编号')).toBeEnabled();
+  fireEvent.change(screen.getByLabelText('岗位编号'), { target: { value: '行政-001' } });
   expect(screen.getByText('法律专业')).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('岗位名称'), { target: { value: '主办律师' } });
   fireEvent.mouseDown(screen.getByRole('combobox', { name: '岗位分类' }));
   fireEvent.click(await screen.findByText('行政', { selector: '.ant-select-item-option-content' }));
   fireEvent.click(screen.getByRole('button', { name: /确\s*定/ }));
   await waitFor(() => expect(masterDataApi.positions.create).toHaveBeenCalledWith(expect.objectContaining({
-    organizationId: 'branch', name: '主办律师', categoryCode: 'ADMIN', code: expect.stringMatching(/^[A-Z][A-Z0-9_]{1,31}$/),
+    organizationId: 'branch', name: '主办律师', categoryCode: 'ADMIN', code: '行政-001',
   })));
 });
 
@@ -85,6 +85,6 @@ test('position edits send only mutable fields, excluding the disabled code input
   fireEvent.change(screen.getByLabelText('岗位名称'), { target: { value: '资深律师' } });
   fireEvent.click(screen.getByRole('button', { name: /确\s*定/ }));
   await waitFor(() => expect(masterDataApi.positions.update).toHaveBeenCalledWith('position-1', {
-    name: '资深律师', categoryCode: 'LEGAL', level: 1, responsibilities: '办案职责', version: 3,
+    code: 'LAWYER_01', name: '资深律师', categoryCode: 'LEGAL', level: 1, responsibilities: '办案职责', version: 3,
   }));
 });

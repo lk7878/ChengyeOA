@@ -263,8 +263,10 @@ test('deletes unused positions and employee profiles, preserving historical refe
   const replacement = (await app.httpRequest().post('/api/v1/employees').set(bearer()).send({ ...input, name: 'New employee' }).expect(200)).body.data;
   assert.notEqual(replacement.id, created.id);
   assert.ok((await prisma.employee.findUniqueOrThrow({ where: { id: created.id } })).deletedAt);
-  const rejected = await app.httpRequest().delete(`/api/v1/positions/${position.id}`).set(bearer()).send({ version: 1 }).expect(409);
-  assert.equal(rejected.body.message, 'POSITION_DELETE_IN_USE');
+  await app.httpRequest().delete(`/api/v1/positions/${position.id}`).set(bearer()).send({ version: 1 }).expect(200);
+  assert.ok((await prisma.position.findUniqueOrThrow({ where: { id: position.id } })).deletedAt);
+  assert.equal(await prisma.employeeAssignment.count({ where: { positionId: position.id } }), 2);
+  await app.httpRequest().get(`/api/v1/positions/${position.id}`).set(bearer()).expect(404);
 });
 
 test('SPEC-003-A supports manager editing, nested copy and guarded deletion over HTTP', async () => {

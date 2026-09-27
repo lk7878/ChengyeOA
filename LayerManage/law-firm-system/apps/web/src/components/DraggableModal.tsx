@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import './DraggableModal.css';
 
-function DragSurface({ children }: { children: ReactNode }) {
+export function DragSurface({ children, fill = false }: { children: ReactNode; fill?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number } | null>(null);
@@ -24,10 +24,10 @@ function DragSurface({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('resize', resize);
   }, []);
 
-  return <div ref={ref} className="oa-modal-drag-surface" style={position.x || position.y ? { transform: `translate(${position.x}px, ${position.y}px)` } : undefined}
+  return <div ref={ref} className="oa-modal-drag-surface" style={{ height: fill ? '100%' : undefined, transform: position.x || position.y ? `translate(${position.x}px, ${position.y}px)` : undefined }}
     onPointerDown={event => {
       const target = event.target as HTMLElement;
-      if (event.button !== 0 || !target.closest('.ant-modal-header') || target.closest('button,a,input,select,textarea')) return;
+      if (event.button !== 0 || !target.closest('.ant-modal-header,.ant-modal-confirm-title,.ant-drawer-header') || target.closest('button,a,input,select,textarea')) return;
       drag.current = { x: event.clientX, y: event.clientY };
       event.currentTarget.setPointerCapture(event.pointerId);
       event.preventDefault();
@@ -61,6 +61,12 @@ function draggableConfig(config: ModalFuncProps): ModalFuncProps {
   };
 }
 
+function useDraggableModal(): ReturnType<typeof AntModal.useModal> {
+  const [modal, holder] = AntModal.useModal();
+  const methods = ['confirm', 'info', 'success', 'error', 'warning'] as const;
+  return [Object.fromEntries(methods.map(method => [method, (config: ModalFuncProps) => modal[method](draggableConfig(config))])) as typeof modal, holder];
+}
+
 // Preserve Ant Design imperative confirmation APIs used by existing pages.
 export default Object.assign(DraggableModal, {
   confirm: (config: ModalFuncProps) => AntModal.confirm(draggableConfig(config)),
@@ -70,6 +76,6 @@ export default Object.assign(DraggableModal, {
   warning: (config: ModalFuncProps) => AntModal.warning(draggableConfig(config)),
   warn: (config: ModalFuncProps) => AntModal.warn(draggableConfig(config)),
   destroyAll: AntModal.destroyAll,
-  useModal: AntModal.useModal,
+  useModal: useDraggableModal,
   config: AntModal.config,
 });

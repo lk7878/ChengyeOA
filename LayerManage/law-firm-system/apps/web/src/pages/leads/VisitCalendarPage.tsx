@@ -1,20 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Alert,
-  Badge,
-  Button,
-  Calendar,
-  Card,
-  Drawer,
-  Empty,
-  Grid,
-  List,
-  Popconfirm,
-  Space,
-  Spin,
-  Tag,
-  message,
-} from 'antd';
+import { Alert, Badge, Button, Calendar, Card, Empty, Grid, List, Popconfirm, Space, Spin, Tag, message } from 'antd';
+import Drawer from '@/components/DraggableDrawer';
 import { useNavigate } from 'react-router';
 import dayjs, { type Dayjs } from 'dayjs';
 import { appointmentApi } from '@/api/appointment';

@@ -1,7 +1,8 @@
 import { Link } from 'react-router';
 import { businessLabel } from '@/locales/business-labels';
 import Table from '@/components/ResizableTable';
-import { Alert, Descriptions, Drawer, Empty, Spin, Tag, Timeline, Typography } from 'antd';
+import { Alert, Descriptions, Empty, Spin, Tag, Timeline, Typography } from 'antd';
+import Drawer from '@/components/DraggableDrawer';
 import type { AdminOperationDetail } from '../types';
 import { OPERATION_LABELS } from '../form-rules';
 

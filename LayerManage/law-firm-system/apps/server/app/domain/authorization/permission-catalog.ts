@@ -111,6 +111,7 @@ export const PERMISSION_CATALOG = Object.freeze([
   permission('position.read', '查看岗位', 'ACTION', 'position', 'read', 'LOW'),
   permission('position.create', '创建岗位', 'ACTION', 'position', 'create', 'MEDIUM'),
   permission('position.update', '修改岗位', 'ACTION', 'position', 'update', 'MEDIUM'),
+  permission('position.delete', '删除岗位（保留任职历史）', 'ACTION', 'position', 'delete', 'HIGH'),
   permission('position.status.manage', '管理岗位状态', 'ACTION', 'position', 'status.manage', 'HIGH'),
   permission('employee.read', '查看员工', 'ACTION', 'employee', 'read', 'MEDIUM'),
   permission('employee.create', '创建员工', 'ACTION', 'employee', 'create', 'HIGH'),

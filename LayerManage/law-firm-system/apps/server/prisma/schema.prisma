@@ -46,6 +46,7 @@ model Organization {
 }
 
 model Position {
+  deletedAt        DateTime?
   id               String   @id @default(uuid())
   organizationId   String   @map("orgId")
   code             String
@@ -127,6 +128,7 @@ model EmployeeAssignment {
 }
 
 model ProfessionalTeam {
+  deletedAt DateTime?
   qualityPolicies QualitySamplingPolicy[]
   sopTemplates SopTemplate[]
 

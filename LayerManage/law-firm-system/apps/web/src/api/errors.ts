@@ -2,6 +2,8 @@ import { message } from 'antd';
 
 const reported = new WeakSet<object>();
 const messages: Record<string, string> = {
+  EMPLOYEE_TRANSFER_REQUIRED: '该员工仍拥有文档，请指定资源接收人后再删除',
+  EMPLOYEE_TRANSFER_INVALID: '请选择另一名在职且账号已启用的资源接收人',
   SOP_SUBMISSION_NOT_FOUND: '成果版本不存在或无权查看',
   SOP_SELF_REVIEW: '提交人及本轮执行人不能审核自己的成果',
   SOP_REVIEW_NOT_FOUND: '审核不存在或无权查看',

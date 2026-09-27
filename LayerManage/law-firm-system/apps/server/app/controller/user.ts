@@ -320,6 +320,11 @@ export default class UserController extends Controller {
     }));
   }
 
+  async assignRoles() {
+    await this.grantService().replaceBusinessRoles(this.ctx.params.id, this.ctx.request.body);
+    this.respond(null);
+  }
+
   async revokeRoleGrant() {
     this.respond(await this.grantService().revokeRole(
       this.ctx.params.id,

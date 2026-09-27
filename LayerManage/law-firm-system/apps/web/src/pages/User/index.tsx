@@ -30,6 +30,7 @@ const UserPage: React.FC = () => {
   const [form] = Form.useForm();
   const canResetPassword = useAuthStore(state => state.hasPermission('user.password.reset'));
   const selfUserId = useAuthStore(state => state.authorization?.userId);
+  const canAssignRoles = useAuthStore(state => Boolean(state.authorization?.isSystemSuperAdmin || state.hasPermission('user_role.membership.manage')));
   const [resetTarget, setResetTarget] = useState<User | null>(null);
   const [resetSaving, setResetSaving] = useState(false);
   const [resetForm] = Form.useForm();
@@ -54,7 +55,7 @@ const UserPage: React.FC = () => {
       const res = await roleApi.list();
       if (res.code === 200) {
         const list = res.data.list || res.data;
-        setRoles(list);
+        setRoles(list.filter((role: Role) => role.type === 'BUSINESS' && role.status === 'ENABLED'));
       }
     } catch { /* Request errors are handled by the shared interceptor. */ }
   };
@@ -65,7 +66,7 @@ const UserPage: React.FC = () => {
 
   const handleAssignRoles = (user: User) => {
     setCurrentUser(user);
-    const currentRoleIds = user.userRoles?.map(ur => ur.roleId) || [];
+    const currentRoleIds = user.userRoles?.filter(ur => roles.some(role => role.id === ur.roleId)).map(ur => ur.roleId) || [];
     setSelectedRoles(currentRoleIds);
     setRoleModal(true);
   };
@@ -147,7 +148,7 @@ const UserPage: React.FC = () => {
       width: 250,
       render: (_: unknown, record: User) => (
         <Space size="small">
-          <Button type="link" size="small" icon={<SafetyOutlined />} onClick={() => handleAssignRoles(record)}>分配角色</Button>
+          <Button type="link" size="small" disabled={!canAssignRoles || record.id === selfUserId} icon={<SafetyOutlined />} onClick={() => handleAssignRoles(record)}>分配角色</Button>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { setEditingUser(record); form.setFieldsValue({ id: record.id, username: record.username, status: record.status }); setModalVisible(true); }}>编辑</Button>
           {canResetPassword && record.id !== selfUserId && <Button type="link" size="small" icon={<KeyOutlined />} onClick={() => { resetForm.resetFields(); setResetTarget(record); }}>重置密码</Button>}
           <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>

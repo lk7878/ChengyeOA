@@ -2,20 +2,8 @@ import Modal from '@/components/DraggableModal';
 import { useUnifiedShell } from '../navigation/shell-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import {
-  Alert,
-  Breadcrumb,
-  Button,
-  Drawer,
-  Dropdown,
-  Empty,
-  Input,
-  Pagination,
-  Select,
-  Space,
-  Spin,
-  Tree,
-} from 'antd';
+import { Alert, Breadcrumb, Button, Dropdown, Empty, Input, Pagination, Select, Space, Spin, Tree } from 'antd';
+import Drawer from '@/components/DraggableDrawer';
 import type { DataNode } from 'antd/es/tree';
 import {
   AppstoreOutlined,

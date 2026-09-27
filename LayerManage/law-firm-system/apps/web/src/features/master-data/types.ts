@@ -25,7 +25,7 @@ export type ProfessionalTeamPage = Page<ProfessionalTeam>;
 export interface CreateOrganizationInput { managerEmployeeId?: string | null; code: string; name: string; type: Exclude<OrganizationType, 'FIRM'>; parentId: string; sort?: number }
 export interface UpdateOrganizationInput extends VersionedMutation { managerEmployeeId?: string | null; name?: string; sort?: number }
 export interface CreatePositionInput { organizationId: string; code: string; name: string; categoryCode: string; level: number; responsibilities?: string | null }
-export interface UpdatePositionInput extends VersionedMutation { name?: string; categoryCode?: string; level?: number; responsibilities?: string | null }
+export interface UpdatePositionInput extends VersionedMutation { code?: string; name?: string; categoryCode?: string; level?: number; responsibilities?: string | null }
 export interface CreateEmployeeInput { employeeNo: string; name: string; phone: string; email?: string | null; idCard?: string | null; licenseNo?: string | null; employeeType: string; professionalDirections?: string[]; entryDate: string; primaryOrganizationId: string; primaryPositionId: string }
 export interface UpdateEmployeeInput extends VersionedMutation { name?: string; phone?: string; email?: string | null; idCard?: string | null; licenseNo?: string | null; employeeType?: string; professionalDirections?: string[] }
 export interface CreateProfessionalTeamInput { code: string; name: string; categoryCode: string; homeOrganizationId: string; description?: string | null }

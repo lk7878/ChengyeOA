@@ -1,7 +1,8 @@
 import Modal from '@/components/DraggableModal';
 import { businessSources } from '@/features/crm/business-sources';
 import { useState, type ReactNode } from 'react';
-import { Alert, Avatar, Breadcrumb, Button, Drawer, Dropdown, Empty, Input, Result, Spin } from 'antd';
+import { Alert, Avatar, Breadcrumb, Button, Dropdown, Empty, Input, Result, Spin } from 'antd';
+import Drawer from '@/components/DraggableDrawer';
 import {
   AppstoreOutlined,
   BellOutlined,

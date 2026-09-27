@@ -1,13 +1,14 @@
-import { categoryLabel, positionCodeLabel } from '@/locales/business-labels';
+import { categoryLabel } from '@/locales/business-labels';
 import Table from '@/components/ResizableTable';
 import { EditOutlined } from '@ant-design/icons';
 import { Button, Popconfirm, Tag, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import type { Position } from '../types';
+import type { Organization, Position } from '../types';
 
-export default function PositionTable({ data, loading, onEdit, onToggle, onRetry, onDelete }: { data: Position[]; loading: boolean; onEdit: (position: Position) => void; onToggle: (position: Position) => void; onRetry: () => void; onDelete?: (position: Position) => void }) {
+export default function PositionTable({ data, organizations = [], loading, onEdit, onToggle, onRetry, onDelete }: { organizations?: Organization[]; data: Position[]; loading: boolean; onEdit: (position: Position) => void; onToggle: (position: Position) => void; onRetry: () => void; onDelete?: (position: Position) => void }) {
+  function branchName(id: string) { const org = organizations.find(item => item.id === id); return organizations.filter(item => ['FIRM', 'BRANCH'].includes(item.type) && (item.id === id || org?.path.startsWith(item.path + '/'))).sort((a,b) => b.level-a.level)[0]?.name ?? '—'; }
   const columns: ColumnsType<Position> = [
-    { title: '岗位编码', dataIndex: 'code', width: 200, render: (code, position) => <Tooltip title={`内部编码：${code}`}><span>{positionCodeLabel(code, position.name)}</span></Tooltip> }, { title: '岗位名称', dataIndex: 'name' },
+    { title: '所属分所', dataIndex: 'organizationId', render: branchName }, { title: '所属部门', dataIndex: 'organizationId', render: id => { const org = organizations.find(item => item.id === id); return org && !['FIRM', 'BRANCH'].includes(org.type) ? org.name : '—'; } }, { title: '岗位编号', dataIndex: 'code', width: 200 }, { title: '岗位名称', dataIndex: 'name' },
     { title: '岗位分类', dataIndex: 'categoryCode', width: 160, render: code => <Tooltip title={`分类编码：${code}`}><span>{categoryLabel(code)}</span></Tooltip> }, { title: '级别', dataIndex: 'level', width: 80 },
     { title: '在任人数', dataIndex: 'activeAssignmentCount', width: 100 },
     { title: '状态', dataIndex: 'status', width: 90, render: value => <Tag color={value === 'ENABLED' ? 'green' : 'default'}>{value === 'ENABLED' ? '启用' : '停用'}</Tag> },

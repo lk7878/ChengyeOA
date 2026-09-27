@@ -1,9 +1,8 @@
 import { businessLabel } from '@/locales/business-labels';
 import Table from '@/components/ResizableTable';
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Button, DatePicker, Drawer, Form, Input, message, Select, Space, Switch, Tabs, Tag, Tree,
-} from 'antd';
+import { Button, DatePicker, Form, Input, message, Select, Space, Switch, Tabs, Tag, Tree } from 'antd';
+import Drawer from '@/components/DraggableDrawer';
 import Modal from '@/components/DraggableModal';
 import { EditOutlined, PlusOutlined, ReloadOutlined, SaveOutlined, UserAddOutlined } from '@ant-design/icons';
 import {

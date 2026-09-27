@@ -88,8 +88,8 @@ export class CollaborationService {
       }),
     ]);
     for (const assignment of assignments) {
-      if (assignment.organization.status !== 'ENABLED' || assignment.position.status !== 'ENABLED') continue;
-      result.push({ principalType: 'POSITION', principalId: assignment.positionId });
+      if (assignment.organization.status !== 'ENABLED') continue;
+      if (assignment.position.status === 'ENABLED' && !assignment.position.deletedAt) result.push({ principalType: 'POSITION', principalId: assignment.positionId });
       const ancestors = await tx.organization.findMany({
         where: {
           status: 'ENABLED',

@@ -233,7 +233,11 @@ function setAuthenticationCookies(ctx: Context, refreshToken: string, csrfToken:
     signed: false,
   };
   ctx.cookies.set('chengye_refresh', refreshToken, { ...common, httpOnly: true });
+  // The SPA reads the CSRF token from every page before refreshing its session.
+  // Keep the HttpOnly refresh credential restricted to the authentication path.
+  // Synchronize the legacy path too: existing browsers may still send it first.
   ctx.cookies.set('chengye_csrf', csrfToken, { ...common, httpOnly: false });
+  ctx.cookies.set('chengye_csrf', csrfToken, { ...common, path: '/', overwrite: false, httpOnly: false });
 }
 
 function clearAuthenticationCookies(ctx: Context): void {
@@ -247,4 +251,5 @@ function clearAuthenticationCookies(ctx: Context): void {
   };
   ctx.cookies.set('chengye_refresh', null, { ...common, httpOnly: true });
   ctx.cookies.set('chengye_csrf', null, { ...common, httpOnly: false });
+  ctx.cookies.set('chengye_csrf', null, { ...common, path: '/', overwrite: false, httpOnly: false });
 }

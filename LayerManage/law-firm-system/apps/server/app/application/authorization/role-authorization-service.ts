@@ -3,7 +3,8 @@ import { AuthorizationError, AUTHORIZATION_CODES, authorizationInputError } from
 import { assertAuthorizationExactKeys } from '../../domain/authorization/authorization-validation';
 import { FIELD_CATALOG } from '../../domain/authorization/field-security-policy';
 import { PERMISSION_CATALOG } from '../../domain/authorization/permission-catalog';
-import { FieldReadLevel, PermissionCode } from '../../domain/authorization/authorization-types';
+import { SYSTEM_ADMIN_PERMISSION_CODES } from '../../domain/admin-governance/system-admin-permissions';
+import { FieldReadLevel, PermissionCode, ResourceCode, RESOURCE_CODES } from '../../domain/authorization/authorization-types';
 import { MasterDataError } from '../../domain/master-data/master-data-errors';
 import {
   normalizeName,
@@ -14,11 +15,10 @@ import {
 } from '../../domain/master-data/master-data-validation';
 import { AuditActor } from '../master-data/master-data-types';
 import { writeAuthorizationAudit } from './authorization-audit';
-import { SCOPEABLE_RESOURCES, ScopeableResourceCode } from './resource-scope-resolvers';
 
 const RESERVED_ROLE_CODES = new Set(['SYSTEM_SUPER_ADMIN', 'SYSTEM_ADMIN']);
 const GOVERNANCE_RESOURCES = new Set(['role', 'user_role', 'permission', 'temporary_grant', 'config']);
-const TEAM_RESOURCES = new Set<ScopeableResourceCode>([
+const TEAM_RESOURCES = new Set<ResourceCode>([
   'employee', 'professional_team', 'professional_team_member', 'user',
 ]);
 
@@ -68,7 +68,7 @@ export interface UpdateBusinessRoleInput {
 }
 
 export interface ResourceScopeBindingInput {
-  resource: ScopeableResourceCode;
+  resource: ResourceCode;
   dataScopeId: string;
 }
 
@@ -284,7 +284,11 @@ function roleView(role: RoleRecord): RoleAuthorizationView {
     description: role.description,
     status: role.status,
     version: role.version,
-    permissionCodes: role.permissions.map(item => item.permission.code as PermissionCode).sort(),
+    permissionCodes: role.type === 'SYSTEM' && role.code === 'SYSTEM_SUPER_ADMIN'
+      ? PERMISSION_CATALOG.map(item => item.code).sort()
+      : role.type === 'SYSTEM' && role.code === 'SYSTEM_ADMIN'
+        ? [...SYSTEM_ADMIN_PERMISSION_CODES].sort()
+        : role.permissions.map(item => item.permission.code as PermissionCode).sort(),
     dataScopeBindings: role.dataScopes.map(item => ({
       resource: item.resource,
       dataScopeId: item.dataScope.id,
@@ -314,12 +318,12 @@ function normalizePermissionCodes(value: unknown): PermissionCode[] {
 
 function normalizeBindings(value: unknown): ResourceScopeBindingInput[] {
   if (!Array.isArray(value) || value.length > 1000) authorizationInputError();
-  const allowedResources = new Set<string>(SCOPEABLE_RESOURCES);
+  const allowedResources = new Set<string>(RESOURCE_CODES.filter(resource => resource !== 'menu' && !GOVERNANCE_RESOURCES.has(resource)));
   const bindings = value.map(item => {
     assertAuthorizationExactKeys(item, ['resource', 'dataScopeId']);
     if (typeof item.resource !== 'string' || !allowedResources.has(item.resource)) authorizationInputError();
     return {
-      resource: item.resource as ScopeableResourceCode,
+      resource: item.resource as ResourceCode,
       dataScopeId: authorizationValue(() => normalizeRequiredText(item.dataScopeId, 1, 200)),
     };
   });
@@ -352,7 +356,7 @@ function normalizeFields(value: unknown): FieldPermissionInput[] {
   return fields;
 }
 
-function scopeCompatible(resource: ScopeableResourceCode, scopeType: string): boolean {
+function scopeCompatible(resource: ResourceCode, scopeType: string): boolean {
   if (scopeType === 'TEAM') return TEAM_RESOURCES.has(resource);
   if (scopeType === 'SELF' || scopeType === 'SELF_AND_SUBORDINATES') return resource !== 'organization';
   return ['ALL', 'HQ_SCOPE', 'ORG', 'BRANCH', 'CUSTOM'].includes(scopeType);

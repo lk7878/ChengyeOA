@@ -1,5 +1,6 @@
 import Table from '@/components/ResizableTable';
-import { Button, Descriptions, Drawer, Popconfirm, Space, Tabs, Tag } from 'antd';
+import { Button, Descriptions, Popconfirm, Space, Tabs, Tag } from 'antd';
+import Drawer from '@/components/DraggableDrawer';
 import type { EmployeeAssignment, EmployeeDetail } from '../types';
 import AccountBindingPanel from './AccountBindingPanel';
 import type { SelectOption } from './EmployeeForm';

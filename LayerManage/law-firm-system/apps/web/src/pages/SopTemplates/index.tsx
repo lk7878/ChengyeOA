@@ -1,6 +1,7 @@
 import Modal from '@/components/DraggableModal';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Button, Drawer, Form, Input, Select, Space, Table, Tag, message } from 'antd';
+import { Alert, Button, Form, Input, Select, Space, Table, Tag, message } from 'antd';
+import Drawer from '@/components/DraggableDrawer';
 import { Link, useSearchParams } from 'react-router';
 import { useAuthStore } from '@/stores/authStore';
 import {

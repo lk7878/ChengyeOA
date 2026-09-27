@@ -156,6 +156,31 @@ export class UserGrantService {
     }));
   }
 
+  async replaceBusinessRoles(userId: string, input: { roleIds: string[] }): Promise<void> {
+    this.assertMayManage(userId);
+    assertAuthorizationExactKeys(input, ['roleIds']);
+    if (!Array.isArray(input.roleIds) || input.roleIds.some(id => typeof id !== 'string' || !id.trim()) || new Set(input.roleIds).size !== input.roleIds.length) inputInvalid();
+    await this.mapOverlap(() => this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "user" WHERE "id" = ${userId} FOR UPDATE`;
+      const user = await tx.user.findUnique({ where: { id: userId } });
+      if (!user) objectNotFound();
+      if (user.status !== 'ENABLED') inUse();
+      const roles = await tx.role.findMany({ where: { id: { in: input.roleIds } } });
+      if (roles.length !== input.roleIds.length) objectNotFound();
+      if (roles.some(role => role.type !== 'BUSINESS' || ['SYSTEM_SUPER_ADMIN', 'SYSTEM_ADMIN'].includes(role.code))) escalationBlocked();
+      if (roles.some(role => role.status !== 'ENABLED')) inUse();
+      const now = new Date();
+      const current = await tx.userRole.findMany({ where: { userId, revokedAt: null, role: { type: 'BUSINESS' }, OR: [{ validUntil: null }, { validUntil: { gt: now } }] } });
+      for (const grant of current.filter(grant => !input.roleIds.includes(grant.roleId))) {
+        await tx.userRole.update({ where: { id: grant.id }, data: { revokedAt: now, revokedByUserId: this.actor.userId, revokeReason: '账号管理调整业务角色授权', version: { increment: 1 } } });
+      }
+      for (const roleId of input.roleIds.filter(id => !current.some(grant => grant.roleId === id))) {
+        await tx.userRole.create({ data: { userId, roleId, source: 'PERMANENT', validFrom: now, grantedByUserId: this.actor.userId } });
+      }
+      await writeAuthorizationAudit(tx, { actorUserId: this.actor.userId, action: 'REPLACE_BUSINESS_ROLES', targetType: 'USER_ROLE_GRANT', targetId: userId, changes: { userId, roleIds: input.roleIds }, ip: this.ip });
+    }));
+  }
+
   async revokeRole(
     userId: string,
     grantId: string,

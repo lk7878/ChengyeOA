@@ -45,6 +45,14 @@ function errorStatus(error: unknown): number | undefined {
 export default function EmployeePage() {
   const canDelete = useAuthStore((state) => Boolean(state.authorization?.isSystemSuperAdmin));
   const [deleteTarget, setDeleteTarget] = useState<EmployeeListItem | null>(null);
+  const [recipientUserId, setRecipientUserId] = useState<string>();
+  const [recipientOptions, setRecipientOptions] = useState<SelectOption[]>([]);
+  async function searchRecipients(keyword = '', excludedEmployeeId = deleteTarget?.id) {
+    try {
+      const response = await userApi.list({ page: 1, pageSize: 100, status: 'ENABLED', keyword: keyword || undefined });
+      setRecipientOptions(response.data.list.filter(user => user.employee && user.employee.id !== excludedEmployeeId).map(user => ({ value: user.id, label: `${user.employee?.name} · ${user.username}` })));
+    } catch (error) { showRequestError(error, '接收人加载失败'); }
+  }
   const [deleting, setDeleting] = useState(false);
   const canReadOrganizations = useAuthStore((state) => state.hasPermission('organization.read'));
   const canReadPositions = useAuthStore((state) => state.hasPermission('position.read'));
@@ -242,6 +250,7 @@ export default function EmployeePage() {
       await masterDataApi.employees.remove(deleteTarget.id, {
         version: deleteTarget.version,
         confirmed: true,
+        recipientUserId,
       });
       message.success('员工档案已删除，工号可供新员工使用');
       if (detail?.id === deleteTarget.id) setDetail(null);
@@ -536,7 +545,7 @@ export default function EmployeePage() {
                   onClick={() => void openDetail(row)}
                 />
                 {canDelete && (
-                  <Button danger aria-label={`删除${row.name}`} onClick={() => setDeleteTarget(row)}>
+                  <Button danger aria-label={`删除${row.name}`} onClick={() => { setDeleteTarget(row); setRecipientUserId(undefined); void searchRecipients('', row.id); }}>
                     删除
                   </Button>
                 )}
@@ -555,6 +564,7 @@ export default function EmployeePage() {
         cancelText="取消"
         okButtonProps={{ danger: true }}
       >
+        <Form layout="vertical"><Form.Item label="资源接收人" extra="将全部拥有的文档（包含未分享的个人文档）转交给所选人员。有资源时必须选择。"><Select aria-label="资源接收人" showSearch allowClear filterOption={false} value={recipientUserId} options={recipientOptions} onSearch={keyword => void searchRecipients(keyword)} onChange={setRecipientUserId} /></Form.Item></Form>
         <p>
           确认删除“{deleteTarget?.name}”（工号：{deleteTarget?.employeeNo}）的档案？
         </p>

@@ -1,9 +1,8 @@
 import { businessLabel } from '@/locales/business-labels';
 import Table from '@/components/ResizableTable';
 import { useEffect, useState } from 'react';
-import {
-  Button, DatePicker, Drawer, Form, Input, message, Segmented, Select, Space, Tabs, Tag,
-} from 'antd';
+import { Button, DatePicker, Form, Input, message, Segmented, Select, Space, Tabs, Tag } from 'antd';
+import Drawer from '@/components/DraggableDrawer';
 import Modal from '@/components/DraggableModal';
 import { ReloadOutlined, SafetyCertificateOutlined, StopOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';

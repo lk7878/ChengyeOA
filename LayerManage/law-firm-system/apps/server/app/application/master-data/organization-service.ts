@@ -320,7 +320,7 @@ export class OrganizationService {
         children: { where: scopeWhere, orderBy: [{ sort: 'asc' }, { code: 'asc' }] },
         _count: {
           select: {
-            positions: true,
+            positions: { where: { deletedAt: null } },
             assignments: { where: { endedAt: null } },
           },
         },
@@ -402,7 +402,7 @@ export class OrganizationService {
         if (parent.status !== 'ENABLED' || !canParent(asOrganizationType(parent.type), type)) hierarchyInvalid();
         const nodes = await tx.organization.findMany({ where: { OR: [{ id: sourceId }, { path: { startsWith: `${source.path}/` } }] }, orderBy: [{ level: 'asc' }, { sort: 'asc' }, { id: 'asc' }] });
         if (nodes.some(node => node.parentId === sourceId && !canParent(type, asOrganizationType(node.type)))) hierarchyInvalid();
-        const positions = await tx.position.findMany({ where: { organizationId: { in: nodes.map(node => node.id) } } });
+        const positions = await tx.position.findMany({ where: { organizationId: { in: nodes.map(node => node.id) }, deletedAt: null } });
         const managerEmployeeId = await validateManager(tx, input.managerEmployeeId);
         const copies = new Map<string, Organization>();
         for (const node of nodes) {

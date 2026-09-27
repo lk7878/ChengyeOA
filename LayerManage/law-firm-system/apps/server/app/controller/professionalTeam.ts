@@ -13,6 +13,12 @@ import {
 import { MasterDataError } from '../domain/master-data/master-data-errors';
 
 export default class ProfessionalTeamController extends Controller {
+  async destroy() {
+    const input = this.ctx.request.body;
+    assertExactKeys(input, ['version']);
+    await professionalTeamService(this.ctx).remove(this.ctx.params.id, normalizeVersion(input.version));
+    this.respond(null);
+  }
   async index() {
     const query = this.ctx.query;
     assertExactKeys(query, ['page', 'pageSize', 'keyword', 'categoryCode', 'homeOrganizationId', 'status']);

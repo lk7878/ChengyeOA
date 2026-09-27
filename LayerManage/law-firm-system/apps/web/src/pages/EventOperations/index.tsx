@@ -1,20 +1,7 @@
 import Table from '@/components/ResizableTable';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Card,
-  Descriptions,
-  Drawer,
-  Empty,
-  Input,
-  Space,
-  Spin,
-  Statistic,
-  Tabs,
-  Tag,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Descriptions, Empty, Input, Space, Spin, Statistic, Tabs, Tag, message } from 'antd';
+import Drawer from '@/components/DraggableDrawer';
 import type { TableProps } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import StepUpDialog from '@/features/auth/components/StepUpDialog';

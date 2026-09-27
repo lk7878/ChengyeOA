@@ -34,7 +34,7 @@ export const userApi = {
 export const roleApi = {
   // 角色列表
   list: () =>
-    request.get<ApiResponse<PaginatedData<Role>>>('/v1/roles'),
+    request.get<ApiResponse<PaginatedData<Role>>>('/v1/roles', { params: { pageSize: 100 } }),
 
   // 角色详情
   detail: (id: string) =>

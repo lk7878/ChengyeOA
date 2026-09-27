@@ -1,4 +1,6 @@
-.oa-draggable-modal .ant-modal-header {
+.oa-modal-drag-surface .ant-modal-header,
+.oa-modal-drag-surface .ant-drawer-header,
+.oa-modal-drag-surface .ant-modal-confirm-title {
   cursor: move;
   touch-action: none;
   user-select: none;

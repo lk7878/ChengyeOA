@@ -93,7 +93,7 @@ export async function updatePositionTx(
   input: { responsibilities: string | null; version: number },
 ): Promise<PositionView> {
   const before = await tx.position.findUnique({ where: { id } });
-  if (!before) positionNotFound();
+  if (!before || before.deletedAt) positionNotFound();
   const changed = await tx.position.updateMany({
     where: { id, version: input.version },
     data: { responsibilities: input.responsibilities, version: { increment: 1 } },
@@ -120,7 +120,7 @@ export async function setPositionStatusTx(
   version: number,
 ): Promise<PositionView> {
   const before = await tx.position.findUnique({ where: { id } });
-  if (!before) positionNotFound();
+  if (!before || before.deletedAt) positionNotFound();
   if (before.version !== version) versionConflict();
   if (status === 'DISABLED') {
     const activeAssignment = await tx.employeeAssignment.findFirst({
@@ -154,7 +154,7 @@ export async function updateProfessionalTeamTx(
   input: { description: string | null; version: number },
 ): Promise<ProfessionalTeamDetail> {
   const before = await tx.professionalTeam.findUnique({ where: { id } });
-  if (!before) teamNotFound();
+  if (!before || before.deletedAt) teamNotFound();
   const changed = await tx.professionalTeam.updateMany({
     where: { id, version: input.version },
     data: { description: input.description, version: { increment: 1 } },
@@ -181,7 +181,7 @@ export async function setProfessionalTeamStatusTx(
 ): Promise<ProfessionalTeamDetail> {
   await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "professional_team" WHERE "id" = ${id} FOR UPDATE`);
   const before = await tx.professionalTeam.findUnique({ where: { id } });
-  if (!before) teamNotFound();
+  if (!before || before.deletedAt) teamNotFound();
   if (before.version !== version) versionConflict();
   if (status === 'DISABLED') {
     const activeMember = await tx.professionalTeamMember.findFirst({

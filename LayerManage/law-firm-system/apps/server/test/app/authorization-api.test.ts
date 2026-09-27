@@ -67,6 +67,20 @@ test('requires authentication and explicit action permission for authorization A
   assert.equal(denied.body.message, 'PERMISSION_DENIED');
 });
 
+test('account role assignment endpoint preserves history and refuses system-role escalation', async () => {
+  const user = await prisma.user.create({ data: { username: 'assign-account', password: 'unused' } });
+  const role = await prisma.role.create({ data: { code: 'ASSIGN_BUSINESS', name: '分配角色验收', type: 'BUSINESS' } });
+  await app.httpRequest().post(`/api/v1/users/${user.id}/roles`).set(bearer()).send({ roleIds: [role.id] }).expect(200);
+  assert.equal(await prisma.userRole.count({ where: { userId: user.id, roleId: role.id, revokedAt: null } }), 1);
+  await app.httpRequest().post(`/api/v1/users/${user.id}/roles`).set(bearer()).send({ roleIds: [] }).expect(200);
+  assert.equal(await prisma.userRole.count({ where: { userId: user.id, roleId: role.id } }), 1);
+  assert.equal(await prisma.userRole.count({ where: { userId: user.id, revokedAt: null } }), 0);
+  const root = await prisma.role.findUniqueOrThrow({ where: { code: 'SYSTEM_SUPER_ADMIN' } });
+  await app.httpRequest().post(`/api/v1/users/${user.id}/roles`).set(bearer()).send({ roleIds: [root.id] }).expect(403);
+  const response = await app.httpRequest().get(`/api/v1/roles/${root.id}`).set(bearer()).expect(200);
+  assert.ok(response.body.data.permissionCodes.includes('position.delete'));
+});
+
 test('lists safe field and data-scope catalogs for authorization editors', async () => {
   const organizationId = randomUUID();
   const organization = await prisma.organization.create({ data: {
@@ -320,7 +334,8 @@ test('does not expose legacy destructive authorization endpoints', async () => {
   const role = await prisma.role.create({ data: { name: 'Legacy Block', code: 'LEGACY_BLOCK', type: 'BUSINESS' } });
   const target = await prisma.user.create({ data: { username: 'legacy.target', password: 'not-used' } });
   await app.httpRequest().delete(`/api/v1/roles/${role.id}`).set(bearer()).expect(404);
-  await app.httpRequest().post(`/api/v1/users/${target.id}/roles`).set(bearer()).send({ roleIds: [] }).expect(404);
+  // Role assignment is now a supported, audited command (covered above).
+  await app.httpRequest().post(`/api/v1/users/${target.id}/roles`).set(bearer()).send({ roleIds: [] }).expect(200);
   await app.httpRequest().post(`/api/v1/roles/${role.id}/permissions`).set(bearer()).send({ permissionIds: [] }).expect(404);
   assert.ok(await prisma.role.findUnique({ where: { id: role.id } }));
   assert.equal(superAdminId === target.id, false);

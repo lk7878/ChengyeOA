@@ -1,4 +1,5 @@
 import { Employee, Prisma, PrismaClient } from '@prisma/client';
+import { transferEmployeeResources } from './employee-resource-transfer';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
 import { FieldProjectionService } from '../authorization/field-projection-service';
@@ -138,10 +139,11 @@ export class EmployeeService {
     return this.project(detail, 'EMPLOYEE_LEAVE');
   }
 
-  async remove(id: string, input: { version: number; confirmed: true }): Promise<void> {
+  async remove(id: string, input: { version: number; confirmed: true; recipientUserId?: string }): Promise<void> {
     if (!this.authorizationContext.isSystemSuperAdmin) throw new MasterDataError('SUPER_ADMIN_REQUIRED', 403);
     this.authorization.requireAction(this.authorizationContext, 'employee.leave');
-    assertExactKeys(input, ['version', 'confirmed']);
+    assertExactKeys(input, ['version', 'confirmed', 'recipientUserId']);
+    const recipientUserId = input.recipientUserId === undefined ? undefined : normalizeRequiredText(input.recipientUserId, 1, 100);
     if (input.confirmed !== true) validationFailed();
     const version = normalizeVersion(input.version);
     if (this.authorizationContext.employeeId === id) throw new MasterDataError('EMPLOYEE_DELETE_SELF', 409);
@@ -151,10 +153,11 @@ export class EmployeeService {
         if (before.version !== version) versionConflict();
         const selfAccount = await tx.user.findFirst({ where: { id: this.actor.actorUserId, employeeId: id }, select: { id: true } });
         if (selfAccount) throw new MasterDataError('EMPLOYEE_DELETE_SELF', 409);
+        const transferred = await transferEmployeeResources(tx, id, recipientUserId);
         const now = new Date();
         await endEmploymentTx(tx, before, before.leaveDate ?? (before.entryDate > now ? before.entryDate : now), now);
         const after = await tx.employee.findUniqueOrThrow({ where: { id } });
-        await writeMasterDataAudit(tx, { ...this.actor, action: 'DELETE', targetType: 'EMPLOYEE', targetId: id, before: employeeAudit(before), after: employeeAudit(after) });
+        await writeMasterDataAudit(tx, { ...this.actor, action: 'DELETE', targetType: 'EMPLOYEE', targetId: id, before: employeeAudit(before), after: { ...employeeAudit(after), transferred } });
       });
     } catch (error) {
       if (error instanceof MasterDataError && error.code === 'MASTER_DATA_IN_USE') throw new MasterDataError('EMPLOYEE_DELETE_IN_USE', 409);

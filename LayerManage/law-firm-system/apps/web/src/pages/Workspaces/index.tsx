@@ -10,27 +10,8 @@ import { BusinessRecord } from '@/features/workspaces/BusinessRecord';
 import { ResourceAccess } from '@/features/workspaces/ResourceAccess';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import {
-  Alert,
-  Avatar,
-  Button,
-  Checkbox,
-  Drawer,
-  Dropdown,
-  Empty,
-  Form,
-  Input,
-  InputNumber,
-  Pagination,
-  Select,
-  Space,
-  Spin,
-  Table,
-  Tabs,
-  Tag,
-  Tooltip,
-  message,
-} from 'antd';
+import { Alert, Avatar, Button, Checkbox, Dropdown, Empty, Form, Input, InputNumber, Pagination, Select, Space, Spin, Table, Tabs, Tag, Tooltip, message } from 'antd';
+import Drawer from '@/components/DraggableDrawer';
 import {
   AppstoreOutlined,
   ArrowLeftOutlined,

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Button, Drawer, Input, message, Space } from 'antd';
+import { Button, Input, message, Space } from 'antd';
+import Drawer from '@/components/DraggableDrawer';
 import { EyeOutlined, LockOutlined } from '@ant-design/icons';
 import { masterDataApi } from '../api';
 

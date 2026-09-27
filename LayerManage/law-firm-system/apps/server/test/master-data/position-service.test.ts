@@ -18,24 +18,26 @@ const POSITION_PERMISSIONS: PermissionCode[] = [
   'position.read',
   'position.create',
   'position.update',
+  'position.delete',
   'position.status.manage',
 ];
 
 test('deletes unused positions with version and administrator protection and writes an audit', async () => {
   const position = await createPosition();
-  const denied = new PositionService(prisma, { actorUserId: 'position-test-actor' }, { ...authorizationContext(POSITION_PERMISSIONS), isSystemSuperAdmin: false });
-  await assert.rejects(() => denied.remove(position.id, position.version), hasCode('SUPER_ADMIN_REQUIRED'));
+  const denied = new PositionService(prisma, { actorUserId: 'position-test-actor' }, { ...authorizationContext(POSITION_PERMISSIONS.filter(code => code !== 'position.delete')), isSystemSuperAdmin: false });
+  await assert.rejects(() => denied.remove(position.id, position.version), hasCode('PERMISSION_DENIED'));
   await assert.rejects(() => service.remove(position.id, 99), hasCode('VERSION_CONFLICT'));
   await service.remove(position.id, position.version);
-  assert.equal(await prisma.position.findUnique({ where: { id: position.id } }), null);
+  assert.ok((await prisma.position.findUniqueOrThrow({ where: { id: position.id } })).deletedAt);
+  assert.equal((await service.list({})).length, 0);
   assert.equal(await prisma.operationLog.count({ where: { targetId: position.id, targetType: 'POSITION', action: 'DELETE' } }), 1);
 });
 
-test('positions with ended assignment history cannot be deleted', async () => {
+test('deletes positions while preserving ended assignment history', async () => {
   const position = await createPosition();
   const employee = await prisma.employee.create({ data: { employeeNo: 'HISTORY-001', name: 'Old employee', phone: '13800000000', type: 'LAWYER', status: 'LEAVED', entryDate: new Date('2026-01-01') } });
   await prisma.employeeAssignment.create({ data: { employeeId: employee.id, organizationId: position.organizationId, positionId: position.id, assignmentType: 'PRIMARY', startedAt: new Date('2026-01-01'), endedAt: new Date('2026-08-01') } });
-  await assert.rejects(() => service.remove(position.id, position.version), hasCode('POSITION_DELETE_IN_USE'));
+  await service.remove(position.id, position.version);
   assert.equal(await prisma.employeeAssignment.count({ where: { positionId: position.id } }), 1);
   assert.ok(await prisma.position.findUnique({ where: { id: position.id } }));
 });
@@ -146,18 +148,16 @@ test('rejects creation and enable when the owning organization is disabled', asy
   await assert.rejects(() => service.enable(position.id, 1), hasCode('MASTER_DATA_IN_USE'));
 });
 
-test('keeps organization and code immutable while updating normalized mutable fields', async () => {
+test('keeps organization immutable and supports a custom position code', async () => {
   const position = await createPosition();
   await assert.rejects(
     () => service.update(position.id, { organizationId: rootId, name: 'Moved', version: 1 } as never),
     hasCode('VALIDATION_FAILED'),
   );
-  await assert.rejects(
-    () => service.update(position.id, { code: 'CHANGED', name: 'Changed', version: 1 } as never),
-    hasCode('VALIDATION_FAILED'),
-  );
+
 
   const updated = await service.update(position.id, {
+    code: '律师-2026',
     name: '  Senior Lawyer  ',
     categoryCode: ' senior_legal ',
     level: 3,
@@ -165,7 +165,7 @@ test('keeps organization and code immutable while updating normalized mutable fi
     version: 1,
   });
   assert.equal(updated.organizationId, branchId);
-  assert.equal(updated.code, 'LAWYER');
+  assert.equal(updated.code, '律师-2026');
   assert.equal(updated.name, 'Senior Lawyer');
   assert.equal(updated.categoryCode, 'SENIOR_LEGAL');
   assert.equal(updated.responsibilities, 'Lead matters');
