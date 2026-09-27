@@ -28,7 +28,7 @@ interface AuthState {
   setUserInfo: (userInfo: UserInfo) => void;
   bootstrap: () => Promise<void>;
   clearSession: () => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   ensureAuthorization: (force?: boolean) => Promise<void>;
   hasPermission: (permission: PermissionCode) => boolean;
   hasAnyPermission: (permissions: PermissionCode[]) => boolean;
@@ -83,9 +83,11 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     });
   },
 
-  logout: () => {
+  logout: async () => {
+    // Revoke the server session and expire its cookies before clearing credentials.
+    // Otherwise the login page bootstrap immediately restores the same account.
+    await authApi.logout();
     get().clearSession();
-    window.location.href = '/login';
   },
 
   ensureAuthorization: async (force = false) => {

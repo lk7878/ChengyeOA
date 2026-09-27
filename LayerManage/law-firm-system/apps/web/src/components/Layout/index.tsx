@@ -189,7 +189,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
               menu={{
                 items: [
                   { key: 'account', label: <Link to="/security/account">账号安全</Link> },
-                  { key: 'logout', label: '退出登录', onClick: logout },
+                  { key: 'logout', label: '退出登录', onClick: () => { void logout().catch(() => { /* The request interceptor displays the failure; keep the session available for retry. */ }); } },
                 ],
               }}
               trigger={['click']}

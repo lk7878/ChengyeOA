@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { useAuthStore } from './authStore';
 import { runtimeSession } from '@/features/auth/runtime-session';
+import { authApi } from '@/api/auth';
 
 const authorizationMeMock = vi.hoisted(() => vi.fn());
 vi.mock('@/features/authorization/api', () => ({
@@ -11,6 +12,7 @@ vi.mock('@/features/authorization/api', () => ({
 }));
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   authorizationMeMock.mockReset();
   window.localStorage.clear();
   runtimeSession.clear();
@@ -19,6 +21,28 @@ beforeEach(() => {
     userInfo: { id: 'user-1', username: 'admin', name: 'Admin', roles: ['admin'], permissions: [] },
     authorization: null, authorizationStatus: 'idle',
   });
+});
+
+test('logout keeps credentials until the server revokes the session, then clears account and authorization', async () => {
+  runtimeSession.setAuthenticated({ token: 'access-token', csrfToken: 'csrf-token', expiresIn: 900 });
+  let complete!: (value: Awaited<ReturnType<typeof authApi.logout>>) => void;
+  const request = vi.spyOn(authApi, 'logout').mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+  const pending = useAuthStore.getState().logout();
+  expect(request).toHaveBeenCalledOnce();
+  expect(runtimeSession.getAccessToken()).toBe('access-token');
+  expect(useAuthStore.getState().isAuthenticated).toBe(true);
+  complete({ code: 200, message: 'success', data: null });
+  await pending;
+  expect(runtimeSession.getAccessToken()).toBeNull();
+  expect(useAuthStore.getState()).toMatchObject({ isAuthenticated: false, userInfo: null, authorization: null, bootstrapStatus: 'ready' });
+});
+
+test('a failed logout preserves the session so the user can retry', async () => {
+  runtimeSession.setAuthenticated({ token: 'access-token', csrfToken: 'csrf-token', expiresIn: 900 });
+  vi.spyOn(authApi, 'logout').mockRejectedValue(new Error('offline'));
+  await expect(useAuthStore.getState().logout()).rejects.toThrow('offline');
+  expect(runtimeSession.getAccessToken()).toBe('access-token');
+  expect(useAuthStore.getState().isAuthenticated).toBe(true);
 });
 
 test('stores authentication credentials only in runtime memory', () => {
