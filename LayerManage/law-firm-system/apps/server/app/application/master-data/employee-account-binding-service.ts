@@ -128,7 +128,7 @@ async function lockEmployee(tx: Prisma.TransactionClient, employeeId: string) {
 async function lockUser(tx: Prisma.TransactionClient, userId: string) {
   await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "user" WHERE "id" = ${userId} FOR UPDATE`);
   const user = await tx.user.findUnique({ where: { id: userId } });
-  if (!user) throw new MasterDataError('USER_NOT_FOUND', 404);
+  if (!user || user.status === 'DELETED') throw new MasterDataError('USER_NOT_FOUND', 404);
   return user;
 }
 

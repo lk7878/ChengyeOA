@@ -40,7 +40,7 @@ export const masterDataApi = {
     addAssignment: (id: string, data: { organizationId: string; positionId: string; assignmentType: Exclude<AssignmentType, 'PRIMARY'> }) => request.post<ApiResponse<EmployeeDetail>>(`/v1/employees/${id}/assignments`, data),
     endAssignment: (id: string, assignmentId: string, data: VersionedMutation) => request.post<ApiResponse<EmployeeDetail>>(`/v1/employees/${id}/assignments/${assignmentId}/end`, data),
     bindAccount: (id: string, data: { userId: string; employeeVersion: number }) => request.put<ApiResponse<EmployeeDetail>>(`/v1/employees/${id}/account-binding`, data),
-    unbindAccount: (id: string, data: VersionedMutation) => request.delete<ApiResponse<EmployeeDetail>>(`/v1/employees/${id}/account-binding`, { data }),
+    unbindAccount: (id: string, data: { employeeVersion: number }) => request.delete<ApiResponse<EmployeeDetail>>(`/v1/employees/${id}/account-binding`, { data }),
     viewSensitive: (id: string, fieldCodes: string[], purpose: string) => request.post<ApiResponse<Record<string, string | null>>>('/v1/authorization/sensitive-view', { resource: 'employee', resourceId: id, fieldCodes, purpose }),
   },
   professionalTeams: {

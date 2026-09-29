@@ -151,6 +151,7 @@ export default (app: Application) => {
   router.get('/api/v1/roles/:id/members', requireAnyPermission(['role.read', 'user_role.membership.manage']), controller.role.members);
   router.post('/api/v1/roles', requirePermission('role.create'), controller.role.create);
   router.patch('/api/v1/roles/:id', requirePermission('role.update'), controller.role.update);
+  router.delete('/api/v1/roles/:id', requirePermission('role.status.manage'), controller.role.destroy);
   router.post('/api/v1/roles/:id/disable', requirePermission('role.status.manage'), controller.role.disable);
   router.post('/api/v1/roles/:id/enable', requirePermission('role.status.manage'), controller.role.enable);
   router.put('/api/v1/roles/:id/permissions', requirePermission('role.permission.manage'), controller.role.replacePermissions);

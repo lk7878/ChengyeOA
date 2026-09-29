@@ -126,6 +126,8 @@ export class UserGrantService {
     this.assertMayManage(userId);
     const parsed = parseRoleGrantInput(input);
     return this.mapOverlap(async () => this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "user" WHERE "id" = ${userId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "role" WHERE "id" = ${roleId} FOR UPDATE`;
       const [user, role] = await Promise.all([
         tx.user.findUnique({ where: { id: userId } }),
         tx.role.findUnique({ where: { id: roleId } }),
@@ -165,6 +167,7 @@ export class UserGrantService {
       const user = await tx.user.findUnique({ where: { id: userId } });
       if (!user) objectNotFound();
       if (user.status !== 'ENABLED') inUse();
+      if (input.roleIds.length) await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "role" WHERE "id" IN (${Prisma.join(input.roleIds)}) ORDER BY "id" FOR UPDATE`);
       const roles = await tx.role.findMany({ where: { id: { in: input.roleIds } } });
       if (roles.length !== input.roleIds.length) objectNotFound();
       if (roles.some(role => role.type !== 'BUSINESS' || ['SYSTEM_SUPER_ADMIN', 'SYSTEM_ADMIN'].includes(role.code))) escalationBlocked();
@@ -217,6 +220,7 @@ export class UserGrantService {
     this.assertMayManage(userId);
     const parsed = parseSpecialGrantInput(input);
     return this.mapOverlap(async () => this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "user" WHERE "id" = ${userId} FOR UPDATE`;
       const [user, scope] = await Promise.all([
         tx.user.findUnique({ where: { id: userId } }),
         tx.dataScope.findUnique({ where: { id: parsed.dataScopeId } }),

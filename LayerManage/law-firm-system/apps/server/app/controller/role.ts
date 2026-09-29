@@ -33,6 +33,11 @@ export default class RoleController extends Controller {
     this.respond(await this.roleAuthorizationService().disable(this.ctx.params.id, this.ctx.request.body?.version));
   }
 
+  async destroy() {
+    await this.roleAuthorizationService().remove(this.ctx.params.id, this.ctx.request.body);
+    this.respond(null);
+  }
+
   async enable() {
     this.respond(await this.roleAuthorizationService().enable(this.ctx.params.id, this.ctx.request.body?.version));
   }

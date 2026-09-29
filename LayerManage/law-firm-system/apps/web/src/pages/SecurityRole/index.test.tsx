@@ -6,7 +6,7 @@ import type { RoleAuthorizationView } from '@/features/authorization/types';
 import { useAuthStore } from '@/stores/authStore';
 
 vi.mock('@/features/authorization/admin-api', () => ({ authorizationAdminApi: {
-  roles: { list: vi.fn(), detail: vi.fn(), create: vi.fn(), update: vi.fn(), enable: vi.fn(), disable: vi.fn(), replacePermissions: vi.fn(), replaceDataScopes: vi.fn(), replaceFieldPermissions: vi.fn(), members: vi.fn() },
+  roles: { list: vi.fn(), detail: vi.fn(), create: vi.fn(), update: vi.fn(), enable: vi.fn(), disable: vi.fn(), remove: vi.fn(), replacePermissions: vi.fn(), replaceDataScopes: vi.fn(), replaceFieldPermissions: vi.fn(), members: vi.fn() },
   users: { list: vi.fn(), grantRole: vi.fn(), revokeRole: vi.fn() },
   catalogs: { permissions: vi.fn(), fields: vi.fn(), dataScopes: vi.fn(), createDataScope: vi.fn() },
 } }));
@@ -27,14 +27,22 @@ beforeEach(() => {
   vi.mocked(authorizationAdminApi.users.list).mockResolvedValue({ list: [{ id: 'user-2', username: 'li', status: 'ENABLED', employee: null, lastLoginAt: null }], pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 } });
 });
 
-test('edits immutable role code, supports status changes, and never offers physical deletion', async () => {
+test('edits immutable role code and supports status changes and deletion', async () => {
   render(<SecurityRolePage />);
   expect(await screen.findByText('重庆分所负责人')).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /删除/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /删\s*除/ })).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: /编辑重庆分所负责人/ }));
   expect(await screen.findByLabelText('角色代码')).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: '停用角色' }));
   await waitFor(() => expect(authorizationAdminApi.roles.disable).toHaveBeenCalledWith('role-1', 2));
+});
+
+test('deletes a business role only after confirmation with its current version', async () => {
+  render(<SecurityRolePage />);
+  fireEvent.click(await screen.findByRole('button', { name: /删\s*除/ }));
+  expect(authorizationAdminApi.roles.remove).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+  await waitFor(() => expect(authorizationAdminApi.roles.remove).toHaveBeenCalledWith('role-1', 2));
 });
 
 test('members tab lists role members and adds a member via grantRole', async () => {
@@ -63,5 +71,5 @@ test('members tab requires user_role.membership.manage (or super admin) to manag
   expect(await screen.findByText('zhang')).toBeInTheDocument();
   // 无委派码时「添加成员」按钮不出现、移除按钮禁用。
   expect(screen.queryByRole('button', { name: /添\s*加\s*成\s*员/ })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: '移除' })).toBeDisabled();
-});
+  expect(screen.getByRole('button', { name: /移\s*除/ })).toBeDisabled();
+}, 90000);

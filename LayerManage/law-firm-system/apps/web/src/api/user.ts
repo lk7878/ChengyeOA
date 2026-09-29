@@ -23,8 +23,8 @@ export const userApi = {
     request.post<ApiResponse<null>>(`/v1/users/${id}/password-reset`, data),
 
   // 删除用户
-  delete: (id: string) =>
-    request.delete<ApiResponse<null>>(`/v1/users/${id}`),
+  delete: (id: string, data: { recipientUserId?: string } = {}) =>
+    request.delete<ApiResponse<null>>(`/v1/users/${id}`, { data }),
 
   // 分配角色
   assignRoles: (id: string, roleIds: string[]) =>
@@ -49,8 +49,8 @@ export const roleApi = {
     request.put<ApiResponse<Role>>(`/v1/roles/${id}`, data),
 
   // 删除角色
-  delete: (id: string) =>
-    request.delete<ApiResponse<null>>(`/v1/roles/${id}`),
+  delete: (id: string, version: number) =>
+    request.delete<ApiResponse<null>>(`/v1/roles/${id}`, { data: { version } }),
 
   // 分配权限
   assignPermissions: (id: string, permissionIds: string[]) =>

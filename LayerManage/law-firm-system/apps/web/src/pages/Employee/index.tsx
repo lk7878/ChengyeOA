@@ -434,7 +434,7 @@ export default function EmployeePage() {
   async function unbindAccount() {
     if (!detail) return;
     try {
-      await masterDataApi.employees.unbindAccount(detail.id, { version: detail.version });
+      await masterDataApi.employees.unbindAccount(detail.id, { employeeVersion: detail.version });
       await refreshDetail();
     } catch (error) {
       showRequestError(error, '解除绑定失败');

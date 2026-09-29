@@ -87,6 +87,7 @@ export class RoleAuthorizationService {
     const where: Prisma.RoleWhereInput = keyword
       ? { OR: [{ name: { contains: keyword } }, { code: { contains: keyword } }] }
       : {};
+    where.status = { not: 'DELETED' };
     const [total, roles] = await Promise.all([
       this.prisma.role.count({ where }),
       this.prisma.role.findMany({
@@ -215,6 +216,24 @@ export class RoleAuthorizationService {
     });
   }
 
+  async remove(id: string, input: { version: number }): Promise<void> {
+    assertAuthorizationExactKeys(input, ['version']);
+    const version = authorizationValue(() => normalizeVersion(input.version));
+    await this.prisma.$transaction(async tx => {
+      const role = await lockRole(tx, id);
+      assertBusinessRole(role);
+      if (role.version !== version) versionConflict();
+      // Include scheduled grants; expired and revoked grants remain as history.
+      const grant = await tx.userRole.findFirst({ where: {
+        roleId: id, revokedAt: null, user: { status: { not: 'DELETED' } },
+        OR: [{ validUntil: null }, { validUntil: { gt: new Date() } }],
+      }, select: { id: true } });
+      if (grant) inUse();
+      await tx.role.update({ where: { id }, data: { status: 'DELETED', version: { increment: 1 } } });
+      await writeAuthorizationAudit(tx, { ...this.actor, action: 'DELETE_ROLE', targetType: 'ROLE_AUTHORIZATION', targetId: id, changes: { status: 'DELETED', version: version + 1 } });
+    });
+  }
+
   async enable(id: string, versionValue: number): Promise<RoleAuthorizationView> {
     const version = authorizationValue(() => normalizeVersion(versionValue));
     return this.mutate(id, version, 'ENABLE_ROLE', async tx => {
@@ -260,7 +279,7 @@ export class RoleAuthorizationService {
 async function lockRole(tx: Prisma.TransactionClient, id: string): Promise<RoleRecord> {
   await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "role" WHERE "id" = ${id} FOR UPDATE`);
   const role = await tx.role.findUnique({ where: { id }, include: ROLE_INCLUDE });
-  if (!role) objectNotFound();
+  if (!role || role.status === 'DELETED') objectNotFound();
   return role;
 }
 
@@ -271,7 +290,7 @@ async function incrementRoleVersion(tx: Prisma.TransactionClient, id: string, ve
 
 async function loadView(client: PrismaClient | Prisma.TransactionClient, id: string): Promise<RoleAuthorizationView> {
   const role = await client.role.findUnique({ where: { id }, include: ROLE_INCLUDE });
-  if (!role) objectNotFound();
+  if (!role || role.status === 'DELETED') objectNotFound();
   return roleView(role);
 }
 

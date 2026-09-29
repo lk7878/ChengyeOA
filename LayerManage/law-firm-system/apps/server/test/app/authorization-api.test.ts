@@ -333,10 +333,57 @@ test('scopes user list and detail through bound employees while hiding unbound g
 test('does not expose legacy destructive authorization endpoints', async () => {
   const role = await prisma.role.create({ data: { name: 'Legacy Block', code: 'LEGACY_BLOCK', type: 'BUSINESS' } });
   const target = await prisma.user.create({ data: { username: 'legacy.target', password: 'not-used' } });
-  await app.httpRequest().delete(`/api/v1/roles/${role.id}`).set(bearer()).expect(404);
+  await app.httpRequest().delete(`/api/v1/roles/${role.id}`).set(bearer()).expect(400);
   // Role assignment is now a supported, audited command (covered above).
   await app.httpRequest().post(`/api/v1/users/${target.id}/roles`).set(bearer()).send({ roleIds: [] }).expect(200);
   await app.httpRequest().post(`/api/v1/roles/${role.id}/permissions`).set(bearer()).send({ permissionIds: [] }).expect(404);
   assert.ok(await prisma.role.findUnique({ where: { id: role.id } }));
   assert.equal(superAdminId === target.id, false);
+});
+
+test('retires disabled accounts with session and grant history without breaking references', async () => {
+  const role = await prisma.role.create({ data: { name: 'Removable', code: 'REMOVABLE', type: 'BUSINESS' } });
+  const employee = await prisma.employee.create({ data: { employeeNo: 'RETIRE', name: 'Retire employee', phone: '13800000000', type: 'ADMIN', status: 'FORMAL', entryDate: new Date() } });
+  const user = await prisma.user.create({ data: { username: 'retire-account', password: 'unused', employeeId: employee.id } });
+  const session = await createApiSession(prisma, user.id);
+  const grant = await prisma.userRole.create({ data: { userId: user.id, roleId: role.id, grantedByUserId: superAdminId } });
+  await app.httpRequest().delete(`/api/v1/users/${user.id}`).set(bearer()).expect(409);
+  await prisma.user.update({ where: { id: user.id }, data: { status: 'DISABLED' } });
+  await app.httpRequest().delete(`/api/v1/users/${user.id}`).set(bearer()).send({}).expect(200);
+  const removed = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+  assert.equal(removed.status, 'DELETED');
+  assert.equal(removed.employeeId, null);
+  assert.ok((await prisma.authSession.findUniqueOrThrow({ where: { id: session.sessionId } })).revokedAt);
+  assert.ok((await prisma.userRole.findUniqueOrThrow({ where: { id: grant.id } })).revokedAt);
+  await app.httpRequest().get(`/api/v1/users/${user.id}`).set(bearer()).expect(404);
+  await app.httpRequest().put(`/api/v1/users/${user.id}`).set(bearer()).send({ status: 'ENABLED' }).expect(404);
+  const list = await app.httpRequest().get('/api/v1/users?keyword=retire-account').set(bearer()).expect(200);
+  assert.equal(list.body.data.pagination.total, 0);
+  await app.httpRequest().get('/api/v1/authorization/me').set(bearer(session.token)).expect(401);
+  await app.httpRequest().delete(`/api/v1/roles/${role.id}`).set(bearer()).send({ version: role.version }).expect(200);
+  await app.httpRequest().get(`/api/v1/roles/${role.id}`).set(bearer()).expect(404);
+  await app.httpRequest().delete(`/api/v1/users/${superAdminId}`).set(bearer()).expect(409);
+  const protectedAccount = await prisma.user.create({ data: { username: 'disabled-super-admin', password: 'unused', status: 'DISABLED' } });
+  const rootRole = await prisma.role.findUniqueOrThrow({ where: { code: 'SYSTEM_SUPER_ADMIN' } });
+  await prisma.userRole.create({ data: { userId: protectedAccount.id, roleId: rootRole.id } });
+  await app.httpRequest().delete(`/api/v1/users/${protectedAccount.id}`).set(bearer()).expect(409);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: protectedAccount.id } })).status, 'DISABLED');
+});
+
+test('account retirement requires and atomically transfers private documents to an active employee', async () => {
+  const source = await prisma.user.create({ data: { username: 'private-owner', password: 'unused', status: 'DISABLED' } });
+  const employee = await prisma.employee.create({ data: { employeeNo: 'RECEIVER', name: 'Recipient', phone: '13800000000', type: 'ADMIN', status: 'FORMAL', entryDate: new Date() } });
+  const recipient = await prisma.user.create({ data: { username: 'recipient', password: 'unused', employeeId: employee.id } });
+  const organizationId = randomUUID();
+  await prisma.organization.create({ data: { id: organizationId, code: 'PRIVATE_ROOT', name: 'Root', type: 'FIRM', path: `/${organizationId}` } });
+  const workspace = await prisma.collabWorkspace.create({ data: { name: 'Private material', ownerId: source.id, organizationId } });
+  const node = await prisma.driveNode.create({ data: { workspaceId: workspace.id, ownerId: source.id, kind: 'FOLDER', folderName: 'Unshared', accessPolicy: { restricted: true, grants: [] } } });
+  await app.httpRequest().delete(`/api/v1/users/${source.id}`).set(bearer()).send({}).expect(409);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: source.id } })).status, 'DISABLED');
+  await app.httpRequest().delete(`/api/v1/users/${source.id}`).set(bearer()).send({ recipientUserId: 'missing' }).expect(400);
+  assert.equal((await prisma.driveNode.findUniqueOrThrow({ where: { id: node.id } })).ownerId, source.id);
+  await app.httpRequest().delete(`/api/v1/users/${source.id}`).set(bearer()).send({ recipientUserId: recipient.id }).expect(200);
+  assert.equal((await prisma.driveNode.findUniqueOrThrow({ where: { id: node.id } })).ownerId, recipient.id);
+  assert.equal((await prisma.collabWorkspace.findUniqueOrThrow({ where: { id: workspace.id } })).ownerId, recipient.id);
+  assert.equal((await prisma.collabMember.findFirstOrThrow({ where: { workspaceId: workspace.id, principalId: recipient.id } })).role, 'OWNER');
 });

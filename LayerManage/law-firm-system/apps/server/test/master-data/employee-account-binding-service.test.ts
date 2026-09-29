@@ -123,6 +123,12 @@ test('rejects binding when either the user or employee is already bound', async 
   );
 });
 
+test('deleted accounts cannot be rebound to an employee', async () => {
+  await prisma.user.update({ where: { id: userAId }, data: { status: 'DELETED' } });
+  await assert.rejects(() => service.bind(employeeAId, { userId: userAId, employeeVersion: 1 }), hasCode('USER_NOT_FOUND'));
+  assert.equal((await prisma.employee.findUniqueOrThrow({ where: { id: employeeAId } })).version, 1);
+});
+
 test('hides employees outside account-binding data scope before reading account state', async () => {
   const branchId = randomUUID();
   await prisma.organization.create({ data: {

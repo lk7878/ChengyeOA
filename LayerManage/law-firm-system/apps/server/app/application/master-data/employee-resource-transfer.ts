@@ -6,7 +6,10 @@ import { resourcePolicy } from '../collaboration/resource-access';
 export async function transferEmployeeResources(tx: Prisma.TransactionClient, employeeId: string, recipientUserId?: string) {
   const source = await tx.user.findUnique({ where: { employeeId }, select: { id: true } });
   if (!source) return { nodes: 0, workspaces: 0 };
-  const ownerId = source.id;
+  return transferUserResources(tx, source.id, recipientUserId);
+}
+
+export async function transferUserResources(tx: Prisma.TransactionClient, ownerId: string, recipientUserId?: string) {
   const [nodes, workspaces, views, records, attachments, rules, approvalAttachments, payrollBatches] = await Promise.all([
     tx.driveNode.findMany({ where: { ownerId } }), tx.collabWorkspace.findMany({ where: { ownerId } }),
     tx.collabView.count({ where: { ownerId } }), tx.collabRecord.count({ where: { ownerId } }),

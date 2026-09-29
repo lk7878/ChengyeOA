@@ -66,6 +66,15 @@ test('opens employee details and exposes protected lifecycle commands', async ()
   expect(screen.getAllByRole('button', { name: 'OK' }).some(button => button.hasAttribute('disabled'))).toBe(true);
 });
 
+test('unbinds the selected account using the current employee version', async () => {
+  vi.mocked(masterDataApi.employees.detail).mockResolvedValue({ code: 200, message: 'success', data: { ...detail, account: { id: 'bound-user', username: 'bound', status: 'DISABLED' } } });
+  render(<EmployeePage />);
+  fireEvent.click(await screen.findByRole('button', { name: '查看张律师' }));
+  fireEvent.click(await screen.findByRole('tab', { name: '账号绑定' }));
+  fireEvent.click(await screen.findByRole('button', { name: '解除绑定' }));
+  await waitFor(() => expect(masterDataApi.employees.unbindAccount).toHaveBeenCalledWith('emp-1', { employeeVersion: 2 }));
+});
+
 test('keeps scoped employees visible when auxiliary catalogs are forbidden', async () => {
   const forbidden = { response: { status: 403 } };
   vi.mocked(masterDataApi.organizations.options).mockRejectedValueOnce(forbidden);

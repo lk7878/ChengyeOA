@@ -33,6 +33,7 @@ export const authorizationAdminApi = {
     update: (id: string, input: { name?: string; description?: string | null; version: number }) => data(request.patch<ApiResponse<RoleAuthorizationView>>(`/v1/roles/${id}`, input)),
     enable: (id: string, version: number) => data(request.post<ApiResponse<RoleAuthorizationView>>(`/v1/roles/${id}/enable`, { version })),
     disable: (id: string, version: number) => data(request.post<ApiResponse<RoleAuthorizationView>>(`/v1/roles/${id}/disable`, { version })),
+    remove: (id: string, version: number) => data(request.delete<ApiResponse<null>>(`/v1/roles/${id}`, { data: { version } })),
     replacePermissions: (id: string, permissionCodes: PermissionCode[], version: number) => data(request.put<ApiResponse<RoleAuthorizationView>>(`/v1/roles/${id}/permissions`, { permissionCodes, version })),
     replaceDataScopes: (id: string, bindings: Array<{ resource: string; dataScopeId: string }>, version: number) => data(request.put<ApiResponse<RoleAuthorizationView>>(`/v1/roles/${id}/data-scopes`, { bindings, version })),
     replaceFieldPermissions: (id: string, fields: FieldCapability[], version: number) => data(request.put<ApiResponse<RoleAuthorizationView>>(`/v1/roles/${id}/field-permissions`, { fields, version })),
@@ -56,6 +57,7 @@ export const authorizationAdminApi = {
 };
 
 const errorLabels: Record<string, string> = {
+  AUTHORIZATION_IN_USE: '对象仍在使用中，请先解除相关授权后再操作',
   VERSION_CONFLICT: '数据已被其他管理员更新，请刷新后重试',
   AUTHORIZATION_INPUT_INVALID: '提交内容不符合授权规则',
   AUTHORIZATION_ESCALATION_BLOCKED: '该操作可能造成权限提升，已被阻止',

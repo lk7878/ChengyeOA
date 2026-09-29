@@ -2,7 +2,7 @@ import { message } from 'antd';
 
 const reported = new WeakSet<object>();
 const messages: Record<string, string> = {
-  EMPLOYEE_TRANSFER_REQUIRED: '该员工仍拥有文档，请指定资源接收人后再删除',
+  EMPLOYEE_TRANSFER_REQUIRED: '该账号仍拥有文档或其他材料，请指定资源接收人后再删除',
   EMPLOYEE_ACCOUNT_NOT_BOUND: '该员工未绑定账号，无需暂停',
   EMPLOYEE_OFFBOARDING_INCOMPLETE: '请先暂停账号并登记离职完成，再删除登录账号',
   EMPLOYEE_TRANSFER_INVALID: '请选择另一名在职且账号已启用的资源接收人',

@@ -39,6 +39,7 @@ export default function SecurityRolePage() {
   const [fieldCatalog, setFieldCatalog] = useState<FieldCatalogEntry[]>([]);
   const [scopeCatalog, setScopeCatalog] = useState<DataScopeOption[]>([]);
   const [selected, setSelected] = useState<RoleAuthorizationView | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RoleAuthorizationView | null>(null);
   const [permissions, setPermissions] = useState<PermissionCode[]>([]);
   const [scopeBindings, setScopeBindings] = useState<Record<string, string[]>>({});
   const [fieldRules, setFieldRules] = useState<FieldCapability[]>([]);
@@ -67,9 +68,9 @@ export default function SecurityRolePage() {
     try {
       const [page, permissionsResult, fields, scopes] = await Promise.all([
         authorizationAdminApi.roles.list({ page: 1, pageSize: 100 }),
-        authorizationAdminApi.catalogs.permissions(),
-        authorizationAdminApi.catalogs.fields(),
-        authorizationAdminApi.catalogs.dataScopes(),
+        canReadCatalog ? authorizationAdminApi.catalogs.permissions() : Promise.resolve([]),
+        canManagePermissions ? authorizationAdminApi.catalogs.fields() : Promise.resolve([]),
+        canManagePermissions ? authorizationAdminApi.catalogs.dataScopes() : Promise.resolve([]),
       ]);
       setRoles(page.list);
       setCatalog(permissionsResult);
@@ -233,18 +234,29 @@ export default function SecurityRolePage() {
   ] : [];
 
   return <section className="auth-page">
-    <header className="auth-page-header"><div><h2>角色与权限</h2><p>业务角色采用版本控制，停用替代物理删除。</p></div><Space wrap><Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button>{canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => { createForm.resetFields(); setCreateOpen(true); }}>新建角色</Button>}</Space></header>
+    <header className="auth-page-header"><div><h2>角色与权限</h2><p>可删除未被账号使用的业务角色，历史授权与审计记录保留。</p></div><Space wrap><Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button>{canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => { createForm.resetFields(); setCreateOpen(true); }}>新建角色</Button>}</Space></header>
     <Table loading={loading} rowKey="id" dataSource={roles} pagination={false} scroll={{ x: 760 }} columns={[
       { title: '角色', dataIndex: 'name' },
       { title: '代码', dataIndex: 'code', render: value => <code>{value}</code> },
       { title: '类型', dataIndex: 'type', render: value => <Tag>{businessLabel(value)}</Tag> },
       { title: '状态', dataIndex: 'status', render: value => <Tag color={value === 'ENABLED' ? 'success' : 'default'}>{value === 'ENABLED' ? '启用' : '停用'}</Tag> },
       { title: '权限数', dataIndex: 'permissionCodes', render: (value: string[]) => value.length },
-      { title: '操作', fixed: 'right', width: 90, render: (_, role) => <Button type="text" icon={<EditOutlined />} aria-label={`编辑${role.name}`} onClick={() => openRole(role)} /> },
+      { title: '操作', fixed: 'right', width: 140, render: (_, role) => <Space><Button type="text" icon={<EditOutlined />} aria-label={`编辑${role.name}`} onClick={() => openRole(role)} />{canManageStatus && role.type === 'BUSINESS' && <Button type="link" danger onClick={() => setDeleteTarget(role)}>删除</Button>}</Space> },
     ]} />
     <Drawer open={Boolean(selected)} onClose={() => setSelected(null)} title={selected ? `配置角色 · ${selected.name}` : ''} size="large" destroyOnHidden>
       <Tabs items={roleTabs} />
     </Drawer>
+    <Modal open={Boolean(deleteTarget)} title={`删除角色 · ${deleteTarget?.name ?? ''}`} okText="确认删除" okButtonProps={{ danger: true }} confirmLoading={saving} onCancel={() => setDeleteTarget(null)} onOk={async () => {
+      if (!deleteTarget) return;
+      setSaving(true);
+      try {
+        await authorizationAdminApi.roles.remove(deleteTarget.id, deleteTarget.version);
+        if (selected?.id === deleteTarget.id) setSelected(null);
+        setDeleteTarget(null);
+        await load();
+        message.success('角色已删除');
+      } catch (error) { message.error(authorizationErrorMessage(error)); } finally { setSaving(false); }
+    }}><p>删除后不再显示或分配此角色。请先撤销账号对该角色的有效授权（包括尚未生效的授权）。历史记录保留。</p></Modal>
     <Modal open={createOpen} title="新建业务角色" onCancel={() => setCreateOpen(false)} onOk={() => createForm.submit()} confirmLoading={saving} destroyOnHidden>
       <Form form={createForm} layout="vertical" onFinish={async values => {
         setSaving(true);

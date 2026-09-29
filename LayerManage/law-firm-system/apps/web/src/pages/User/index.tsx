@@ -1,7 +1,7 @@
 import Table from '@/components/ResizableTable';
 import React, { useState, useEffect } from 'react';
 import { Button, Input, Tag, Space, Form, message,
-  Popconfirm, Card, Row, Col
+  Select, Card, Row, Col
 } from 'antd';
 import Modal from '@/components/DraggableModal';
 import {
@@ -34,6 +34,19 @@ const UserPage: React.FC = () => {
   const [resetTarget, setResetTarget] = useState<User | null>(null);
   const [resetSaving, setResetSaving] = useState(false);
   const [resetForm] = Form.useForm();
+  const isSuperAdmin = useAuthStore(state => Boolean(state.authorization?.isSystemSuperAdmin));
+  const canDelete = useAuthStore(state => state.hasPermission('user.status.manage'));
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [recipientUserId, setRecipientUserId] = useState<string>();
+  const [recipients, setRecipients] = useState<Array<{ value: string; label: string }>>([]);
+
+  async function searchRecipients(keyword = '') {
+    try {
+      const response = await userApi.list({ status: 'ENABLED', keyword, pageSize: 100 });
+      setRecipients(response.data.list.filter(user => user.employee && user.employee.status !== 'LEAVED').map(user => ({ value: user.id, label: `${user.employee?.name} · ${user.username}` })));
+    } catch { /* Shared interceptor reports request errors. */ }
+  }
 
   useEffect(() => { fetchData(); fetchRoles(); }, [pagination.current, pagination.pageSize]);
 
@@ -60,8 +73,11 @@ const UserPage: React.FC = () => {
     } catch { /* Request errors are handled by the shared interceptor. */ }
   };
 
-  const handleDelete = async (id: string) => {
-    try { await userApi.delete(id); message.success('删除成功'); fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try { await userApi.delete(deleteTarget.id, { recipientUserId }); message.success('账号已删除，历史记录保留'); setDeleteTarget(null); await fetchData(); } catch { /* Request errors are handled by the shared interceptor. */ }
+    finally { setDeleting(false); }
   };
 
   const handleAssignRoles = (user: User) => {
@@ -151,9 +167,7 @@ const UserPage: React.FC = () => {
           <Button type="link" size="small" disabled={!canAssignRoles || record.id === selfUserId} icon={<SafetyOutlined />} onClick={() => handleAssignRoles(record)}>分配角色</Button>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { setEditingUser(record); form.setFieldsValue({ id: record.id, username: record.username, status: record.status }); setModalVisible(true); }}>编辑</Button>
           {canResetPassword && record.id !== selfUserId && <Button type="link" size="small" icon={<KeyOutlined />} onClick={() => { resetForm.resetFields(); setResetTarget(record); }}>重置密码</Button>}
-          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger size="small" icon={<DeleteOutlined />}>删除</Button>
-          </Popconfirm>
+          {(canDelete || isSuperAdmin) && <Button type="link" danger size="small" icon={<DeleteOutlined />} disabled={record.status !== 'DISABLED' || record.id === selfUserId || record.userRoles?.some(grant => grant.role?.type === 'SYSTEM')} title="请先禁用账号；系统管理员账号受保护" onClick={() => { setRecipientUserId(undefined); setDeleteTarget(record); if (isSuperAdmin) void searchRecipients(); }}>删除</Button>}
         </Space>
       ),
     },
@@ -180,6 +194,10 @@ const UserPage: React.FC = () => {
         pagination={{ ...pagination, showSizeChanger: true, showTotal: (t) => `共 ${t} 条`, onChange: (p, ps) => setPagination({ ...pagination, current: p, pageSize: ps || 10 }) }} />
 
       {/* 新建/编辑 */}
+      <Modal title={`删除账号 · ${deleteTarget?.username ?? ''}`} open={Boolean(deleteTarget)} onCancel={() => setDeleteTarget(null)} onOk={() => void handleDelete()} confirmLoading={deleting} okText="确认删除" okButtonProps={{ danger: true }}>
+        <p>账号将从列表移除并退出所有登录会话，历史业务和审计记录保留。有本人拥有的材料时，须先指定接收人完成转交。</p>
+        {isSuperAdmin ? <Form layout="vertical"><Form.Item label="资源接收人" extra="有资源时必选，包含未分享的个人文档。无资源可留空。"><Select aria-label="资源接收人" allowClear showSearch filterOption={false} value={recipientUserId} options={recipients} onSearch={keyword => void searchRecipients(keyword)} onChange={setRecipientUserId} /></Form.Item></Form> : <p>如账号拥有材料，请由超级管理员完成资源转交后再删除。</p>}
+      </Modal>
       <Modal title="用户信息" open={modalVisible} onCancel={() => setModalVisible(false)} onOk={() => form.submit()}>
         <Form form={form} onFinish={handleSubmit}>
           <Form.Item name="id" hidden><Input /></Form.Item>

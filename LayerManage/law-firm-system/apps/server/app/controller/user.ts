@@ -20,6 +20,7 @@ import { normalizeUsername, validatePassword, validateUsername } from '../domain
 import { SecurityError } from '../domain/security/security-errors';
 import { MasterDataError } from '../domain/master-data/master-data-errors';
 import { writeAuditLog } from '../application/system/audit-writer';
+import { retireUser } from '../application/system/retire-user';
 
 const passwordHasher = new BcryptPasswordHasher();
 
@@ -352,25 +353,7 @@ export default class UserController extends Controller {
   async destroy() {
     const { ctx } = this;
     const { id } = ctx.params;
-
-    await this.authorizationService().requireRecord(
-      this.authorizationContext(),
-      'user',
-      'user.status.manage',
-      id,
-    );
-    await assertMutableUser(ctx.prisma, id);
-    await assertNonAdministratorUserMutable(ctx.prisma, id);
-    const user = await ctx.prisma.user.findUnique({
-      where: { id },
-    });
-    if (!user || user.status === 'DELETED') {
-      ctx.throw(404, '用户不存在');
-    }
-
-    await ctx.prisma.user.delete({
-      where: { id },
-    });
+    await retireUser(ctx.prisma, this.authorizationContext(), id, ctx.request.body ?? {}, ctx.ip);
 
     ctx.body = {
       code: 200,

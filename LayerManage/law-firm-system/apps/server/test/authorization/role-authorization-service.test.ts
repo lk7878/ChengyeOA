@@ -154,6 +154,23 @@ function hasCode(code: string) {
   return (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
 }
 
+test('role deletion preserves history, checks versions, and protects assigned and system roles', async () => {
+  const role = await service.create({ name: 'Delete candidate', code: 'DELETE_CANDIDATE' });
+  const user = await prisma.user.create({ data: { username: 'role-member', password: 'unused', status: 'DISABLED' } });
+  await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
+  await assert.rejects(() => service.remove(role.id, { version: 0 }), hasCode('AUTHORIZATION_INPUT_INVALID'));
+  await assert.rejects(() => service.remove(role.id, { version: role.version }), hasCode('AUTHORIZATION_IN_USE'));
+  await prisma.user.update({ where: { id: user.id }, data: { status: 'DELETED' } });
+  await assert.rejects(() => service.remove(role.id, { version: 2 }), hasCode('VERSION_CONFLICT'));
+  await service.remove(role.id, { version: role.version });
+  assert.equal((await prisma.role.findUniqueOrThrow({ where: { id: role.id } })).status, 'DELETED');
+  assert.equal(await prisma.userRole.count({ where: { roleId: role.id } }), 1);
+  assert.equal((await service.list(1, 100)).list.some(item => item.id === role.id), false);
+  await assert.rejects(() => service.enable(role.id, 2));
+  const system = await prisma.role.create({ data: { name: 'Super', code: 'SYSTEM_SUPER_ADMIN', type: 'SYSTEM' } });
+  await assert.rejects(() => service.remove(system.id, { version: system.version }), hasCode('TRUST_ROOT_PROTECTED'));
+});
+
 async function dropAuditTrigger() {
   await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS fail_role_audit_trigger ON "operation_log"');
   await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS fail_role_audit()');
