@@ -23,6 +23,10 @@ const SAFE_KEYS = new Set([
   'formalDate',
   'leaveDate',
   'deletedAt',
+  'accountStatus',
+  'accountId',
+  'transferred',
+  'deleteAccount',
 ]);
 
 export interface MasterDataAuditInput extends AuditActor {

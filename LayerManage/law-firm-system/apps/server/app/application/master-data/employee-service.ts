@@ -1,5 +1,7 @@
 import { Employee, Prisma, PrismaClient } from '@prisma/client';
 import { transferEmployeeResources } from './employee-resource-transfer';
+import { blockerCounts, employeeHandoverBlockers, employeeOffboardingOverview } from './employee-offboarding';
+import { assertMutableUser, assertNonAdministratorUserMutable } from '../system/trust-root-guard';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
 import { FieldProjectionService } from '../authorization/field-projection-service';
@@ -139,10 +141,42 @@ export class EmployeeService {
     return this.project(detail, 'EMPLOYEE_LEAVE');
   }
 
-  async remove(id: string, input: { version: number; confirmed: true; recipientUserId?: string }): Promise<void> {
+  async offboarding(id: string) {
+    if (!this.authorizationContext.isSystemSuperAdmin) throw new MasterDataError('SUPER_ADMIN_REQUIRED', 403);
+    await this.authorization.requireRecord(this.authorizationContext, 'employee', 'employee.leave', id);
+    const employee = await this.prisma.employee.findFirst({ where: { id, deletedAt: null } });
+    if (!employee) notFound();
+    return employeeOffboardingOverview(this.prisma, id);
+  }
+
+  async suspendAccount(id: string, input: { version: number; confirmed: true }) {
+    if (!this.authorizationContext.isSystemSuperAdmin) throw new MasterDataError('SUPER_ADMIN_REQUIRED', 403);
+    assertExactKeys(input, ['version', 'confirmed']);
+    if (input.confirmed !== true) validationFailed();
+    const version = normalizeVersion(input.version);
+    await this.authorization.requireRecord(this.authorizationContext, 'employee', 'employee.leave', id);
+    await this.prisma.$transaction(async tx => {
+      const employee = await lockEmployee(tx, id);
+      if (employee.version !== version) versionConflict();
+      const account = await tx.user.findUnique({ where: { employeeId: id } });
+      if (!account) throw new MasterDataError('EMPLOYEE_ACCOUNT_NOT_BOUND', 409);
+      if (account.id === this.actor.actorUserId) throw new MasterDataError('EMPLOYEE_DELETE_SELF', 409);
+      await assertMutableUser(tx, account.id);
+      await assertNonAdministratorUserMutable(tx, account.id);
+      if (account.status === 'DELETED') notFound();
+      await tx.user.update({ where: { id: account.id }, data: { status: 'DISABLED', credentialVersion: { increment: 1 } } });
+      await tx.authSession.updateMany({ where: { userId: account.id, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: 'EMPLOYEE_OFFBOARDING_SUSPEND' } });
+      await tx.employee.update({ where: { id }, data: { version: { increment: 1 } } });
+      await writeMasterDataAudit(tx, { ...this.actor, action: 'SUSPEND_ACCOUNT', targetType: 'EMPLOYEE', targetId: id, before: { accountStatus: account.status }, after: { accountStatus: 'DISABLED', accountId: account.id } });
+    });
+    return this.detail(id);
+  }
+
+  async remove(id: string, input: { version: number; confirmed: true; recipientUserId?: string; deleteAccount?: boolean }): Promise<void> {
     if (!this.authorizationContext.isSystemSuperAdmin) throw new MasterDataError('SUPER_ADMIN_REQUIRED', 403);
     this.authorization.requireAction(this.authorizationContext, 'employee.leave');
-    assertExactKeys(input, ['version', 'confirmed', 'recipientUserId']);
+    assertExactKeys(input, ['version', 'confirmed', 'recipientUserId', 'deleteAccount']);
+    if (input.deleteAccount !== undefined && typeof input.deleteAccount !== 'boolean') validationFailed();
     const recipientUserId = input.recipientUserId === undefined ? undefined : normalizeRequiredText(input.recipientUserId, 1, 100);
     if (input.confirmed !== true) validationFailed();
     const version = normalizeVersion(input.version);
@@ -151,16 +185,24 @@ export class EmployeeService {
       await this.prisma.$transaction(async tx => {
         const before = await lockEmployee(tx, id);
         if (before.version !== version) versionConflict();
-        const selfAccount = await tx.user.findFirst({ where: { id: this.actor.actorUserId, employeeId: id }, select: { id: true } });
-        if (selfAccount) throw new MasterDataError('EMPLOYEE_DELETE_SELF', 409);
+          const selfAccount = await tx.user.findFirst({ where: { id: this.actor.actorUserId, employeeId: id }, select: { id: true } });
+          if (selfAccount) throw new MasterDataError('EMPLOYEE_DELETE_SELF', 409);
+          const account = await tx.user.findUnique({ where: { employeeId: id } });
+          if (input.deleteAccount && account) {
+            if (before.status !== 'LEAVED' || account.status !== 'DISABLED') throw new MasterDataError('EMPLOYEE_OFFBOARDING_INCOMPLETE', 409);
+            await assertMutableUser(tx, account.id);
+            await assertNonAdministratorUserMutable(tx, account.id);
+          }
         const transferred = await transferEmployeeResources(tx, id, recipientUserId);
         const now = new Date();
-        await endEmploymentTx(tx, before, before.leaveDate ?? (before.entryDate > now ? before.entryDate : now), now);
+          await endEmploymentTx(tx, before, before.leaveDate ?? (before.entryDate > now ? before.entryDate : now), now);
+          // Preserve foreign keys and audit attribution while removing the login account from management lists.
+          if (input.deleteAccount && account) await tx.user.update({ where: { id: account.id }, data: { status: 'DELETED' } });
         const after = await tx.employee.findUniqueOrThrow({ where: { id } });
-        await writeMasterDataAudit(tx, { ...this.actor, action: 'DELETE', targetType: 'EMPLOYEE', targetId: id, before: employeeAudit(before), after: { ...employeeAudit(after), transferred } });
+        await writeMasterDataAudit(tx, { ...this.actor, action: 'DELETE', targetType: 'EMPLOYEE', targetId: id, before: employeeAudit(before), after: { ...employeeAudit(after), transferred, deleteAccount: input.deleteAccount === true } });
       });
     } catch (error) {
-      if (error instanceof MasterDataError && error.code === 'MASTER_DATA_IN_USE') throw new MasterDataError('EMPLOYEE_DELETE_IN_USE', 409);
+      if (error instanceof MasterDataError && error.code === 'MASTER_DATA_IN_USE') throw new MasterDataError('EMPLOYEE_DELETE_IN_USE', 409, error.errors);
       throw error;
     }
   }
@@ -277,21 +319,8 @@ async function endEmploymentTx(tx: Prisma.TransactionClient, before: Employee, l
   const id = before.id;
   const initialization = await tx.systemInitialization.findUnique({ where: { id: 'PRIMARY' }, include: { superAdminUser: true } });
   if (initialization?.superAdminUser.employeeId === id) throw new MasterDataError('TRUST_ROOT_PROTECTED', 409);
-  const [lead, legalCase] = await Promise.all([
-    tx.lead.findFirst({ where: { assignedTo: id, status: { notIn: ['SIGNED','LOST'] } }, select: { id: true } }),
-    tx.case.findFirst({ where: { lawyerId: id, status: { notIn: ['CLOSED','ARCHIVED'] } }, select: { id: true } }),
-  ]);
-  if (lead || legalCase) inUse();
-  const currentSubordinate = await tx.employeeReportingLine.findFirst({
-    where: { managerEmployeeId: id, endedAt: null },
-    select: { id: true },
-  });
-  if (currentSubordinate) inUse();
-  const [managedOrganization, ledTeam] = await Promise.all([
-    tx.organization.findFirst({ where: { managerEmployeeId: id }, select: { id: true } }),
-    tx.professionalTeamMember.findFirst({ where: { employeeId: id, memberRole: 'LEAD', endedAt: null }, select: { id: true } }),
-  ]);
-  if (managedOrganization || ledTeam) inUse();
+  const counts = blockerCounts(await employeeHandoverBlockers(tx, id));
+  if (Object.values(counts).some(count => count > 0)) throw new MasterDataError('MASTER_DATA_IN_USE', 409, { employeeHandoverBlockers: counts });
   const now = deletedAt ?? new Date();
   await tx.employeeAssignment.updateMany({ where: { employeeId: id, endedAt: null }, data: { endedAt: now, version: { increment: 1 } } });
   await tx.professionalTeamMember.updateMany({ where: { employeeId: id, endedAt: null }, data: { endedAt: now, version: { increment: 1 } } });

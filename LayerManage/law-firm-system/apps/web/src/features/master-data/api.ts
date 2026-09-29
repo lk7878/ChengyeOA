@@ -1,4 +1,5 @@
 import request from '@/api/request';
+import type { EmployeeOffboarding } from './types';
 import type { ApiResponse } from '@/types';
 import type { OrganizationManager, AssignmentType, CreateEmployeeInput, CreateOrganizationInput, CreatePositionInput, CreateProfessionalTeamInput, EmployeeDetail, EmployeeListQuery, EmployeePage, MasterDataStatus, OrganizationDetail, OrganizationNode, Position, ProfessionalTeamDetail, ProfessionalTeamListQuery, ProfessionalTeamPage, TeamMemberRole, UpdateEmployeeInput, UpdateOrganizationInput, UpdatePositionInput, UpdateProfessionalTeamInput, VersionedMutation } from './types';
 
@@ -26,7 +27,9 @@ export const masterDataApi = {
     enable: (id: string, data: VersionedMutation) => request.post<ApiResponse<Position>>(`/v1/positions/${id}/enable`, data),
   },
   employees: {
-    remove: (id: string, data: VersionedMutation & { confirmed: true; recipientUserId?: string }) => request.delete<ApiResponse<null>>(`/v1/employees/${id}`, { data }),
+    offboarding: (id: string) => request.get<ApiResponse<EmployeeOffboarding>>(`/v1/employees/${id}/offboarding`),
+    suspendAccount: (id: string, data: VersionedMutation & { confirmed: true }) => request.post<ApiResponse<EmployeeDetail>>(`/v1/employees/${id}/suspend-account`, data),
+    remove: (id: string, data: VersionedMutation & { confirmed: true; recipientUserId?: string; deleteAccount?: boolean }) => request.delete<ApiResponse<null>>(`/v1/employees/${id}`, { data }),
     list: (params?: EmployeeListQuery) => request.get<ApiResponse<EmployeePage>>('/v1/employees', { params }),
     detail: (id: string) => request.get<ApiResponse<EmployeeDetail>>(`/v1/employees/${id}`),
     create: (data: CreateEmployeeInput) => request.post<ApiResponse<EmployeeDetail>>('/v1/employees', data),

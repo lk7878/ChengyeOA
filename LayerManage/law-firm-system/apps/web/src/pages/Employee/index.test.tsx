@@ -8,7 +8,7 @@ import EmployeePage from './index';
 
 vi.mock('@/features/master-data/api', () => ({ masterDataApi: {
   organizations: { options: vi.fn() }, positions: { list: vi.fn() },
-  employees: { list: vi.fn(), detail: vi.fn(), create: vi.fn(), update: vi.fn(), formalize: vi.fn(), leave: vi.fn(), transferPrimary: vi.fn(), addAssignment: vi.fn(), endAssignment: vi.fn(), bindAccount: vi.fn(), unbindAccount: vi.fn(), remove: vi.fn() },
+  employees: { offboarding: vi.fn(), suspendAccount: vi.fn(), list: vi.fn(), detail: vi.fn(), create: vi.fn(), update: vi.fn(), formalize: vi.fn(), leave: vi.fn(), transferPrimary: vi.fn(), addAssignment: vi.fn(), endAssignment: vi.fn(), bindAccount: vi.fn(), unbindAccount: vi.fn(), remove: vi.fn() },
   professionalTeams: { list: vi.fn() },
 } }));
 vi.mock('@/api/user', () => ({ userApi: { list: vi.fn() } }));
@@ -19,6 +19,7 @@ const detail: EmployeeDetail = { id: 'emp-1', employeeNo: 'EMP-001', name: '张�
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(masterDataApi.employees.offboarding).mockResolvedValue({ code: 200, message: 'success', data: { account: null, counts: {}, resources: {}, suggestedRecipient: null, recipientHint: '请选择接收人', blockers: { cases: [], leads: [], subordinates: [], organizations: [], teams: [] } } });
   useAuthStore.setState({
     isAuthenticated: true,
     authorizationStatus: 'ready',
@@ -121,8 +122,9 @@ test('only a super-admin can confirm employee deletion and the interface explain
   expect(masterDataApi.employees.remove).not.toHaveBeenCalled();
   expect(screen.getByText(/绑定账号会停用/)).toHaveTextContent('历史业务记录仍保留并关联原员工');
   vi.mocked(masterDataApi.employees.list).mockResolvedValue({ code: 200, message: 'success', data: { list: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } } });
+  await waitFor(() => expect(screen.getByRole('button', { name: '确认删除' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
-  await waitFor(() => expect(masterDataApi.employees.remove).toHaveBeenCalledWith('emp-1', { version: 2, confirmed: true }));
+  await waitFor(() => expect(masterDataApi.employees.remove).toHaveBeenCalledWith('emp-1', expect.objectContaining({ version: 2, confirmed: true })));
   await waitFor(() => expect(screen.queryByRole('button', { name: '查看张律师' })).not.toBeInTheDocument());
 });
 
@@ -132,11 +134,47 @@ test('ordinary employee-management access does not expose employee deletion', as
   expect(screen.queryByRole('button', { name: '删除张律师' })).not.toBeInTheDocument();
 });
 
+test('handover checklist displays the exact blocking case and prevents deletion', async () => {
+  useAuthStore.setState({ authorization: { ...useAuthStore.getState().authorization!, isSystemSuperAdmin: true } });
+  vi.mocked(masterDataApi.employees.offboarding).mockResolvedValue({ code: 200, message: 'success', data: {
+    account: null, counts: { cases: 1 }, resources: {}, suggestedRecipient: null, recipientHint: '请选择接收人',
+    blockers: { cases: [{ id: 'case-1', caseNo: 'CA-001', title: '待移交案件', status: 'PENDING' }], leads: [], subordinates: [], organizations: [], teams: [] },
+  } });
+  render(<EmployeePage />);
+  fireEvent.click(await screen.findByRole('button', { name: '删除张律师' }));
+  expect(await screen.findByRole('link', { name: /CA-001.*待移交案件.*待处理/ })).toHaveAttribute('href', '/cases/case-1');
+  expect(screen.getByRole('button', { name: '确认删除' })).toBeDisabled();
+  expect(masterDataApi.employees.remove).not.toHaveBeenCalled();
+});
+
+test('offboarding pauses the account before allowing departure and defaults the material recipient to the department manager', async () => {
+  useAuthStore.setState({ authorization: { ...useAuthStore.getState().authorization!, isSystemSuperAdmin: true } });
+  const overview = { account: { id: 'departing-user', username: 'zhang', status: 'ENABLED' }, counts: {}, resources: { documents: 1 },
+    suggestedRecipient: { userId: 'manager-user', employeeId: 'manager', name: '部门负责人', username: 'manager', organizationName: '北京分所' }, recipientHint: '已默认选择主职部门负责人，请确认接收人。',
+    blockers: { cases: [], leads: [], subordinates: [], organizations: [], teams: [] },
+  };
+  vi.mocked(masterDataApi.employees.offboarding).mockResolvedValueOnce({ code: 200, message: 'success', data: overview })
+    .mockResolvedValue({ code: 200, message: 'success', data: { ...overview, account: { ...overview.account, status: 'DISABLED' } } });
+  vi.mocked(masterDataApi.employees.suspendAccount).mockResolvedValue({ code: 200, message: 'success', data: { ...detail, version: 3 } });
+  render(<EmployeePage />);
+  fireEvent.click(await screen.findByRole('button', { name: '删除张律师' }));
+  await screen.findByText('已默认选择主职部门负责人，请确认接收人。');
+  expect(screen.getByRole('button', { name: '登记离职完成' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: '确认删除' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: '暂停账号使用' }));
+  await waitFor(() => expect(masterDataApi.employees.suspendAccount).toHaveBeenCalledWith('emp-1', { version: 2, confirmed: true }));
+  await screen.findByText('账号：zhang（已暂停）');
+  fireEvent.click(screen.getByRole('checkbox', { name: '我已核实离职手续及交接事项完成' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: '登记离职完成' })).toBeEnabled());
+  expect(masterDataApi.employees.remove).not.toHaveBeenCalled();
+});
+
 test('blocked deletion retains the employee and displays the Chinese handover reason', async () => {
   useAuthStore.setState({ authorization: { ...useAuthStore.getState().authorization!, isSystemSuperAdmin: true } });
   vi.mocked(masterDataApi.employees.remove).mockRejectedValue(new Error('EMPLOYEE_DELETE_IN_USE'));
   render(<EmployeePage />);
   fireEvent.click(await screen.findByRole('button', { name: '删除张律师' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: '确认删除' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
   expect(await screen.findByText(/该员工仍有未结案件/)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: '查看张律师' })).toBeInTheDocument();

@@ -7,7 +7,9 @@ import { showRequestError } from '@/api/errors';
 import { EyeOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { Alert, Button, Checkbox, Form, Input, Select, Space, Tag, message } from 'antd';
 import Modal from '@/components/DraggableModal';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import EmployeeHandoverChecklist from '@/features/master-data/components/EmployeeHandoverChecklist';
+import type { EmployeeOffboarding } from '@/features/master-data/types';
 import { userApi } from '@/api/user';
 import { masterDataApi } from '@/features/master-data/api';
 import AssignmentDialog from '@/features/master-data/components/AssignmentDialog';
@@ -47,6 +49,13 @@ export default function EmployeePage() {
   const [deleteTarget, setDeleteTarget] = useState<EmployeeListItem | null>(null);
   const [recipientUserId, setRecipientUserId] = useState<string>();
   const [recipientOptions, setRecipientOptions] = useState<SelectOption[]>([]);
+  const [offboarding, setOffboarding] = useState<EmployeeOffboarding | null>(null);
+  const [offboardingLoading, setOffboardingLoading] = useState(false);
+  const [offboardingError, setOffboardingError] = useState(false);
+  const [deleteAccount, setDeleteAccount] = useState(false);
+  const [offboardingConfirmed, setOffboardingConfirmed] = useState(false);
+  const [offboardingDate, setOffboardingDate] = useState('');
+  const offboardingRequest = useRef(0);
   async function searchRecipients(keyword = '', excludedEmployeeId = deleteTarget?.id) {
     try {
       const response = await userApi.list({ page: 1, pageSize: 100, status: 'ENABLED', keyword: keyword || undefined });
@@ -243,6 +252,41 @@ export default function EmployeePage() {
     await load();
   }
 
+  async function loadOffboarding(id: string, defaults = false) {
+    const sequence = ++offboardingRequest.current;
+    setOffboardingLoading(true); setOffboardingError(false);
+    try {
+      const response = await masterDataApi.employees.offboarding(id);
+      if (sequence !== offboardingRequest.current) return;
+      setOffboarding(response.data);
+      if (defaults) {
+        setDeleteAccount(Boolean(response.data.account));
+        const recipient = response.data.suggestedRecipient;
+        setRecipientUserId(recipient?.userId);
+        if (recipient) setRecipientOptions(options => [{ value: recipient.userId, label: `${recipient.name} · ${recipient.username}` }, ...options.filter(option => option.value !== recipient.userId)]);
+      }
+    } catch (error) { if (sequence === offboardingRequest.current) { setOffboardingError(true); showRequestError(error, '交接清单加载失败'); } }
+    finally { if (sequence === offboardingRequest.current) setOffboardingLoading(false); }
+  }
+  function showOffboarding(row: EmployeeListItem) {
+    setDeleteTarget(row); setOffboarding(null); setRecipientUserId(undefined); setDeleteAccount(false); setOffboardingConfirmed(false);
+    setOffboardingDate(new Date().toLocaleDateString('sv-SE'));
+    void searchRecipients('', row.id); void loadOffboarding(row.id, true);
+  }
+  async function advanceOffboarding(action: 'suspend' | 'leave') {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const response = action === 'suspend'
+        ? await masterDataApi.employees.suspendAccount(deleteTarget.id, { version: deleteTarget.version, confirmed: true })
+        : await masterDataApi.employees.leave(deleteTarget.id, { version: deleteTarget.version, leaveDate: offboardingDate, handoverConfirmed: true });
+      setDeleteTarget(current => current ? { ...current, status: response.data.status, version: response.data.version } : null);
+      if (detail?.id === deleteTarget.id) setDetail(response.data);
+      await loadOffboarding(deleteTarget.id); await load();
+      message.success(action === 'suspend' ? '账号已暂停，原有登录凭证已失效；员工档案和材料保留' : '离职已登记，现在可移交材料并删除档案及账号');
+    } catch (error) { showRequestError(error, '离职操作失败'); await loadOffboarding(deleteTarget.id); }
+    finally { setDeleting(false); }
+  }
   async function removeEmployee() {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -251,6 +295,7 @@ export default function EmployeePage() {
         version: deleteTarget.version,
         confirmed: true,
         recipientUserId,
+        deleteAccount,
       });
       message.success('员工档案已删除，工号可供新员工使用');
       if (detail?.id === deleteTarget.id) setDetail(null);
@@ -260,6 +305,7 @@ export default function EmployeePage() {
       await load(nextPage);
     } catch (error) {
       showRequestError(error, '员工档案删除失败');
+      await loadOffboarding(deleteTarget.id);
     } finally {
       setDeleting(false);
     }
@@ -545,8 +591,8 @@ export default function EmployeePage() {
                   onClick={() => void openDetail(row)}
                 />
                 {canDelete && (
-                  <Button danger aria-label={`删除${row.name}`} onClick={() => { setDeleteTarget(row); setRecipientUserId(undefined); void searchRecipients('', row.id); }}>
-                    删除
+                  <Button danger aria-label={`删除${row.name}`} onClick={() => showOffboarding(row)}>
+                    离职交接 / 删除
                   </Button>
                 )}
               </span>
@@ -555,15 +601,31 @@ export default function EmployeePage() {
         ]}
       />
       <Modal
-        title="删除员工档案"
+        title="离职交接与删除员工档案"
         open={Boolean(deleteTarget)}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => { offboardingRequest.current++; setDeleteTarget(null); }}
+        width={760}
         onOk={() => void removeEmployee()}
         confirmLoading={deleting}
         okText="确认删除"
         cancelText="取消"
-        okButtonProps={{ danger: true }}
+        okButtonProps={{ danger: true, disabled: deleting || offboardingLoading || offboardingError || !offboarding || Object.values(offboarding.counts).some(count => count > 0) || (deleteAccount && deleteTarget?.status !== 'LEAVED') || (Object.values(offboarding.resources).some(count => count > 0) && !recipientUserId) }}
       >
+        <p>先暂停账号 → 处理交接清单 → 登记离职 → 将材料交给负责人并删除档案及账号。</p>
+        {offboardingLoading && <p>正在核对关联事项…</p>}
+        {offboardingError && <Alert type="error" title="交接清单加载失败，暂不可删除" />}
+        <Button loading={offboardingLoading} onClick={() => deleteTarget && void loadOffboarding(deleteTarget.id)}>刷新交接清单</Button>
+        {offboarding && <>
+          <EmployeeHandoverChecklist data={offboarding} />
+          {offboarding.account?.status === 'ENABLED' && <Button danger loading={deleting} onClick={() => void advanceOffboarding('suspend')}>暂停账号使用</Button>}
+          {deleteTarget?.status !== 'LEAVED' && <Form layout="vertical">
+            <Form.Item label="离职日期"><Input aria-label="交接离职日期" type="date" value={offboardingDate} onChange={event => setOffboardingDate(event.target.value)} /></Form.Item>
+            <Checkbox checked={offboardingConfirmed} onChange={event => setOffboardingConfirmed(event.target.checked)}>我已核实离职手续及交接事项完成</Checkbox>
+            <Button aria-label="登记离职完成" loading={deleting} disabled={deleting || !offboardingConfirmed || !offboardingDate || offboardingLoading || offboarding.account?.status === 'ENABLED' || Object.values(offboarding.counts).some(count => count > 0)} onClick={() => void advanceOffboarding('leave')}>登记离职完成</Button>
+          </Form>}
+          <p>{offboarding.recipientHint}</p>
+          {offboarding.account && <Checkbox checked={deleteAccount} onChange={event => setDeleteAccount(event.target.checked)}>同时删除登录账号（须先登记离职，历史审计记录保留）</Checkbox>}
+        </>}
         <Form layout="vertical"><Form.Item label="资源接收人" extra="将全部拥有的文档（包含未分享的个人文档）转交给所选人员。有资源时必须选择。"><Select aria-label="资源接收人" showSearch allowClear filterOption={false} value={recipientUserId} options={recipientOptions} onSearch={keyword => void searchRecipients(keyword)} onChange={setRecipientUserId} /></Form.Item></Form>
         <p>
           确认删除“{deleteTarget?.name}”（工号：{deleteTarget?.employeeNo}）的档案？
@@ -672,6 +734,7 @@ export default function EmployeePage() {
           setFormalOpen(true);
         }}
         onLeave={() => {
+          if (canDelete && detail) { showOffboarding(detail); setDetail(null); return; }
           leaveForm.resetFields();
           setHandoverConfirmed(false);
           setLeaveOpen(true);

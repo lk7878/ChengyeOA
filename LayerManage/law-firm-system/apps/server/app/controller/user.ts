@@ -46,7 +46,7 @@ export default class UserController extends Controller {
       'user',
       'user.read',
     );
-    const where: Prisma.UserWhereInput = { AND: [scopeWhere, filters] };
+    const where: Prisma.UserWhereInput = { AND: [scopeWhere, filters, { status: { not: 'DELETED' } }] };
 
     const total = await ctx.prisma.user.count({ where });
     const list = await ctx.prisma.user.findMany({
@@ -119,7 +119,7 @@ export default class UserController extends Controller {
       },
     });
 
-    if (!user) {
+    if (!user || user.status === 'DELETED') {
       ctx.throw(404, '用户不存在');
     }
 
@@ -212,15 +212,16 @@ export default class UserController extends Controller {
     const user = await ctx.prisma.user.findUnique({
       where: { id },
     });
-    if (!user) {
+    if (!user || user.status === 'DELETED') {
       ctx.throw(404, '用户不存在');
     }
 
     const updateData: Prisma.UserUncheckedUpdateInput = {};
-    if (typeof status === 'string' && status) updateData.status = status;
+    if (status !== undefined && status !== 'ENABLED' && status !== 'DISABLED') ctx.throw(400, 'VALIDATION_FAILED');
+    if (typeof status === 'string') updateData.status = status;
 
     const updated = await ctx.prisma.user.update({
-      where: { id },
+      where: { id, status: { not: 'DELETED' } },
       data: updateData,
       select: {
         ...SAFE_USER_SELECT,
@@ -363,7 +364,7 @@ export default class UserController extends Controller {
     const user = await ctx.prisma.user.findUnique({
       where: { id },
     });
-    if (!user) {
+    if (!user || user.status === 'DELETED') {
       ctx.throw(404, '用户不存在');
     }
 

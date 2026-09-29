@@ -53,11 +53,15 @@ export default class EmployeeController extends Controller {
 
   async destroy() {
     const input = this.ctx.request.body;
-    assertExactKeys(input, ['version', 'confirmed', 'recipientUserId']);
+    assertExactKeys(input, ['version', 'confirmed', 'recipientUserId', 'deleteAccount']);
     if (input.confirmed !== true) throw new MasterDataError('VALIDATION_FAILED', 400);
-    await employeeService(this.ctx).remove(this.ctx.params.id, { version: normalizeVersion(input.version), confirmed: true, recipientUserId: input.recipientUserId === undefined ? undefined : normalizeRequiredText(input.recipientUserId, 1, 100) });
+    if (input.deleteAccount !== undefined && typeof input.deleteAccount !== 'boolean') throw new MasterDataError('VALIDATION_FAILED', 400);
+    await employeeService(this.ctx).remove(this.ctx.params.id, { version: normalizeVersion(input.version), confirmed: true, recipientUserId: input.recipientUserId === undefined ? undefined : normalizeRequiredText(input.recipientUserId, 1, 100), deleteAccount: input.deleteAccount === true });
     this.respond(null);
   }
+
+  async offboarding() { this.respond(await employeeService(this.ctx).offboarding(this.ctx.params.id)); }
+  async suspendAccount() { this.respond(await employeeService(this.ctx).suspendAccount(this.ctx.params.id, this.ctx.request.body)); }
 
   private respond(data: unknown): void {
     this.ctx.body = { code: 200, message: 'success', data };

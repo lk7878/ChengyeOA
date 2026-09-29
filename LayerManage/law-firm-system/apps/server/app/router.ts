@@ -193,6 +193,8 @@ export default (app: Application) => {
   router.post('/api/v1/employees/:id/formalize', requirePermission('employee.formalize'), controller.employee.formalize);
   router.delete('/api/v1/employees/:id', requirePermission('employee.leave'), controller.employee.destroy);
   router.post('/api/v1/employees/:id/leave', requirePermission('employee.leave'), controller.employee.leave);
+  router.get('/api/v1/employees/:id/offboarding', requirePermission('employee.leave'), controller.employee.offboarding);
+  router.post('/api/v1/employees/:id/suspend-account', requirePermission('employee.leave'), controller.employee.suspendAccount);
   router.post('/api/v1/employees/:id/assignments/transfer', requirePermission('employee.assignment.manage'), controller.employeeAssignment.transfer);
   router.post('/api/v1/employees/:id/assignments', requirePermission('employee.assignment.manage'), controller.employeeAssignment.create);
   router.post('/api/v1/employees/:id/assignments/:assignmentId/end', requirePermission('employee.assignment.manage'), controller.employeeAssignment.end);

@@ -250,6 +250,22 @@ test('delete endpoints require versioned commands rather than an unconfirmed emp
   }
 });
 
+test('offboarding endpoints expose blockers to super-admins and retired accounts cannot be listed or reactivated', async () => {
+  const employee = await prisma.employee.create({ data: { employeeNo: 'OFF-HTTP', name: '交接员工', phone: '13800000000', type: 'ADMIN', entryDate: new Date('2026-01-01') } });
+  const position = await prisma.position.create({ data: { organizationId: rootId, code: 'OFF-HTTP', name: '交接岗位', categoryCode: 'ADMIN' } });
+  await prisma.employeeAssignment.create({ data: { employeeId: employee.id, organizationId: rootId, positionId: position.id, assignmentType: 'PRIMARY', startedAt: new Date('2026-01-01') } });
+  const user = await prisma.user.create({ data: { username: 'offboarding.http', password: 'unused', employeeId: employee.id } });
+  const overview = await app.httpRequest().get(`/api/v1/employees/${employee.id}/offboarding`).set(bearer()).expect(200);
+  assert.equal(overview.body.data.account.id, user.id);
+  await app.httpRequest().post(`/api/v1/employees/${employee.id}/suspend-account`).set(bearer()).send({ version: 1, confirmed: true }).expect(200);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).status, 'DISABLED');
+  await prisma.user.update({ where: { id: user.id }, data: { status: 'DELETED' } });
+  const listing = await app.httpRequest().get('/api/v1/users?keyword=offboarding.http').set(bearer()).expect(200);
+  assert.equal(listing.body.data.list.length, 0);
+  await app.httpRequest().put(`/api/v1/users/${user.id}`).set(bearer()).send({ status: 'ENABLED' }).expect(404);
+  await app.httpRequest().get(`/api/v1/users/${user.id}`).set(bearer()).expect(404);
+});
+
 test('deletes unused positions and employee profiles, preserving historical references and reusable numbers', async () => {
   const unused = await prisma.position.create({ data: { organizationId: rootId, code: 'UNUSED', name: 'Unused', categoryCode: 'LEGAL' } });
   await app.httpRequest().delete(`/api/v1/positions/${unused.id}`).set(bearer()).send({ version: 99 }).expect(409);

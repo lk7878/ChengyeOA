@@ -30,3 +30,17 @@ export interface CreateEmployeeInput { employeeNo: string; name: string; phone: 
 export interface UpdateEmployeeInput extends VersionedMutation { name?: string; phone?: string; email?: string | null; idCard?: string | null; licenseNo?: string | null; employeeType?: string; professionalDirections?: string[] }
 export interface CreateProfessionalTeamInput { code: string; name: string; categoryCode: string; homeOrganizationId: string; description?: string | null }
 export interface UpdateProfessionalTeamInput extends VersionedMutation { name?: string; categoryCode?: string; homeOrganizationId?: string; description?: string | null }
+export interface EmployeeOffboarding {
+  account: { id: string; username: string; status: string } | null;
+  counts: Record<string, number>;
+  resources: Record<string, number>;
+  recipientHint: string;
+  suggestedRecipient: { userId: string; employeeId: string; name: string; username: string; organizationName: string } | null;
+  blockers: {
+    cases: { id: string; caseNo: string; title: string; status: string }[];
+    leads: { id: string; leadNo: string; name: string; status: string }[];
+    subordinates: { id: string; employee: { id: string; name: string; employeeNo: string } }[];
+    organizations: { id: string; name: string; code: string }[];
+    teams: { id: string; professionalTeam: { id: string; name: string; code: string } }[];
+  };
+}

@@ -6,6 +6,7 @@ import { EmployeeService } from '../../app/application/master-data/employee-serv
 import { hashPhone, normalizePhone } from '../../app/domain/crm/lead-policy';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 import { authorizationContext, hasCode } from './test-helpers';
+import { createApiSession } from '../helpers/auth-session';
 
 let prisma: PrismaClient;
 let organizationId: string;
@@ -49,6 +50,49 @@ test.beforeEach(async () => {
   service = new EmployeeService(prisma, { actorUserId: 'employee-actor' }, employeeAuthorization());
 });
 test.after(async () => { await clearTestApplicationData(prisma); await prisma.$disconnect(); });
+
+test('handover overview names blockers, excludes deleted/converted leads and suggests the department manager', async () => {
+  const employee = await service.create(await baseInput('OFFBOARD-1'));
+  const manager = await service.create(await baseInput('MANAGER-1'));
+  const managerUser = await prisma.user.create({ data: { username: 'manager', password: 'unused', employeeId: manager.id } });
+  await prisma.organization.update({ where: { id: organizationId }, data: { managerEmployeeId: manager.id } });
+  for (const [index, status] of ['NEW', 'CONVERTED', 'LOST', 'NEW'].entries()) await prisma.lead.create({ data: {
+    leadNo: `OFF-${index}`, name: `线索${index}`, phone: '13800000001', phoneHash: `off-${index}`, assignedTo: employee.id, createdBy: 'employee-actor', status, deletedAt: index === 3 ? new Date() : null,
+  } });
+  const overview = await service.offboarding(employee.id);
+  assert.deepEqual(overview.blockers.leads.map(lead => lead.leadNo), ['OFF-0']);
+  assert.equal(overview.suggestedRecipient?.userId, managerUser.id);
+  await assert.rejects(() => service.remove(employee.id, { version: 1, confirmed: true }), error => {
+    assert.equal((error as { errors: { employeeHandoverBlockers: { leads: number } } }).errors.employeeHandoverBlockers.leads, 1);
+    return hasCode('EMPLOYEE_DELETE_IN_USE')(error);
+  });
+  const ordinary = new EmployeeService(prisma, { actorUserId: 'employee-actor' }, { ...employeeAuthorization(), isSystemSuperAdmin: false });
+  await assert.rejects(() => ordinary.offboarding(employee.id), hasCode('SUPER_ADMIN_REQUIRED'));
+  await assert.rejects(() => ordinary.suspendAccount(employee.id, { version: 1, confirmed: true }), hasCode('SUPER_ADMIN_REQUIRED'));
+});
+
+test('pause preserves employment and materials, revokes sessions, and completed departure permits transfer and account deletion', async () => {
+  const employee = await service.create(await baseInput('OFFBOARD-2'));
+  const manager = await service.create(await baseInput('MANAGER-2'));
+  const source = await prisma.user.create({ data: { username: 'departing', password: 'unused', employeeId: employee.id } });
+  const recipient = await prisma.user.create({ data: { username: 'recipient', password: 'unused', employeeId: manager.id } });
+  const session = await createApiSession(prisma, source.id);
+  const workspace = await prisma.collabWorkspace.create({ data: { name: '未分享材料', organizationId, ownerId: source.id } });
+  await assert.rejects(() => service.remove(employee.id, { version: 1, confirmed: true, deleteAccount: true, recipientUserId: recipient.id }), hasCode('EMPLOYEE_OFFBOARDING_INCOMPLETE'));
+  const paused = await service.suspendAccount(employee.id, { version: 1, confirmed: true });
+  assert.equal(paused.status, 'PROBATION'); assert.equal(paused.version, 2);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: source.id } })).status, 'DISABLED');
+  assert.ok((await prisma.authSession.findUniqueOrThrow({ where: { id: session.sessionId } })).revokedAt);
+  assert.equal(await prisma.employeeAssignment.count({ where: { employeeId: employee.id, endedAt: null } }), 1);
+  assert.equal((await prisma.collabWorkspace.findUniqueOrThrow({ where: { id: workspace.id } })).ownerId, source.id);
+  await assert.rejects(() => service.suspendAccount(employee.id, { version: 1, confirmed: true }), hasCode('VERSION_CONFLICT'));
+  const departed = await service.leave(employee.id, { version: paused.version, handoverConfirmed: true, leaveDate: '2026-09-29' });
+  await assert.rejects(() => service.remove(employee.id, { version: departed.version, confirmed: true, deleteAccount: true }), hasCode('EMPLOYEE_TRANSFER_REQUIRED'));
+  await service.remove(employee.id, { version: departed.version, confirmed: true, deleteAccount: true, recipientUserId: recipient.id });
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: source.id } })).status, 'DELETED');
+  assert.equal((await prisma.collabWorkspace.findUniqueOrThrow({ where: { id: workspace.id } })).ownerId, recipient.id);
+  assert.ok((await prisma.employee.findUniqueOrThrow({ where: { id: employee.id } })).deletedAt);
+});
 
 test('creates employee and primary assignment atomically with normalized identity', async () => {
   const created = await service.create(await baseInput(' emp-001 '));
