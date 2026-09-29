@@ -11,6 +11,7 @@ import { rethrowKnownUniqueConflict } from '../application/system/prisma-unique-
 import { SAFE_USER_SELECT } from '../application/system/safe-user-projection';
 import {
   assertMutableUser,
+  assertAccountLifecycleMutable,
   assertNonAdministratorUserMutable,
 } from '../application/system/trust-root-guard';
 import { BcryptPasswordHasher } from '../domain/security/password-hasher';
@@ -203,8 +204,8 @@ export default class UserController extends Controller {
       'user.update',
       id,
     );
-    await assertMutableUser(ctx.prisma, id);
-    await assertNonAdministratorUserMutable(ctx.prisma, id);
+    await assertAccountLifecycleMutable(ctx.prisma, id, this.authorizationContext().isSystemSuperAdmin);
+    if (id === this.authorizationContext().userId && ctx.request.body?.status === 'DISABLED') ctx.throw(409, '不能禁用当前登录账号');
     const body = ctx.request.body as Record<string, unknown>;
     if (Object.prototype.hasOwnProperty.call(body, 'employeeId')) {
       ctx.throw(400, 'ACCOUNT_BINDING_REQUIRES_DEDICATED_ENDPOINT');

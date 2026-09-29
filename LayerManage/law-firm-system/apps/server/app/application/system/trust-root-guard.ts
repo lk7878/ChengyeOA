@@ -49,6 +49,16 @@ export async function assertNonAdministratorUserMutable(
   }
 }
 
+// Root identity remains immutable. Other administrator accounts can be retired by a super administrator.
+export async function assertAccountLifecycleMutable(
+  prisma: TrustRootPrisma & AdministratorGuardPrisma,
+  userId: string,
+  isSystemSuperAdmin: boolean,
+): Promise<void> {
+  await assertMutableUser(prisma, userId);
+  if (!isSystemSuperAdmin) await assertNonAdministratorUserMutable(prisma, userId);
+}
+
 export async function assertMutableRole(prisma: TrustRootPrisma, roleId: string): Promise<void> {
   const role = await prisma.role.findUnique({
     where: { id: roleId },

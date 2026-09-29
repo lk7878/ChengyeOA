@@ -1,7 +1,7 @@
 import { Employee, Prisma, PrismaClient } from '@prisma/client';
 import { transferEmployeeResources } from './employee-resource-transfer';
 import { blockerCounts, employeeHandoverBlockers, employeeOffboardingOverview } from './employee-offboarding';
-import { assertMutableUser, assertNonAdministratorUserMutable } from '../system/trust-root-guard';
+import { assertMutableUser } from '../system/trust-root-guard';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
 import { FieldProjectionService } from '../authorization/field-projection-service';
@@ -162,7 +162,6 @@ export class EmployeeService {
       if (!account) throw new MasterDataError('EMPLOYEE_ACCOUNT_NOT_BOUND', 409);
       if (account.id === this.actor.actorUserId) throw new MasterDataError('EMPLOYEE_DELETE_SELF', 409);
       await assertMutableUser(tx, account.id);
-      await assertNonAdministratorUserMutable(tx, account.id);
       if (account.status === 'DELETED') notFound();
       await tx.user.update({ where: { id: account.id }, data: { status: 'DISABLED', credentialVersion: { increment: 1 } } });
       await tx.authSession.updateMany({ where: { userId: account.id, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: 'EMPLOYEE_OFFBOARDING_SUSPEND' } });
@@ -191,7 +190,6 @@ export class EmployeeService {
           if (input.deleteAccount && account) {
             if (before.status !== 'LEAVED' || account.status !== 'DISABLED') throw new MasterDataError('EMPLOYEE_OFFBOARDING_INCOMPLETE', 409);
             await assertMutableUser(tx, account.id);
-            await assertNonAdministratorUserMutable(tx, account.id);
           }
         const transferred = await transferEmployeeResources(tx, id, recipientUserId);
         const now = new Date();

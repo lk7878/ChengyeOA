@@ -167,7 +167,7 @@ const UserPage: React.FC = () => {
           <Button type="link" size="small" disabled={!canAssignRoles || record.id === selfUserId} icon={<SafetyOutlined />} onClick={() => handleAssignRoles(record)}>分配角色</Button>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { setEditingUser(record); form.setFieldsValue({ id: record.id, username: record.username, status: record.status }); setModalVisible(true); }}>编辑</Button>
           {canResetPassword && record.id !== selfUserId && <Button type="link" size="small" icon={<KeyOutlined />} onClick={() => { resetForm.resetFields(); setResetTarget(record); }}>重置密码</Button>}
-          {(canDelete || isSuperAdmin) && <Button type="link" danger size="small" icon={<DeleteOutlined />} disabled={record.status !== 'DISABLED' || record.id === selfUserId || record.userRoles?.some(grant => grant.role?.type === 'SYSTEM')} title="请先禁用账号；系统管理员账号受保护" onClick={() => { setRecipientUserId(undefined); setDeleteTarget(record); if (isSuperAdmin) void searchRecipients(); }}>删除</Button>}
+          {(canDelete || isSuperAdmin) && <Button type="link" danger size="small" icon={<DeleteOutlined />} disabled={record.status !== 'DISABLED' || record.id === selfUserId || record.username === 'admin' || (!isSuperAdmin && record.userRoles?.some(grant => grant.role?.type === 'SYSTEM'))} title="请先禁用账号；总所 admin 不可删除，其他管理员由超级管理员删除" onClick={() => { setRecipientUserId(undefined); setDeleteTarget(record); if (isSuperAdmin) void searchRecipients(); }}>删除</Button>}
         </Space>
       ),
     },

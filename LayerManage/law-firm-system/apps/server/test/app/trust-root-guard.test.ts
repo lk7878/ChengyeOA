@@ -199,22 +199,20 @@ test('cannot delete the current first super-admin', async () => {
 });
 
 for (const roleCode of ['SYSTEM_ADMIN', 'SYSTEM_SUPER_ADMIN'] as const) {
-  test(`legacy user mutation routes cannot update or delete another active ${roleCode}`, async () => {
+  test(`super administrator can disable and delete another non-root ${roleCode}`, async () => {
     const target = await createReservedAdministrator(roleCode);
 
-    const update = await app.httpRequest()
+    await app.httpRequest()
       .put(`/api/v1/users/${target.userId}`)
       .set('Authorization', bearer)
       .send({ status: 'DISABLED' })
-      .expect(409);
-    assertTrustRootProtected(update);
+      .expect(200);
 
-    const deletion = await app.httpRequest()
+    await app.httpRequest()
       .delete(`/api/v1/users/${target.userId}`)
       .set('Authorization', bearer)
-      .expect(409);
-    assertTrustRootProtected(deletion);
-    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: target.userId } })).status, 'ENABLED');
+      .expect(200);
+    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: target.userId } })).status, 'DELETED');
   });
 }
 

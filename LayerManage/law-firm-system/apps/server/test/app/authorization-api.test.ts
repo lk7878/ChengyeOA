@@ -366,8 +366,20 @@ test('retires disabled accounts with session and grant history without breaking 
   const protectedAccount = await prisma.user.create({ data: { username: 'disabled-super-admin', password: 'unused', status: 'DISABLED' } });
   const rootRole = await prisma.role.findUniqueOrThrow({ where: { code: 'SYSTEM_SUPER_ADMIN' } });
   await prisma.userRole.create({ data: { userId: protectedAccount.id, roleId: rootRole.id } });
-  await app.httpRequest().delete(`/api/v1/users/${protectedAccount.id}`).set(bearer()).expect(409);
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: protectedAccount.id } })).status, 'DISABLED');
+  await app.httpRequest().put(`/api/v1/users/${protectedAccount.id}`).set(bearer()).send({ status: 'ENABLED' }).expect(200);
+  await app.httpRequest().put(`/api/v1/users/${protectedAccount.id}`).set(bearer()).send({ status: 'DISABLED' }).expect(200);
+  await app.httpRequest().delete(`/api/v1/users/${protectedAccount.id}`).set(bearer()).expect(200);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: protectedAccount.id } })).status, 'DELETED');
+});
+
+test('initial admin remains protected when another super administrator attempts disable or deletion', async () => {
+  const rootId = randomUUID();
+  await prisma.organization.create({ data: { id: rootId, code: 'PROTECTED_ROOT', name: 'Root', type: 'FIRM', path: `/${rootId}` } });
+  const admin = await prisma.user.create({ data: { username: 'admin', password: 'unused' } });
+  await prisma.systemInitialization.create({ data: { id: 'PRIMARY', rootOrganizationId: rootId, superAdminUserId: admin.id, completedAt: new Date() } });
+  await app.httpRequest().put(`/api/v1/users/${admin.id}`).set(bearer()).send({ status: 'DISABLED' }).expect(409);
+  await app.httpRequest().delete(`/api/v1/users/${admin.id}`).set(bearer()).expect(409);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: admin.id } })).status, 'ENABLED');
 });
 
 test('account retirement requires and atomically transfers private documents to an active employee', async () => {
