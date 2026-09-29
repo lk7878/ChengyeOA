@@ -213,7 +213,7 @@ export default function CloudDrivePage() {
           void post('/drive/nodes/' + parentId + '/visit', {}).catch(() => undefined);
         }
         const operation = lifecycleRef.current;
-        if (operation && !initial) {
+        if (operation && !initial && operation.action !== 'PURGE') {
           let allowed = false;
           try {
             const node = await get<DriveItem>('/drive/nodes/' + operation.item.id);
@@ -691,7 +691,7 @@ export default function CloudDrivePage() {
                               { key: 'remove', label: '移除快捷方式', disabled: !item.canRemove },
                             ]
                           : item.deletedAt
-                            ? [{ key: 'RESTORE', label: '恢复资源', disabled: !item.canRestore }]
+                            ? [{ key: 'RESTORE', label: '恢复资源', disabled: !item.canRestore }, { key: 'PURGE', label: '彻底删除', danger: true, disabled: !item.canRestore }]
                             : [
                                 { key: 'open', label: '打开' },
                                 { key: 'rename', label: '重命名', disabled: !item.canRename },

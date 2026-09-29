@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { unlink } from 'node:fs/promises';
+import path from 'node:path';
 import { DriveNode, Prisma } from '@prisma/client';
 import { Access, CollaborationService } from './collaboration-service';
 import { choice, exact, fail, integer, json, text } from './collaboration-policy';
@@ -201,7 +203,7 @@ export class DriveService extends CollaborationService {
 
   protected lifecycleInput(raw: unknown, commit = false) {
     const input = exact(raw, ['action', 'parentId', 'name', ...(commit ? ['previewToken'] : [])]);
-    const action = choice(input.action, ['MOVE', 'TRASH', 'RESTORE']);
+    const action = choice(input.action, ['MOVE', 'TRASH', 'RESTORE', 'PURGE']);
     if (commit && (typeof input.previewToken !== 'string' || !/^[a-f0-9]{64}$/.test(input.previewToken)))
       fail('DRIVE_PREVIEW_STALE', 409);
     if (action === 'MOVE' && input.parentId === undefined) fail('DRIVE_TARGET_REQUIRED');
@@ -227,7 +229,7 @@ export class DriveService extends CollaborationService {
   protected async lifecyclePlan(nodeId: string, input: ReturnType<DriveService['lifecycleInput']>, tx: Tx) {
     const { snapshot, source } = await this.lifecycleSource(nodeId, tx);
     const { action } = input;
-    if ((action === 'RESTORE') !== !!source.row.deletedAt) fail('DRIVE_STATE_CONFLICT', 409);
+    if ((action === 'RESTORE' || action === 'PURGE') !== !!source.row.deletedAt) fail('DRIVE_STATE_CONFLICT', 409);
     const byId = new Map(snapshot.rows.map((row) => [row.id, row]));
     if (source.path.slice(0, -1).some((part) => byId.get(part.id)?.deletedAt))
       fail('DRIVE_PARENT_UNAVAILABLE', 409);
@@ -253,7 +255,7 @@ export class DriveService extends CollaborationService {
     }
     const name = input.name ?? source.path.at(-1)!.name;
     if (
-      action !== 'TRASH' &&
+      action !== 'TRASH' && action !== 'PURGE' &&
       snapshot.rows.some(
         (row) =>
           row.id !== nodeId &&
@@ -265,12 +267,18 @@ export class DriveService extends CollaborationService {
       fail('COLLAB_NAME_OR_ID_CONFLICT', 409);
     const sourcePolicy = source.row.kind === 'BASE' ? source.row.basePolicy : source.row.accessPolicy;
     const after =
-      action === 'TRASH' ? null : restrictResourceAccess(parent.access, sourcePolicy, snapshot.principals);
+      action === 'TRASH' || action === 'PURGE' ? null : restrictResourceAccess(parent.access, sourcePolicy, snapshot.principals);
     const tables = await tx.collabTable.findMany({
       where: { base: { workspaceId: source.row.workspaceId } },
       select: { id: true, baseId: true, accessVersion: true, accessPolicy: true, archived: true },
       orderBy: { id: 'asc' },
     });
+    if (action === 'PURGE') {
+      for (const table of tables.filter(table => subtree.has(table.baseId))) {
+        const base = snapshot.resolve(table.baseId);
+        if (!base || restrictResourceAccess(base.access, table.accessPolicy, snapshot.principals).level < 3) fail('COLLAB_FORBIDDEN', 403);
+      }
+    }
     // Metadata/ACL fingerprint only: record edits do not invalidate a reviewed directory operation.
     const previewToken = createHash('sha256')
       .update(
@@ -333,16 +341,16 @@ export class DriveService extends CollaborationService {
         previewToken,
         name,
         fromPath: source.path,
-        toPath: action === 'TRASH' ? [] : [...parent.path, { ...source.path.at(-1)!, name }],
+        toPath: action === 'TRASH' || action === 'PURGE' ? [] : [...parent.path, { ...source.path.at(-1)!, name }],
         beforeRules: describe(source.path),
         afterRules:
-          action === 'TRASH'
+          action === 'TRASH' || action === 'PURGE'
             ? []
             : [
                 ...describe(parent.path),
                 { id: nodeId, name, kind: source.row.kind, policy: resourcePolicy(sourcePolicy) },
               ],
-        beforeAccess: summarize(action === 'RESTORE' ? null : source.access),
+        beforeAccess: summarize(action === 'RESTORE' || action === 'PURGE' ? null : source.access),
         afterAccess: summarize(after),
         affected: {
           folders: rows.filter((row) => row.kind === 'FOLDER').length,
@@ -368,6 +376,7 @@ export class DriveService extends CollaborationService {
 
   async applyLifecycle(nodeId: string, raw: unknown, key: unknown) {
     const input = this.lifecycleInput(raw, true);
+    if (input.action === 'PURGE') return this.purge(nodeId, input, key);
     const initial = await this.lifecycleSource(nodeId);
     return this.write(key, ['drive.lifecycle', nodeId, input], async (tx) => {
       await this.lock(tx, initial.source.row.workspaceId);
@@ -409,6 +418,49 @@ export class DriveService extends CollaborationService {
         if (row.kind === 'BASE') await this.event(tx, row.id, 'access.updated', row.id);
       return { id: nodeId, action };
     });
+  }
+
+  private async purge(nodeId: string, input: ReturnType<DriveService['lifecycleInput']>, key: unknown) {
+    // Receipt lookup precedes source lookup, so a retry works after the source is gone.
+    const receipt = await this.write(key, ['drive.lifecycle', nodeId, input], async tx => {
+      const initial = await this.lifecycleSource(nodeId, tx);
+      await this.lock(tx, initial.source.row.workspaceId);
+      const plan = await this.lifecyclePlan(nodeId, input, tx);
+      if (plan.public.previewToken !== input.previewToken) fail('DRIVE_PREVIEW_STALE', 409);
+      const nodeIds = plan.rows.map(row => row.id);
+      const baseIds = plan.rows.flatMap(row => row.baseId ? [row.baseId] : []);
+      const tables = await tx.collabTable.findMany({ where: { baseId: { in: baseIds } }, select: { id: true } });
+      const tableIds = tables.map(table => table.id);
+      if (tableIds.length) {
+        const external = await tx.collabField.findFirst({ where: {
+          tableId: { notIn: tableIds },
+          OR: tableIds.map(id => ({ options: { path: ['targetTableId'], equals: id } })),
+        }, select: { id: true } });
+        const linked = await tx.collabRelation.findFirst({ where: {
+          target: { tableId: { in: tableIds } }, source: { tableId: { notIn: tableIds } },
+        }, select: { id: true } });
+        if (external || linked) fail('COLLAB_REFERENCED_TABLE', 409);
+      }
+      const files = await tx.collabAttachment.findMany({ where: { tableId: { in: tableIds } }, select: { storageKey: true } });
+      // Uploads use UUID basenames. Never allow database contents to escape the storage directory.
+      if (files.some(file => !/^[a-f0-9-]{36}$/i.test(file.storageKey))) fail('DRIVE_FILE_CLEANUP_FAILED', 500);
+      await tx.collabRelation.deleteMany({ where: { source: { tableId: { in: tableIds } } } });
+      await tx.collabAttachment.deleteMany({ where: { tableId: { in: tableIds } } });
+      await tx.collabPreference.deleteMany({ where: { tableId: { in: tableIds } } });
+      await tx.driveShortcut.deleteMany({ where: { OR: [{ parentId: { in: nodeIds } }, { targetId: { in: nodeIds } }] } });
+      // Detach the complete authorized subtree before deleting nodes with restrictive parent FKs.
+      await tx.driveNode.updateMany({ where: { id: { in: nodeIds } }, data: { parentId: null } });
+      await tx.collabBase.deleteMany({ where: { id: { in: baseIds } } });
+      await tx.driveNode.deleteMany({ where: { id: { in: nodeIds } } });
+      await tx.operationLog.create({ data: { userId: this.actor.userId, action: 'drive.purge', targetType: 'DRIVE_NODE', targetId: nodeId, newValues: JSON.stringify({ nodeIds, baseIds }) } });
+      return { id: nodeId, action: 'PURGE', files: files.map(file => file.storageKey) };
+    });
+    // Files are removed only after commit; the stored receipt allows cleanup to be retried safely.
+    for (const storageKey of receipt.files) {
+      try { await unlink(path.join(process.cwd(), 'var', 'storage', 'collaboration', storageKey)); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') fail('DRIVE_FILE_CLEANUP_FAILED', 500); }
+    }
+    return { id: receipt.id, action: receipt.action };
   }
 
   private privatePolicy(ownerId: string, ownerLevel: number) {

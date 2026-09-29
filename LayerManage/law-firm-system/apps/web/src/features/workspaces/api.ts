@@ -20,6 +20,7 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  DRIVE_FILE_CLEANUP_FAILED: '文档附件清理未完成，请重试确认删除；已完成的删除不会重复执行。',
   DRIVE_SHORTCUT_EXISTS: '此位置已经存在该资源的快捷方式。',
   DRIVE_PREVIEW_STALE: '目录或授权规则已变化，请重新预览后确认。',
   DRIVE_STATE_CONFLICT: '资源状态已变化，请刷新目录后重试。',

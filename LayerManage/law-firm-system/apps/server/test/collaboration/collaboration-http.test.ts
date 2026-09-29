@@ -84,6 +84,23 @@ test.after(async () => {
   await mm.restore();
 });
 
+test('recycle-bin purge HTTP command removes uploaded files and cannot be invoked by editors', async () => {
+  await db.driveNode.upsert({ where: { id: baseId }, update: {}, create: { id: baseId, baseId, workspaceId, kind: 'BASE', ownerId: owner } });
+  const fileBody = { name: 'purge.pdf', content: Buffer.from('%PDF-1.4\npurge regression').toString('base64') };
+  const file = await app.httpRequest().post(`/api/v1/tables/${tableId}/files`).set('Authorization', 'Bearer ' + token).send(fileBody).expect(200);
+  const endpoint = `/api/v1/drive/nodes/${baseId}/lifecycle`;
+  const trash = await app.httpRequest().post(endpoint + '/preview').set('Authorization', 'Bearer ' + token).send({ action: 'TRASH' }).expect(200);
+  await app.httpRequest().post(endpoint).set('Authorization', 'Bearer ' + token).set('Idempotency-Key', randomUUID()).send({ action: 'TRASH', previewToken: trash.body.data.previewToken }).expect(200);
+  await app.httpRequest().post(`/api/v1/tables/${tableId}/files`).set('Authorization', 'Bearer ' + token).send(fileBody).expect(403);
+  await app.httpRequest().post(endpoint + '/preview').set('Authorization', 'Bearer ' + editorToken).send({ action: 'PURGE' }).expect(403);
+  const preview = await app.httpRequest().post(endpoint + '/preview').set('Authorization', 'Bearer ' + token).send({ action: 'PURGE' }).expect(200);
+  const receipt = randomUUID(), body = { action: 'PURGE', previewToken: preview.body.data.previewToken };
+  await app.httpRequest().post(endpoint).set('Authorization', 'Bearer ' + token).set('Idempotency-Key', receipt).send(body).expect(200);
+  await app.httpRequest().post(endpoint).set('Authorization', 'Bearer ' + token).set('Idempotency-Key', receipt).send(body).expect(200);
+  assert.equal(await db.collabAttachment.count({ where: { id: file.body.data.id } }), 0);
+  assert.equal(await db.collabBase.count({ where: { id: baseId } }), 0);
+});
+
 test('authenticated HTTP writes persist; invalid input and unauthorized access are denied', async () => {
   for (const route of [
     '/workspaces/' + workspaceId + '/drive/shortcuts',

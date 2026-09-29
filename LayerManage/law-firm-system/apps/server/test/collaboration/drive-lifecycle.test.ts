@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile, access, unlink } from 'node:fs/promises';
+import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { DriveNavigationService as DriveService } from '../../app/application/collaboration/drive-navigation-service';
 import { withFailingCollaborationOutbox } from '../helpers/collaboration-outbox-failure';
@@ -70,6 +72,69 @@ async function apply(id: string, input: Record<string, unknown>, service = owner
   const preview = await service.previewLifecycle(id, input);
   return service.applyLifecycle(id, { ...input, previewToken: preview.previewToken }, key());
 }
+
+test('purge removes a trashed subtree, attachments and shortcuts and supports receipt retries', async () => {
+  const parent = await folder('彻底删除目录');
+  const child = await folder('内部文件夹', true, parent);
+  const app = await owner.createDriveBase(workspace, { name: '待删除文档', parentId: child }, key());
+  const storageKey = key();
+  const root = path.join(process.cwd(), 'var', 'storage', 'collaboration');
+  const file = path.join(root, storageKey);
+  await mkdir(root, { recursive: true });
+  await writeFile(file, 'purge regression attachment', { flag: 'wx' });
+  try {
+    await db.collabAttachment.create({ data: { tableId: app.tableId, ownerId: owner.actor.userId, name: 'test.txt', mimeType: 'text/plain', size: 27, storageKey } });
+    await db.driveShortcut.create({ data: { workspaceId: workspace, parentId: child, targetId: app.id, ownerId: owner.actor.userId } });
+    await apply(parent, { action: 'TRASH' });
+    const preview = await owner.previewLifecycle(parent, { action: 'PURGE' });
+    assert.equal(preview.affected.bases, 1);
+    const input = { action: 'PURGE', previewToken: preview.previewToken }, receiptKey = key();
+    await db.$executeRawUnsafe(`CREATE FUNCTION fail_purge_audit() RETURNS trigger AS $$ BEGIN IF NEW.action = 'drive.purge' THEN RAISE EXCEPTION 'purge_audit_failure'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql`);
+    await db.$executeRawUnsafe(`CREATE TRIGGER fail_purge_audit_trigger BEFORE INSERT ON operation_log FOR EACH ROW EXECUTE FUNCTION fail_purge_audit()`);
+    try {
+      await assert.rejects(owner.applyLifecycle(parent, input, receiptKey), /purge_audit_failure/);
+      assert.ok(await db.collabBase.findUnique({ where: { id: app.id } }));
+      assert.equal(await db.collabAttachment.count({ where: { tableId: app.tableId } }), 1);
+      await access(file);
+    } finally {
+      await db.$executeRawUnsafe('DROP TRIGGER IF EXISTS fail_purge_audit_trigger ON operation_log');
+      await db.$executeRawUnsafe('DROP FUNCTION IF EXISTS fail_purge_audit()');
+    }
+    const result = await owner.applyLifecycle(parent, input, receiptKey);
+    assert.deepEqual(await owner.applyLifecycle(parent, input, receiptKey), result);
+    assert.equal(await db.driveNode.count({ where: { id: { in: [parent, child, app.id] } } }), 0);
+    assert.equal(await db.collabBase.count({ where: { id: app.id } }), 0);
+    assert.equal(await db.collabTable.count({ where: { id: app.tableId } }), 0);
+    assert.equal(await db.collabAttachment.count({ where: { tableId: app.tableId } }), 0);
+    assert.equal(await db.driveShortcut.count(), 0);
+    await assert.rejects(access(file));
+    assert.equal(await db.operationLog.count({ where: { action: 'drive.purge', targetId: parent } }), 1);
+    await assert.rejects(owner.previewLifecycle(parent, { action: 'RESTORE' }), code('COLLAB_NOT_FOUND'));
+  } finally { await unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
+});
+
+test('purge rejects live resources, unauthorized users and stale previews', async () => {
+  const id = await folder('删除保护');
+  await assert.rejects(owner.previewLifecycle(id, { action: 'PURGE' }), code('DRIVE_STATE_CONFLICT'));
+  await apply(id, { action: 'TRASH' });
+  await assert.rejects(staff.previewLifecycle(id, { action: 'PURGE' }), code('COLLAB_FORBIDDEN'));
+  const preview = await owner.previewLifecycle(id, { action: 'PURGE' });
+  await db.driveNode.update({ where: { id }, data: { version: { increment: 1 } } });
+  await assert.rejects(owner.applyLifecycle(id, { action: 'PURGE', previewToken: preview.previewToken }, key()), code('DRIVE_PREVIEW_STALE'));
+  assert.ok(await db.driveNode.findUnique({ where: { id } }));
+});
+
+test('purge preserves a document referenced by an outside table until the reference is removed', async () => {
+  const app = await owner.createDriveBase(workspace, { name: '被引用文档' }, key());
+  const other = await owner.createDriveBase(workspace, { name: '保留文档' }, key());
+  const field = await db.collabField.create({ data: { tableId: other.tableId, name: '关联', type: 'RELATION', options: { targetTableId: app.tableId } } });
+  await apply(app.id, { action: 'TRASH' });
+  await assert.rejects(apply(app.id, { action: 'PURGE' }), code('COLLAB_REFERENCED_TABLE'));
+  assert.ok(await db.collabBase.findUnique({ where: { id: app.id } }));
+  await db.collabField.delete({ where: { id: field.id } });
+  await apply(app.id, { action: 'PURGE' });
+  assert.ok(await db.collabBase.findUnique({ where: { id: other.id } }));
+});
 
 test('move previews rules, preserves identity and SELF records; current ancestor permissions govern old links', async () => {
   const source = await folder('原目录'),

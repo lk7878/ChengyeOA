@@ -4,7 +4,7 @@ import { Alert, Button, Input, Select, Space } from 'antd';
 import { errorMessage, errorStatus, post } from '../workspaces/api';
 import type { Directory } from '../workspaces/types';
 
-export type LifecycleAction = 'MOVE' | 'TRASH' | 'RESTORE';
+export type LifecycleAction = 'MOVE' | 'TRASH' | 'RESTORE' | 'PURGE';
 export interface LifecycleItem {
   id: string;
   name: string;
@@ -38,7 +38,7 @@ interface Preview {
   affected: { folders: number; bases: number; independentlyTrashed: number; shortcuts?: number };
   workspace: { name: string };
 }
-const labels = { MOVE: '移动资源', TRASH: '移入回收站', RESTORE: '恢复资源' };
+const labels = { MOVE: '移动资源', TRASH: '移入回收站', RESTORE: '恢复资源', PURGE: '彻底删除' };
 const roles: Record<string, string> = { DENY: '禁止访问', READER: '阅读', EDITOR: '编辑', MANAGER: '管理' };
 const accessLabel = (access: Preview['afterAccess']) =>
   access
@@ -76,6 +76,7 @@ export default function DriveLifecycle({
     let active = true,
       inflight = false;
     const verify = async () => {
+      if (action === 'PURGE' && attempted.current) return;
       if (!active || inflight) return;
       inflight = true;
       try {
@@ -142,7 +143,10 @@ export default function DriveLifecycle({
       onSaved();
     } catch (e) {
       setError(errorMessage(e));
-      if ([401, 403, 404, 409].includes(errorStatus(e) || 0)) setPreview(undefined);
+      if ([401, 403, 404, 409].includes(errorStatus(e) || 0)) {
+        attempted.current = false;
+        setPreview(undefined);
+      }
     } finally {
       setBusy(false);
     }
@@ -206,6 +210,7 @@ export default function DriveLifecycle({
             loading={busy && !preview}
             disabled={
               busy ||
+              (action === 'PURGE' && !!error && !!preview) ||
               (action === 'MOVE' && parentId === item.parentId) ||
               (action === 'RESTORE' && !name.trim())
             }
@@ -215,7 +220,7 @@ export default function DriveLifecycle({
           </Button>
           <Button
             type="primary"
-            danger={action === 'TRASH'}
+            danger={action === 'TRASH' || action === 'PURGE'}
             aria-label={'确认' + labels[action]}
             disabled={!preview || busy}
             loading={busy && !!preview}
@@ -277,7 +282,9 @@ export default function DriveLifecycle({
           description="内容会保留，可从回收站恢复。所有成员（包括工作区负责人）的旧链接和已打开的表格将停止访问。"
         />
       )}
-      {preview && (
+      {action === 'PURGE' && <Alert type="error" title="彻底删除后无法恢复" description="将永久删除该资源及文件夹内所有文档、附件和相关快捷方式（包含已独立回收的子项）。若被其他数据表引用，请先解除关联。请先预览删除范围，再确认。" />}
+      {preview && action === 'PURGE' && <section aria-label="删除范围预览"><p>将彻底删除 {preview.affected.folders} 个文件夹、{preview.affected.bases} 个文档，以及相关快捷方式。</p><p>位置：{preview.workspace.name} / {preview.fromPath.map(part => part.name).join(' / ')}</p></section>}
+      {preview && action !== 'PURGE' && (
         <section aria-label="权限影响预览" className="drive-lifecycle-preview">
           <p>
             影响 {preview.affected.folders} 个文件夹、{preview.affected.bases} 个多维表格、

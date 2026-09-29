@@ -332,16 +332,22 @@ export default class CollaborationController extends Controller {
     const file = path.join(root, id);
     await fs.writeFile(file, bytes, { flag: 'wx' });
     try {
-      const result = await this.ctx.prisma.collabAttachment.create({
-        data: {
-          id,
-          tableId,
-          ownerId: this.ctx.state.user.userId,
-          name: path.basename(name),
-          mimeType,
-          size: bytes.length,
-          storageKey: id,
-        },
+      const result = await this.ctx.prisma.$transaction(async tx => {
+        const table = await tx.collabTable.findUnique({ where: { id: tableId }, select: { base: { select: { workspaceId: true } } } });
+        if (!table) fail('COLLAB_NOT_FOUND', 404);
+        await tx.$queryRaw`SELECT "id" FROM "collab_workspace" WHERE "id" = ${table.base.workspaceId} FOR SHARE`;
+        await this.collaborationService().tableAccess(tableId, tx, 2);
+        return tx.collabAttachment.create({
+          data: {
+            id,
+            tableId,
+            ownerId: this.ctx.state.user.userId,
+            name: path.basename(name),
+            mimeType,
+            size: bytes.length,
+            storageKey: id,
+          },
+        });
       });
       this.respond({ id: result.id, name: result.name, mimeType, size: bytes.length });
     } catch (error) {
