@@ -1,13 +1,18 @@
 import { PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { buildOrganizationScopeWhere } from '../authorization/resource-scope-resolvers';
+import { creatorIdsInOrganizations } from '../authorization/creator-organization';
 import { PermissionCode } from '../../domain/authorization/authorization-types';
 /** Shared structural subset of Payment/InvoiceRequest/RefundRequest Prisma where inputs. */
 export interface FinancialRecordScope {
   id?: { in: string[] };
   OR?: FinancialRecordScope[];
   createdBy?: { in: string[] };
-  contract?: { branchId?: { in: string[] }; professionalTeamId?: { in: string[] } };
+  contract?: {
+    branchId?: { in: string[] } | null;
+    professionalTeamId?: { in: string[] };
+    createdBy?: { in: string[] };
+  };
 }
 export async function buildFinancialRecordScopeWhere(
   db: PrismaClient,
@@ -36,6 +41,11 @@ export async function buildFinancialRecordScopeWhere(
     });
     if (organizations.length)
       clauses.push({ contract: { branchId: { in: organizations.map((org) => org.id) } } });
+    const creators = await creatorIdsInOrganizations(
+      db,
+      organizations.map((org) => org.id),
+    );
+    if (creators.length) clauses.push({ contract: { branchId: null, createdBy: { in: creators } } });
   }
   return clauses.length ? { OR: clauses } : { id: { in: [] } };
 }

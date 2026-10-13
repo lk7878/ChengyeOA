@@ -443,9 +443,9 @@ export class WorkspaceDomainSource {
     });
     const ids = organizations.map((o) => o.id);
     let organization = Prisma.sql`${Prisma.raw(financial ? 'c."branchId"' : 'b."branchId"')} IN (${Prisma.join(ids)})`;
-    if (source === 'CONTRACTS') {
-      // Branch is optional on contracts. Anchor unassigned records by their creator,
-      // including workspace owners without employment, just as standalone customers.
+    if (['CONTRACTS', 'NEGOTIATIONS', 'CASES'].includes(source) || financial) {
+      // Optional organization fields must not hide newly created business records.
+      // Financial worksheets anchor through the contract, not the financial operator.
       const creators = await creatorIdsInOrganizations(this.db, ids);
       const workspace = await this.db.collabWorkspace.findUnique({
         where: { id: access.workspaceId },
@@ -453,9 +453,11 @@ export class WorkspaceDomainSource {
       });
       if (workspace && !workspace.owner.employeeId && !creators.includes(workspace.ownerId))
         creators.push(workspace.ownerId);
-      organization = Prisma.sql`(${organization} OR (b."branchId" IS NULL AND
-        ${creators.length ? Prisma.sql`b."createdBy" IN (${Prisma.join(creators)})` : Prisma.sql`FALSE`}))`;
-      // The canonical contract permission/data scope remains intersected below.
+      const branchColumn = Prisma.raw(financial ? 'c."branchId"' : 'b."branchId"');
+      const creatorColumn = Prisma.raw(financial ? 'c."createdBy"' : 'b."createdBy"');
+      organization = Prisma.sql`(${organization} OR (${branchColumn} IS NULL AND
+        ${creators.length ? Prisma.sql`${creatorColumn} IN (${Prisma.join(creators)})` : Prisma.sql`FALSE`}))`;
+      // Canonical business permissions and data scopes remain intersected below.
     }
     if (inventory) {
       const creators = await creatorIdsInOrganizations(this.db, ids);

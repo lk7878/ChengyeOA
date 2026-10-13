@@ -31,6 +31,11 @@ export async function buildNegotiationScopeWhere(
     });
     if (organizations.length > 0) {
       predicates.push({ branchId: { in: organizations.map((organization) => organization.id) } });
+      const creators = await creatorIdsInOrganizations(
+        prisma,
+        organizations.map((organization) => organization.id),
+      );
+      if (creators.length) predicates.push({ branchId: null, createdBy: { in: creators } });
     }
   }
   if (predicates.length === 0) return { id: { in: [] } };
@@ -62,6 +67,11 @@ export async function buildContractScopeWhere(
     });
     if (organizations.length > 0) {
       predicates.push({ branchId: { in: organizations.map((organization) => organization.id) } });
+      const creators = await creatorIdsInOrganizations(
+        prisma,
+        organizations.map((organization) => organization.id),
+      );
+      if (creators.length) predicates.push({ branchId: null, createdBy: { in: creators } });
     }
   }
   if (predicates.length === 0) return { id: { in: [] } };

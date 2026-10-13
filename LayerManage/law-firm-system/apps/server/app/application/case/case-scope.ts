@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
+import { creatorIdsInOrganizations } from '../authorization/creator-organization';
 import { buildOrganizationScopeWhere } from '../authorization/resource-scope-resolvers';
 import { PermissionCode } from '../../domain/authorization/authorization-types';
 import { projectCaseFile, type CaseView } from './case-types';
@@ -31,6 +32,8 @@ export async function buildCaseScopeWhere(
       select: { id: true },
     });
     if (organizations.length) clauses.push({ branchId: { in: organizations.map((org) => org.id) } });
+    const creators = await creatorIdsInOrganizations(reader, organizations.map((org) => org.id));
+    if (creators.length) clauses.push({ branchId: null, createdBy: { in: creators } });
   }
   if (resolved.professionalTeamIds.length) {
     // Legacy teamIds is JSON stored as text. Parse candidates strictly; malformed rows grant nothing.
