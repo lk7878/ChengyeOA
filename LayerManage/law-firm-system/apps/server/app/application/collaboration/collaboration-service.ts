@@ -3,6 +3,15 @@ import { CaseService } from '../case/case-service';
 import { UpdateCaseInput } from '../case/case-types';
 import { removeStoredAttachments } from '../case/case-intake';
 import { editableCaseKey, caseGridChoices } from './case-grid-fields';
+import { editableBusinessFields, editableBusinessKey, isEditableBusinessSource, businessGridChoices } from './business-grid-fields';
+import { CustomerService, UpdateCustomerInput } from '../crm/customer-service';
+import { NegotiationService } from '../contract/negotiation-service';
+import { UpdateNegotiationInput } from '../contract/contract-types';
+import { ChannelService } from '../channel/channel-service';
+import { CostService } from '../finance/cost-service';
+import { UpdateCostEntryInput } from '../finance/finance-types';
+import { InventoryService } from '../inventory/inventory-service';
+import { PerformanceService } from '../performance/performance-service';
 import { queryCustomRecords } from './custom-record-query';
 import { LEAD_SOURCE_TYPES } from '../crm/lead-types';
 import { LeadService } from '../crm/lead-service';
@@ -447,8 +456,14 @@ export class CollaborationService {
     const recordId = input.recordId === undefined ? undefined : text(input.recordId);
     if (recordId && source === 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
     new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
-    const tables: { id: string; name: string; source: string; baseId: string; baseName: string; workspaceName: string }[] =
-      [];
+    const tables: {
+      id: string;
+      name: string;
+      source: string;
+      baseId: string;
+      baseName: string;
+      workspaceName: string;
+    }[] = [];
     const targets: { id: string; name: string; workspaceName: string }[] = [];
     const { workspaces } = await this.listWorkspaces();
     for (const workspace of workspaces)
@@ -853,6 +868,15 @@ export class CollaborationService {
       canCreateBusiness: await this.canCreateBusiness(table, access, fields),
       fields: fields.map((f) => ({
         ...f,
+        ...(businessGridChoices(table.source, String(object(f.options).businessKey))
+          ? {
+              type: 'SINGLE_SELECT',
+              options: {
+                ...object(f.options),
+                choices: businessGridChoices(table.source, String(object(f.options).businessKey)),
+              },
+            }
+          : {}),
         ...(table.source === 'CASES' && caseGridChoices(String(object(f.options).businessKey))
           ? {
               type: 'SINGLE_SELECT',
@@ -870,6 +894,9 @@ export class CollaborationService {
           table.source === 'CUSTOM' || !['phone', 'wechat'].includes(String(object(f.options).businessKey)),
         writable:
           (table.source === 'CUSTOM' ||
+            (isEditableBusinessSource(table.source) &&
+              editableBusinessKey(table.source, String(object(f.options).businessKey), this.actor) &&
+              this.actor.permissionCodes.includes(domainSources[table.source].edit)) ||
             (table.source === 'CASES' &&
               editableCaseKey(String(object(f.options).businessKey)) &&
               this.actor.permissionCodes.includes('case.update')) ||
@@ -1790,6 +1817,128 @@ export class CollaborationService {
     transaction?: Tx,
   ) {
     const initial = await this.tableAccess(tableId, transaction ?? this.db, 2);
+    if (isEditableBusinessSource(initial.table.source) && recordId) {
+      const input = exact(raw, ['values', 'version', 'schemaVersion']);
+      return this.write(
+        key,
+        ['business.record.save', tableId, recordId, input],
+        async (tx) => {
+          await this.lock(tx, initial.access.workspaceId, true);
+          const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
+          const source = table.source;
+          if (!isEditableBusinessSource(source)) fail('COLLAB_INVALID_SOURCE');
+          if (integer(input.schemaVersion) !== table.schemaVersion) fail('COLLAB_SCHEMA_CONFLICT', 409);
+          await tx.$queryRaw(
+            Prisma.sql`SELECT id FROM ${Prisma.raw(domainSources[source].table)} WHERE id = ${recordId} FOR UPDATE`,
+          );
+          const core = await new WorkspaceDomainSource(this.db, this.actor).target(
+            source,
+            access,
+            recordId,
+            tx,
+            'update',
+          );
+          const extension = await tx.collabExtension.findUnique({
+            where: { tableId_recordId: { tableId, recordId } },
+          });
+          if (integer(input.version) !== core.version + (extension?.version ?? 0))
+            fail('COLLAB_RECORD_CONFLICT', 409);
+          const patch: Record<string, unknown> = {},
+            extras: ObjectValue = {};
+          for (const [id, value] of Object.entries(object(input.values))) {
+            const field = fields.find((f) => f.id === id);
+            if (!field || access.readonly.includes(id) || isSystemField(field))
+              fail('COLLAB_FIELD_UNAVAILABLE', 403);
+            const businessKey = String(object(field.options).businessKey ?? '');
+            if (!businessKey) {
+              extras[id] = value;
+              continue;
+            }
+            if (!editableBusinessKey(source, businessKey, this.actor))
+              fail('COLLAB_USE_BUSINESS_ACTION', 409);
+            patch[businessKey] = value;
+          }
+          if (!Object.keys(patch).length && !Object.keys(extras).length) fail('COLLAB_INVALID_VALUE');
+          const actor = { actorUserId: this.actor.userId };
+          let version = core.version;
+          if (Object.keys(patch).length) {
+            if (source === 'CUSTOMERS')
+              version = (
+                await new CustomerService(this.db, actor, this.actor).updateCustomer(
+                  recordId,
+                  { ...patch, version: core.version } as UpdateCustomerInput,
+                  tx,
+                )
+              ).version;
+            else if (source === 'NEGOTIATIONS')
+              version = (
+                await new NegotiationService(this.db, actor, this.actor).updateNegotiation(
+                  recordId,
+                  patch as UpdateNegotiationInput,
+                  tx,
+                )
+              ).version;
+            else if (source === 'CHANNELS')
+              version = (
+                await new ChannelService(this.db, actor, this.actor).update(
+                  recordId,
+                  { ...patch, version: core.version },
+                  tx,
+                )
+              ).version;
+            else if (source === 'COSTS')
+              version = (
+                await new CostService(this.db, actor, this.actor).updateCostEntry(
+                  recordId,
+                  { ...patch, version: core.version } as UpdateCostEntryInput,
+                  tx,
+                )
+              ).version;
+            else if (source === 'PERFORMANCES')
+              version = (
+                await new PerformanceService(this.db, actor, this.actor).setGoal(
+                  recordId,
+                  { goal: patch.goal as string, version: core.version },
+                  tx,
+                )
+              ).version;
+            else {
+              const current = await tx.inventoryItem.findUniqueOrThrow({ where: { id: recordId } });
+              const data = Object.fromEntries(
+                editableBusinessFields.INVENTORY_ITEMS.map((key) => [key, current[key]]),
+              );
+              version = (
+                await new InventoryService(this.db, actor, this.actor).saveItem(
+                  {
+                    ...data,
+                    kind: current.kind,
+                    minimumStock: current.minimumStock.toString(),
+                    ...patch,
+                    version: core.version,
+                  },
+                  recordId,
+                  tx,
+                )
+              ).version;
+            }
+          }
+          let combined = version + (extension?.version ?? 0);
+          if (Object.keys(extras).length)
+            combined = (
+              await this.saveExtension(
+                tableId,
+                recordId,
+                { values: extras, version: combined, schemaVersion: table.schemaVersion },
+                key,
+                tx,
+              )
+            ).version;
+          await this.event(tx, table.baseId, 'record.updated', recordId);
+          return { id: recordId, version: combined };
+        },
+        transaction,
+      );
+    }
     if (initial.table.source === 'CASES' && recordId) {
       const input = exact(raw, ['values', 'version', 'schemaVersion', 'archived']);
       const result = await this.write(
@@ -2010,7 +2159,10 @@ export class CollaborationService {
           if (
             initial.table.source !== 'CUSTOM' &&
             object(field.options).businessKey &&
-            !(initial.table.source === 'CASES' && editableCaseKey(String(object(field.options).businessKey)))
+            !(
+              initial.table.source === 'CASES' && editableCaseKey(String(object(field.options).businessKey))
+            ) &&
+            !editableBusinessKey(initial.table.source, String(object(field.options).businessKey), this.actor)
           )
             fail('COLLAB_USE_BUSINESS_ACTION', 409, { fieldId: id });
           if (initial.access.readonly.includes(id) || isSystemField(field))

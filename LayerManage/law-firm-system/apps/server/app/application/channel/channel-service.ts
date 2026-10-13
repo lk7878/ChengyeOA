@@ -1,3 +1,4 @@
+import { crmTransaction } from '../crm/crm-transaction';
 import { buildOrganizationScopeWhere } from '../authorization/resource-scope-resolvers';
 import { randomUUID } from 'node:crypto';
 import { Channel, Prisma, PrismaClient } from '@prisma/client';
@@ -166,7 +167,7 @@ export class ChannelService {
       throw error;
     });
   }
-  async update(id: string, input: unknown) {
+  async update(id: string, input: unknown, transaction?: Prisma.TransactionClient) {
     id = normalizeRequiredText(id, 1, 100);
     assertExactKeys(input, ['name', 'accountInfo', 'cost', 'status', 'version']);
     const scope = await channelScope(this.db, this.context, 'channel.update'),
@@ -179,7 +180,7 @@ export class ChannelService {
       ...(input.cost !== undefined ? { cost: money(input.cost) } : {}),
       ...(input.status !== undefined ? { status: normalizeAllowedValue(input.status, STATUS) } : {}),
     };
-    return this.db.$transaction(async (tx) => {
+    return crmTransaction(this.db, transaction, async (tx) => {
       await tx.$queryRaw`SELECT id FROM channel WHERE id = ${id} FOR UPDATE`;
       const old = await this.probe(tx, id, scope);
       if (old.version !== version) fail('VERSION_CONFLICT', 409);

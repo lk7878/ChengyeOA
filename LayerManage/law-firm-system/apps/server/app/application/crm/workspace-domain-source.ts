@@ -604,7 +604,8 @@ export class WorkspaceDomainSource {
     let editable: Array<{ id: string }> = [];
     if (rows.length && access.level >= 2 && this.actor.permissionCodes.includes(domainSources[source].edit))
       editable = await this.db.$queryRaw(Prisma.sql`SELECT b.id FROM ${this.from(source)} WHERE
-        b.id IN (${Prisma.join(rows.map((r) => r.id))}) AND ${await this.scope(source, access, 'update')}`);
+        b.id IN (${Prisma.join(rows.map((r) => r.id))}) AND ${await this.scope(source, access, 'update')}
+        AND ${source === 'NEGOTIATIONS' ? Prisma.sql`b.status = 'NEGOTIATING'` : Prisma.sql`TRUE`}`);
     const ids = new Set(editable.map((r) => r.id));
     const customerField = fields.find((f) => object(f.options).businessKey === 'customerId');
     const labels = new Map<string, string>();

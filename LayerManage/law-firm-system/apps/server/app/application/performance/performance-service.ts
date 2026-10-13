@@ -1,3 +1,4 @@
+import { crmTransaction } from '../crm/crm-transaction';
 // SPEC-037 Task 2: performance-service —— 绩效生命周期（create/list/get/confirm）。
 // 形态镜像 case-service：3 参构造 (prisma, actor, authorizationContext)；
 // requireAction 每公开方法第一行；assertExactKeys 入参白名单；同事务 OperationLog 审计。
@@ -278,7 +279,7 @@ export class PerformanceService {
   }
 
   /** 目标设定：performance.update → 仅 PENDING 期可设 → goal + 审计。 */
-  async setGoal(performanceId: string, input: SetGoalInput): Promise<PerformanceView> {
+  async setGoal(performanceId: string, input: SetGoalInput, transaction?: Prisma.TransactionClient): Promise<PerformanceView> {
     this.authorization.requireAction(this.authorizationContext, 'performance.update');
     const id = normalizeRequiredText(performanceId, 1, 100);
     assertExactKeys(input, ['goal', 'version']);
@@ -291,6 +292,7 @@ export class PerformanceService {
       { goal },
       'performance.update',
       input.version,
+      transaction,
     );
   }
 
@@ -352,10 +354,11 @@ export class PerformanceService {
     data: Prisma.PerformanceUpdateManyMutationInput,
     permission: PermissionCode,
     expectedVersion?: number,
+    transaction?: Prisma.TransactionClient,
   ): Promise<PerformanceView> {
     const scope = await performanceScope(this.prisma, this.authorizationContext, permission);
     const version = expectedVersion === undefined ? undefined : normalizeVersion(expectedVersion);
-    return this.prisma.$transaction(async (tx) => {
+    return crmTransaction(this.prisma, transaction, async (tx) => {
       await tx.$queryRaw`SELECT id FROM performance WHERE id = ${id} FOR UPDATE`;
       const current = await this.probe(tx, id, scope);
       if (version !== undefined && current.version !== version)

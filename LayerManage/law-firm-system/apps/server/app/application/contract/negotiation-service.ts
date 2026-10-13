@@ -1,3 +1,4 @@
+import { crmTransaction } from '../crm/crm-transaction';
 // SPEC-010 Task 6: negotiation-service —— 谈案（CRM-07）创建/列表/详情/更新/完结。
 // 事务边界（设计 §6.2）：业务写入、EventLog（outbox append）、OperationLog 全部同事务。
 // 动作权限：AuthorizationService.requireAction 首行（negotiation.create/read/update；close 复用 update）。
@@ -217,7 +218,7 @@ export class NegotiationService {
    * 更新谈案：negotiation.update + 范围 → 仅 NEGOTIATING 可改（否则 409）→ version 乐观锁；
    * 仅更新提供字段；谈案人变更重验员工存在性（400）；审计只落字段键名。
    */
-  async updateNegotiation(id: string, input: UpdateNegotiationInput): Promise<NegotiationView> {
+  async updateNegotiation(id: string, input: UpdateNegotiationInput, transaction?: Prisma.TransactionClient): Promise<NegotiationView> {
     this.authorization.requireAction(this.authorizationContext, 'negotiation.update');
     const negotiationId = normalizeRequiredText(id, 1, 100);
     assertExactKeys(input, [
@@ -248,7 +249,7 @@ export class NegotiationService {
     }
     const scopeWhere = await this.buildScopeWhere('negotiation.update');
 
-    return this.prisma.$transaction(async tx => {
+    return crmTransaction(this.prisma, transaction, async tx => {
       const negotiation = await tx.negotiation.findFirst({
         where: { AND: [scopeWhere, { id: negotiationId, deletedAt: null }] },
       });

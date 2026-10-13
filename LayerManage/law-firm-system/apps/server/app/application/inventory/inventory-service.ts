@@ -1,3 +1,4 @@
+import { crmTransaction } from '../crm/crm-transaction';
 import { createOnce } from '../finance/domain-mutation';
 import {
   inventoryScope,
@@ -96,7 +97,7 @@ export class InventoryService {
       },
     });
   }
-  async saveItem(input: unknown, id?: string) {
+  async saveItem(input: unknown, id?: string, transaction?: Prisma.TransactionClient) {
     this.auth.requireAction(this.context, 'inventory.manage');
     assertExactKeys(input, [
       'name',
@@ -150,7 +151,7 @@ export class InventoryService {
       });
       return row;
     };
-    if (id) return this.prisma.$transaction(work);
+    if (id) return crmTransaction(this.prisma, transaction, work);
     return createOnce(
       this.prisma,
       {

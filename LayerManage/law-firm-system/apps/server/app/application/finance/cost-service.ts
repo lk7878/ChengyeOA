@@ -1,3 +1,4 @@
+import { crmTransaction } from '../crm/crm-transaction';
 import { channelScope } from '../channel/channel-scope';
 import { createOnce } from './domain-mutation';
 import { buildCostScopeWhere } from './cost-scope';
@@ -272,13 +273,13 @@ export class CostService {
    * （costEntryId/category/changedFields 字段名集合——新值文本不落审计）→ 重读投影。
    * 锚点矩阵不在此复验：锚点字段不可变，create 已强制，矩阵恒保持。
    */
-  async updateCostEntry(id: string, input: UpdateCostEntryInput): Promise<CostEntryView> {
+  async updateCostEntry(id: string, input: UpdateCostEntryInput, transaction?: Prisma.TransactionClient): Promise<CostEntryView> {
     this.authorization.requireAction(this.authorizationContext, 'cost.update');
     assertExactKeys(input, ['amount', 'occurredAt', 'note', 'version']);
     const costId = normalizeRequiredText(id, 1, 100);
     const scopeWhere = await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.update');
 
-    return this.prisma.$transaction(async (tx) => {
+    return crmTransaction(this.prisma, transaction, async (tx) => {
       await tx.$queryRaw`SELECT id FROM cost_entry WHERE id = ${costId} FOR UPDATE`;
       const before = await this.probeCostEntry(tx, costId, scopeWhere);
       const version = normalizeNonNegativeInteger(input.version);

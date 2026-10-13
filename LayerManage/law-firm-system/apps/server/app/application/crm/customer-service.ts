@@ -1,3 +1,4 @@
+import { crmTransaction } from '../crm/crm-transaction';
 // SPEC-009 Task 8: customer-service —— 客户主数据 + 联系人（ContactService 内联，决策 15）。
 // 事务边界（设计 §6.2）：业务写入、EventLog（outbox append）、OperationLog 全部同事务。
 // 动作权限：customer.read/create/update/delete；customer.merge 不实现（无方法、无路由）。
@@ -227,7 +228,7 @@ export class CustomerService {
    * 更新客户（决策 13）：customer.update 权限 + 范围（不可见 404）→ version 乐观锁写回
    * 仅提供字段；phone 变更重算 phone+phoneHash；OperationLog 记录变更字段键名。
    */
-  async updateCustomer(customerId: string, input: UpdateCustomerInput): Promise<CustomerView> {
+  async updateCustomer(customerId: string, input: UpdateCustomerInput, transaction?: Prisma.TransactionClient): Promise<CustomerView> {
     this.authorization.requireAction(this.authorizationContext, 'customer.update');
     const id = normalizeRequiredText(customerId, 1, 100);
     assertExactKeys(input, [
@@ -286,7 +287,7 @@ export class CustomerService {
     }
     const scopeWhere = await this.buildCustomerScopeWhere('customer.update');
 
-    return this.prisma.$transaction(async (tx) => {
+    return crmTransaction(this.prisma, transaction, async (tx) => {
       const customer = await tx.customer.findFirst({
         where: { AND: [scopeWhere, { id, deletedAt: null }] },
       });

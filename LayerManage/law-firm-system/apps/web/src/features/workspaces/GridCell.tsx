@@ -145,7 +145,8 @@ export default function GridCell({
         ((row.displayValues?.[field.id] ?? displayValue(field, row.values[field.id], directory)) || '空')
       }
       onClick={begin}
-      title={field.writable && row.writable !== false ? "点击编辑，回车保存，Esc 取消" : "只读字段"}
+      onDoubleClick={begin}
+      title={field.writable && row.writable !== false ? "双击编辑，回车保存，Esc 取消" : "只读字段"}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
