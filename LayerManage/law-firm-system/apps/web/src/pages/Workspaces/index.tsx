@@ -690,20 +690,59 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   const tableAction = (table: DataTable, action: string) => {
     if (action === 'rename' || action === 'duplicate')
       return openDialog({ kind: 'rename', table, duplicate: action === 'duplicate' });
+    const deleting = action === 'delete';
+    const key = crypto.randomUUID();
     Modal.confirm({
-      okText: '确定',
+      okText: deleting ? '删除' : '确定',
+      okButtonProps: { danger: deleting },
       cancelText: '取消',
-      title: action === 'archive' ? '归档此表？历史数据会保留。' : '恢复此表？',
+      title: deleting
+        ? `删除“${table.name}”？`
+        : action === 'archive'
+          ? '归档此表？历史数据会保留。'
+          : '恢复此表？',
+      content: deleting
+        ? table.source === 'CUSTOM'
+          ? '将永久删除此表及表内数据、附件、视图和自动化规则，无法恢复。未保存的修改也会丢失。'
+          : '将永久删除此工作表的入口、视图、自定义扩展数据、附件和自动化规则。关联的原始业务记录会保留，可重新连接业务数据。未保存的修改会丢失。'
+        : undefined,
       onOk: async () => {
         try {
-          await patch('/tables/' + table.id, {
-            archived: action === 'archive',
-            version: table.schemaVersion,
-          });
-          if (table.id === tableId && action === 'archive') go({ base: baseId });
+          await patch(
+            '/tables/' + table.id,
+            {
+              ...(deleting ? { remove: true } : { archived: action === 'archive' }),
+              version: table.schemaVersion,
+            },
+            key,
+          );
+          if (deleting) {
+            setTables((old) => old.filter((item) => item.id !== table.id));
+            if (table.id === tableId) {
+              setEditing(undefined);
+              setPaste(undefined);
+              setConfigDirty(false);
+              setInlineDirty(false);
+              inlineDirtyRef.current = false;
+              setDetail(undefined);
+              setResult(undefined);
+              setSettings(null);
+              setDialog(undefined);
+              setQueryError('');
+              setParams((old) => {
+                const next = new URLSearchParams(old);
+                for (const name of ['table', 'view', 'record']) next.delete(name);
+                const fallback = tables.find((item) => item.id !== table.id && !item.archived);
+                if (fallback) next.set('table', fallback.id);
+                return next;
+              });
+            }
+            message.success('数据表已删除');
+          } else if (table.id === tableId && action === 'archive') go({ base: baseId });
           refresh();
         } catch (e) {
           message.error(errorMessage(e));
+          throw e;
         }
       },
     });
@@ -803,6 +842,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                       { key: 'rename', label: '重命名' },
                       { key: 'duplicate', label: '复制结构' },
                       { key: t.archived ? 'restore' : 'archive', label: t.archived ? '恢复' : '归档' },
+                      { key: 'delete', label: '删除', danger: true, disabled: !t.canDelete },
                     ],
                     onClick: (e) => {
                       if (e.key === 'move-up' || e.key === 'move-down') {

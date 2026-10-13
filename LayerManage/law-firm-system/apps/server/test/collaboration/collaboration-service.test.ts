@@ -2,6 +2,8 @@ import { withFailingCollaborationOutbox } from '../helpers/collaboration-outbox-
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile, access as fileAccess } from 'node:fs/promises';
+import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { CollaborationService } from '../../app/application/collaboration/collaboration-service';
 import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
@@ -536,6 +538,89 @@ test('copy is structure only and archive does not delete source data', async () 
   await assert.rejects(editor.query(tableId, {}), hasCode('COLLAB_NOT_FOUND'));
   await admin.mutateTable(tableId, { archived: false, version: 2 }, randomUUID());
   assert.equal((await editor.query(tableId, {})).records[0].values[titleId], 'keep');
+});
+
+test('table deletion removes archived custom data, preferences and attachments and supports replay', async () => {
+  const storageKey = randomUUID();
+  const storageRoot = path.join(process.cwd(), 'var', 'storage', 'collaboration');
+  await mkdir(storageRoot, { recursive: true });
+  const storedFile = path.join(storageRoot, storageKey);
+  await writeFile(storedFile, 'fixture', { flag: 'wx' });
+  const row = await editor.saveRecord(
+    tableId,
+    undefined,
+    { values: { [titleId]: 'delete me' }, schemaVersion: 1 },
+    randomUUID(),
+  );
+  const view = (await admin.describe(tableId)).views[0];
+  await db.collabPreference.create({ data: { userId: admin.actor.userId, tableId, viewId: view.id } });
+  await db.collabAttachment.create({
+    data: {
+      tableId,
+      ownerId: admin.actor.userId,
+      name: 'gone.pdf',
+      mimeType: 'application/pdf',
+      size: 1,
+      storageKey,
+    },
+  });
+  await admin.mutateTable(tableId, { archived: true, version: 1 }, randomUUID());
+  const body = { remove: true, version: 2 },
+    key = randomUUID();
+  for (const actor of [reader, editor])
+    await assert.rejects(actor.mutateTable(tableId, body, randomUUID()), hasCode('COLLAB_FORBIDDEN'));
+  await assert.rejects(
+    admin.mutateTable(tableId, { remove: true, version: 1 }, randomUUID()),
+    hasCode('COLLAB_SCHEMA_CONFLICT'),
+  );
+  const deleted = await admin.mutateTable(tableId, body, key);
+  await assert.rejects(fileAccess(storedFile), { code: 'ENOENT' });
+  assert.deepEqual(await admin.mutateTable(tableId, body, key), deleted);
+  assert.equal(await db.collabTable.count({ where: { id: tableId } }), 0);
+  assert.equal(await db.collabRecord.count({ where: { id: row.id } }), 0);
+  assert.equal(await db.collabRevision.count({ where: { recordId: row.id } }), 0);
+  assert.equal(await db.collabView.count({ where: { tableId } }), 0);
+  assert.equal(await db.collabPreference.count({ where: { tableId } }), 0);
+  assert.equal(await db.collabAttachment.count({ where: { tableId } }), 0);
+  assert.equal((await admin.listTables(baseId)).tables.length, 0);
+  assert.equal(await db.operationLog.count({ where: { action: 'table.deleted', targetId: tableId } }), 1);
+  assert.ok((await admin.createTable(baseId, { name: '自建表' }, randomUUID())).id);
+});
+
+test('table deletion rejects external references including archived fields and rolls back on outbox failure', async () => {
+  const other = await admin.createTable(baseId, { name: 'other' }, randomUUID());
+  const field = await db.collabField.create({
+    data: {
+      tableId: other.id,
+      name: 'reference',
+      type: 'RELATION',
+      archived: true,
+      options: { targetTableId: tableId },
+    },
+  });
+  await assert.rejects(
+    admin.mutateTable(tableId, { remove: true, version: 1 }, randomUUID()),
+    hasCode('COLLAB_REFERENCED_TABLE'),
+  );
+  await db.collabField.delete({ where: { id: field.id } });
+  await withFailingCollaborationOutbox(db, async () => {
+    await assert.rejects(admin.mutateTable(tableId, { remove: true, version: 1 }, randomUUID()));
+  });
+  assert.ok(await db.collabTable.findUnique({ where: { id: tableId } }));
+  assert.equal(await db.collabField.count({ where: { tableId } }), 1);
+  assert.equal(await db.operationLog.count({ where: { action: 'table.deleted' } }), 0);
+});
+
+test('table deletion requires unrestricted manager access', async () => {
+  await db.collabMember.updateMany({ where: { workspaceId, principalId: editor.actor.userId }, data: { role: 'MANAGER', rowScope: 'SELF' } });
+  assert.equal((await editor.listTables(baseId)).tables[0].canDelete, false);
+  await assert.rejects(editor.mutateTable(tableId, { remove: true, version: 1 }, randomUUID()), hasCode('COLLAB_FORBIDDEN'));
+  await db.collabMember.updateMany({ where: { workspaceId, principalId: editor.actor.userId }, data: { rowScope: 'ALL', readonlyFields: [titleId] } });
+  await assert.rejects(editor.mutateTable(tableId, { remove: true, version: 1 }, randomUUID()), hasCode('COLLAB_FORBIDDEN'));
+  await db.collabMember.updateMany({ where: { workspaceId, principalId: editor.actor.userId }, data: { readonlyFields: [] } });
+  assert.equal((await editor.listTables(baseId)).tables[0].canDelete, true);
+  await editor.mutateTable(tableId, { remove: true, version: 1 }, randomUUID());
+  assert.equal((await admin.listTables(baseId)).tables.length, 0);
 });
 
 test('a downgraded table creator cannot recover editing authority through ownership', async () => {

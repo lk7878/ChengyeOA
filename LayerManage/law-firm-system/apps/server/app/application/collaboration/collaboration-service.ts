@@ -24,6 +24,8 @@ import { AuthorizationService } from '../authorization/authorization-service';
 import { LEAD_STATUS, canTransition, LeadStatus, REACTIVATE_ENABLED } from '../../domain/crm/lead-policy';
 import { businessFields, WorkspaceBusinessTable } from '../crm/workspace-business-table';
 import { createHash, randomUUID } from 'node:crypto';
+import { unlink } from 'node:fs/promises';
+import path from 'node:path';
 import { CollabField, CollabRecord, CollabTable, CollabMember, Prisma, PrismaClient } from '@prisma/client';
 import { appendCollaborationChange } from './collaboration-change';
 import { AuthorizationContext } from '../authorization/authorization-service';
@@ -729,12 +731,20 @@ export class CollaborationService {
       orderBy: [{ position: 'asc' }, { id: 'asc' }],
       select: { id: true, name: true, source: true, position: true, schemaVersion: true, archived: true },
     });
-    const visible: Array<(typeof tables)[number] & { canManage: boolean }> = [];
+    const visible: Array<(typeof tables)[number] & { canManage: boolean; canDelete: boolean }> = [];
     for (const table of tables) {
       try {
         const result = await this.tableAccess(table.id, tx, 1, true);
         if (!table.archived || result.access.level >= 3)
-          visible.push({ ...table, canManage: access.level >= 3 && result.access.level >= 3 });
+          visible.push({
+            ...table,
+            canManage: access.level >= 3 && result.access.level >= 3,
+            canDelete:
+              result.access.level >= 3 &&
+              !result.access.selfOnly &&
+              !result.access.hidden.length &&
+              !result.access.readonly.length,
+          });
       } catch (error) {
         if (!['COLLAB_FORBIDDEN', 'COLLAB_NOT_FOUND'].includes((error as { code?: string }).code ?? ''))
           throw error;
@@ -939,6 +949,7 @@ export class CollaborationService {
     };
   }
   async mutateTable(tableId: string, raw: unknown, key: unknown) {
+    if (object(raw).remove === true) return this.deleteTable(tableId, raw, key);
     const input = exact(raw, ['name', 'position', 'archived', 'duplicate', 'version']);
     if (input.position !== undefined) fail('COLLAB_USE_DIRECTORY_ORDER');
     const initial = await this.tableAccess(tableId, this.db, 3, true);
@@ -1013,6 +1024,49 @@ export class CollaborationService {
       await this.event(tx, table.baseId, 'table.updated', tableId);
       return { id: tableId, version: table.schemaVersion + 1 };
     });
+  }
+  private async deleteTable(tableId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['remove', 'version']);
+    // The actor-bound receipt survives deletion, including retries of file cleanup.
+    const receipt = await this.write(key, ['table.delete', tableId, input], async (tx) => {
+      const initial = await this.tableAccess(tableId, tx, 3, true);
+      await this.lock(tx, initial.access.workspaceId);
+      const { table, access } = await this.tableAccess(tableId, tx, 3, true);
+      if (access.selfOnly || access.hidden.length || access.readonly.length) fail('COLLAB_FORBIDDEN', 403);
+      if (table.schemaVersion !== integer(input.version)) fail('COLLAB_SCHEMA_CONFLICT', 409);
+      // Archived fields also retain references and must not become dangling on restore.
+      const reference = await tx.collabField.findFirst({
+        where: {
+          tableId: { not: tableId },
+          options: { path: ['targetTableId'], equals: tableId },
+        },
+      });
+      const linked = await tx.collabRelation.findFirst({
+        where: {
+          target: { tableId },
+          source: { tableId: { not: tableId } },
+        },
+      });
+      if (reference || linked) fail('COLLAB_REFERENCED_TABLE', 409);
+      const files = await tx.collabAttachment.findMany({ where: { tableId }, select: { storageKey: true } });
+      if (files.some((file) => !/^[a-f0-9-]{36}$/i.test(file.storageKey)))
+        fail('DRIVE_FILE_CLEANUP_FAILED', 500);
+      await tx.collabRelation.deleteMany({ where: { source: { tableId } } });
+      await tx.collabAttachment.deleteMany({ where: { tableId } });
+      await tx.collabPreference.deleteMany({ where: { tableId } });
+      // Only collaboration data cascades; canonical business records have no table FK.
+      await tx.collabTable.delete({ where: { id: tableId } });
+      await this.event(tx, table.baseId, 'table.deleted', tableId);
+      return { id: tableId, files: files.map((file) => file.storageKey) };
+    });
+    for (const storageKey of receipt.files) {
+      try {
+        await unlink(path.join(process.cwd(), 'var', 'storage', 'collaboration', storageKey));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') fail('DRIVE_FILE_CLEANUP_FAILED', 500);
+      }
+    }
+    return { id: receipt.id };
   }
   async saveField(tableId: string, fieldId: string | undefined, raw: unknown, key: unknown) {
     const input = exact(raw, [

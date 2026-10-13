@@ -69,6 +69,18 @@ test.after(async () => {
   await clearTestApplicationData(db);
   await db.$disconnect();
 });
+test('deleting a business worksheet keeps canonical customers and removes only its extensions', async () => {
+  const customer = await seed('CUSTOMERS');
+  const table = await svc.createTable(base, { name: '客户工作表', source: 'CUSTOMERS' }, key());
+  await db.collabExtension.create({
+    data: { tableId: table.id, recordId: customer, values: { note: 'extension' }, updatedBy: user },
+  });
+  await svc.mutateTable(table.id, { remove: true, version: 1 }, key());
+  assert.ok(await db.customer.findUnique({ where: { id: customer } }));
+  assert.equal(await db.collabExtension.count({ where: { tableId: table.id } }), 0);
+  const reconnected = await svc.createTable(base, { name: '客户工作表', source: 'CUSTOMERS' }, key());
+  assert.equal((await svc.query(reconnected.id, {})).records[0].id, customer);
+});
 async function seed(source: string) {
   const customer = await db.customer.create({
     data: { customerNo: key(), name: '原客户', phone: '13800000000', phoneHash: key(), createdBy: user },

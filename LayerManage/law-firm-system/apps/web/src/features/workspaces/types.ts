@@ -48,6 +48,7 @@ export interface View extends Option {
 }
 export interface DataTable extends Option {
   canManage?: boolean;
+  canDelete?: boolean;
   baseId?: string;
   source: string;
   position: number;
