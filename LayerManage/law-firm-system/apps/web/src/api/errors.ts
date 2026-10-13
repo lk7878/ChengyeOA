@@ -54,6 +54,7 @@ const messages: Record<string, string> = {
   SOP_NODE_DUPLICATE: '节点编码不能重复',
   SOP_REVIEWER_ROLE_INVALID: '审核角色已停用或不可用，请重新配置',
   CUSTOMER_IN_USE: '客户已关联线索、案件、合同或其他业务记录，无法删除，请先核查关联记录',
+  CASE_CUSTOMER_UNAVAILABLE: '所选客户不存在或不在你的客户数据权限范围内，请重新选择客户或联系管理员核对客户权限；当前输入已保留',
   CASE_IN_USE: '案件已关联财务合同、成本或SOP流程记录，无法删除，请先核查关联记录',
   CASE_STATE_INVALID: '案件已结案或归档，不能修改或删除',
   CASE_NOT_FOUND: '案件不存在或已删除，请刷新列表',

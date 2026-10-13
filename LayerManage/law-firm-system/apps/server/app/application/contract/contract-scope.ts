@@ -1,6 +1,6 @@
 // Creator-scoped CRM records resolve SELF/CUSTOM/subordinate employees to actual users.
 // Organization/team branches remain unions; an empty resolution never grants access.
-import { creatorIdsForEmployees } from '../authorization/creator-organization';
+import { creatorIdsForEmployees, creatorIdsInOrganizations } from '../authorization/creator-organization';
 import { Prisma, PrismaClient } from '@prisma/client';
 
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
@@ -95,6 +95,13 @@ export async function buildCustomerVisibilityWhere(
       predicates.push({
         sourceLead: { branchId: { in: organizations.map((organization) => organization.id) } },
       });
+      // Directly created customers have no lead. Use their creator's current
+      // organization rather than making branch-scoped users lose their own customers.
+      const creators = await creatorIdsInOrganizations(
+        prisma,
+        organizations.map((organization) => organization.id),
+      );
+      if (creators.length) predicates.push({ sourceLeadId: null, createdBy: { in: creators } });
     }
   }
   if (predicates.length === 0) return { id: { in: [] } };

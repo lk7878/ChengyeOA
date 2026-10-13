@@ -20,8 +20,8 @@ import { clearTestApplicationData, createTestPrisma } from '../helpers/test-data
 // 绑定决策（2026-07-29 dispatch coordinator decisions）：
 //  10. customer.read/create/update；customer.merge 不实现。
 //  11. Customer 无组织列：范围锚定 SELF→createdBy=actor.userId（与 lead-service 写 createdBy 同一身份串）、
-//      TEAM→sourceLead.professionalTeamId、BRANCH/ORG→sourceLead.branchId 子树；sourceLeadId=null 仅命中
-//      SELF 谓词与 ALL；OR 并集 fail-closed；不可见 → LEAD_NOT_FOUND(404)（无 CUSTOMER_NOT_FOUND 码）。
+//      TEAM→sourceLead.professionalTeamId、BRANCH/ORG→sourceLead.branchId 子树；无来源线索时
+//      按创建人的有效任职组织归属；OR 并集 fail-closed；不可见 → LEAD_NOT_FOUND(404)。
 //  12. createCustomer：normalizePhone+hashPhone 双写；customerNo=makeBusinessNo('CU')；status 默认
 //      POTENTIAL（提供则校验 CUSTOMER_STATUS）；sourceLeadId 恒 null（转化路径独占）；直建不去重拦截。
 //  13. updateCustomer：version 乐观锁；仅更新提供字段；phone 变更重算 phone+phoneHash。
@@ -555,7 +555,7 @@ test('SELF scope anchors on createdBy: own customers visible, others hidden', as
   );
 });
 
-test('BRANCH scope anchors on sourceLead.branchId; null-sourceLead customers are invisible', async () => {
+test('BRANCH scope uses source lead and hides unassigned customers without an employed creator', async () => {
   const { userId, actor } = await createActor();
   const branch = await createOrganizationFixture('BRANCH_MAIN');
   const branchChild = await createOrganizationFixture('BRANCH_CHILD', branch);

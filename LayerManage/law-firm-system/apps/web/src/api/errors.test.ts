@@ -1,6 +1,12 @@
 import { expect, test } from 'vitest';
 import { requestErrorMessage } from './errors';
 
+test('case creation explains unavailable customers without exposing their existence', () => {
+  const message = requestErrorMessage({ response: { status: 404, data: { message: 'CASE_CUSTOMER_UNAVAILABLE' } } });
+  expect(message).toContain('客户数据权限范围');
+  expect(message).toContain('当前输入已保留');
+});
+
 test('explains actual organization deletion blockers without suggesting status changes remove references', () => {
   const failure = (blockers: unknown) => ({ response: { status: 409, data: { message: 'ORGANIZATION_DELETE_IN_USE', errors: { organizationDeleteBlockers: blockers } } } });
   expect(requestErrorMessage(failure({ children: 2 }))).toBe('无法删除：存在下级组织 2 条。请先移动或删除下级组织，再删除当前组织');

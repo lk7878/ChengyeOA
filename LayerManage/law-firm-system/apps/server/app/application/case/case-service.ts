@@ -299,7 +299,7 @@ export class CaseService {
     const customer = await this.prisma.customer.findFirst({
       where: { AND: [customerScope, { id: customerId, deletedAt: null }] },
     });
-    if (!customer) throw new MasterDataError('VALIDATION_FAILED', 400);
+    if (!customer) throw new CaseError(CASE_ERROR_CODES.CASE_CUSTOMER_UNAVAILABLE, 404, 'customer unavailable');
     if (contractId !== null) {
       this.authorization.requireAction(this.authorizationContext, 'contract.read');
       const contractScope = await buildContractScopeWhere(

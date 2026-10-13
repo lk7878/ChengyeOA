@@ -354,6 +354,7 @@ export class WorkspaceDomainSource {
         ![
           'id',
           'caseId',
+          'sourceLeadId',
           'employeeId',
           'createdBy',
           'branchId',
