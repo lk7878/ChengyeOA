@@ -68,12 +68,24 @@ export class CollaborationService {
   ) {}
   protected async principals(tx: Tx): Promise<Array<{ principalType: string; principalId: string }>> {
     const result = [{ principalType: 'USER', principalId: this.actor.userId }];
+    const now = new Date();
+    const activeRoles = await tx.userRole.findMany({
+      where: {
+        userId: this.actor.userId,
+        revokedAt: null,
+        validFrom: { lte: now },
+        OR: [{ validUntil: null }, { validUntil: { gt: now } }],
+        role: { status: 'ENABLED' },
+        user: { status: 'ENABLED' },
+      },
+      select: { roleId: true },
+    });
+    result.push(...activeRoles.map((r) => ({ principalType: 'ROLE', principalId: r.roleId })));
     if (!this.actor.employeeId) return result;
     const employee = await tx.employee.findFirst({
       where: { id: this.actor.employeeId, deletedAt: null, status: { not: 'LEAVED' } },
     });
     if (!employee) return [];
-    const now = new Date();
     const [assignments, teams] = await Promise.all([
       tx.employeeAssignment.findMany({
         where: {
@@ -302,7 +314,11 @@ export class CollaborationService {
   }
   async resourceAccess(kind: 'BASE' | 'TABLE', id: string) {
     const { target, base, creators } = await this.resource(kind, id, this.db);
+    const [path] = kind === 'BASE' ? await this.db.$queryRaw<Array<{ folders: FolderAncestor[] }>>(Prisma.sql`
+      SELECT ${folderChainSql(Prisma.sql`${base.id}`)} AS folders
+    `) : [];
     return {
+      folders: path?.folders.map((folder) => ({ id: folder.id, name: folder.folderName })) ?? [],
       version: target.accessVersion,
       policy: resourcePolicy(target.accessPolicy),
       members: await this.resourceMembers(base.workspaceId, creators),
@@ -434,7 +450,10 @@ export class CollaborationService {
           if (!recordId && directory.access.level === 4 && directory.access.canCreate && targets.length < 200)
             targets.push({ id: base.id, name: base.name, workspaceName: workspace.name });
           for (const table of directory.tables) {
-            if (table.source !== source || table.archived || tables.length >= 200) continue;
+            const associatedCustomTable =
+              table.source === 'CUSTOM' && directory.base.moduleSource === source && !recordId;
+            if ((table.source !== source && !associatedCustomTable) || table.archived || tables.length >= 200)
+              continue;
             if (recordId) {
               try {
                 if (isDomainSource(source)) {
@@ -624,6 +643,35 @@ export class CollaborationService {
         },
       });
       return { id: w.id };
+    });
+  }
+  protected moduleSource(raw: unknown): string | null {
+    if (raw === undefined || raw === null || raw === '') return null;
+    const source = choice(raw, ['LEADS', 'FOLLOWS', ...Object.keys(domainSources)]);
+    new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
+    return source;
+  }
+  async saveBaseModule(baseId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['moduleSource', 'version']);
+    const moduleSource = this.moduleSource(input.moduleSource);
+    const initial = await this.baseAccess(baseId, this.db, 3);
+    return this.write(key, ['base.module', baseId, input], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId);
+      const { base } = await this.baseAccess(baseId, tx, 3);
+      if (base.version !== integer(input.version)) fail('COLLAB_DIRECTORY_CONFLICT', 409);
+      await tx.collabBase.update({
+        where: { id: baseId }, data: { moduleSource, version: { increment: 1 } },
+      });
+      await tx.operationLog.create({
+        data: {
+          userId: this.actor.userId, action: 'collaboration.base.module',
+          targetType: 'COLLAB_BASE', targetId: baseId,
+          oldValues: JSON.stringify({ moduleSource: base.moduleSource }),
+          newValues: JSON.stringify({ moduleSource }),
+        },
+      });
+      await this.event(tx, baseId, 'base.updated', baseId);
+      return { id: baseId };
     });
   }
   async createBase(workspaceId: string, raw: unknown, key: unknown) {
@@ -1884,7 +1932,7 @@ export class CollaborationService {
       !this.actor.isSystemSuperAdmin &&
       !this.actor.permissionCodes.some((p) => String(p) === 'workspace.create')
     )
-      return { organizations: [], employees: [], teams: [], users: [], positions: [] };
+      return { organizations: [], employees: [], teams: [], users: [], positions: [], roles: [] };
     const organizations = await this.db.organization.findMany({
       where: {
         status: 'ENABLED',
@@ -1930,6 +1978,9 @@ export class CollaborationService {
       take: 1000,
     });
     return {
+      roles: access?.canManageAccess || this.actor.isSystemSuperAdmin
+        ? await this.db.role.findMany({ where: { status: 'ENABLED' }, select: { id: true, name: true }, orderBy: { name: 'asc' } })
+        : [],
       positions: positions.map((p) => ({ id: p.id, name: p.organization.name + ' / ' + p.name })),
       organizations,
       employees: employees.map((e) => ({ id: e.id, name: e.name })),
@@ -1945,6 +1996,7 @@ export class CollaborationService {
   }
   async saveMember(workspaceId: string, raw: unknown, key: unknown) {
     const input = exact(raw, [
+      'baseId',
       'principalType',
       'principalId',
       'role',
@@ -1960,7 +2012,7 @@ export class CollaborationService {
     return this.write(key, ['member.save', workspaceId, input], async (tx) => {
       await this.lock(tx, workspaceId);
       const administrator = await this.requireAccessAdmin(workspaceId, tx);
-      const principalType = choice(input.principalType, ['USER', 'ORG', 'TEAM', 'POSITION']);
+      const principalType = choice(input.principalType, ['USER', 'ORG', 'TEAM', 'POSITION', 'ROLE']);
       const principalId = text(input.principalId);
       if (
         administrator.level < 4 &&
@@ -1980,7 +2032,7 @@ export class CollaborationService {
             ? options.organizations
             : principalType === 'POSITION'
               ? options.positions
-              : options.teams;
+              : principalType === 'ROLE' ? options.roles : options.teams;
       if (!input.remove && !candidates.some((c) => c.id === principalId)) fail('COLLAB_MEMBER_UNAVAILABLE');
       const existing = await tx.collabMember.findUnique({
         where: { workspaceId_principalType_principalId: { workspaceId, principalType, principalId } },
@@ -2020,6 +2072,23 @@ export class CollaborationService {
             data: { ...data, version: { increment: 1 } },
           });
         else await tx.collabMember.create({ data: { ...data, workspaceId, principalType, principalId } });
+        if (input.baseId !== undefined) {
+          const baseId = text(input.baseId);
+          const { base } = await this.resource('BASE', baseId, tx);
+          if (base.workspaceId !== workspaceId) fail('COLLAB_NOT_FOUND', 404);
+          const policy = resourcePolicy(base.accessPolicy);
+          policy.grants = policy.grants.filter(
+            (g) => g.principalType !== principalType || g.principalId !== principalId,
+          );
+          policy.grants.push({
+            principalType, principalId, role, rowScope: data.rowScope,
+            canCreate: data.canCreate, hiddenFields: [], readonlyFields: [],
+          });
+          await tx.collabBase.update({
+            where: { id: baseId },
+            data: { accessPolicy: json(policy), accessVersion: { increment: 1 } },
+          });
+        }
       }
       await tx.collabWorkspace.update({ where: { id: workspaceId }, data: { version: { increment: 1 } } });
       const bases = await tx.collabBase.findMany({ where: { workspaceId } });

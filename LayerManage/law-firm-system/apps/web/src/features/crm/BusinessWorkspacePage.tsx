@@ -1,4 +1,5 @@
 import Modal from '@/components/DraggableModal';
+import CreateModuleBase from './CreateModuleBase';
 import ChannelIdentityGaps from '@/pages/Channel/ChannelIdentityGaps';
 import { financeContextParams, financialSources } from '@/pages/finance/context';
 import { useAuthStore } from '@/stores/authStore';
@@ -109,7 +110,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
           <h1>{title}</h1>
           <p>选择工作表，使用共同的记录、个人视图和业务办理。</p>
         </div>
-        <Button onClick={() => setRevision((n) => n + 1)}>刷新工作表</Button>
+        <div><CreateModuleBase source={source} onCreated={(base, table) => setParams({ ...Object.fromEntries(params), base, table })} /> <Button onClick={() => setRevision((n) => n + 1)}>刷新工作表</Button></div>
       </div>
       {source === 'CHANNELS' && <ChannelIdentityGaps />}
       {error && (
@@ -142,7 +143,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
               </Link>
             ))}
           </div>
-          <p>仅展示已授权的连接，最多 200 项；其他资源可从云盘进入。</p>
+          <p>展示已授权的业务连接与归属本模块的普通多维表格，最多 200 项。已有表格可在“所属业务模块”中设置归属。</p>
           {data.targets.length > 0 && (
             <Button type="primary" onClick={() => setConnecting(true)}>
               连接业务数据
@@ -156,7 +157,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
               {creation.label}
             </Link>
           )}
-          <Link style={{ marginLeft: 16 }} to="/workspaces">
+          <Link style={{ marginLeft: 16 }} to={"/workspaces?module=" + source}>
             进入云盘管理工作区
           </Link>
           {!data.tables.length && !data.targets.length && (

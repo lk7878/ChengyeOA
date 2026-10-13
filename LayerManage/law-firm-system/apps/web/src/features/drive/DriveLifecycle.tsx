@@ -159,8 +159,8 @@ export default function DriveLifecycle({
           ? directory.positions
           : type === 'ORG'
             ? directory.organizations
-            : directory.teams;
-    const prefix = ({ USER: '成员', POSITION: '岗位', ORG: '组织', TEAM: '团队' } as Record<string, string>)[
+            : type === 'ROLE' ? directory.roles : directory.teams;
+    const prefix = ({ ROLE: '角色', USER: '成员', POSITION: '岗位', ORG: '组织', TEAM: '团队' } as Record<string, string>)[
       type
     ];
     return prefix + '：' + (options?.find((option) => option.id === id)?.name || id);

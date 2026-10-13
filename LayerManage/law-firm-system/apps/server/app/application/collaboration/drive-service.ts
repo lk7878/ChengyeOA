@@ -516,17 +516,19 @@ export class DriveService extends CollaborationService {
   }
 
   async createDriveBase(workspaceId: string, raw: unknown, key: unknown) {
-    const input = exact(raw, ['name', 'parentId']);
+    const input = exact(raw, ['name', 'parentId', 'moduleSource']);
+    const moduleSource = this.moduleSource(input.moduleSource);
     const name = text(input.name),
       parentId = optionalParent(input.parentId);
     this.parent(await this.catalog(workspaceId), parentId, true);
-    return this.write(key, ['drive.base.create', workspaceId, name, parentId], async (tx) => {
+    return this.write(key, ['drive.base.create', workspaceId, name, parentId, moduleSource], async (tx) => {
       await this.lock(tx, workspaceId);
       const parent = this.parent(await this.catalog(workspaceId, tx), parentId, true);
       const base = await tx.collabBase.create({
         data: {
           workspaceId,
           name,
+          moduleSource,
           accessPolicy: parentId ? Prisma.DbNull : this.privatePolicy(this.actor.userId, parent.access.level),
         },
       });

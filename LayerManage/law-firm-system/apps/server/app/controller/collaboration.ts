@@ -31,6 +31,9 @@ export default class CollaborationController extends Controller {
   async businessTables() {
     this.respond(await this.collaborationService().businessTables(this.ctx.query));
   }
+  async saveBaseModule() {
+    this.respond(await this.collaborationService().saveBaseModule(this.ctx.params.baseId, this.ctx.request.body, this.key()));
+  }
   async createBusinessRecord() {
     this.respond(
       await this.collaborationService().createBusinessRecord(

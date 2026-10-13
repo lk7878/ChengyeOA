@@ -6,6 +6,7 @@ import type { Directory, Field, Member } from './types';
 
 type Grant = Omit<Member, 'id' | 'version'>;
 interface Snapshot {
+  folders?: { id: string; name: string }[];
   version: number;
   policy: { restricted: boolean; grants: Grant[] };
   members: Member[];
@@ -57,7 +58,7 @@ export function ResourceAccess({
         ? directory.organizations
         : m.principalType === 'POSITION'
           ? directory.positions || []
-          : directory.teams
+          : (m.principalType === 'ROLE' ? directory.roles || [] : directory.teams)
     ).find((o) => o.id === m.principalId)?.name || m.principalId;
   const update = (member: Member, patch?: Partial<Grant>) => {
     if (!snapshot) return;
@@ -109,6 +110,7 @@ export function ResourceAccess({
           }
         }}
       >
+        {!!snapshot?.folders?.length && <Alert type="info" title="上级文件夹也会限制访问；分享后仍不可见时，请检查下列文件夹的授权。" description={snapshot.folders.map((folder) => <div key={folder.id}>{folder.name} <ResourceAccess folderId={folder.id} directory={directory} fields={[]} onSaved={onSaved} /></div>)} />}
         <Alert
           type="info"
           showIcon

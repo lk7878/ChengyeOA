@@ -31,7 +31,7 @@ export default function WorkspaceMembers({
         ? directory.organizations
         : type === 'POSITION'
           ? directory.positions || []
-          : directory.teams;
+          : type === 'ROLE' ? directory.roles || [] : directory.teams;
   const name = (member: Member) =>
     (member.principalType === 'USER'
       ? directory.users
@@ -39,7 +39,7 @@ export default function WorkspaceMembers({
         ? directory.organizations
         : member.principalType === 'POSITION'
           ? directory.positions || []
-          : directory.teams
+          : (member.principalType === 'ROLE' ? directory.roles || [] : directory.teams)
     ).find((v) => v.id === member.principalId)?.name || member.principalId;
   useEffect(() => {
     if (!open) return;
@@ -147,6 +147,7 @@ export default function WorkspaceMembers({
             <Select
               options={[
                 { value: 'USER', label: '成员' },
+                { value: 'ROLE', label: '角色（跟随有效账号授权）' },
                 { value: 'ORG', label: '部门' },
                 { value: 'TEAM', label: '团队' },
                 { value: 'POSITION', label: '岗位（跟随有效任职）' },

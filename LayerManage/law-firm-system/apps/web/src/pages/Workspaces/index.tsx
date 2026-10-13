@@ -1,4 +1,5 @@
 import Modal from '@/components/DraggableModal';
+import BaseModule from '@/features/workspaces/BaseModule';
 import { inventoryViewConfig } from '@/pages/Inventory/context';
 import { financialSources, financialViewConfig, financeContextParams } from '@/pages/finance/context';
 import { useAuthStore } from '@/stores/authStore';
@@ -452,7 +453,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       position: next.field?.position,
       principalType: 'USER',
       role: 'EDITOR',
-      rowScope: 'SELF',
+      rowScope: 'ALL',
+      shareBase: true,
       canCreate: false,
       canManageAccess: false,
       hiddenFields: [],
@@ -554,6 +556,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
         await post(
           '/workspaces/' + base.workspaceId + '/members',
           {
+            ...(values.shareBase ? { baseId } : {}),
             principalType: values.principalType,
             principalId: values.principalId,
             role: values.role,
@@ -907,6 +910,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               在云盘中打开
             </Button>
           )}
+          {base && baseAccess && baseAccess.level >= 3 && <BaseModule base={base} onSaved={refresh} />}
           <Avatar.Group>
             {online.slice(0, 5).map((u) => (
               <Tooltip key={u.id} title={u.name}>
@@ -1219,7 +1223,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                         scroll={{
                           x: Math.max(
                             700,
-                            visibleFields.reduce((n, f) => n + (config.widths?.[f.id] || 180), 80),
+                            visibleFields.reduce((n, f) => n + (config.widths?.[f.id] || 180), 220),
                           ),
                           y: 520,
                         }}
@@ -1233,7 +1237,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                             key: 'row',
                             width: 64,
                             fixed: 'left',
-                            onCell: (row) => (row.group ? { colSpan: visibleFields.length + 2 } : {}),
+                            onCell: (row) => (row.group ? { colSpan: visibleFields.length + 3 } : {}),
                             render: (_, row) =>
                               row.group ? (
                                 <button
@@ -1325,6 +1329,29 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                                 />
                               ),
                           })),
+                          {
+                            key: 'record-actions',
+                            title: '操作',
+                            width: 140,
+                            onCell: (row) => (row.group ? { colSpan: 0 } : {}),
+                            render: (_: unknown, row: GridRow) => row.group ? null : <Space>
+                              <Button size="small" disabled={inlineDirty} onClick={() => void openRecord(row)}>详情</Button>
+                              {detail.table.source === 'CUSTOM' && <Button size="small" danger disabled={inlineDirty || detail.access.level < 2 || row.writable === false} onClick={() => {
+                                const key = crypto.randomUUID();
+                                Modal.confirm({
+                                  title: '删除这条记录？',
+                                  content: '删除后该记录不再显示在工作表中，历史变更仍保留。',
+                                  okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
+                                  onOk: async () => {
+                                    try {
+                                      await patch('/tables/' + tableId + '/records/' + row.id, { archived: true, version: row.version, schemaVersion: detail.table.schemaVersion }, key);
+                                      refresh();
+                                    } catch (e) { message.error(errorMessage(e)); throw e; }
+                                  },
+                                });
+                              }}>删除</Button>}
+                            </Space>,
+                          },
                           {
                             key: 'add-field',
                             onCell: (row) => (row.group ? { colSpan: 0 } : {}),
@@ -1825,7 +1852,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               form.setFieldValue('principalId', undefined);
               form.setFieldsValue({
                 role: 'EDITOR',
-                rowScope: 'SELF',
+                rowScope: 'ALL',
                 canCreate: false,
                 canManageAccess: false,
                 hiddenFields: [],
@@ -1834,7 +1861,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
             }
             if ('role' in changed)
               form.setFieldsValue({
-                rowScope: changed.role === 'MANAGER' ? 'ALL' : 'SELF',
+                rowScope: 'ALL',
                 canManageAccess: false,
               });
             if ('principalId' in changed) {
@@ -1847,7 +1874,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                 m || {
                   role: 'EDITOR',
                   canCreate: false,
-                  rowScope: 'SELF',
+                  rowScope: 'ALL',
                   hiddenFields: [],
                   readonlyFields: [],
                 },
@@ -2002,11 +2029,13 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
             <>
               <Alert
                 type="info"
-                title="工作区成员是访问前提；应用和表的独立权限还会进一步限制。链接本身不会授予权限。"
+                title="功能权限与文档共享分别设置。选择角色可分享给该角色下的有效账号；查看他人数据需选择全部记录。上级文件夹和数据表的限制仍然生效。"
               />
+              <Form.Item name="shareBase" valuePropName="checked"><Checkbox>同时授权访问当前多维表格</Checkbox></Form.Item>
               <Form.Item name="principalType" label="成员类型">
                 <Select
                   options={[
+                    { value: 'ROLE', label: '角色（跟随有效账号授权）' },
                     { value: 'USER', label: '成员' },
                     { value: 'ORG', label: '部门' },
                     { value: 'TEAM', label: '团队' },
@@ -2020,7 +2049,9 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     <Select
                       showSearch
                       optionFilterProp="label"
-                      options={(form.getFieldValue('principalType') === 'ORG'
+                      options={(form.getFieldValue('principalType') === 'ROLE'
+                        ? directory.roles || []
+                        : form.getFieldValue('principalType') === 'ORG'
                         ? directory.organizations
                         : form.getFieldValue('principalType') === 'POSITION'
                           ? directory.positions || []

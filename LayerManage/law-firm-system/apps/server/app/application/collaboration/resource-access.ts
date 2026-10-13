@@ -54,7 +54,7 @@ export function resourcePolicy(raw: unknown): ResourcePolicy {
       'hiddenFields',
       'readonlyFields',
     ]);
-    const principalType = choice(g.principalType, ['USER', 'ORG', 'TEAM', 'POSITION']);
+    const principalType = choice(g.principalType, ['USER', 'ORG', 'TEAM', 'POSITION', 'ROLE']);
     const principalId = text(g.principalId);
     const key = principalType + ':' + principalId;
     if (keys.has(key)) fail('COLLAB_DUPLICATE_PRINCIPAL');

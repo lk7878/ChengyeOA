@@ -1701,6 +1701,7 @@ model CollabMember {
 }
 
 model CollabBase {
+  moduleSource  String?
   driveNode     DriveNode?
   accessPolicy  Json?
   accessVersion Int              @default(1)

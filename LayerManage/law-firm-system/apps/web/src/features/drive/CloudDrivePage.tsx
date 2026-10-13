@@ -1,4 +1,5 @@
 import Modal from '@/components/DraggableModal';
+import { moduleOptions, isBusinessSource } from '../crm/business-sources';
 import { useUnifiedShell } from '../navigation/shell-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -111,6 +112,7 @@ export default function CloudDrivePage() {
     item?: DriveItem;
   }>();
   const [name, setName] = useState('');
+  const [moduleSource, setModuleSource] = useState<string>();
   const [organizationId, setOrganizationId] = useState<string>();
   const [workspaceOrganizations, setWorkspaceOrganizations] = useState<Directory['organizations']>([]);
   const [saving, setSaving] = useState(false);
@@ -290,6 +292,8 @@ export default function CloudDrivePage() {
   }, [workspaceId, parentId, scope, search, sort, page, revision, setParams]);
   const openDialog = (kind: 'folder' | 'base' | 'workspace' | 'rename', item?: DriveItem) => {
     setName(item?.name || '');
+    const source = params.get('module') || '';
+    setModuleSource(isBusinessSource(source) ? source : undefined);
     setDialogError('');
     setOrganizationId(undefined);
     key.current = crypto.randomUUID();
@@ -390,7 +394,7 @@ export default function CloudDrivePage() {
       } else {
         const created = await post<{ id: string; tableId?: string; viewId?: string }>(
           '/workspaces/' + workspaceId + '/drive/' + (dialog.kind === 'folder' ? 'folders' : 'bases'),
-          { name: name.trim(), parentId: parentId || null },
+          { name: name.trim(), parentId: parentId || null, ...(dialog.kind === 'base' ? { moduleSource: moduleSource || null } : {}) },
           key.current,
         );
         if (dialog.kind === 'base') {
@@ -755,6 +759,7 @@ export default function CloudDrivePage() {
       >
         {dialogError && <Alert type="error" title={dialogError} />}
         <label htmlFor="drive-resource-name">名称</label>
+        {dialog?.kind === 'base' && <Select aria-label="所属业务模块" allowClear placeholder="所属业务模块（可选）" style={{ width: '100%', marginBottom: 12 }} value={moduleSource} onChange={(v) => { key.current = crypto.randomUUID(); setModuleSource(v); }} options={moduleOptions} />}
         <Input
           id="drive-resource-name"
           maxLength={120}

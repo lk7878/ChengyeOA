@@ -55,6 +55,8 @@ export interface DataTable extends Option {
   archived: boolean;
 }
 export interface Base extends Option {
+  moduleSource?: string | null;
+  version: number;
   workspaceId: string;
 }
 export interface Workspace extends Option {
@@ -117,6 +119,7 @@ export interface Directory {
   employees: Option[];
   teams: Option[];
   positions?: Option[];
+  roles?: Option[];
   users: Option[];
 }
 export interface Member {

@@ -52,3 +52,5 @@ export function domainCreate(source: string | undefined) {
     ? domainCreates[source as keyof typeof domainCreates]
     : undefined;
 }
+
+export const moduleOptions = Object.entries(businessSources).map(([value, source]) => ({ value, label: source.title }));
