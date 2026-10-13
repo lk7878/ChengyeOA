@@ -442,6 +442,20 @@ export class WorkspaceDomainSource {
     });
     const ids = organizations.map((o) => o.id);
     let organization = Prisma.sql`${Prisma.raw(financial ? 'c."branchId"' : 'b."branchId"')} IN (${Prisma.join(ids)})`;
+    if (source === 'CONTRACTS') {
+      // Branch is optional on contracts. Anchor unassigned records by their creator,
+      // including workspace owners without employment, just as standalone customers.
+      const creators = await creatorIdsInOrganizations(this.db, ids);
+      const workspace = await this.db.collabWorkspace.findUnique({
+        where: { id: access.workspaceId },
+        select: { ownerId: true, owner: { select: { employeeId: true } } },
+      });
+      if (workspace && !workspace.owner.employeeId && !creators.includes(workspace.ownerId))
+        creators.push(workspace.ownerId);
+      organization = Prisma.sql`(${organization} OR (b."branchId" IS NULL AND
+        ${creators.length ? Prisma.sql`b."createdBy" IN (${Prisma.join(creators)})` : Prisma.sql`FALSE`}))`;
+      // The canonical contract permission/data scope remains intersected below.
+    }
     if (inventory) {
       const creators = await creatorIdsInOrganizations(this.db, ids);
       const column = Prisma.raw((immutable ? 'i' : 'b') + '."createdBy"');

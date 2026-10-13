@@ -156,6 +156,47 @@ test('customers created by an owner without employment are visible while resourc
   const denied = new CollaborationService(db, { ...staff.actor, permissionCodes: [], grants: [] });
   await assert.rejects(denied.query(table, {}), rejects('COLLAB_FORBIDDEN'));
 });
+test('unassigned contracts use creator/workspace anchors without bypassing contract or resource scopes', async () => {
+  await db.user.update({ where: { id: owner.actor.userId }, data: { employeeId: null } });
+  const table = (await owner.createTable(base, { name: '合同记录', source: 'CONTRACTS' }, key())).id;
+  const ownerContract = await seed('CONTRACTS', owner.actor.userId);
+  const staffContract = await seed('CONTRACTS', staff.actor.userId);
+  await db.contract.updateMany({
+    where: { id: { in: [ownerContract.id, staffContract.id] } },
+    data: { branchId: null },
+  });
+  const foreign = await seed('CONTRACTS', owner.actor.userId, outside);
+  const unrelated = await db.user.create({ data: { username: key(), password: 'unused' } });
+  const unrelatedContract = await seed('CONTRACTS', unrelated.id);
+  await db.contract.update({ where: { id: unrelatedContract.id }, data: { branchId: null } });
+  assert.deepEqual(
+    new Set((await owner.query(table, {})).records.map((r) => r.id)),
+    new Set([ownerContract.id, staffContract.id]),
+  );
+  assert.equal((await owner.record(table, ownerContract.id)).record.id, ownerContract.id);
+  assert.equal(
+    (await owner.businessTables({ source: 'CONTRACTS', recordId: ownerContract.id })).tables[0].id,
+    table,
+  );
+  await assert.rejects(owner.record(table, foreign.id), rejects('COLLAB_NOT_FOUND'));
+  await assert.rejects(owner.record(table, unrelatedContract.id), rejects('COLLAB_NOT_FOUND'));
+  assert.deepEqual(
+    (await staff.query(table, {})).records.map((r) => r.id),
+    [staffContract.id],
+  );
+  await db.collabMember.updateMany({ where: { principalId: staff.actor.userId }, data: { rowScope: 'ALL' } });
+  const selfScope = await db.dataScope.create({ data: { name: key(), scopeType: 'SELF' } });
+  const scoped = new CollaborationService(db, {
+    ...staff.actor,
+    grants: staff.actor.grants.map((g) => ({ ...g, scopeIds: [selfScope.id] })),
+  });
+  assert.deepEqual(
+    (await scoped.query(table, {})).records.map((r) => r.id),
+    [staffContract.id],
+  );
+  const denied = new CollaborationService(db, { ...staff.actor, permissionCodes: [], grants: [] });
+  await assert.rejects(denied.query(table, {}), rejects('COLLAB_FORBIDDEN'));
+});
 for (const source of ['CUSTOMERS', 'NEGOTIATIONS', 'CONTRACTS'] as DomainSource[])
   test(`${source}: canonical IDs, domain/resource scopes, extension versions and controlled core fields`, async () => {
     const table = (await owner.createTable(base, { name: source, source }, key())).id;
