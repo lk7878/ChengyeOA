@@ -1335,12 +1335,12 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                             width: 140,
                             onCell: (row) => (row.group ? { colSpan: 0 } : {}),
                             render: (_: unknown, row: GridRow) => row.group ? null : <Space>
-                              <Button size="small" disabled={inlineDirty} onClick={() => void openRecord(row)}>详情</Button>
-                              {detail.table.source === 'CUSTOM' && <Button size="small" danger disabled={inlineDirty || detail.access.level < 2 || row.writable === false} onClick={() => {
+                              <Button size="small" disabled={inlineDirty} onClick={() => void openRecord(row)}>{row.writable !== false && fields.some(f => f.writable) ? '编辑' : '详情'}</Button>
+                              {detail.canDeleteRecords && <Button size="small" danger disabled={inlineDirty || detail.access.level < 2} onClick={() => {
                                 const key = crypto.randomUUID();
                                 Modal.confirm({
                                   title: '删除这条记录？',
-                                  content: '删除后该记录不再显示在工作表中，历史变更仍保留。',
+                                  content: detail.table.source === 'CASES' ? '将删除正式案件及其关联任务、沟通和附件。存在合同、财务或其他业务引用的案件不能删除。' : '删除后该记录不再显示在工作表中，历史变更仍保留。',
                                   okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
                                   onOk: async () => {
                                     try {
@@ -1667,6 +1667,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                 复制记录链接
               </Button>
             )}
+            {detail?.table.source === 'CASES' && editing.row && <Alert type="info" title="可直接编辑案件名称、案由、优先级、主办律师、费用及登记信息；案件编号等系统字段只读，状态及客户/合同关联通过业务办理调整。" />}
             {detail?.table.source === 'LEADS' && editing.row && (
               <BusinessRecord
                 key={tableId + editing.row.id}
@@ -1728,7 +1729,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     displayText={(editing.detail?.record ?? editing.row)?.displayValues?.[f.id]}
                     field={f}
                     value={
-                      f.options.businessKey
+                      f.options.businessKey && !f.writable
                         ? (editing.detail?.record.values[f.id] ?? editing.values[f.id])
                         : editing.values[f.id]
                     }

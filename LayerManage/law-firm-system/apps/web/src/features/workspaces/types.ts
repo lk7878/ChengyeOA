@@ -73,6 +73,7 @@ export interface Access {
   workspaceId: string;
 }
 export interface TableDetail {
+  canDeleteRecords?: boolean;
   canCreateBusiness?: boolean;
   table: DataTable;
   fields: Field[];

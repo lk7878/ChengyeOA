@@ -1,4 +1,8 @@
 import { domainSources, isDomainSource, WorkspaceDomainSource } from '../crm/workspace-domain-source';
+import { CaseService } from '../case/case-service';
+import { UpdateCaseInput } from '../case/case-types';
+import { removeStoredAttachments } from '../case/case-intake';
+import { editableCaseKey, caseGridChoices } from './case-grid-fields';
 import { queryCustomRecords } from './custom-record-query';
 import { LEAD_SOURCE_TYPES } from '../crm/lead-types';
 import { LeadService } from '../crm/lead-service';
@@ -101,7 +105,8 @@ export class CollaborationService {
     ]);
     for (const assignment of assignments) {
       if (assignment.organization.status !== 'ENABLED') continue;
-      if (assignment.position.status === 'ENABLED' && !assignment.position.deletedAt) result.push({ principalType: 'POSITION', principalId: assignment.positionId });
+      if (assignment.position.status === 'ENABLED' && !assignment.position.deletedAt)
+        result.push({ principalType: 'POSITION', principalId: assignment.positionId });
       const ancestors = await tx.organization.findMany({
         where: {
           status: 'ENABLED',
@@ -314,9 +319,12 @@ export class CollaborationService {
   }
   async resourceAccess(kind: 'BASE' | 'TABLE', id: string) {
     const { target, base, creators } = await this.resource(kind, id, this.db);
-    const [path] = kind === 'BASE' ? await this.db.$queryRaw<Array<{ folders: FolderAncestor[] }>>(Prisma.sql`
+    const [path] =
+      kind === 'BASE'
+        ? await this.db.$queryRaw<Array<{ folders: FolderAncestor[] }>>(Prisma.sql`
       SELECT ${folderChainSql(Prisma.sql`${base.id}`)} AS folders
-    `) : [];
+    `)
+        : [];
     return {
       folders: path?.folders.map((folder) => ({ id: folder.id, name: folder.folderName })) ?? [],
       version: target.accessVersion,
@@ -660,12 +668,15 @@ export class CollaborationService {
       const { base } = await this.baseAccess(baseId, tx, 3);
       if (base.version !== integer(input.version)) fail('COLLAB_DIRECTORY_CONFLICT', 409);
       await tx.collabBase.update({
-        where: { id: baseId }, data: { moduleSource, version: { increment: 1 } },
+        where: { id: baseId },
+        data: { moduleSource, version: { increment: 1 } },
       });
       await tx.operationLog.create({
         data: {
-          userId: this.actor.userId, action: 'collaboration.base.module',
-          targetType: 'COLLAB_BASE', targetId: baseId,
+          userId: this.actor.userId,
+          action: 'collaboration.base.module',
+          targetType: 'COLLAB_BASE',
+          targetId: baseId,
           oldValues: JSON.stringify({ moduleSource: base.moduleSource }),
           newValues: JSON.stringify({ moduleSource }),
         },
@@ -833,10 +844,23 @@ export class CollaborationService {
     });
     return {
       table: { ...table, accessPolicy: null as null, fields: [] as CollabField[] },
+      canDeleteRecords:
+        access.level >= 2 &&
+        (table.source === 'CUSTOM' ||
+          (table.source === 'CASES' && this.actor.permissionCodes.includes('case.delete'))),
       access,
       canCreateBusiness: await this.canCreateBusiness(table, access, fields),
       fields: fields.map((f) => ({
         ...f,
+        ...(table.source === 'CASES' && caseGridChoices(String(object(f.options).businessKey))
+          ? {
+              type: 'SINGLE_SELECT',
+              options: {
+                ...object(f.options),
+                choices: caseGridChoices(String(object(f.options).businessKey)),
+              },
+            }
+          : {}),
         name:
           table.source === 'FOLLOWS' && object(f.options).businessKey === 'leadId' && f.name === '线索 ID'
             ? '关联线索'
@@ -845,6 +869,9 @@ export class CollaborationService {
           table.source === 'CUSTOM' || !['phone', 'wechat'].includes(String(object(f.options).businessKey)),
         writable:
           (table.source === 'CUSTOM' ||
+            (table.source === 'CASES' &&
+              editableCaseKey(String(object(f.options).businessKey)) &&
+              this.actor.permissionCodes.includes('case.update')) ||
             (!object(f.options).businessKey &&
               this.actor.permissionCodes.includes(
                 isDomainSource(table.source) ? domainSources[table.source].edit : 'lead.update',
@@ -1754,8 +1781,92 @@ export class CollaborationService {
       transaction,
     );
   }
-  async saveRecord(tableId: string, recordId: string | undefined, raw: unknown, key: unknown) {
-    return this.saveRecordInTransaction(tableId, recordId, raw, key);
+  async saveRecord(
+    tableId: string,
+    recordId: string | undefined,
+    raw: unknown,
+    key: unknown,
+    transaction?: Tx,
+  ) {
+    const initial = await this.tableAccess(tableId, transaction ?? this.db, 2);
+    if (initial.table.source === 'CASES' && recordId) {
+      const input = exact(raw, ['values', 'version', 'schemaVersion', 'archived']);
+      const result = await this.write(
+        key,
+        ['case.record.save', tableId, recordId, input],
+        async (tx) => {
+          await this.lock(tx, initial.access.workspaceId, true);
+          const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
+          if (integer(input.schemaVersion) !== table.schemaVersion) fail('COLLAB_SCHEMA_CONFLICT', 409);
+          await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${recordId} FOR UPDATE`;
+          const deleting = input.archived === true;
+          const core = await new WorkspaceDomainSource(this.db, this.actor).target(
+            'CASES',
+            access,
+            recordId,
+            tx,
+            deleting ? 'delete' : 'update',
+          );
+          const extension = await tx.collabExtension.findUnique({
+            where: { tableId_recordId: { tableId, recordId } },
+          });
+          if (integer(input.version) !== core.version + (extension?.version ?? 0))
+            fail('COLLAB_RECORD_CONFLICT', 409);
+          const service = new CaseService(this.db, { actorUserId: this.actor.userId }, this.actor);
+          if (deleting) {
+            if (transaction) fail('COLLAB_USE_BUSINESS_ACTION', 409);
+            if (Object.keys(object(input.values ?? {})).length) fail('COLLAB_INVALID_VALUE');
+            const files = await service.deleteCaseRecords(recordId, { version: core.version }, tx);
+            await this.event(tx, table.baseId, 'record.deleted', recordId);
+            return { id: recordId, version: core.version, files };
+          }
+          if (input.archived !== undefined) fail('COLLAB_USE_BUSINESS_ACTION', 409);
+          const values = object(input.values ?? {});
+          if (!Object.keys(values).length) fail('COLLAB_INVALID_VALUE');
+          const current = await tx.case.findUniqueOrThrow({ where: { id: recordId } });
+          const update: Record<string, unknown> = { version: core.version };
+          const extras: ObjectValue = {};
+          for (const [id, value] of Object.entries(values)) {
+            const field = fields.find((f) => f.id === id);
+            if (!field || access.readonly.includes(id) || isSystemField(field))
+              fail('COLLAB_FIELD_UNAVAILABLE', 403);
+            const businessKey = String(object(field.options).businessKey ?? '');
+            if (!businessKey) {
+              extras[id] = value;
+              continue;
+            }
+            if (!editableCaseKey(businessKey)) fail('COLLAB_USE_BUSINESS_ACTION', 409);
+            if (businessKey.startsWith('intake.')) {
+              const intake = object(update.intakeData ?? current.intakeData ?? {});
+              intake[businessKey.slice(7)] = value === null ? '' : String(value);
+              update.intakeData = intake;
+            } else update[businessKey] = businessKey === 'fee' ? String(value ?? '') : value;
+          }
+          let version = core.version;
+          if (Object.keys(update).length > 1) {
+            const saved = await service.updateCase(recordId, update as unknown as UpdateCaseInput, tx);
+            version = saved.version;
+          }
+          let combined = version + (extension?.version ?? 0);
+          if (Object.keys(extras).length) {
+            const saved = await this.saveExtension(
+              tableId,
+              recordId,
+              { values: extras, version: combined, schemaVersion: table.schemaVersion },
+              key,
+              tx,
+            );
+            combined = saved.version;
+          }
+          await this.event(tx, table.baseId, 'record.updated', recordId);
+          return { id: recordId, version: combined, files: [] };
+        },
+        transaction,
+      );
+      removeStoredAttachments(result.files);
+      return { id: result.id, version: result.version };
+    }
+    return this.saveRecordInTransaction(tableId, recordId, raw, key, transaction);
   }
   private async saveRecordInTransaction(
     tableId: string,
@@ -1895,7 +2006,11 @@ export class CollaborationService {
           if (!initial.fields.some((f) => f.id === id))
             fail('COLLAB_FIELD_UNAVAILABLE', 403, { fieldId: id });
           const field = fieldOf(initial.fields, id);
-          if (initial.table.source !== 'CUSTOM' && object(field.options).businessKey)
+          if (
+            initial.table.source !== 'CUSTOM' &&
+            object(field.options).businessKey &&
+            !(initial.table.source === 'CASES' && editableCaseKey(String(object(field.options).businessKey)))
+          )
             fail('COLLAB_USE_BUSINESS_ACTION', 409, { fieldId: id });
           if (initial.access.readonly.includes(id) || isSystemField(field))
             fail('COLLAB_READONLY_FIELD', 403, { fieldId: id });
@@ -1910,7 +2025,7 @@ export class CollaborationService {
       for (const [index, row] of records.entries()) {
         try {
           result.push(
-            await this.saveRecordInTransaction(
+            await this.saveRecord(
               tableId,
               row.id,
               { values: row.values, version: row.version, schemaVersion },
@@ -1978,9 +2093,14 @@ export class CollaborationService {
       take: 1000,
     });
     return {
-      roles: access?.canManageAccess || this.actor.isSystemSuperAdmin
-        ? await this.db.role.findMany({ where: { status: 'ENABLED' }, select: { id: true, name: true }, orderBy: { name: 'asc' } })
-        : [],
+      roles:
+        access?.canManageAccess || this.actor.isSystemSuperAdmin
+          ? await this.db.role.findMany({
+              where: { status: 'ENABLED' },
+              select: { id: true, name: true },
+              orderBy: { name: 'asc' },
+            })
+          : [],
       positions: positions.map((p) => ({ id: p.id, name: p.organization.name + ' / ' + p.name })),
       organizations,
       employees: employees.map((e) => ({ id: e.id, name: e.name })),
@@ -2032,7 +2152,9 @@ export class CollaborationService {
             ? options.organizations
             : principalType === 'POSITION'
               ? options.positions
-              : principalType === 'ROLE' ? options.roles : options.teams;
+              : principalType === 'ROLE'
+                ? options.roles
+                : options.teams;
       if (!input.remove && !candidates.some((c) => c.id === principalId)) fail('COLLAB_MEMBER_UNAVAILABLE');
       const existing = await tx.collabMember.findUnique({
         where: { workspaceId_principalType_principalId: { workspaceId, principalType, principalId } },
@@ -2081,8 +2203,13 @@ export class CollaborationService {
             (g) => g.principalType !== principalType || g.principalId !== principalId,
           );
           policy.grants.push({
-            principalType, principalId, role, rowScope: data.rowScope,
-            canCreate: data.canCreate, hiddenFields: [], readonlyFields: [],
+            principalType,
+            principalId,
+            role,
+            rowScope: data.rowScope,
+            canCreate: data.canCreate,
+            hiddenFields: [],
+            readonlyFields: [],
           });
           await tx.collabBase.update({
             where: { id: baseId },

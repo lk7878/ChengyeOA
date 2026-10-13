@@ -374,7 +374,11 @@ export class CaseService {
   }
 
   /** 更新案件：case.update → 白名单 + 乐观锁（updateMany {id, version} → VERSION_CONFLICT 409）+ 审计。 */
-  async updateCase(caseId: string, input: UpdateCaseInput): Promise<CaseView> {
+  async updateCase(
+    caseId: string,
+    input: UpdateCaseInput,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<CaseView> {
     this.authorization.requireAction(this.authorizationContext, 'case.update');
     const id = normalizeRequiredText(caseId, 1, 100);
     assertExactKeys(input, [
@@ -406,6 +410,8 @@ export class CaseService {
     )
       throw new MasterDataError('VALIDATION_FAILED', 400);
     const attachments = prepareAttachments(input.attachments);
+    if (transaction && (attachments.length || input.removeAttachmentIds?.length))
+      throw new MasterDataError('VALIDATION_FAILED', 400);
     const removeIds =
       input.removeAttachmentIds === undefined
         ? []
@@ -458,7 +464,7 @@ export class CaseService {
     let updated: CaseView;
     try {
       persistAttachments(attachments);
-      updated = await this.prisma.$transaction(async (tx) => {
+      const update = async (tx: Prisma.TransactionClient) => {
         await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
         await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.update', tx);
         if (attachments.length || removeIds.length)
@@ -523,7 +529,8 @@ export class CaseService {
           },
         });
         return projectCase(row);
-      });
+      };
+      updated = await (transaction ? update(transaction) : this.prisma.$transaction(update));
     } catch (error) {
       cleanAttachments(attachments);
       throw error;
@@ -533,49 +540,68 @@ export class CaseService {
   }
 
   async deleteCase(caseId: string, input: { version: number }): Promise<{ id: string }> {
+    const files = await this.prisma.$transaction((tx) => this.deleteCaseRecords(caseId, input, tx));
+    removeStoredAttachments(files);
+    return { id: caseId };
+  }
+
+  // Callers must clean up returned files only after their enclosing transaction commits.
+  async deleteCaseRecords(caseId: string, input: { version: number }, tx: Prisma.TransactionClient) {
     this.authorization.requireAction(this.authorizationContext, 'case.delete');
     const id = normalizeRequiredText(caseId, 1, 100);
     assertExactKeys(input, ['version']);
     const version = normalizeVersion(input.version);
-    const files = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
-      await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.delete', tx);
-      const row = await tx.case.findUnique({
-        where: { id },
-        include: {
-          files: true,
-          _count: { select: { costEntries: true, tasks: true, communications: true, sopInstances: true, qualitySamples:true, assessments:true } },
+
+    await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+    await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.delete', tx);
+    const row = await tx.case.findUnique({
+      where: { id },
+      include: {
+        files: true,
+        _count: {
+          select: {
+            costEntries: true,
+            tasks: true,
+            communications: true,
+            sopInstances: true,
+            qualitySamples: true,
+            assessments: true,
+          },
         },
-      });
-      if (!row) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
-      if (row.version !== version) throw new MasterDataError('VERSION_CONFLICT', 409);
-      if (['CLOSED', 'ARCHIVED'].includes(row.status))
-        throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
-      if (row.contractId || row._count.costEntries || row._count.sopInstances || row._count.qualitySamples || row._count.assessments)
-        throw new CaseError(CASE_ERROR_CODES.CASE_IN_USE, 409, 'case has financial references');
-      await tx.case.delete({ where: { id } });
-      await tx.operationLog.create({
-        data: {
-          userId: this.actor.actorUserId,
-          action: 'CASE_DELETE',
-          targetType: 'CASE',
-          targetId: id,
-          oldValues: JSON.stringify({
-            caseId: id,
-            caseNo: row.caseNo,
-            title: row.title,
-            version: row.version,
-            tasks: row._count.tasks,
-            communications: row._count.communications,
-            files: row.files.length,
-          }),
-          ip: this.actor.ip,
-        },
-      });
-      return row.files;
+      },
     });
-    removeStoredAttachments(files);
-    return { id };
+    if (!row) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
+    if (row.version !== version) throw new MasterDataError('VERSION_CONFLICT', 409);
+    if (['CLOSED', 'ARCHIVED'].includes(row.status))
+      throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
+    if (
+      row.contractId ||
+      row._count.costEntries ||
+      row._count.sopInstances ||
+      row._count.qualitySamples ||
+      row._count.assessments
+    )
+      throw new CaseError(CASE_ERROR_CODES.CASE_IN_USE, 409, 'case has financial references');
+    await tx.case.delete({ where: { id } });
+    await tx.operationLog.create({
+      data: {
+        userId: this.actor.actorUserId,
+        action: 'CASE_DELETE',
+        targetType: 'CASE',
+        targetId: id,
+        oldValues: JSON.stringify({
+          caseId: id,
+          caseNo: row.caseNo,
+          title: row.title,
+          version: row.version,
+          tasks: row._count.tasks,
+          communications: row._count.communications,
+          files: row.files.length,
+        }),
+        ip: this.actor.ip,
+      },
+    });
+    return row.files;
   }
 
   /** 案件列表：case.read → 过滤（keyword/status/lawyerId/priority/customerId）+ 分页 createdAt DESC。 */
@@ -661,7 +687,17 @@ export class CaseService {
       include: {
         customer: { select: { name: true } },
         lawyer: { select: { name: true } },
-        tasks: { where: { OR: [{sopInstanceId:null}, ...(this.authorizationContext.permissionCodes.includes('sop.task.read') ? [await sopTaskScope(this.prisma,this.authorizationContext,'sop.task.read')] : [])] }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
+        tasks: {
+          where: {
+            OR: [
+              { sopInstanceId: null },
+              ...(this.authorizationContext.permissionCodes.includes('sop.task.read')
+                ? [await sopTaskScope(this.prisma, this.authorizationContext, 'sop.task.read')]
+                : []),
+            ],
+          },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        },
         communications: { orderBy: [{ createdAt: 'desc' }, { id: 'asc' }] },
       },
     });
@@ -716,7 +752,17 @@ export class CaseService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
       await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.close', tx);
-      if (await tx.caseTask.count({where:{caseId:id,sopInstance:{status:{not:'CANCELLED'}},nodeSnapshot:{path:['closeGate'],equals:true},status:{not:'COMPLETED'}}})) throw new MasterDataError('SOP_CLOSE_GATE_BLOCKED',409);
+      if (
+        await tx.caseTask.count({
+          where: {
+            caseId: id,
+            sopInstance: { status: { not: 'CANCELLED' } },
+            nodeSnapshot: { path: ['closeGate'], equals: true },
+            status: { not: 'COMPLETED' },
+          },
+        })
+      )
+        throw new MasterDataError('SOP_CLOSE_GATE_BLOCKED', 409);
       const flipped = await tx.case.updateMany({
         where: { id, status: { notIn: ['CLOSED', 'ARCHIVED'] } },
         data: {

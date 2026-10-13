@@ -20,6 +20,9 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  CASE_STATE_INVALID: '案件已结案或归档，不能直接修改或删除。',
+  CASE_IN_USE: '案件存在合同、费用或其他业务关联，请先完成业务处理再删除。',
+  CASE_VERSION_CONFLICT: '案件已被其他人修改，请刷新后重试。',
   DRIVE_FILE_CLEANUP_FAILED: '文档附件清理未完成，请重试确认删除；已完成的删除不会重复执行。',
   DRIVE_SHORTCUT_EXISTS: '此位置已经存在该资源的快捷方式。',
   DRIVE_PREVIEW_STALE: '目录或授权规则已变化，请重新预览后确认。',
