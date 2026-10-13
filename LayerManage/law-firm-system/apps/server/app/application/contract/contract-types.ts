@@ -18,7 +18,7 @@ export interface CreateNegotiationInput {
   leadId?: string;
   appointmentId?: string;
   negotiatorEmployeeId: string;
-  quotedAmount?: string | number;
+  quotedAmount?: string | number | null;
   customerConcerns?: string;
   competitorInfo?: string;
   remark?: string;
@@ -29,7 +29,7 @@ export interface CreateNegotiationInput {
 
 export interface UpdateNegotiationInput {
   negotiatorEmployeeId?: string;
-  quotedAmount?: string | number;
+  quotedAmount?: string | number | null;
   customerConcerns?: string;
   competitorInfo?: string;
   remark?: string;

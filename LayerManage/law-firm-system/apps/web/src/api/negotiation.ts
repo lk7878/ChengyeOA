@@ -38,7 +38,7 @@ export interface CreateNegotiationInput {
   leadId?: string;
   appointmentId?: string;
   negotiatorEmployeeId: string;
-  quotedAmount?: string | number;
+  quotedAmount?: string | number | null;
   customerConcerns?: string;
   competitorInfo?: string;
   remark?: string;
@@ -50,7 +50,7 @@ export interface CreateNegotiationInput {
 /** 镜像 contract-types.ts UpdateNegotiationInput（仅 NEGOTIATING 可改，仅更新提供字段）。 */
 export interface UpdateNegotiationInput {
   negotiatorEmployeeId?: string;
-  quotedAmount?: string | number;
+  quotedAmount?: string | number | null;
   customerConcerns?: string;
   competitorInfo?: string;
   remark?: string;

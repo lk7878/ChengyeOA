@@ -1,4 +1,5 @@
 import Modal from '@/components/DraggableModal';
+import NegotiationList from '@/pages/negotiations/NegotiationList';
 import CreateModuleBase from './CreateModuleBase';
 import ChannelIdentityGaps from '@/pages/Channel/ChannelIdentityGaps';
 import { financeContextParams, financialSources } from '@/pages/finance/context';
@@ -113,6 +114,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
         <div><CreateModuleBase source={source} onCreated={(base, table) => setParams({ ...Object.fromEntries(params), base, table })} /> <Button onClick={() => setRevision((n) => n + 1)}>刷新工作表</Button></div>
       </div>
       {source === 'CHANNELS' && <ChannelIdentityGaps />}
+      {source === 'NEGOTIATIONS' && <NegotiationList />}
       {error && (
         <Alert
           type="error"

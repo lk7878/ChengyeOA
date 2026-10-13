@@ -1,7 +1,7 @@
 import Modal from '@/components/DraggableModal';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Descriptions, Form, Input, InputNumber, Select, Space, Spin } from 'antd';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { customerApi } from '@/api/customer';
 import { negotiationApi, type NegotiationView, type CreateNegotiationInput } from '@/api/negotiation';
 import type { CustomerView } from '@/api/types';
@@ -17,6 +17,11 @@ export default function NegotiationRecordPage() {
 }
 function NegotiationEditor({ id }: { id?: string }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [success, setSuccess] = useState(
+    location.state?.negotiationCreated ? '谈案已创建，可返回谈案工作表查看。' : '',
+  );
+  const [closeError, setCloseError] = useState('');
   const canUpdate = useAuthStore((s) => s.hasPermission('negotiation.update'));
   const [data, setData] = useState<NegotiationView>();
   const [customers, setCustomers] = useState<CustomerView[]>([]);
@@ -98,6 +103,20 @@ function NegotiationEditor({ id }: { id?: string }) {
       active = false;
     };
   }, [workspaceId, revision]);
+  const saveDraft = async (values: CreateNegotiationInput) => {
+    if (!id) return;
+    const response = await negotiationApi.update(id, {
+      negotiatorEmployeeId: values.negotiatorEmployeeId,
+      quotedAmount: values.quotedAmount ?? null,
+      customerConcerns: values.customerConcerns,
+      competitorInfo: values.competitorInfo,
+      remark: values.remark,
+    });
+    if (mounted.current) {
+      setData(response.data);
+      form.setFieldsValue(response.data);
+    }
+  };
   const readOnly = !!id && (!canUpdate || data?.status !== 'NEGOTIATING');
   return (
     <div className="unified-area-page" style={{ maxWidth: 900 }}>
@@ -106,6 +125,7 @@ function NegotiationEditor({ id }: { id?: string }) {
         {id && <BusinessTableLinks source="NEGOTIATIONS" recordId={id} />}
       </Space>
       <h1>{id ? '谈案详情与办理' : '新建谈案'}</h1>
+      {success && <Alert type="success" showIcon title={success} />}
       {error && (
         <Alert
           type="error"
@@ -131,7 +151,7 @@ function NegotiationEditor({ id }: { id?: string }) {
             />
           )}
           {!readOnly && (
-            <Form.Item label="办理工作区">
+            <Form.Item label="人员与组织选项来源工作区">
               <Select
                 aria-label="办理工作区"
                 value={workspaceId || undefined}
@@ -150,22 +170,26 @@ function NegotiationEditor({ id }: { id?: string }) {
             layout="vertical"
             form={form}
             disabled={busy || readOnly}
+            scrollToFirstError
+            onFinishFailed={() => {
+              setSuccess('');
+              setError('请检查并填写标红的必填项。');
+            }}
             onFinish={async (values: CreateNegotiationInput) => {
               setBusy(true);
               setError('');
+              setSuccess('');
               try {
                 if (id) {
-                  await negotiationApi.update(id, {
-                    negotiatorEmployeeId: values.negotiatorEmployeeId,
-                    quotedAmount: values.quotedAmount ?? undefined,
-                    customerConcerns: values.customerConcerns,
-                    competitorInfo: values.competitorInfo,
-                    remark: values.remark,
-                  });
-                  if (mounted.current) setRevision((n) => n + 1);
+                  await saveDraft(values);
+                  if (mounted.current) setSuccess('谈案已保存，可返回谈案工作表查看。');
                 } else {
                   const response = await negotiationApi.create(values);
-                  if (mounted.current) navigate('/negotiations/' + response.data.id, { replace: true });
+                  if (mounted.current)
+                    navigate('/negotiations/' + response.data.id, {
+                      replace: true,
+                      state: { negotiationCreated: true },
+                    });
                 }
               } catch (e) {
                 if (mounted.current) setError(errorMessage(e));
@@ -219,7 +243,22 @@ function NegotiationEditor({ id }: { id?: string }) {
                 <Button type="primary" htmlType="submit" loading={busy}>
                   {id ? '保存谈案' : '创建谈案'}
                 </Button>
-                {id && <Button onClick={() => setClosing(true)}>完结谈案</Button>}
+                {id && (
+                  <Button
+                    onClick={async () => {
+                      try {
+                        await form.validateFields();
+                        closeForm.resetFields();
+                        setCloseError('');
+                        setClosing(true);
+                      } catch {
+                        setError('请检查并填写标红的必填项。');
+                      }
+                    }}
+                  >
+                    完结谈案
+                  </Button>
+                )}
               </Space>
             )}
           </Form>
@@ -239,20 +278,36 @@ function NegotiationEditor({ id }: { id?: string }) {
             const values = await closeForm.validateFields();
             if (!id) return;
             setBusy(true);
-            await negotiationApi.close(id, values);
+            setCloseError('');
+            setError('');
+            setSuccess('');
+            await saveDraft(await form.validateFields());
+            const response = await negotiationApi.close(id, {
+              outcome: values.outcome,
+              ...(values.outcome === 'UNSIGNED' ? { unsignedReason: values.unsignedReason } : {}),
+            });
             if (mounted.current) {
               setClosing(false);
-              setRevision((n) => n + 1);
+              setData(response.data);
+              form.setFieldsValue(response.data);
+              setSuccess('谈案已完结，结果已更新到原谈案记录，可返回谈案工作表查看。');
             }
           } catch (e) {
-            if (mounted.current && !(e as { errorFields?: unknown }).errorFields) setError(errorMessage(e));
+            if (mounted.current)
+              setCloseError(
+                (e as { errorFields?: unknown }).errorFields
+                  ? '请检查必填项。'
+                  : '未能完结谈案：' + errorMessage(e),
+              );
           } finally {
             if (mounted.current) setBusy(false);
           }
         }}
         forceRender
       >
-        <Form form={closeForm} layout="vertical" initialValues={{ outcome: 'SIGNED' }}>
+        <p>确认后将先保存当前填写的内容，再更新原谈案的完结状态。</p>
+        {closeError && <Alert type="error" showIcon title={closeError} />}
+        <Form disabled={busy} form={closeForm} layout="vertical" initialValues={{ outcome: 'SIGNED' }}>
           <Form.Item name="outcome" label="完结结果" rules={[{ required: true }]}>
             <Select
               options={[
@@ -262,7 +317,12 @@ function NegotiationEditor({ id }: { id?: string }) {
             />
           </Form.Item>
           {outcome === 'UNSIGNED' && (
-            <Form.Item name="unsignedReason" label="未签原因" rules={[{ required: true, whitespace: true }]}>
+            <Form.Item
+              name="unsignedReason"
+              preserve={false}
+              label="未签原因"
+              rules={[{ required: true, whitespace: true }]}
+            >
               <Input.TextArea maxLength={500} />
             </Form.Item>
           )}
