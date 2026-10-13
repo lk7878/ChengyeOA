@@ -447,7 +447,7 @@ export class CollaborationService {
     const recordId = input.recordId === undefined ? undefined : text(input.recordId);
     if (recordId && source === 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
     new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
-    const tables: { id: string; name: string; baseId: string; baseName: string; workspaceName: string }[] =
+    const tables: { id: string; name: string; source: string; baseId: string; baseName: string; workspaceName: string }[] =
       [];
     const targets: { id: string; name: string; workspaceName: string }[] = [];
     const { workspaces } = await this.listWorkspaces();
@@ -483,6 +483,7 @@ export class CollaborationService {
             tables.push({
               id: table.id,
               name: table.name,
+              source: table.source,
               baseId: base.id,
               baseName: base.name,
               workspaceName: workspace.name,

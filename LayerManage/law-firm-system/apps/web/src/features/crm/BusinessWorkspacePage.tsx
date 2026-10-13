@@ -1,5 +1,6 @@
 import Modal from '@/components/DraggableModal';
 import NegotiationList from '@/pages/negotiations/NegotiationList';
+import ModuleRecordList from './ModuleRecordList';
 import CreateModuleBase from './CreateModuleBase';
 import ChannelIdentityGaps from '@/pages/Channel/ChannelIdentityGaps';
 import { financeContextParams, financialSources } from '@/pages/finance/context';
@@ -12,7 +13,7 @@ import { get, post, errorMessage } from '../workspaces/api';
 import { WorkspaceEditor } from '@/pages/Workspaces';
 
 interface BusinessDirectory {
-  tables: { id: string; name: string; baseId: string; baseName: string; workspaceName: string }[];
+  tables: { id: string; name: string; source?: string; baseId: string; baseName: string; workspaceName: string }[];
   targets: { id: string; name: string; workspaceName: string }[];
 }
 export function BusinessTableLinks({
@@ -115,6 +116,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
       </div>
       {source === 'CHANNELS' && <ChannelIdentityGaps />}
       {source === 'NEGOTIATIONS' && <NegotiationList />}
+      {source !== 'NEGOTIATIONS' && <ModuleRecordList key={source} source={source} />}
       {error && (
         <Alert
           type="error"
@@ -138,6 +140,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
               >
                 <span>
                   <strong>{table.name}</strong>
+                  <small>{table.source === 'CUSTOM' ? '普通数据表（独立录入）' : '业务工作表（同步正式记录）'}</small>
                   <small>
                     {table.workspaceName} / {table.baseName}
                   </small>
@@ -145,7 +148,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
               </Link>
             ))}
           </div>
-          <p>展示已授权的业务连接与归属本模块的普通多维表格，最多 200 项。已有表格可在“所属业务模块”中设置归属。</p>
+          <p>业务工作表同步展示正式记录；普通数据表用于独立录入。打开工作表可通过“分享”和“权限”按人员或角色授权，业务操作仍需对应的角色权限。</p>
           {data.targets.length > 0 && (
             <Button type="primary" onClick={() => setConnecting(true)}>
               连接业务数据

@@ -192,6 +192,20 @@ export class LeadFollowService {
    * 跟进列表（决策 1/6）：lead.read 权限 + 范围校验（不可见/不存在 → 404）；
    * 按 createdAt DESC（id ASC 决胜）返回视图契约字段。
    */
+  async listAllFollows(raw: unknown) {
+    this.authorization.requireAction(this.authorizationContext, 'lead.read');
+    assertExactKeys(raw, ['page', 'pageSize']);
+    const page = Number(raw.page ?? 1), pageSize = Number(raw.pageSize ?? 20);
+    if (!Number.isSafeInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100 || !Number.isSafeInteger((page - 1) * pageSize))
+      throw new MasterDataError('VALIDATION_FAILED', 400);
+    const where = { lead: { AND: [await this.scopeWhere('lead.read'), { deletedAt: null }] } };
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.leadFollow.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * pageSize, take: pageSize }),
+      this.prisma.leadFollow.count({ where }),
+    ]);
+    return { list: rows.map(projectLeadFollow), total, page, pageSize };
+  }
+
   async listFollows(leadId: string): Promise<LeadFollowView[]> {
     this.authorization.requireAction(this.authorizationContext, 'lead.read');
     const id = normalizeRequiredText(leadId, 1, 100);

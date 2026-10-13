@@ -471,6 +471,16 @@ export class QualityService {
       },
     );
   }
+  async inspections(raw: unknown = {}) {
+    const p = page(raw);
+    const where = { case: await qualityCaseScope(this.db, this.ctx, 'quality.inspection.read') };
+    const [list, total] = await this.db.$transaction([
+      this.db.qualitySamplingItem.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: p.skip, take: p.pageSize,
+        select: { id: true, name: true, status: true, caseId: true, version: true, createdAt: true } }),
+      this.db.qualitySamplingItem.count({ where }),
+    ]);
+    return { list, total, page: p.page, pageSize: p.pageSize };
+  }
   async issues(raw: unknown = {}) {
     const p = page(raw),
       where = { case: await qualityCaseScope(this.db, this.ctx, 'quality.issue.read') };

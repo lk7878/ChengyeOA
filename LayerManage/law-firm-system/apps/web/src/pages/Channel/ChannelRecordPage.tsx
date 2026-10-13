@@ -12,6 +12,7 @@ import {
   Select,
   Space,
   Spin,
+  message,
 } from 'antd';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { channelApi } from '@/api/organization';
@@ -167,6 +168,7 @@ function ChannelRecord({ id }: { id: string }) {
                 if (alive.current) {
                   setRow(result.data);
                   setDraftVersion(undefined);
+                  message.success('渠道已保存，可返回渠道工作表查看。');
                   void refresh();
                 }
               } catch (e) {

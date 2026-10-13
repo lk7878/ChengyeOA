@@ -494,6 +494,13 @@ export class WorkspaceDomainSource {
         },
         select: { id: true },
       });
+      // Workspace owners can create customers without an employee appointment (root admin).
+      // This only supplies the workspace anchor; the customer.read scope above still applies.
+      const workspace = await this.db.collabWorkspace.findUnique({
+        where: { id: access.workspaceId }, select: { ownerId: true, owner: { select: { employeeId: true } } },
+      });
+      if (workspace && !workspace.owner.employeeId && !creators.some((user) => user.id === workspace.ownerId))
+        creators.push({ id: workspace.ownerId });
       organization = Prisma.sql`(l."branchId" IN (${Prisma.join(ids)}) OR
         (b."sourceLeadId" IS NULL AND ${creators.length ? Prisma.sql`b."createdBy" IN (${Prisma.join(creators.map((u) => u.id))})` : Prisma.sql`FALSE`}))`;
     }

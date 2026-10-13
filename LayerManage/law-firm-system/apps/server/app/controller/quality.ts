@@ -39,6 +39,9 @@ export default class QualityController extends Controller {
   async inspection() {
     this.respond(await this.qualityService().inspection(this.ctx.params.id));
   }
+  async inspections() {
+    this.respond(await this.qualityService().inspections(this.ctx.query));
+  }
   async inspect() {
     this.respond(await this.qualityService().inspect(this.ctx.params.id, this.ctx.request.body));
   }

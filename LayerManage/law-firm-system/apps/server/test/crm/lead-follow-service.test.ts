@@ -101,6 +101,18 @@ async function createActor(): Promise<{ userId: string; actor: AuditActor }> {
 function serviceFor(userId: string, actor: AuditActor, overrides: ContextOverrides = {}): LeadFollowService {
   return new LeadFollowService(prisma, actor, crmContext(userId, overrides));
 }
+test('module follow list paginates formal records, excludes deleted leads and requires read permission', async () => {
+  const { userId, actor } = await createActor();
+  const service = serviceFor(userId, actor);
+  const lead = await seedLead({ createdBy: userId });
+  const follow = await service.recordFollow(lead.id, { type: 'PHONE', content: '跟进记录' });
+  assert.equal((await service.listAllFollows({ page: 1, pageSize: 1 })).list[0].id, follow.id);
+  assert.equal((await service.listAllFollows({ page: 2, pageSize: 1 })).list.length, 0);
+  await assert.rejects(serviceFor(userId, actor, { permissionCodes: [] }).listAllFollows({}));
+  await assert.rejects(service.listAllFollows({ pageSize: 1000 }), hasCode('VALIDATION_FAILED'));
+  await prisma.lead.update({ where: { id: lead.id }, data: { deletedAt: new Date() } });
+  assert.equal((await service.listAllFollows({})).total, 0);
+});
 
 async function seedLead(data: Partial<Prisma.LeadUncheckedCreateInput> = {}) {
   const id = randomUUID();

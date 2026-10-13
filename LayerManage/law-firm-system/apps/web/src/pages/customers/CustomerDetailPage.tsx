@@ -222,10 +222,11 @@ const CustomerDetailPage: React.FC = () => {
 
   return (
     <div>
+      {location.state?.customerCreated && <Alert type="success" showIcon title="客户已保存，可在客户管理的客户记录列表中查看。" />}
       <Card
         title={(
           <Space wrap>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>返回</Button>
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/customers')}>返回客户工作表</Button>
           <BusinessTableLinks source="CUSTOMERS" recordId={id} />
             <span>{customer.name}</span>
             <Tag color={statusMeta.color}>{statusMeta.text}</Tag>

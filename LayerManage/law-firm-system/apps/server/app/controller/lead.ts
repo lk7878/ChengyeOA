@@ -157,6 +157,9 @@ export default class LeadController extends Controller {
   async follows() {
     this.respond(await leadFollowService(this.ctx).listFollows(this.ctx.params.id));
   }
+  async allFollows() {
+    this.respond(await leadFollowService(this.ctx).listAllFollows(this.ctx.query));
+  }
 
   /** GET /api/v1/leads/:id/appointments（appointment.read，R-10a 嵌套形态）。 */
   async appointments() {

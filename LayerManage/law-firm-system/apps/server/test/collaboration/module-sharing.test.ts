@@ -59,6 +59,22 @@ async function share(roleId: string, role: string, baseId: string, rowScope = 'A
     key(),
   );
 }
+test('module creation connects real sources atomically and keeps business connection owner-only', async () => {
+  for (const source of ['LEADS', 'FOLLOWS', ...Object.keys(domainSources)]) {
+    const requestKey = key();
+    const input = { name: source, moduleSource: source, connectBusiness: true };
+    const result = await owner.createDriveBase(workspace, input, requestKey);
+    assert.deepEqual(await owner.createDriveBase(workspace, input, requestKey), result);
+    assert.equal((await db.collabTable.findUniqueOrThrow({ where: { id: result.tableId } })).source, source);
+    assert.ok((await owner.describe(result.tableId)).fields.length > 0, source);
+    assert.equal((await db.collabRecord.count({ where: { tableId: result.tableId } })), 0);
+  }
+  const base = await owner.createDriveBase(workspace, { name: '可分享表' }, key());
+  await share(editorRole, 'EDITOR', base.id);
+  const before = await db.collabBase.count();
+  await assert.rejects(editor.createDriveBase(workspace, { name: '越权业务连接', moduleSource: 'CASES', connectBusiness: true }, key()), code('COLLAB_FORBIDDEN'));
+  assert.equal(await db.collabBase.count(), before);
+});
 
 test('custom module tables are discoverable; private tables stay private; revocation and disabled roles remove access', async () => {
   const base = await owner.createDriveBase(workspace, { name: '案件台账', moduleSource: 'CASES' }, key());

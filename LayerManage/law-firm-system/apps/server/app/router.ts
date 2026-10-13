@@ -20,6 +20,7 @@ export default (app: Application) => {
   router.get('/api/v1/quality/runs',controller.quality.runs);
   router.post('/api/v1/quality/runs',controller.quality.createRun);
   router.get('/api/v1/quality/runs/:id',controller.quality.run);
+  router.get('/api/v1/quality/inspections',controller.quality.inspections);
   router.get('/api/v1/quality/inspections/:id',controller.quality.inspection);
   router.post('/api/v1/quality/inspections/:id',controller.quality.inspect);
   router.get('/api/v1/quality/issues',controller.quality.issues);
@@ -252,6 +253,7 @@ export default (app: Application) => {
   router.put('/api/v1/sop/template-versions/:id', requirePermission('sop.template.manage'), controller.sop.updateVersion);
   router.get('/api/v1/sop/template-options', requirePermission('sop.template.manage'), controller.sop.options);
   router.get('/api/v1/sop/template-presets', requirePermission('sop.template.manage'), controller.sop.presets);
+  router.get('/api/v1/lead-follows', requirePermission('lead.read'), controller.lead.allFollows);
   router.get('/api/v1/channels', controller.channel.index);
   router.get('/api/v1/channels/identity-gaps', controller.channel.identityGaps);
   router.post('/api/v1/channels/:id/identity', controller.channel.repairIdentity);

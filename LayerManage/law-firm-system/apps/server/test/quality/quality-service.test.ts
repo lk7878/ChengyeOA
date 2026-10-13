@@ -39,6 +39,14 @@ async function failInspection() {
   });
   return db.qualityIssue.findFirstOrThrow({ where: { inspectionId: item.id } });
 }
+test('module inspection list exposes canonical items, paginates and rejects missing inspection permission', async () => {
+  const batch = await run();
+  const item = await db.qualitySamplingItem.findFirstOrThrow({ where: { runId: batch.id } });
+  assert.equal((await svc.inspections({ page: 1, pageSize: 1 })).list[0].id, item.id);
+  assert.equal((await svc.inspections({ page: 2, pageSize: 1 })).list.length, 0);
+  await assert.rejects((await service(staff)).inspections({}));
+  await assert.rejects(svc.inspections({ pageSize: 101 }), reject('VALIDATION_FAILED'));
+});
 const action = (action: string, version: number, extra: Record<string, unknown> = {}) => ({
   action,
   expectedVersion: version,

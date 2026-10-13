@@ -50,7 +50,7 @@ export default function CustomerCreatePage() {
                 replace: true,
                 state: { resumeCase: true, createdCustomer: response.data },
               });
-            else navigate('/customers/' + response.data.id, { replace: true });
+            else navigate('/customers/' + response.data.id, { replace: true, state: { customerCreated: true } });
           } catch (e) {
             if (mounted.current) setError(e instanceof Error ? e.message : '创建失败，请保留输入后重试');
           } finally {

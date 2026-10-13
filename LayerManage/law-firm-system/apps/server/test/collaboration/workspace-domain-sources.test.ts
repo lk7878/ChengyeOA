@@ -143,6 +143,19 @@ async function seed(source: DomainSource, creator = staff.actor.userId, branchId
     },
   });
 }
+test('customers created by an owner without employment are visible while resource and domain scopes still apply', async () => {
+  await db.user.update({ where: { id: owner.actor.userId }, data: { employeeId: null } });
+  const table = (await owner.createTable(base, { name: '客户记录', source: 'CUSTOMERS' }, key())).id;
+  const customer = await db.customer.create({ data: { customerNo: key(), name: '管理员客户', phone: '13800001234', phoneHash: key(), createdBy: owner.actor.userId } });
+  const unrelated = await db.user.create({ data: { username: key(), password: 'unused' } });
+  await db.customer.create({ data: { customerNo: key(), name: '其他未归属客户', phone: '13800001234', phoneHash: key(), createdBy: unrelated.id } });
+  assert.deepEqual((await owner.query(table, {})).records.map((r) => r.id), [customer.id]);
+  assert.equal((await staff.query(table, {})).total, 0);
+  await db.collabMember.updateMany({ where: { principalId: staff.actor.userId }, data: { rowScope: 'ALL' } });
+  assert.deepEqual((await staff.query(table, {})).records.map((r) => r.id), [customer.id]);
+  const denied = new CollaborationService(db, { ...staff.actor, permissionCodes: [], grants: [] });
+  await assert.rejects(denied.query(table, {}), rejects('COLLAB_FORBIDDEN'));
+});
 for (const source of ['CUSTOMERS', 'NEGOTIATIONS', 'CONTRACTS'] as DomainSource[])
   test(`${source}: canonical IDs, domain/resource scopes, extension versions and controlled core fields`, async () => {
     const table = (await owner.createTable(base, { name: source, source }, key())).id;

@@ -18,6 +18,7 @@ export default function CreateModuleBase({
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [connectBusiness, setConnectBusiness] = useState(true);
   const attempt = useRef<{ body: string; key: string } | undefined>(undefined);
   return (
     <>
@@ -28,6 +29,7 @@ export default function CreateModuleBase({
           setError('');
           setName(businessSources[source].title);
           setWorkspace(undefined);
+          setConnectBusiness(true);
           setWorkspaces([]);
           attempt.current = undefined;
           try {
@@ -44,6 +46,8 @@ export default function CreateModuleBase({
       <Modal
         title={'新建' + businessSources[source].title}
         open={open}
+        okText="创建工作表"
+        cancelText="取消"
         onCancel={() => setOpen(false)}
         confirmLoading={busy}
         okButtonProps={{ disabled: !workspace || !name.trim() }}
@@ -51,7 +55,7 @@ export default function CreateModuleBase({
           setBusy(true);
           setError('');
           try {
-            const body = { name: name.trim(), moduleSource: source };
+            const body = { name: name.trim(), moduleSource: source, connectBusiness };
             const fingerprint = JSON.stringify([workspace, body]);
             if (attempt.current?.body !== fingerprint)
               attempt.current = { body: fingerprint, key: crypto.randomUUID() };
@@ -70,7 +74,19 @@ export default function CreateModuleBase({
         }}
       >
         {error && <Alert type="error" title={error} />}
-        <p>创建后直接显示在本模块。其他账号需要通过“分享”获得文档访问权限。</p>
+        <p>
+          业务工作表直接展示本模块已保存的记录。工作区所有者可创建业务连接；其他账号通过“分享”获得文档访问权限。
+        </p>
+        <Select
+          aria-label="表格用途"
+          style={{ width: '100%' }}
+          value={connectBusiness ? 'BUSINESS' : 'CUSTOM'}
+          onChange={(value) => setConnectBusiness(value === 'BUSINESS')}
+          options={[
+            { value: 'BUSINESS', label: '业务工作表：同步展示正式业务记录' },
+            { value: 'CUSTOM', label: '普通数据表：独立录入自定义数据' },
+          ]}
+        />
         <label>
           工作区
           <Select

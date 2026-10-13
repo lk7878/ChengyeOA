@@ -5,6 +5,7 @@ import { DriveNode, Prisma } from '@prisma/client';
 import { Access, CollaborationService } from './collaboration-service';
 import { choice, exact, fail, integer, json, text } from './collaboration-policy';
 import { accessInput, resourcePolicy, restrictResourceAccess } from './resource-access';
+import { businessFields, WorkspaceBusinessTable } from '../crm/workspace-business-table';
 
 type Tx = Prisma.TransactionClient;
 export function optionalParent(value: unknown): string | null {
@@ -516,14 +517,21 @@ export class DriveService extends CollaborationService {
   }
 
   async createDriveBase(workspaceId: string, raw: unknown, key: unknown) {
-    const input = exact(raw, ['name', 'parentId', 'moduleSource']);
+    const input = exact(raw, ['name', 'parentId', 'moduleSource', 'connectBusiness']);
     const moduleSource = this.moduleSource(input.moduleSource);
+    if (input.connectBusiness !== undefined && typeof input.connectBusiness !== 'boolean') fail('COLLAB_INVALID_INPUT');
+    const connectBusiness = input.connectBusiness === true;
+    if (connectBusiness) {
+      if (!moduleSource) fail('COLLAB_INVALID_SOURCE');
+      new WorkspaceBusinessTable(this.db, this.actor).authorize(moduleSource);
+    }
     const name = text(input.name),
       parentId = optionalParent(input.parentId);
     this.parent(await this.catalog(workspaceId), parentId, true);
-    return this.write(key, ['drive.base.create', workspaceId, name, parentId, moduleSource], async (tx) => {
+    return this.write(key, ['drive.base.create', workspaceId, name, parentId, moduleSource, connectBusiness], async (tx) => {
       await this.lock(tx, workspaceId);
       const parent = this.parent(await this.catalog(workspaceId, tx), parentId, true);
+      if (connectBusiness && parent.access.level < 4) fail('COLLAB_FORBIDDEN', 403);
       const base = await tx.collabBase.create({
         data: {
           workspaceId,
@@ -544,11 +552,13 @@ export class DriveService extends CollaborationService {
         },
       });
       const table = await tx.collabTable.create({
-        data: { baseId: base.id, name: '数据表', createdBy: this.actor.userId },
+        data: { baseId: base.id, name: connectBusiness ? '业务记录' : '数据表', source: connectBusiness ? moduleSource! : 'CUSTOM', createdBy: this.actor.userId },
       });
-      await tx.collabField.create({
-        data: { tableId: table.id, name: '标题', type: 'TEXT', required: true },
-      });
+      if (connectBusiness) {
+        await tx.collabField.createMany({ data: businessFields(moduleSource!).map((field) => ({ ...field, tableId: table.id })) });
+      } else {
+        await tx.collabField.create({ data: { tableId: table.id, name: '标题', type: 'TEXT', required: true } });
+      }
       const view = await tx.collabView.create({
         data: { tableId: table.id, name: '总表', ownerId: this.actor.userId, shared: true, isDefault: true },
       });
