@@ -419,6 +419,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
           inlineDirtyRef.current = false;
           setQueryError('');
           setParams(next);
+          refresh();
           setMobileNav(false);
         },
       });
@@ -434,6 +435,9 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       inlineDirtyRef.current = false;
       setQueryError('');
       setParams(next);
+      // Clicking the selected table may leave route dependencies unchanged.
+      // Reload after clearing detail instead of leaving an empty editor indefinitely.
+      refresh();
       setMobileNav(false);
     }
   };

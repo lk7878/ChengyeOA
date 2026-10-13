@@ -72,7 +72,7 @@ export function ResourceAccess({
         principalType: member.principalType,
         principalId: member.principalId,
         role: 'READER',
-        rowScope: patch?.role === 'MANAGER' ? 'ALL' : 'SELF',
+        rowScope: 'ALL',
         canCreate: false,
         hiddenFields: [],
         readonlyFields: [],
@@ -115,7 +115,7 @@ export function ResourceAccess({
           type="info"
           showIcon
           title="权限与上级取交集；禁止访问优先。工作区负责人保留管理权限。"
-          description="名单包含工作区成员与资源创建者；创建者仍受工作区权限限制。启用独立名单后，未列入者无法访问；不能在这里扩大上级或 CRM 业务权限。"
+          description="新授权默认显示业务权限允许的记录。勾选“仅本人创建的记录”会排除其他人创建的记录，上级的此项限制也会继承。启用独立名单后，未列入者无法访问；这里不能扩大上级或业务权限。"
         />
         {error && <Alert type="error" title={error} />}
         {!snapshot ? (
@@ -164,7 +164,7 @@ export function ResourceAccess({
                             checked={g.rowScope === 'SELF'}
                             onChange={(e) => update(member, { rowScope: e.target.checked ? 'SELF' : 'ALL' })}
                           >
-                            仅本人记录
+                            仅本人创建的记录
                           </Checkbox>
                           <Checkbox
                             checked={g.canCreate}

@@ -17,6 +17,45 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+test.each(['NEGOTIATIONS', 'CUSTOMERS', 'CASES', 'CONTRACTS', 'CUSTOM'])(
+  'reselecting the current %s table reloads the editor',
+  async (source) => {
+    const table = { id: 't', baseId: 'b', name: '业务记录表', source, schemaVersion: 1, archived: false };
+    const access = { level: 1, canCreate: false, hidden: [], readonly: [] };
+    const detail = {
+      table,
+      access,
+      fields: [],
+      views: [{ id: 'v', name: '总表', type: 'GRID', shared: true, isDefault: true, version: 1, config: {} }],
+    };
+    vi.mocked(get).mockImplementation(async (url) => {
+      if (url === '/workspaces') return { workspaces: [], canCreate: false } as never;
+      if (url.startsWith('/collaboration/options'))
+        return { users: [], employees: [], organizations: [], teams: [] } as never;
+      if (url === '/bases/b/tables')
+        return { base: { id: 'b', name: '工作区' }, access, tables: [table] } as never;
+      if (url === '/tables/t') return detail as never;
+      throw new Error(url);
+    });
+    vi.mocked(post).mockResolvedValue({ records: [], total: 0, groups: [] });
+    render(
+      <MemoryRouter initialEntries={['/workspaces?base=b&table=t']}>
+        <WorkspaceEditor businessMode />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('tab', { name: '总表' });
+    const previous = vi.mocked(get).mock.calls.filter(([url]) => url === '/tables/t').length;
+    fireEvent.click(screen.getByRole('button', { name: '业务记录表' }));
+    await waitFor(() =>
+      expect(vi.mocked(get).mock.calls.filter(([url]) => url === '/tables/t').length).toBeGreaterThan(
+        previous,
+      ),
+    );
+    expect(await screen.findByRole('tab', { name: '总表' })).toBeInTheDocument();
+    expect(screen.queryByText('选择或新建数据表')).not.toBeInTheDocument();
+  },
+);
+
 test('case detail keeps edited core-field values and saves them to the table record endpoint', async () => {
   const table = {
     id: 't',
