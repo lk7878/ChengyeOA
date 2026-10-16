@@ -1384,7 +1384,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                                 const key = crypto.randomUUID();
                                 Modal.confirm({
                                   title: '删除这条记录？',
-                                  content: detail.table.source === 'CASES' ? '将删除正式案件及其关联任务、沟通和附件。存在合同、财务或其他业务引用的案件不能删除。' : '删除后该记录不再显示在工作表中，历史变更仍保留。',
+                                  content: detail.table.source === 'CONTRACTS' ? '将删除正式合同记录，所有工作表和合同列表将同步移除。仅草稿或已作废且无签署、财务、案件等关联的合同允许删除，历史审计保留。' : detail.table.source === 'CASES' ? '将删除正式案件及其关联任务、沟通和附件。存在合同、财务或其他业务引用的案件不能删除。' : '删除后该记录不再显示在工作表中，历史变更仍保留。',
                                   okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
                                   onOk: async () => {
                                     try {
@@ -1712,6 +1712,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               </Button>
             )}
             {detail?.table.source === 'CASES' && editing.row && <Alert type="info" title="可直接编辑案件名称、案由、优先级、主办律师、费用及登记信息；案件编号等系统字段只读，状态及客户/合同关联通过业务办理调整。" />}
+            {detail?.table.source === 'CONTRACTS' && editing.row && <Alert type="info" title="草稿合同可直接修改合同名称和金额。编号、类型、关联客户、已收金额和状态等业务关联字段只读；审批、签署和生效请通过业务详情办理。" />}
             {detail?.table.source === 'LEADS' && editing.row && (
               <BusinessRecord
                 key={tableId + editing.row.id}

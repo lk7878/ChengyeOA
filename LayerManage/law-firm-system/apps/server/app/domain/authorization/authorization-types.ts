@@ -216,6 +216,8 @@ export const PERMISSION_CODES = [
   'contract.read',
   'contract.create',
   'contract.submit',
+  'contract.update',
+  'contract.delete',
   'contract.approve',
   'contract.sign',
   'contract.effect',

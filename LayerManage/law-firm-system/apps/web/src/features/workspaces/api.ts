@@ -20,6 +20,11 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  CONTRACT_GRID_STATE_INVALID: '仅草稿合同可直接修改；仅草稿或已作废合同可删除。审批、签署或生效中的合同请通过详情办理。',
+  CONTRACT_GRID_IN_USE: '合同已有签署、收款计划、收款、开票、退款、案件、分析委托或补充协议关联，不能直接修改或删除。',
+  RECEIVABLE_PLAN_MISMATCH: '合同金额与约定的收款计划不一致，请先核对收款约定。',
+  VALIDATION_FAILED: '输入内容不符合要求，请检查必填字段及金额格式。',
+  VERSION_CONFLICT: '记录已被其他人修改，请刷新后重试。',
   CASE_STATE_INVALID: '案件已结案或归档，不能直接修改或删除。',
   CASE_IN_USE: '案件存在合同、费用或其他业务关联，请先完成业务处理再删除。',
   CASE_VERSION_CONFLICT: '案件已被其他人修改，请刷新后重试。',

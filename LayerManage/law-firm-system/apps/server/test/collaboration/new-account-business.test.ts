@@ -78,6 +78,8 @@ for (const explicitBranch of [true, false])
             'invoice.read',
             'contract.read',
             'contract.create',
+            'contract.update',
+            'contract.delete',
           ];
       const scope = await db.dataScope.create({
         data: {
@@ -234,8 +236,42 @@ for (const explicitBranch of [true, false])
       manager.collab.mutateTable(tables.CASES, { remove: true, version: 1 }, key()),
       code('COLLAB_FORBIDDEN'),
     );
+    const draft = await admin.contracts.createContract({
+      contractType: 'FIRST_SIGN',
+      title: '共享草稿',
+      customerId: customerIds[0],
+      amount: '100.00',
+      branchId: explicitBranch ? org : undefined,
+    });
+    const ct = await manager.collab.describe(tables.CONTRACTS);
+    const titleField = ct.fields.find((f) => (f.options as { businessKey: string }).businessKey === 'title')!;
+    const edit = {
+      schemaVersion: ct.table.schemaVersion,
+      version: 1,
+      values: { [titleField.id]: '分所修改总所草稿' },
+    };
+    for (const account of [reader, lawyer, outsider]) {
+      await assert.rejects(account.collab.saveRecord(tables.CONTRACTS, draft.id, edit, key()));
+      await assert.rejects(
+        account.collab.saveRecord(
+          tables.CONTRACTS,
+          draft.id,
+          { schemaVersion: 1, version: 1, archived: true },
+          key(),
+        ),
+      );
+    }
+    await manager.collab.saveRecord(tables.CONTRACTS, draft.id, edit, key());
+    assert.equal((await admin.contracts.getContract(draft.id)).title, '分所修改总所草稿');
+    await manager.collab.saveRecord(
+      tables.CONTRACTS,
+      draft.id,
+      { schemaVersion: 1, version: 2, archived: true },
+      key(),
+    );
+    await assert.rejects(admin.contracts.getContract(draft.id), code('CONTRACT_NOT_FOUND'));
     await admin.collab.mutateTable(tables.CONTRACTS, { remove: true, version: 1 }, key());
-    assert.equal(await db.contract.count(), 4);
+    assert.equal(await db.contract.count({ where: { deletedAt: null } }), 4);
     await db.userRole.updateMany({
       where: { userId: reader.user.id },
       data: {

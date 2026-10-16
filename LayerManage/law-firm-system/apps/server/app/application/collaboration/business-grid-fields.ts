@@ -2,6 +2,7 @@ import { AuthorizationContext } from '../authorization/authorization-service';
 import { FieldProjectionService } from '../authorization/field-projection-service';
 
 export const editableBusinessFields = {
+  CONTRACTS: ['title', 'amount'],
   CUSTOMERS: ['name', 'phone', 'wechat', 'customerType', 'status', 'email', 'address', 'tags', 'remark'],
   NEGOTIATIONS: ['negotiatorEmployeeId', 'quotedAmount', 'customerConcerns', 'competitorInfo', 'remark'],
   CHANNELS: ['name', 'accountInfo', 'cost', 'status'],

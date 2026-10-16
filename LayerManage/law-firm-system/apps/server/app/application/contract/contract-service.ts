@@ -21,7 +21,7 @@
 //   金额 amount≥0（Decimal(18,2) 精度界同 D3），投影 toFixed(2)；
 //   paymentTerms 结构预校验（终审修复轮 F-1，stuck-SIGNED 根除）：显式提供时复用
 //     receivable-service 同一解析器只验不建，畸形/期次断裂/合计≠金额一律
-//     RECEIVABLE_PLAN_MISMATCH 400 零写入——无 update API，create 预验一次即永真，
+//     RECEIVABLE_PLAN_MISMATCH 400 零写入——创建和工作表金额修改均执行此校验，
 //     effect 侧校验不变构成双闸；金额缺省视 Decimal(0)（与 schema @default(0) 一致）。
 // 审计纪律（裁决 9）：OperationLog 只落编号/类型/id/状态/金额与布尔存在性；approvalComment
 //   属业务字段落库但不进审计值（approve/reject 审计仅落 hasComment 布尔）。
@@ -120,6 +120,82 @@ type TransitionAction = Extract<ContractAction, 'submit' | 'approve' | 'reject' 
 export class ContractService {
   private readonly authorization: AuthorizationService;
   private readonly outbox: EventOutboxWriter;
+
+  /** Worksheet mutations use the same transaction as extensions, audit and collaboration events. */
+  async mutateDraft(
+    id: string,
+    input: Record<string, unknown>,
+    deleting: boolean,
+    tx: Prisma.TransactionClient,
+  ) {
+    const permission = deleting ? 'contract.delete' : 'contract.update';
+    this.authorization.requireAction(this.authorizationContext, permission);
+    assertExactKeys(input, deleting ? ['version'] : ['version', 'title', 'amount']);
+    await tx.$queryRaw`SELECT id FROM contract WHERE id = ${id} FOR UPDATE`;
+    const scope = await this.buildScopeWhere(permission);
+    const current = await tx.contract.findFirst({ where: { AND: [scope, { id, deletedAt: null }] } });
+    if (!current) throw new ContractError('CONTRACT_NOT_FOUND', 404, 'contract not found');
+    if (current.version !== normalizeNonNegativeInteger(input.version))
+      throw new MasterDataError('VERSION_CONFLICT', 409);
+    if (deleting ? !['DRAFT', 'VOID'].includes(current.status) : current.status !== 'DRAFT')
+      throw new ContractError(
+        'CONTRACT_GRID_STATE_INVALID',
+        409,
+        'contract state prevents worksheet mutation',
+      );
+    // Keep signed documents and downstream financial/case records intact, even after voiding.
+    const linked = await tx.contract.count({
+      where: {
+        id,
+        OR: [
+          { supplements: { some: { deletedAt: null } } },
+          { paymentPlans: { some: {} } },
+          { payments: { some: {} } },
+          { case: { isNot: null } },
+          { analysisEngagement: { isNot: null } },
+          { invoiceRequests: { some: {} } },
+          { refundRequests: { some: {} } },
+        ],
+      },
+    });
+    if (linked || current.receivedAmount.greaterThan(0) || current.signDate || current.esignLinkId)
+      throw new ContractError('CONTRACT_GRID_IN_USE', 409, 'contract has downstream references');
+    const data: Prisma.ContractUpdateManyMutationInput = {
+      updatedBy: this.actor.actorUserId,
+      version: { increment: 1 },
+    };
+    if (deleting) data.deletedAt = new Date();
+    else {
+      if (input.title !== undefined) data.title = normalizeRequiredText(input.title, 1, 200);
+      if (Object.hasOwn(input, 'amount')) {
+        const amount = normalizeContractAmount(input.amount);
+        if (amount === undefined) throw new MasterDataError('VALIDATION_FAILED', 400);
+        assertPaymentTermsStructurallyValid(current.paymentTerms, amount);
+        data.amount = amount;
+      }
+      if (input.title === undefined && input.amount === undefined)
+        throw new MasterDataError('VALIDATION_FAILED', 400);
+    }
+    const changed = await tx.contract.updateMany({
+      where: { id, version: current.version, deletedAt: null },
+      data,
+    });
+    if (changed.count !== 1) throw new MasterDataError('VERSION_CONFLICT', 409);
+    await tx.operationLog.create({
+      data: {
+        userId: this.actor.actorUserId,
+        action: permission,
+        targetType: 'CONTRACT',
+        targetId: id,
+        newValues: JSON.stringify({
+          version: current.version + 1,
+          fields: Object.keys(input).filter((k) => k !== 'version'),
+        }),
+        ip: this.actor.ip,
+      },
+    });
+    return { id, version: current.version + 1 };
+  }
 
   constructor(
     private readonly prisma: PrismaClient,

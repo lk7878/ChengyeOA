@@ -6,6 +6,7 @@ import { editableCaseKey, caseGridChoices } from './case-grid-fields';
 import { editableBusinessFields, editableBusinessKey, isEditableBusinessSource, businessGridChoices } from './business-grid-fields';
 import { CustomerService, UpdateCustomerInput } from '../crm/customer-service';
 import { NegotiationService } from '../contract/negotiation-service';
+import { ContractService } from '../contract/contract-service';
 import { UpdateNegotiationInput } from '../contract/contract-types';
 import { ChannelService } from '../channel/channel-service';
 import { CostService } from '../finance/cost-service';
@@ -873,7 +874,8 @@ export class CollaborationService {
       canDeleteRecords:
         access.level >= 2 &&
         (table.source === 'CUSTOM' ||
-          (table.source === 'CASES' && this.actor.permissionCodes.includes('case.delete'))),
+          (table.source === 'CASES' && this.actor.permissionCodes.includes('case.delete')) ||
+          (table.source === 'CONTRACTS' && this.actor.permissionCodes.includes('contract.delete'))),
       access,
       canCreateBusiness: await this.canCreateBusiness(table, access, fields),
       fields: fields.map((f) => ({
@@ -1872,7 +1874,10 @@ export class CollaborationService {
   ) {
     const initial = await this.tableAccess(tableId, transaction ?? this.db, 2);
     if (isEditableBusinessSource(initial.table.source) && recordId) {
-      const input = exact(raw, ['values', 'version', 'schemaVersion']);
+      const input = exact(raw, [
+        'values', 'version', 'schemaVersion',
+        ...(initial.table.source === 'CONTRACTS' ? ['archived'] : []),
+      ]);
       return this.write(
         key,
         ['business.record.save', tableId, recordId, input],
@@ -1890,13 +1895,21 @@ export class CollaborationService {
             access,
             recordId,
             tx,
-            'update',
+            source === 'CONTRACTS' && input.archived === true ? 'delete' : 'update',
           );
           const extension = await tx.collabExtension.findUnique({
             where: { tableId_recordId: { tableId, recordId } },
           });
           if (integer(input.version) !== core.version + (extension?.version ?? 0))
             fail('COLLAB_RECORD_CONFLICT', 409);
+          if (source === 'CONTRACTS' && input.archived !== undefined) {
+            if (input.archived !== true || Object.keys(object(input.values ?? {})).length)
+              fail('COLLAB_INVALID_VALUE');
+            const service = new ContractService(this.db, { actorUserId: this.actor.userId }, this.actor);
+            const saved = await service.mutateDraft(recordId, { version: core.version }, true, tx);
+            await this.event(tx, table.baseId, 'record.deleted', recordId);
+            return { id: recordId, version: saved.version + (extension?.version ?? 0) };
+          }
           const patch: Record<string, unknown> = {},
             extras: ObjectValue = {};
           for (const [id, value] of Object.entries(object(input.values))) {
@@ -1916,7 +1929,13 @@ export class CollaborationService {
           const actor = { actorUserId: this.actor.userId };
           let version = core.version;
           if (Object.keys(patch).length) {
-            if (source === 'CUSTOMERS')
+            if (source === 'CONTRACTS')
+              version = (
+                await new ContractService(this.db, actor, this.actor).mutateDraft(
+                  recordId, { ...patch, version: core.version }, false, tx,
+                )
+              ).version;
+            else if (source === 'CUSTOMERS')
               version = (
                 await new CustomerService(this.db, actor, this.actor).updateCustomer(
                   recordId,

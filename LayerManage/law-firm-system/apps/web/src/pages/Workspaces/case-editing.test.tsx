@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
+import Modal from '@/components/DraggableModal';
 import { WorkspaceEditor } from './index';
 import { get, patch, post } from '@/features/workspaces/api';
 
@@ -13,6 +14,7 @@ vi.mock('@/features/workspaces/api', () => ({
   streamEvents: () => new Promise(() => {}),
 }));
 afterEach(() => {
+  vi.restoreAllMocks();
   cleanup();
   vi.clearAllMocks();
 });
@@ -56,12 +58,12 @@ test.each(['NEGOTIATIONS', 'CUSTOMERS', 'CASES', 'CONTRACTS', 'CUSTOM'])(
   },
 );
 
-test('case detail keeps edited core-field values and saves them to the table record endpoint', async () => {
+test.each(['CASES', 'CONTRACTS'])('%s detail keeps edited core-field values and saves them to the table record endpoint', async (source) => {
   const table = {
     id: 't',
     baseId: 'b',
     name: '案件工作表',
-    source: 'CASES',
+    source,
     schemaVersion: 1,
     position: 0,
     archived: false,
@@ -157,4 +159,15 @@ test('case detail keeps edited core-field values and saves them to the table rec
       expect.any(String),
     ),
   );
+  const confirm = vi.spyOn(Modal, 'confirm').mockReturnValue({ destroy: vi.fn(), update: vi.fn() });
+  fireEvent.click(await screen.findByRole('button', { name: /^删\s*除$/ }));
+  expect(confirm).toHaveBeenCalledOnce();
+  const config = confirm.mock.calls[0][0];
+  expect(config.content).toContain(source === 'CONTRACTS' ? '正式合同记录' : '正式案件');
+  expect(patch).toHaveBeenCalledTimes(1);
+  await act(async () => { await config.onOk?.(); });
+  await waitFor(() => expect(patch).toHaveBeenCalledWith(
+    '/tables/t/records/r', { archived: true, version: 4, schemaVersion: 1 }, expect.any(String),
+  ));
+
 });

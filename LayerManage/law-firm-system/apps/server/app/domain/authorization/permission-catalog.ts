@@ -326,6 +326,8 @@ export const PERMISSION_CATALOG = Object.freeze([
   permission('contract.read', '查看合同', 'ACTION', 'contract', 'read', 'LOW'),
   permission('contract.create', '创建合同', 'ACTION', 'contract', 'create', 'MEDIUM'),
   permission('contract.submit', '提交合同', 'ACTION', 'contract', 'submit', 'MEDIUM'),
+  permission('contract.update', '修改合同', 'ACTION', 'contract', 'update', 'MEDIUM'),
+  permission('contract.delete', '删除合同', 'ACTION', 'contract', 'delete', 'HIGH'),
   permission('contract.approve', '审批合同', 'ACTION', 'contract', 'approve', 'HIGH'),
   permission('contract.sign', '签署合同', 'ACTION', 'contract', 'sign', 'MEDIUM'),
   permission('contract.effect', '合同生效', 'ACTION', 'contract', 'effect', 'HIGH'),

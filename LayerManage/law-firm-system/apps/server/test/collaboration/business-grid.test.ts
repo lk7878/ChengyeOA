@@ -86,6 +86,20 @@ async function seed(source: string) {
     data: { customerNo: key(), name: '原客户', phone: '13800000000', phoneHash: key(), createdBy: user },
   });
   if (source === 'CUSTOMERS') return customer.id;
+  if (source === 'CONTRACTS')
+    return (
+      await db.contract.create({
+        data: {
+          contractNo: key(),
+          contractType: 'FIRST_SIGN',
+          title: '原合同',
+          customerId: customer.id,
+          branchId: org,
+          amount: '100.00',
+          createdBy: user,
+        },
+      })
+    ).id;
   if (source === 'NEGOTIATIONS')
     return (
       await db.negotiation.create({
@@ -132,6 +146,7 @@ async function table(source: string) {
   return { id, detail, fields };
 }
 for (const [source, field, value] of [
+  ['CONTRACTS', 'title', '修改合同'],
   ['CUSTOMERS', 'name', '修改客户'],
   ['NEGOTIATIONS', 'quotedAmount', '200.50'],
   ['CHANNELS', 'name', '修改渠道'],
@@ -160,6 +175,7 @@ for (const [source, field, value] of [
       permissionCodes: svc.actor.permissionCodes.filter(
         (p) =>
           ![
+            'contract.update',
             'customer.update',
             'negotiation.update',
             'channel.update',
@@ -263,4 +279,103 @@ test('customer inline editing respects reader role, field restrictions and maske
   );
   await editor.saveRecord(t.id, id, input, key());
   assert.equal((await db.customer.findUniqueOrThrow({ where: { id } })).name, '新名称');
+});
+
+test('contract amount validation, lifecycle and downstream references protect canonical records', async () => {
+  const t = await table('CONTRACTS'),
+    id = await seed('CONTRACTS');
+  const change = (amount: unknown) =>
+    svc.saveRecord(t.id, id, { schemaVersion: 1, version: 1, values: { [t.fields.amount]: amount } }, key());
+  for (const amount of [-1, '1.234', null]) await assert.rejects(change(amount), code('VALIDATION_FAILED'));
+  await db.contract.update({
+    where: { id },
+    data: { paymentTerms: JSON.stringify([{ period: 1, amount: '100.00', dueDate: '2026-12-01' }]) },
+  });
+  await assert.rejects(change('200.00'), code('RECEIVABLE_PLAN_MISMATCH'));
+  await db.contract.update({ where: { id }, data: { paymentTerms: null } });
+  await change('200.00');
+  assert.equal((await db.contract.findUniqueOrThrow({ where: { id } })).amount.toFixed(2), '200.00');
+  for (const status of ['PENDING_APPROVAL', 'SIGNED', 'EFFECTIVE']) {
+    await db.contract.update({ where: { id }, data: { status } });
+    assert.equal((await svc.record(t.id, id)).record.writable, false);
+    await assert.rejects(
+      svc.saveRecord(t.id, id, { schemaVersion: 1, version: 2, archived: true }, key()),
+      code('CONTRACT_GRID_STATE_INVALID'),
+    );
+    await assert.rejects(
+      svc.saveRecord(
+        t.id,
+        id,
+        { schemaVersion: 1, version: 2, values: { [t.fields.title]: '不可修改' } },
+        key(),
+      ),
+      code('CONTRACT_GRID_STATE_INVALID'),
+    );
+  }
+  await db.contract.update({ where: { id }, data: { status: 'VOID', receivedAmount: '1.00' } });
+  await assert.rejects(
+    svc.saveRecord(t.id, id, { schemaVersion: 1, version: 2, archived: true }, key()),
+    code('CONTRACT_GRID_IN_USE'),
+  );
+  await db.contract.update({ where: { id }, data: { receivedAmount: '0.00' } });
+  const current = await db.contract.findUniqueOrThrow({ where: { id } });
+  await db.contract.create({
+    data: {
+      contractNo: key(),
+      contractType: 'SUPPLEMENT',
+      title: '补充协议',
+      customerId: current.customerId,
+      parentContractId: id,
+      createdBy: user,
+    },
+  });
+  await assert.rejects(
+    svc.saveRecord(t.id, id, { schemaVersion: 1, version: 2, archived: true }, key()),
+    code('CONTRACT_GRID_IN_USE'),
+  );
+});
+test('contract deletion is scoped, versioned, atomic, idempotent and removes the canonical record from every worksheet', async () => {
+  const t = await table('CONTRACTS'),
+    id = await seed('CONTRACTS');
+  const otherTable = await svc.createTable(base, { name: '另一合同表', source: 'CONTRACTS' }, key());
+  const input = { schemaVersion: 1, version: 1, archived: true };
+  const denied = new CollaborationService(db, {
+    ...svc.actor,
+    permissionCodes: svc.actor.permissionCodes.filter((p) => p !== 'contract.delete'),
+  });
+  assert.equal((await denied.describe(t.id)).canDeleteRecords, false);
+  await assert.rejects(denied.saveRecord(t.id, id, input, key()), code('COLLAB_FORBIDDEN'));
+  await assert.rejects(
+    svc.saveRecord(t.id, id, { ...input, version: 99 }, key()),
+    code('COLLAB_RECORD_CONFLICT'),
+  );
+  await assert.rejects(withFailingCollaborationOutbox(db, () => svc.saveRecord(t.id, id, input, key())));
+  assert.equal((await db.contract.findUniqueOrThrow({ where: { id } })).deletedAt, null);
+  assert.equal(await db.operationLog.count({ where: { targetId: id, action: 'contract.delete' } }), 0);
+  const mutation = key();
+  const result = await svc.saveRecord(t.id, id, input, mutation);
+  assert.deepEqual(await svc.saveRecord(t.id, id, input, mutation), result);
+  assert.ok((await db.contract.findUniqueOrThrow({ where: { id } })).deletedAt);
+  assert.equal((await svc.query(t.id, {})).total, 0);
+  assert.equal((await svc.query(otherTable.id, {})).total, 0);
+  assert.equal(await db.operationLog.count({ where: { targetId: id, action: 'contract.delete' } }), 1);
+});
+test('contract core, extension and audit roll back together on event failure', async () => {
+  const t = await table('CONTRACTS'),
+    id = await seed('CONTRACTS');
+  const extra = await svc.saveField(t.id, undefined, { name: '备注', type: 'TEXT', version: 1 }, key());
+  const schemaVersion = (await svc.describe(t.id)).table.schemaVersion;
+  await assert.rejects(
+    withFailingCollaborationOutbox(db, () =>
+      svc.saveRecord(
+        t.id,
+        id,
+        { schemaVersion, version: 1, values: { [t.fields.title]: '回滚', [extra.id]: '回滚' } },
+        key(),
+      ),
+    ),
+  );
+  assert.equal((await db.contract.findUniqueOrThrow({ where: { id } })).title, '原合同');
+  assert.equal(await db.collabExtension.count({ where: { tableId: t.id } }), 0);
+  assert.equal(await db.operationLog.count({ where: { targetId: id, action: 'contract.update' } }), 0);
 });

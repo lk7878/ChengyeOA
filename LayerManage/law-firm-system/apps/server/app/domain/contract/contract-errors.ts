@@ -4,6 +4,8 @@
 // 注：VALIDATION_FAILED 复用 MasterDataError（domain/master-data/master-data-errors.ts），不在本文件重复定义。
 
 export const CONTRACT_NOT_FOUND = 'CONTRACT_NOT_FOUND';
+export const CONTRACT_GRID_STATE_INVALID = 'CONTRACT_GRID_STATE_INVALID';
+export const CONTRACT_GRID_IN_USE = 'CONTRACT_GRID_IN_USE';
 export const NEGOTIATION_NOT_FOUND = 'NEGOTIATION_NOT_FOUND';
 export const PAYMENT_NOT_FOUND = 'PAYMENT_NOT_FOUND';
 export const CONTRACT_STATE_TRANSITION_INVALID = 'CONTRACT_STATE_TRANSITION_INVALID';
@@ -16,6 +18,8 @@ export const PAYMENT_STATE_INVALID = 'PAYMENT_STATE_INVALID';
 export const RECEIVABLE_PLAN_MISMATCH = 'RECEIVABLE_PLAN_MISMATCH';
 
 export type ContractErrorCode =
+  | typeof CONTRACT_GRID_STATE_INVALID
+  | typeof CONTRACT_GRID_IN_USE
   | typeof CONTRACT_NOT_FOUND
   | typeof NEGOTIATION_NOT_FOUND
   | typeof PAYMENT_NOT_FOUND
@@ -30,6 +34,8 @@ export type ContractErrorCode =
 
 /** 聚合对象形态：供 service 层（Task 6-9）以 CONTRACT_ERROR_CODES.X 引用，值与个体常量同一引用。 */
 export const CONTRACT_ERROR_CODES = {
+  CONTRACT_GRID_STATE_INVALID,
+  CONTRACT_GRID_IN_USE,
   CONTRACT_NOT_FOUND,
   NEGOTIATION_NOT_FOUND,
   PAYMENT_NOT_FOUND,
@@ -45,6 +51,8 @@ export const CONTRACT_ERROR_CODES = {
 
 /** 每个稳定码钉死的 HTTP 状态码：404 未找到 / 409 状态冲突 / 400 校验类。 */
 export const CONTRACT_ERROR_HTTP_STATUS: Readonly<Record<ContractErrorCode, number>> = {
+  CONTRACT_GRID_STATE_INVALID: 409,
+  CONTRACT_GRID_IN_USE: 409,
   [CONTRACT_NOT_FOUND]: 404,
   [NEGOTIATION_NOT_FOUND]: 404,
   [PAYMENT_NOT_FOUND]: 404,
