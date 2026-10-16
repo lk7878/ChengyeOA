@@ -75,7 +75,7 @@ test('readonly rows and fields cannot enter editing or submit writes', () => {
   expect(screen.queryByLabelText('单元格编辑')).toBeNull();
   expect(patch).not.toHaveBeenCalled();
 });
-test.each(['CONTRACTS', 'CUSTOMERS', 'NEGOTIATIONS', 'CHANNELS', 'COSTS', 'INVENTORY_ITEMS'])('%s double-click editing can cancel or save a versioned field value', async (source) => {
+test.each(['LEADS', 'FOLLOWS', 'CONTRACTS', 'CUSTOMERS', 'NEGOTIATIONS', 'CHANNELS', 'COSTS', 'INVENTORY_ITEMS'])('%s double-click editing can cancel or save a versioned field value', async (source) => {
   vi.mocked(patch).mockResolvedValue({ id: 'r', version: 3 });
   render(<GridCell {...props} field={{ ...field, options: { businessSource: source, businessKey: 'name' } }} />);
   fireEvent.doubleClick(screen.getByRole('button', { name: '标题：原值' }));

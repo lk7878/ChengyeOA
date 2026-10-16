@@ -246,7 +246,7 @@ export class WorkspaceBusinessTable {
       chunks.push(Prisma.sql`jsonb_build_object(${Prisma.join(pairs.slice(i, i + 100))})`);
     const values = chunks.length ? Prisma.sql`(${Prisma.join(chunks, ' || ')})` : Prisma.sql`'{}'::jsonb`;
     return Prisma.sql`SELECT b.id, ${table.id}::text AS "tableId", ${values} AS "values",
-      ${leads ? Prisma.sql`b.version` : Prisma.sql`1`} + COALESCE(e.version, 0) AS version,
+      b.version + COALESCE(e.version, 0) AS version,
       b."createdBy", b."createdBy" AS "ownerId", b."createdAt", false AS archived,
       COALESCE(e."updatedBy", b."createdBy") AS "updatedBy",
       ${leads ? Prisma.sql`b."updatedAt"` : Prisma.sql`b."createdAt"`} AS "updatedAt"

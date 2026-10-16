@@ -7,6 +7,8 @@ import { editableBusinessFields, editableBusinessKey, isEditableBusinessSource, 
 import { CustomerService, UpdateCustomerInput } from '../crm/customer-service';
 import { NegotiationService } from '../contract/negotiation-service';
 import { ContractService } from '../contract/contract-service';
+import { CrmWorksheetService } from '../crm/crm-worksheet-service';
+import { editableCrmKey, followTypeChoices } from '../crm/crm-worksheet-fields';
 import { UpdateNegotiationInput } from '../contract/contract-types';
 import { ChannelService } from '../channel/channel-service';
 import { CostService } from '../finance/cost-service';
@@ -520,6 +522,10 @@ export class CollaborationService {
     fields: CollabField[],
     tx: Tx = this.db,
   ) {
+    if (table.source === 'FOLLOWS')
+      return access.level >= 2 && this.actor.permissionCodes.includes('lead.read') &&
+        this.actor.permissionCodes.includes('lead.update') && ['leadId', 'type', 'content'].every(key =>
+          fields.some(f => object(f.options).businessKey === key && !access.readonly.includes(f.id)));
     if (table.source !== 'LEADS' || access.level < 2 || !this.actor.permissionCodes.includes('lead.create'))
       return false;
     if (
@@ -564,7 +570,83 @@ export class CollaborationService {
       )
     );
   }
+  async followLeadOptions(tableId: string, raw: unknown = {}) {
+    const input = exact(raw, ['keyword']);
+    const { table, access, fields } = await this.tableAccess(tableId, this.db, 2);
+    if (table.source !== 'FOLLOWS' || !(await this.canCreateBusiness(table, access, fields)))
+      fail('COLLAB_FORBIDDEN', 403);
+    const keyword = input.keyword === undefined || input.keyword === '' ? '' : text(input.keyword, 100);
+    const scope = await buildLeadScopeWhere(
+      this.db,
+      new AuthorizationService(new DataScopeService(this.db)),
+      this.actor,
+      'lead.update',
+    );
+    const leads = await this.db.lead.findMany({
+      where: {
+        AND: [
+          await new WorkspaceBusinessTable(this.db, this.actor).scope(access),
+          scope,
+          ...(keyword
+            ? [
+                {
+                  OR: [
+                    { name: { contains: keyword, mode: 'insensitive' as const } },
+                    { leadNo: { contains: keyword, mode: 'insensitive' as const } },
+                  ],
+                },
+              ]
+            : []),
+        ],
+      },
+      select: { id: true, leadNo: true, name: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      take: 100,
+    });
+    return { leads: leads.map((lead) => ({ id: lead.id, name: lead.leadNo + ' · ' + lead.name })) };
+  }
+  private async createFollowRecord(tableId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['leadId', 'type', 'content', 'nextPlan', 'nextTime']);
+    const initial = await this.tableAccess(tableId, this.db, 2);
+    return this.write(key, ['follow.create', tableId, input], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId, true);
+      const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
+      if (table.source !== 'FOLLOWS' || !(await this.canCreateBusiness(table, access, fields, tx)))
+        fail('COLLAB_FORBIDDEN', 403);
+      for (const fieldName of Object.keys(input))
+        if (
+          !fields.some((f) => object(f.options).businessKey === fieldName && !access.readonly.includes(f.id))
+        )
+          fail('COLLAB_FIELD_UNAVAILABLE', 403);
+      const leadId = text(input.leadId);
+      await tx.$queryRaw`SELECT id FROM lead WHERE id = ${leadId} FOR UPDATE`;
+      const lead = await tx.lead.findFirst({
+        where: { AND: [{ id: leadId }, await new WorkspaceBusinessTable(this.db, this.actor).scope(access)] },
+      });
+      if (!lead) fail('COLLAB_NOT_FOUND', 404);
+      const created = await new LeadFollowService(
+        this.db,
+        { actorUserId: this.actor.userId },
+        this.actor,
+      ).recordFollow(
+        leadId,
+        {
+          type: choice(input.type, LEAD_FOLLOW_TYPES),
+          content: text(input.content, 2000),
+          nextPlan: input.nextPlan == null || input.nextPlan === '' ? undefined : text(input.nextPlan, 500),
+          nextTime:
+            input.nextTime == null || input.nextTime === '' ? undefined : new Date(text(input.nextTime)),
+        },
+        tx,
+      );
+      await this.extensionTarget(table, access, created.id, tx);
+      await this.event(tx, table.baseId, 'record.created', created.id);
+      return { id: created.id };
+    });
+  }
   async createBusinessRecord(tableId: string, raw: unknown, key: unknown) {
+    const selected = await this.tableAccess(tableId);
+    if (selected.table.source === 'FOLLOWS') return this.createFollowRecord(tableId, raw, key);
     const input = exact(raw, [
       'name',
       'phone',
@@ -875,11 +957,15 @@ export class CollaborationService {
         access.level >= 2 &&
         (table.source === 'CUSTOM' ||
           (table.source === 'CASES' && this.actor.permissionCodes.includes('case.delete')) ||
-          (table.source === 'CONTRACTS' && this.actor.permissionCodes.includes('contract.delete'))),
+          (table.source === 'CONTRACTS' && this.actor.permissionCodes.includes('contract.delete')) ||
+          (table.source === 'LEADS' && this.actor.permissionCodes.includes('lead.delete')) ||
+          (table.source === 'FOLLOWS' && this.actor.permissionCodes.includes('lead.follow.delete'))),
       access,
       canCreateBusiness: await this.canCreateBusiness(table, access, fields),
       fields: fields.map((f) => ({
         ...f,
+        ...(table.source === 'FOLLOWS' && object(f.options).businessKey === 'type'
+          ? { type: 'SINGLE_SELECT', options: { ...object(f.options), choices: followTypeChoices } } : {}),
         ...(businessGridChoices(table.source, String(object(f.options).businessKey))
           ? {
               type: 'SINGLE_SELECT',
@@ -906,6 +992,8 @@ export class CollaborationService {
           table.source === 'CUSTOM' || !['phone', 'wechat'].includes(String(object(f.options).businessKey)),
         writable:
           (table.source === 'CUSTOM' ||
+            (editableCrmKey(table.source, String(object(f.options).businessKey), this.actor) &&
+              this.actor.permissionCodes.includes('lead.update')) ||
             (isEditableBusinessSource(table.source) &&
               editableBusinessKey(table.source, String(object(f.options).businessKey), this.actor) &&
               this.actor.permissionCodes.includes(domainSources[table.source].edit)) ||
@@ -1499,6 +1587,10 @@ export class CollaborationService {
       action: {
         in: [
           'LEAD_FOLLOW_CREATE',
+          'LEAD_UPDATE',
+          'LEAD_DELETE',
+          'LEAD_FOLLOW_UPDATE',
+          'LEAD_FOLLOW_DELETE',
           'LEAD_STATUS_TRANSITION',
           'LEAD_ASSIGN',
           'LEAD_REASSIGN',
@@ -1750,10 +1842,11 @@ export class CollaborationService {
     access: Access,
     recordId: string,
     tx: Tx,
+    permission: 'lead.update' | 'lead.delete' | 'lead.follow.delete' = 'lead.update',
   ) {
     if (isDomainSource(table.source))
       return new WorkspaceDomainSource(this.db, this.actor).target(table.source, access, recordId, tx);
-    if (!this.actor.permissionCodes.includes('lead.update')) fail('COLLAB_FORBIDDEN', 403);
+    if (!this.actor.permissionCodes.includes(permission)) fail('COLLAB_FORBIDDEN', 403);
     const adapter = new WorkspaceBusinessTable(this.db, this.actor);
     const scope: Prisma.LeadWhereInput = {
       AND: [
@@ -1762,7 +1855,7 @@ export class CollaborationService {
           this.db,
           new AuthorizationService(new DataScopeService(this.db)),
           this.actor,
-          'lead.update',
+          permission,
         ),
       ],
     };
@@ -1774,7 +1867,7 @@ export class CollaborationService {
     }
     const row = await tx.leadFollow.findFirst({ where: { id: recordId, ...own, lead: scope } });
     if (!row) fail('COLLAB_NOT_FOUND', 404);
-    return { version: 1 };
+    return { version: row.version };
   }
   private async saveExtension(
     tableId: string,
@@ -1873,6 +1966,82 @@ export class CollaborationService {
     transaction?: Tx,
   ) {
     const initial = await this.tableAccess(tableId, transaction ?? this.db, 2);
+    if (initial.table.source === 'LEADS' || initial.table.source === 'FOLLOWS') {
+      if (!recordId) fail('COLLAB_USE_BUSINESS_ACTION', 409);
+      const input = exact(raw, ['values', 'version', 'schemaVersion', 'archived']);
+      return this.write(
+        key,
+        ['crm.record.save', tableId, recordId, input],
+        async (tx) => {
+          await this.lock(tx, initial.access.workspaceId, true);
+          const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
+          const source = table.source;
+          if (source !== 'LEADS' && source !== 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
+          if (integer(input.schemaVersion) !== table.schemaVersion) fail('COLLAB_SCHEMA_CONFLICT', 409);
+          await tx.$queryRaw(
+            source === 'LEADS'
+              ? Prisma.sql`SELECT id FROM lead WHERE id = ${recordId} FOR UPDATE`
+              : Prisma.sql`SELECT id FROM lead_follow WHERE id = ${recordId} FOR UPDATE`,
+          );
+          const deleting = input.archived === true;
+          if (input.archived !== undefined && !deleting) fail('COLLAB_INVALID_VALUE');
+          const core = await this.extensionTarget(
+            table,
+            access,
+            recordId,
+            tx,
+            deleting ? (source === 'LEADS' ? 'lead.delete' : 'lead.follow.delete') : 'lead.update',
+          );
+          const extension = await tx.collabExtension.findUnique({
+            where: { tableId_recordId: { tableId, recordId } },
+          });
+          if (integer(input.version) !== core.version + (extension?.version ?? 0))
+            fail('COLLAB_RECORD_CONFLICT', 409);
+          const patch: ObjectValue = {},
+            extras: ObjectValue = {};
+          const values = object(input.values ?? {});
+          if (deleting && Object.keys(values).length) fail('COLLAB_INVALID_VALUE');
+          for (const [id, value] of Object.entries(values)) {
+            const field = fields.find((f) => f.id === id);
+            if (!field || access.readonly.includes(id) || isSystemField(field))
+              fail('COLLAB_FIELD_UNAVAILABLE', 403);
+            const businessKey = String(object(field.options).businessKey ?? '');
+            if (!businessKey) extras[id] = value;
+            else {
+              if (!editableCrmKey(source, businessKey, this.actor)) fail('COLLAB_USE_BUSINESS_ACTION', 409);
+              patch[businessKey] = value;
+            }
+          }
+          if (!deleting && !Object.keys(values).length) fail('COLLAB_INVALID_VALUE');
+          let version = core.version;
+          if (deleting || Object.keys(patch).length)
+            version = (
+              await new CrmWorksheetService(this.db, this.actor).mutate(
+                source,
+                recordId,
+                core.version,
+                patch,
+                deleting,
+                tx,
+              )
+            ).version;
+          let combined = version + (extension?.version ?? 0);
+          if (Object.keys(extras).length)
+            combined = (
+              await this.saveExtension(
+                tableId,
+                recordId,
+                { values: extras, version: combined, schemaVersion: table.schemaVersion },
+                key,
+                tx,
+              )
+            ).version;
+          await this.event(tx, table.baseId, deleting ? 'record.deleted' : 'record.updated', recordId);
+          return { id: recordId, version: combined };
+        },
+        transaction,
+      );
+    }
     if (isEditableBusinessSource(initial.table.source) && recordId) {
       const input = exact(raw, [
         'values', 'version', 'schemaVersion',
@@ -2235,7 +2404,8 @@ export class CollaborationService {
             !(
               initial.table.source === 'CASES' && editableCaseKey(String(object(field.options).businessKey))
             ) &&
-            !editableBusinessKey(initial.table.source, String(object(field.options).businessKey), this.actor)
+            !editableBusinessKey(initial.table.source, String(object(field.options).businessKey), this.actor) &&
+            !editableCrmKey(initial.table.source, String(object(field.options).businessKey), this.actor)
           )
             fail('COLLAB_USE_BUSINESS_ACTION', 409, { fieldId: id });
           if (initial.access.readonly.includes(id) || isSystemField(field))

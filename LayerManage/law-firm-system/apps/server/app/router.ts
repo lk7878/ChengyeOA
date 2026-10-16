@@ -34,6 +34,7 @@ export default (app: Application) => {
   router.get('/api/v1/collaboration/business-tables', controller.collaboration.businessTables);
   router.post('/api/v1/bases/:baseId/module', controller.collaboration.saveBaseModule);
   router.post('/api/v1/tables/:tableId/business-records', controller.collaboration.createBusinessRecord);
+  router.get('/api/v1/tables/:tableId/follow-leads', controller.collaboration.followLeadOptions);
   router.get('/api/v1/workspaces', controller.collaboration.index);
   router.get('/api/v1/workspaces/:workspaceId/drive', controller.drive.index);
   router.get('/api/v1/workspaces/:workspaceId/drive/folders', controller.drive.folders);

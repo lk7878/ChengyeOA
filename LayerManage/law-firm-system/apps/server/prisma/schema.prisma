@@ -716,6 +716,7 @@ model LeadFollow {
   nextTime  DateTime? // 下次跟进时间
   createdBy String // 跟进人
   updatedBy String? // 更新人
+  version   Int       @default(1)
   createdAt DateTime  @default(now())
 
   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)

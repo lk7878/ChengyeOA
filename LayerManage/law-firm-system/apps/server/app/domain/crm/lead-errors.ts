@@ -2,6 +2,7 @@
 // 设计 §7 错误码体系：code 为 HTTP 语义稳定字符串码，httpStatus 为对应状态码。
 
 export const LEAD_NOT_FOUND = 'LEAD_NOT_FOUND';
+export const LEAD_IN_USE = 'LEAD_IN_USE';
 export const LEAD_STATE_TRANSITION_INVALID = 'LEAD_STATE_TRANSITION_INVALID';
 export const LEAD_NOT_IN_POOL = 'LEAD_NOT_IN_POOL';
 export const APPOINTMENT_CONFLICT = 'APPOINTMENT_CONFLICT';
@@ -19,6 +20,7 @@ export const ACTOR_EMPLOYEE_UNBOUND = 'ACTOR_EMPLOYEE_UNBOUND';
 export const LEAD_PHONE_INVALID = 'LEAD_PHONE_INVALID';
 
 export type CrmErrorCode =
+  | typeof LEAD_IN_USE
   | typeof LEAD_NOT_FOUND
   | typeof LEAD_STATE_TRANSITION_INVALID
   | typeof LEAD_NOT_IN_POOL

@@ -51,6 +51,10 @@ const followTypes = [
 ];
 const historyNames: Record<string, string> = {
   LEAD_FOLLOW_CREATE: '新增跟进',
+  LEAD_UPDATE: '修改线索',
+  LEAD_DELETE: '删除线索',
+  LEAD_FOLLOW_UPDATE: '修改跟进',
+  LEAD_FOLLOW_DELETE: '删除跟进',
   LEAD_STATUS_TRANSITION: '调整状态',
   LEAD_ASSIGN: '分配负责人',
   LEAD_REASSIGN: '改派负责人',

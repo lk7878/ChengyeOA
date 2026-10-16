@@ -196,6 +196,8 @@ export const PERMISSION_CODES = [
   'lead.read',
   'lead.create',
   'lead.update',
+  'lead.delete',
+  'lead.follow.delete',
   'lead.assign',
   'lead.recycle',
   'lead.convert',

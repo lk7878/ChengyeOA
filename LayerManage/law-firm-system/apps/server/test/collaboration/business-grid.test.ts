@@ -86,6 +86,24 @@ async function seed(source: string) {
     data: { customerNo: key(), name: '原客户', phone: '13800000000', phoneHash: key(), createdBy: user },
   });
   if (source === 'CUSTOMERS') return customer.id;
+  if (source === 'LEADS' || source === 'FOLLOWS') {
+    const lead = await db.lead.create({
+      data: {
+        leadNo: key(),
+        name: '原线索',
+        phone: '13800000000',
+        phoneHash: key(),
+        branchId: org,
+        createdBy: user,
+      },
+    });
+    if (source === 'LEADS') return lead.id;
+    return (
+      await db.leadFollow.create({
+        data: { leadId: lead.id, type: 'PHONE', content: '原跟进', createdBy: user },
+      })
+    ).id;
+  }
   if (source === 'CONTRACTS')
     return (
       await db.contract.create({
@@ -146,6 +164,8 @@ async function table(source: string) {
   return { id, detail, fields };
 }
 for (const [source, field, value] of [
+  ['LEADS', 'name', '修改线索'],
+  ['FOLLOWS', 'content', '修改跟进'],
   ['CONTRACTS', 'title', '修改合同'],
   ['CUSTOMERS', 'name', '修改客户'],
   ['NEGOTIATIONS', 'quotedAmount', '200.50'],
@@ -175,6 +195,7 @@ for (const [source, field, value] of [
       permissionCodes: svc.actor.permissionCodes.filter(
         (p) =>
           ![
+            'lead.update',
             'contract.update',
             'customer.update',
             'negotiation.update',
@@ -378,4 +399,155 @@ test('contract core, extension and audit roll back together on event failure', a
   assert.equal((await db.contract.findUniqueOrThrow({ where: { id } })).title, '原合同');
   assert.equal(await db.collabExtension.count({ where: { tableId: t.id } }), 0);
   assert.equal(await db.operationLog.count({ where: { targetId: id, action: 'contract.update' } }), 0);
+});
+
+test('follow creation uses visible editable leads and persists to canonical CRM with idempotency', async () => {
+  const t = await table('FOLLOWS'),
+    leadId = await seed('LEADS');
+  assert.equal(t.detail.canCreateBusiness, true);
+  assert.ok((await svc.followLeadOptions(t.id)).leads.some((l) => l.id === leadId));
+  const input = {
+      leadId,
+      type: 'WECHAT',
+      content: '沟通结果',
+      nextPlan: '回访',
+      nextTime: '2026-11-01T08:00:00.000Z',
+    },
+    mutation = key();
+  const first = await svc.createBusinessRecord(t.id, input, mutation);
+  assert.deepEqual(await svc.createBusinessRecord(t.id, input, mutation), first);
+  assert.equal(await db.leadFollow.count({ where: { leadId } }), 1);
+  assert.equal((await svc.query(t.id, {})).records[0].id, first.id);
+  assert.equal((await db.leadFollow.findUniqueOrThrow({ where: { id: first.id } })).content, '沟通结果');
+  await assert.rejects(
+    svc.createBusinessRecord(t.id, { ...input, nextTime: 'invalid' }, key()),
+    code('VALIDATION_FAILED'),
+  );
+  const foreignId = key();
+  const foreign = await db.organization.create({
+    data: { id: foreignId, code: key(), name: '其他分所', type: 'BRANCH', path: '/' + foreignId },
+  });
+  await db.lead.update({ where: { id: leadId }, data: { branchId: foreign.id } });
+  assert.equal((await svc.followLeadOptions(t.id)).leads.length, 0);
+  await assert.rejects(svc.createBusinessRecord(t.id, input, key()), code('COLLAB_NOT_FOUND'));
+});
+test('follow revisions are shared across worksheets; clearing optional data and deletion update canonical history', async () => {
+  const t = await table('FOLLOWS'),
+    id = await seed('FOLLOWS');
+  const second = await svc.createTable(base, { name: '另一跟进表', source: 'FOLLOWS' }, key());
+  const current = await db.leadFollow.findUniqueOrThrow({ where: { id } });
+  const input = {
+    version: 1,
+    schemaVersion: 1,
+    values: { [t.fields.content]: '更新跟进', [t.fields.nextTime]: null },
+  };
+  await svc.saveRecord(t.id, id, input, key());
+  assert.equal((await svc.record(second.id, id)).record.version, 2);
+  await assert.rejects(svc.saveRecord(t.id, id, input, key()), code('COLLAB_RECORD_CONFLICT'));
+  const denial = new CollaborationService(db, {
+    ...svc.actor,
+    permissionCodes: svc.actor.permissionCodes.filter((p) => p !== 'lead.follow.delete'),
+  });
+  await assert.rejects(
+    denial.saveRecord(t.id, id, { version: 2, schemaVersion: 1, archived: true }, key()),
+    code('COLLAB_FORBIDDEN'),
+  );
+  const mutation = key(),
+    deletion = { version: 2, schemaVersion: 1, archived: true };
+  const result = await svc.saveRecord(t.id, id, deletion, mutation);
+  assert.deepEqual(await svc.saveRecord(t.id, id, deletion, mutation), result);
+  assert.equal(await db.leadFollow.count({ where: { id } }), 0);
+  assert.ok(await db.lead.findUnique({ where: { id: current.leadId } }));
+  assert.equal((await svc.query(second.id, {})).total, 0);
+  assert.equal(
+    await db.operationLog.count({ where: { targetId: current.leadId, action: 'LEAD_FOLLOW_DELETE' } }),
+    1,
+  );
+});
+test('lead deletion hides its follows but protects converted customers and downstream business', async () => {
+  const t = await table('LEADS'),
+    follows = await table('FOLLOWS'),
+    id = await seed('LEADS');
+  await svc.createBusinessRecord(follows.id, { leadId: id, type: 'PHONE', content: '联系记录' }, key());
+  const row = (await svc.record(t.id, id)).record;
+  const input = { version: row.version, schemaVersion: 1, archived: true };
+  await assert.rejects(withFailingCollaborationOutbox(db, () => svc.saveRecord(t.id, id, input, key())));
+  assert.equal((await db.lead.findUniqueOrThrow({ where: { id } })).deletedAt, null);
+  await db.customer.create({
+    data: {
+      customerNo: key(),
+      name: '转化客户',
+      phone: '13800000000',
+      phoneHash: key(),
+      sourceLeadId: id,
+      createdBy: user,
+    },
+  });
+  await assert.rejects(svc.saveRecord(t.id, id, input, key()), code('LEAD_IN_USE'));
+  await db.customer.deleteMany({ where: { sourceLeadId: id } });
+  await svc.saveRecord(t.id, id, input, key());
+  assert.equal((await svc.query(t.id, {})).total, 0);
+  assert.equal((await svc.query(follows.id, {})).total, 0);
+});
+test('CRM field restrictions, reader and SELF scopes deny writes and follow creation', async () => {
+  const t = await table('LEADS'),
+    follow = await table('FOLLOWS'),
+    id = await seed('LEADS');
+  const other = await db.user.create({ data: { username: key(), password: 'unused' } });
+  const workspaceId = (await db.collabBase.findUniqueOrThrow({ where: { id: base } })).workspaceId;
+  const member = await db.collabMember.create({
+    data: { workspaceId, principalId: other.id, role: 'READER', rowScope: 'ALL' },
+  });
+  const editor = new CollaborationService(db, {
+    ...svc.actor,
+    userId: other.id,
+    employeeId: null,
+    isSystemSuperAdmin: false,
+  });
+  const input = { version: 1, schemaVersion: 1, values: { [t.fields.name]: '不允许' } };
+  await assert.rejects(editor.saveRecord(t.id, id, input, key()), code('COLLAB_FORBIDDEN'));
+  assert.equal((await editor.describe(follow.id)).canCreateBusiness, false);
+  await db.collabMember.update({
+    where: { id: member.id },
+    data: { role: 'EDITOR', readonlyFields: [t.fields.name] },
+  });
+  await assert.rejects(editor.saveRecord(t.id, id, input, key()), code('COLLAB_FIELD_UNAVAILABLE'));
+  assert.equal((await editor.describe(t.id)).fields.find((f) => f.id === t.fields.phone)?.writable, false);
+  await assert.rejects(
+    editor.saveRecord(t.id, id, { ...input, values: { [t.fields.phone]: '138****0000' } }, key()),
+    code('COLLAB_USE_BUSINESS_ACTION'),
+  );
+  await db.collabMember.update({ where: { id: member.id }, data: { readonlyFields: [], rowScope: 'SELF' } });
+  await assert.rejects(editor.saveRecord(t.id, id, input, key()), code('COLLAB_NOT_FOUND'));
+  await assert.rejects(
+    editor.saveRecord(t.id, id, { version: 1, schemaVersion: 1, archived: true }, key()),
+    code('COLLAB_NOT_FOUND'),
+  );
+});
+test('CRM core and extension changes roll back together; lead phone hashes stay in sync', async () => {
+  const t = await table('LEADS'),
+    id = await seed('LEADS');
+  const extra = await svc.saveField(t.id, undefined, { name: '备注', type: 'TEXT', version: 1 }, key());
+  const schemaVersion = (await svc.describe(t.id)).table.schemaVersion;
+  await assert.rejects(
+    withFailingCollaborationOutbox(db, () =>
+      svc.saveRecord(
+        t.id,
+        id,
+        { schemaVersion, version: 1, values: { [t.fields.name]: '失败', [extra.id]: '失败' } },
+        key(),
+      ),
+    ),
+  );
+  assert.equal((await db.lead.findUniqueOrThrow({ where: { id } })).name, '原线索');
+  assert.equal(await db.collabExtension.count({ where: { tableId: t.id } }), 0);
+  await svc.saveRecord(
+    t.id,
+    id,
+    { schemaVersion, version: 1, values: { [t.fields.phone]: '13900000000' } },
+    key(),
+  );
+  const lead = await db.lead.findUniqueOrThrow({ where: { id } });
+  assert.equal(lead.phone, '13900000000');
+  assert.equal(lead.phoneHash, (await import('../../app/domain/crm/lead-policy')).hashPhone('13900000000'));
 });

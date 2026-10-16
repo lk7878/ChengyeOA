@@ -43,6 +43,9 @@ export default class CollaborationController extends Controller {
       ),
     );
   }
+  async followLeadOptions() {
+    this.respond(await this.collaborationService().followLeadOptions(this.ctx.params.tableId, this.ctx.query));
+  }
   async createWorkspace() {
     this.respond(await this.collaborationService().createWorkspace(this.ctx.request.body, this.key()));
   }

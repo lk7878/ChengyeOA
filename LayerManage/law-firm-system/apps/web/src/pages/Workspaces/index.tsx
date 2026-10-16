@@ -5,6 +5,7 @@ import { financialSources, financialViewConfig, financeContextParams } from '@/p
 import { useAuthStore } from '@/stores/authStore';
 import { businessSources, isBusinessSource, domainCreate } from '@/features/crm/business-sources';
 import CreateBusinessLead from '@/features/crm/CreateBusinessLead';
+import CreateBusinessFollow from '@/features/crm/CreateBusinessFollow';
 import { useUnifiedShell } from '@/features/navigation/shell-context';
 import CloudDrivePage from '@/features/drive/CloudDrivePage';
 import { BusinessRecord } from '@/features/workspaces/BusinessRecord';
@@ -1133,11 +1134,11 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                                 workspace: detail.access.workspaceId,
                               }),
                           );
-                      } else if (detail.table.source === 'LEADS') setCreatingLead(true);
+                      } else if (['LEADS', 'FOLLOWS'].includes(detail.table.source)) setCreatingLead(true);
                       else void openRecord();
                     }}
                   >
-                    {creation?.label || (detail.table.source === 'LEADS' ? '新建线索' : '添加记录')}
+                    {creation?.label || (detail.table.source === 'LEADS' ? '新建线索' : detail.table.source === 'FOLLOWS' ? '新增跟进' : '添加记录')}
                   </Button>
                   <Button
                     disabled={
@@ -1384,7 +1385,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                                 const key = crypto.randomUUID();
                                 Modal.confirm({
                                   title: '删除这条记录？',
-                                  content: detail.table.source === 'CONTRACTS' ? '将删除正式合同记录，所有工作表和合同列表将同步移除。仅草稿或已作废且无签署、财务、案件等关联的合同允许删除，历史审计保留。' : detail.table.source === 'CASES' ? '将删除正式案件及其关联任务、沟通和附件。存在合同、财务或其他业务引用的案件不能删除。' : '删除后该记录不再显示在工作表中，历史变更仍保留。',
+                                  content: detail.table.source === 'LEADS' ? '将删除正式线索，其跟进记录也将从工作表中隐藏。已转客户或存在邀约、SOP任务的线索不能删除。历史审计保留。' : detail.table.source === 'FOLLOWS' ? '将删除此条正式跟进记录，其他工作表和线索详情同步移除，关联线索保留。此操作无法撤销。' : detail.table.source === 'CONTRACTS' ? '将删除正式合同记录，所有工作表和合同列表将同步移除。仅草稿或已作废且无签署、财务、案件等关联的合同允许删除，历史审计保留。' : detail.table.source === 'CASES' ? '将删除正式案件及其关联任务、沟通和附件。存在合同、财务或其他业务引用的案件不能删除。' : '删除后该记录不再显示在工作表中，历史变更仍保留。',
                                   okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
                                   onOk: async () => {
                                     try {
@@ -1460,7 +1461,17 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       <Drawer title="数据表" open={mobileNav} onClose={() => setMobileNav(false)} placement="left">
         {tableNav}
       </Drawer>
-      {creatingLead && detail?.canCreateBusiness && (
+      {creatingLead && detail?.canCreateBusiness && detail.table.source === 'FOLLOWS' && (
+        <CreateBusinessFollow key={tableId} tableId={tableId}
+          allowedFields={fields.filter(f => !detail.access.readonly.includes(f.id)).map(f => String(f.options.businessKey))}
+          onCancel={() => setCreatingLead(false)} onCreated={id => {
+            setCreatingLead(false);
+            message.success('跟进已保存');
+            go({ base: baseId, table: tableId, record: id });
+            refresh();
+          }} />
+      )}
+      {creatingLead && detail?.canCreateBusiness && detail.table.source === 'LEADS' && (
         <CreateBusinessLead
           key={tableId}
           tableId={tableId}

@@ -20,6 +20,8 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  LEAD_IN_USE: '线索已转为客户，或存在邀约、SOP任务等关联，请先处理关联后再删除。',
+  LEAD_PHONE_INVALID: '联系电话格式不正确，请填写有效的电话号码。',
   CONTRACT_GRID_STATE_INVALID: '仅草稿合同可直接修改；仅草稿或已作废合同可删除。审批、签署或生效中的合同请通过详情办理。',
   CONTRACT_GRID_IN_USE: '合同已有签署、收款计划、收款、开票、退款、案件、分析委托或补充协议关联，不能直接修改或删除。',
   RECEIVABLE_PLAN_MISMATCH: '合同金额与约定的收款计划不一致，请先核对收款约定。',

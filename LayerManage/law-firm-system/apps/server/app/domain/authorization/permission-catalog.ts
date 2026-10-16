@@ -306,6 +306,8 @@ export const PERMISSION_CATALOG = Object.freeze([
   permission('lead.read', '查看线索', 'ACTION', 'lead', 'read', 'LOW'),
   permission('lead.create', '创建线索', 'ACTION', 'lead', 'create', 'MEDIUM'),
   permission('lead.update', '修改线索', 'ACTION', 'lead', 'update', 'MEDIUM'),
+  permission('lead.delete', '删除线索', 'ACTION', 'lead', 'delete', 'HIGH'),
+  permission('lead.follow.delete', '删除跟进记录', 'ACTION', 'lead', 'follow.delete', 'HIGH'),
   permission('lead.assign', '分配线索', 'ACTION', 'lead', 'assign', 'HIGH'),
   permission('lead.recycle', '回收线索', 'ACTION', 'lead', 'recycle', 'MEDIUM'),
   permission('lead.convert', '线索转客户', 'ACTION', 'lead', 'convert', 'HIGH'),
