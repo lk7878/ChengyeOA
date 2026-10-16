@@ -958,6 +958,9 @@ export class CollaborationService {
         (table.source === 'CUSTOM' ||
           (table.source === 'CASES' && this.actor.permissionCodes.includes('case.delete')) ||
           (table.source === 'CONTRACTS' && this.actor.permissionCodes.includes('contract.delete')) ||
+          (table.source === 'COSTS' && this.actor.permissionCodes.includes('cost.delete')) ||
+          (table.source === 'CUSTOMERS' && this.actor.permissionCodes.includes('customer.delete')) ||
+          (table.source === 'CHANNELS' && this.actor.permissionCodes.includes('channel.delete')) ||
           (table.source === 'LEADS' && this.actor.permissionCodes.includes('lead.delete')) ||
           (table.source === 'FOLLOWS' && this.actor.permissionCodes.includes('lead.follow.delete'))),
       access,
@@ -1145,6 +1148,7 @@ export class CollaborationService {
       await tx.collabAttachment.deleteMany({ where: { tableId } });
       await tx.collabPreference.deleteMany({ where: { tableId } });
       // Only collaboration data cascades; canonical business records have no table FK.
+      await tx.collabRecordOperation.deleteMany({ where: { tableId } });
       await tx.collabTable.delete({ where: { id: tableId } });
       await this.event(tx, table.baseId, 'table.deleted', tableId);
       return { id: tableId, files: files.map((file) => file.storageKey) };
@@ -1580,7 +1584,7 @@ export class CollaborationService {
     const input = exact(raw, ['page']);
     const page = integer(input.page ?? 1, 1, 100000);
     const { lead, access, capabilities } = await this.businessCapabilities(tableId, recordId);
-    const followWhere = { leadId: lead.id, ...(access.selfOnly ? { createdBy: this.actor.userId } : {}) };
+    const followWhere: Prisma.LeadFollowWhereInput = { deletedAt: null, leadId: lead.id, ...(access.selfOnly ? { createdBy: this.actor.userId } : {}) };
     const logWhere = {
       targetType: 'LEAD',
       targetId: lead.id,
@@ -1865,7 +1869,7 @@ export class CollaborationService {
       if (!row) fail('COLLAB_NOT_FOUND', 404);
       return { version: row.version };
     }
-    const row = await tx.leadFollow.findFirst({ where: { id: recordId, ...own, lead: scope } });
+    const row = await tx.leadFollow.findFirst({ where: { id: recordId, deletedAt: null, ...own, lead: scope } });
     if (!row) fail('COLLAB_NOT_FOUND', 404);
     return { version: row.version };
   }
@@ -1958,7 +1962,291 @@ export class CollaborationService {
       transaction,
     );
   }
+  /** One transaction owns mutation, audit, recovery payload and idempotency result. */
   async saveRecord(
+    tableId: string,
+    recordId: string | undefined,
+    raw: unknown,
+    key: unknown,
+    transaction?: Tx,
+  ) {
+    await this.tableAccess(tableId, transaction ?? this.db, 2);
+    return this.write(
+      key,
+      ['record.command', tableId, recordId, raw],
+      async (tx) => {
+        const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
+        const input = object(raw);
+        let before: ObjectValue = {};
+        if (recordId) {
+          const rows =
+            table.source === 'CUSTOM'
+              ? await tx.collabRecord.findMany({ where: { ...this.rowWhere(tableId, access), id: recordId } })
+              : await tx.$queryRaw<CollabRecord[]>(
+                  Prisma.sql`SELECT r.* FROM (${await new WorkspaceBusinessTable(this.db, this.actor).sourceSql(table, access, fields)}) r WHERE r.id = ${recordId}`,
+                );
+          if (!rows.length) fail('COLLAB_NOT_FOUND', 404);
+          before = Object.fromEntries(
+            Object.keys(object(input.values ?? {})).map((id) => [id, object(rows[0].values)[id] ?? null]),
+          );
+        }
+        const saved = await this.mutateRecord(tableId, recordId, raw, key, tx);
+        // Retain only field deltas, never expose private recovery payloads in history endpoints.
+        const predecessor = recordId
+          ? await tx.collabRecordOperation.findFirst({
+              where: {
+                tableId,
+                recordId,
+                actorId: this.actor.userId,
+                undone: false,
+                expectedVersion: Number(input.version),
+              },
+              orderBy: { createdAt: 'desc' },
+            })
+          : null;
+        const operation = await tx.collabRecordOperation.create({
+          data: {
+            tableId,
+            recordId: saved.id,
+            actorId: this.actor.userId,
+            kind: input.archived === true ? 'DELETE' : recordId ? 'UPDATE' : 'CREATE',
+            before: json(before),
+            after: json({ values: object(input.values ?? {}), predecessorId: predecessor?.id ?? null }),
+            expectedVersion: saved.version,
+            schemaVersion: table.schemaVersion,
+          },
+        });
+        return { ...saved, operationId: operation.id };
+      },
+      transaction,
+    );
+  }
+  async recordOperations(tableId: string, raw: unknown = {}) {
+    const input = exact(raw, ['trash', 'page']);
+    await this.tableAccess(tableId, this.db, 2);
+    if (input.trash === 'true') {
+      const page = input.page === undefined ? 1 : integer(Number(input.page));
+      if (page < 1 || page > 100000) fail('COLLAB_INVALID_VALUE');
+      const where = {
+        tableId,
+        actorId: this.actor.userId,
+        OR: [
+          { kind: 'DELETE', undone: false },
+          { kind: 'CREATE', undone: true },
+        ],
+      };
+      const [rows, total] = await this.db.$transaction([
+        this.db.collabRecordOperation.findMany({
+          where,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          skip: (page - 1) * 20,
+          take: 20,
+          select: { id: true, recordId: true, kind: true, undone: true, createdAt: true },
+        }),
+        this.db.collabRecordOperation.count({ where }),
+      ]);
+      return { rows, total, page };
+    }
+    return this.db.collabRecordOperation.findMany({
+      where: { tableId, actorId: this.actor.userId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 100,
+      select: { id: true, recordId: true, kind: true, undone: true, createdAt: true },
+    });
+  }
+  async deleteRecords(tableId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['schemaVersion', 'records']);
+    if (!Array.isArray(input.records) || !input.records.length || input.records.length > 100)
+      fail('COLLAB_BATCH_LIMIT');
+    await this.tableAccess(tableId, this.db, 2);
+    return this.write(key, ['records.delete', tableId, raw], async (tx) => {
+      const results = [];
+      for (const row of input.records as unknown[]) {
+        const item = exact(row, ['id', 'version']);
+        results.push(
+          await this.saveRecord(
+            tableId,
+            text(item.id),
+            { archived: true, version: integer(item.version), schemaVersion: integer(input.schemaVersion) },
+            key,
+            tx,
+          ),
+        );
+      }
+      return { records: results };
+    });
+  }
+  async reverseRecordOperation(tableId: string, operationId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['direction']);
+    const direction = choice(input.direction, ['undo', 'redo']);
+    const initial = await this.tableAccess(tableId, this.db, 2);
+    return this.write(key, ['record.reverse', tableId, operationId, direction], async (tx) => {
+      await this.lock(tx, initial.access.workspaceId, true);
+      await tx.$queryRaw`SELECT id FROM collab_record_operation WHERE id = ${operationId} FOR UPDATE`;
+      const operation = await tx.collabRecordOperation.findFirst({
+        where: { id: operationId, tableId, actorId: this.actor.userId },
+      });
+      if (!operation || operation.undone !== (direction === 'redo')) fail('COLLAB_RECORD_CONFLICT', 409);
+      const { table, access } = await this.tableAccess(tableId, tx, 2);
+      const deleting =
+        operation.kind === 'CREATE'
+          ? direction === 'undo'
+          : operation.kind === 'DELETE' && direction === 'redo';
+      const restoring =
+        operation.kind === 'DELETE'
+          ? direction === 'undo'
+          : operation.kind === 'CREATE' && direction === 'redo';
+      if (!restoring && table.schemaVersion !== operation.schemaVersion) fail('COLLAB_SCHEMA_CONFLICT', 409);
+      let version: number;
+      if (restoring) {
+        // Keep the canonical row and all dependent material. Restore only this tombstone,
+        // then re-check current business/table/row permissions before the transaction commits.
+        if (table.source === 'CUSTOM') {
+          await tx.$queryRaw`SELECT id FROM collab_record WHERE id = ${operation.recordId} FOR UPDATE`;
+          const row = await tx.collabRecord.findFirst({
+            where: {
+              id: operation.recordId,
+              tableId,
+              archived: true,
+              ...(access.selfOnly ? { createdBy: this.actor.userId } : {}),
+            },
+          });
+          if (!row || row.version !== operation.expectedVersion) fail('COLLAB_RECORD_CONFLICT', 409);
+          const restoredValues = object(row.values);
+          for (const field of table.fields.filter((f) => !f.archived && !isSystemField(f))) {
+            if (restoredValues[field.id] === undefined && field.defaultValue !== null)
+              restoredValues[field.id] = field.defaultValue;
+            validateValue(field, restoredValues[field.id]);
+          }
+          await this.values(
+            tx,
+            tableId,
+            table.fields.filter((f) => !f.archived),
+            access,
+            {},
+            restoredValues,
+          );
+          version = (
+            await tx.collabRecord.update({
+              where: { id: row.id },
+              data: {
+                archived: false,
+                values: json(restoredValues),
+                version: { increment: 1 },
+                updatedBy: this.actor.userId,
+              },
+            })
+          ).version;
+        } else {
+          const sqlTable =
+            table.source === 'LEADS'
+              ? 'lead'
+              : table.source === 'FOLLOWS'
+                ? 'lead_follow'
+                : isDomainSource(table.source)
+                  ? domainSources[table.source].table
+                  : '';
+          if (
+            !['LEADS', 'FOLLOWS', 'CASES', 'CONTRACTS', 'COSTS', 'CUSTOMERS', 'CHANNELS'].includes(
+              table.source,
+            )
+          )
+            fail('COLLAB_USE_BUSINESS_ACTION', 409);
+          const extension = await tx.collabExtension.findUnique({
+            where: { tableId_recordId: { tableId, recordId: operation.recordId } },
+          });
+          const deletedCustomer =
+            table.source === 'CUSTOMERS'
+              ? await tx.customer.findUnique({
+                  where: { id: operation.recordId },
+                  select: { deletedAt: true },
+                })
+              : null;
+          const changed = await tx.$queryRaw<Array<{ version: number }>>(
+            Prisma.sql`UPDATE ${Prisma.raw(sqlTable)} SET "deletedAt" = NULL, version = version + 1, "updatedBy" = ${this.actor.userId} ${table.source === 'FOLLOWS' ? Prisma.empty : Prisma.sql`, "updatedAt" = CURRENT_TIMESTAMP`} WHERE id = ${operation.recordId} AND "deletedAt" IS NOT NULL AND version = ${operation.expectedVersion - (extension?.version ?? 0)} RETURNING version`,
+          );
+          if (!changed.length) fail('COLLAB_RECORD_CONFLICT', 409);
+          if (table.source === 'LEADS' || table.source === 'FOLLOWS')
+            await this.extensionTarget(
+              table,
+              access,
+              operation.recordId,
+              tx,
+              table.source === 'LEADS' ? 'lead.delete' : 'lead.follow.delete',
+            );
+          else if (isDomainSource(table.source))
+            await new WorkspaceDomainSource(this.db, this.actor).target(
+              table.source,
+              access,
+              operation.recordId,
+              tx,
+              'delete',
+            );
+          if (deletedCustomer?.deletedAt)
+            await tx.contact.updateMany({
+              where: { customerId: operation.recordId, deletedAt: deletedCustomer.deletedAt },
+              data: { deletedAt: null },
+            });
+          version = changed[0].version + (extension?.version ?? 0);
+        }
+        await this.event(tx, table.baseId, 'record.restored', operation.recordId);
+      } else {
+        const result = await this.mutateRecord(
+          tableId,
+          operation.recordId,
+          {
+            ...(deleting
+              ? { archived: true }
+              : { values: direction === 'undo' ? operation.before : object(operation.after).values }),
+            version: operation.expectedVersion,
+            schemaVersion: operation.schemaVersion,
+          },
+          key,
+          tx,
+        );
+        version = result.version;
+      }
+      await tx.collabRecordOperation.update({
+        where: { id: operation.id },
+        data: { undone: direction === 'undo', expectedVersion: version, schemaVersion: table.schemaVersion },
+      });
+      // Only rebase an explicitly continuous chain. A different actor/domain edit
+      // between our commands breaks the chain and must remain a conflict.
+      const predecessorId = object(operation.after).predecessorId;
+      const adjacent =
+        direction === 'undo'
+          ? typeof predecessorId === 'string'
+            ? await tx.collabRecordOperation.findFirst({
+                where: { id: predecessorId, actorId: this.actor.userId, tableId, undone: false },
+              })
+            : null
+          : await tx.collabRecordOperation.findFirst({
+              where: {
+                tableId,
+                actorId: this.actor.userId,
+                undone: true,
+                after: { path: ['predecessorId'], equals: operation.id },
+              },
+              orderBy: { createdAt: 'asc' },
+            });
+      if (adjacent)
+        await tx.collabRecordOperation.update({
+          where: { id: adjacent.id },
+          data: { expectedVersion: version },
+        });
+      await tx.operationLog.create({
+        data: {
+          userId: this.actor.userId,
+          action: direction === 'undo' ? 'WORKSHEET_UNDO' : 'WORKSHEET_REDO',
+          targetType: 'COLLAB_RECORD',
+          targetId: operation.recordId,
+          newValues: JSON.stringify({ operationId, tableId, version }),
+        },
+      });
+      return { id: operation.recordId, version };
+    });
+  }
+  private async mutateRecord(
     tableId: string,
     recordId: string | undefined,
     raw: unknown,
@@ -2045,7 +2333,7 @@ export class CollaborationService {
     if (isEditableBusinessSource(initial.table.source) && recordId) {
       const input = exact(raw, [
         'values', 'version', 'schemaVersion',
-        ...(initial.table.source === 'CONTRACTS' ? ['archived'] : []),
+        ...(['CONTRACTS', 'COSTS', 'CUSTOMERS', 'CHANNELS'].includes(initial.table.source) ? ['archived'] : []),
       ]);
       return this.write(
         key,
@@ -2064,18 +2352,23 @@ export class CollaborationService {
             access,
             recordId,
             tx,
-            source === 'CONTRACTS' && input.archived === true ? 'delete' : 'update',
+            input.archived === true ? 'delete' : 'update',
           );
           const extension = await tx.collabExtension.findUnique({
             where: { tableId_recordId: { tableId, recordId } },
           });
           if (integer(input.version) !== core.version + (extension?.version ?? 0))
             fail('COLLAB_RECORD_CONFLICT', 409);
-          if (source === 'CONTRACTS' && input.archived !== undefined) {
+          if (input.archived !== undefined) {
             if (input.archived !== true || Object.keys(object(input.values ?? {})).length)
               fail('COLLAB_INVALID_VALUE');
-            const service = new ContractService(this.db, { actorUserId: this.actor.userId }, this.actor);
-            const saved = await service.mutateDraft(recordId, { version: core.version }, true, tx);
+            const saved = source === 'CHANNELS'
+              ? (await new ChannelService(this.db, { actorUserId: this.actor.userId }, this.actor).remove(recordId, { version: core.version }, tx), { version: core.version + 1 })
+              : source === 'CUSTOMERS'
+              ? (await new CustomerService(this.db, { actorUserId: this.actor.userId }, this.actor).deleteCustomer(recordId, { version: core.version }, tx), { version: core.version + 1 })
+              : source === 'COSTS'
+              ? (await new CostService(this.db, { actorUserId: this.actor.userId }, this.actor).deleteCostEntry(recordId, tx), { version: core.version + 1 })
+              : await new ContractService(this.db, { actorUserId: this.actor.userId }, this.actor).mutateDraft(recordId, { version: core.version }, true, tx);
             await this.event(tx, table.baseId, 'record.deleted', recordId);
             return { id: recordId, version: saved.version + (extension?.version ?? 0) };
           }
@@ -2206,11 +2499,10 @@ export class CollaborationService {
             fail('COLLAB_RECORD_CONFLICT', 409);
           const service = new CaseService(this.db, { actorUserId: this.actor.userId }, this.actor);
           if (deleting) {
-            if (transaction) fail('COLLAB_USE_BUSINESS_ACTION', 409);
             if (Object.keys(object(input.values ?? {})).length) fail('COLLAB_INVALID_VALUE');
             const files = await service.deleteCaseRecords(recordId, { version: core.version }, tx);
             await this.event(tx, table.baseId, 'record.deleted', recordId);
-            return { id: recordId, version: core.version, files };
+            return { id: recordId, version: core.version + 1 + (extension?.version ?? 0), files };
           }
           if (input.archived !== undefined) fail('COLLAB_USE_BUSINESS_ACTION', 409);
           const values = object(input.values ?? {});
@@ -2435,6 +2727,22 @@ export class CollaborationService {
       }
       return { records: result };
     });
+  }
+  async contractChoices(raw: unknown) {
+    const input = exact(raw, ['workspaceId', 'page', 'keyword', 'id']);
+    const access = await this.access(text(input.workspaceId));
+    const page = input.page === undefined ? 1 : integer(Number(input.page));
+    if (page < 1 || page > 100000) fail('COLLAB_INVALID_VALUE');
+    const keyword = input.keyword ? text(input.keyword, 100) : '';
+    const source = new WorkspaceDomainSource(this.db, this.actor);
+    const where = Prisma.sql`${await source.scope('CONTRACTS', access)} AND ${input.id ? Prisma.sql`b.id = ${text(input.id)}` : Prisma.sql`TRUE`} AND (b."contractNo" ILIKE ${'%' + keyword + '%'} OR b.title ILIKE ${'%' + keyword + '%'})`;
+    const rows = await this.db.$queryRaw<Array<{ id: string; label: string }>>(
+      Prisma.sql`SELECT b.id, b."contractNo" || ' · ' || b.title AS label FROM contract b WHERE ${where} ORDER BY b."createdAt" DESC, b.id LIMIT 20 OFFSET ${(page - 1) * 20}`,
+    );
+    const [count] = await this.db.$queryRaw<Array<{ total: bigint }>>(
+      Prisma.sql`SELECT count(*) AS total FROM contract b WHERE ${where}`,
+    );
+    return { list: rows, total: Number(count.total) };
   }
   async options(workspaceId?: string) {
     const access = workspaceId ? await this.access(workspaceId) : null;

@@ -163,7 +163,7 @@ test.each(['CASES', 'CONTRACTS', 'FOLLOWS'])('%s detail keeps edited core-field 
   fireEvent.click(await screen.findByRole('button', { name: /^删\s*除$/ }));
   expect(confirm).toHaveBeenCalledOnce();
   const config = confirm.mock.calls[0][0];
-  expect(config.content).toContain(source === 'CONTRACTS' ? '正式合同记录' : source === 'FOLLOWS' ? '正式跟进记录' : '正式案件');
+  expect(config.content).toContain('回收站');
   expect(patch).toHaveBeenCalledTimes(1);
   await act(async () => { await config.onOk?.(); });
   await waitFor(() => expect(patch).toHaveBeenCalledWith(

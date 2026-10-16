@@ -11,7 +11,7 @@ export async function channelScope(
   const auth = new AuthorizationService(new DataScopeService(db));
   auth.requireAction(context, permission);
   const scope = await auth.resolveScopeTargets(context, 'channel', permission);
-  if (scope.all) return {};
+  if (scope.all) return { deletedAt: null };
   const clauses: Prisma.ChannelWhereInput[] = [];
   if (scope.employeeIds.length) {
     const users = await db.user.findMany({
@@ -27,5 +27,5 @@ export async function channelScope(
     });
     if (organizations.length) clauses.push({ branchId: { in: organizations.map((o) => o.id) } });
   }
-  return clauses.length ? { OR: clauses } : { id: { in: [] } };
+  return { deletedAt: null, ...(clauses.length ? { OR: clauses } : { id: { in: [] } }) };
 }

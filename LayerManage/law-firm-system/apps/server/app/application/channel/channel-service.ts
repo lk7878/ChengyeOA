@@ -192,12 +192,12 @@ export class ChannelService {
       return project(row);
     });
   }
-  async remove(id: string, input: unknown): Promise<null> {
+  async remove(id: string, input: unknown, transaction?: Prisma.TransactionClient): Promise<null> {
     id = normalizeRequiredText(id, 1, 100);
     assertExactKeys(input, ['version']);
     const scope = await channelScope(this.db, this.context, 'channel.delete'),
       version = normalizeVersion(input.version);
-    return this.db.$transaction(async (tx): Promise<null> => {
+    return crmTransaction(this.db, transaction, async (tx): Promise<null> => {
       await tx.$queryRaw`SELECT id FROM channel WHERE id = ${id} FOR UPDATE`;
       const row = await this.probe(tx, id, scope);
       if (row.version !== version) fail('VERSION_CONFLICT', 409);
@@ -207,7 +207,10 @@ export class ChannelService {
         (await tx.costEntry.count({ where: { channelId: id } }))
       )
         fail('CHANNEL_IN_USE', 409);
-      await tx.channel.delete({ where: { id } });
+      await tx.channel.update({
+        where: { id },
+        data: { deletedAt: new Date(), updatedBy: this.actor.actorUserId, version: { increment: 1 } },
+      });
       await this.audit(tx, 'CHANNEL_DELETE', id, version);
       return null;
     });

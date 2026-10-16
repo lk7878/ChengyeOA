@@ -169,14 +169,13 @@ export default function FinanceCreatePage({ kind }: { kind: FinanceKind }) {
   }, [boundCaseId, canReadCase, kind, form, revision]);
   const contractChoices: ChoiceLoader = useCallback(
     async (page, keyword) => {
-      if (!branchId || !canReadContract) return { list: [], total: 0 };
-      const result = await contractApi.list({ page, pageSize: 20, branchId, keyword: keyword || undefined });
-      return {
-        list: result.data.list.map((row) => ({ id: row.id, label: row.contractNo + ' · ' + row.title })),
-        total: result.data.total,
-      };
+      if (!workspaceId || !canReadContract) return { list: [], total: 0 };
+      return get<{ list: { id: string; label: string }[]; total: number }>(
+        '/collaboration/contract-choices?' +
+          new URLSearchParams({ workspaceId, page: String(page), ...(keyword ? { keyword } : {}) }),
+      );
     },
-    [branchId, canReadContract],
+    [workspaceId, canReadContract],
   );
   const caseChoices: ChoiceLoader = useCallback(
     async (page, keyword) => {
@@ -266,8 +265,11 @@ export default function FinanceCreatePage({ kind }: { kind: FinanceKind }) {
       if (kind !== 'cost') {
         if (!values.contractId || !canReadContract) throw new Error('请选择有权读取的关联合同。');
         const target = (await contractApi.detail(values.contractId)).data;
-        if (!target.branchId || !orgIds.has(target.branchId))
-          throw new Error('合同不属于当前工作区的授权组织。');
+        const available = await get<{ total: number }>(
+          '/collaboration/contract-choices?' +
+            new URLSearchParams({ workspaceId: values.workspaceId, id: target.id }),
+        );
+        if (!available.total) throw new Error('合同不属于当前工作区的授权范围，请重新选择。');
         const common = {
           contractId: target.id,
           amount: values.amount,

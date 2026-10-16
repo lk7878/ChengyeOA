@@ -134,9 +134,12 @@ test('case grid edits core and extension values atomically, clears optional inta
   );
   const removal = { schemaVersion, version: updated.version, archived: true };
   const removalKey = key();
+  const removed = await editor.saveRecord(table, record, removal, removalKey);
   await editor.saveRecord(table, record, removal, removalKey);
-  await editor.saveRecord(table, record, removal, removalKey);
-  assert.equal(await db.case.count({ where: { id: record } }), 0);
+  assert.equal(await db.case.count({ where: { id: record, deletedAt: null } }), 0);
+  assert.ok((await db.case.findUniqueOrThrow({ where: { id: record } })).deletedAt);
+  await editor.reverseRecordOperation(table, removed.operationId, { direction: 'undo' }, key());
+  assert.equal((await editor.query(table, {})).total, 1);
   assert.equal(await db.operationLog.count({ where: { targetId: record, action: 'CASE_DELETE' } }), 1);
 });
 

@@ -208,7 +208,8 @@ test('channel CRUD preserves exact money, retries and version conflict without d
   await assert.rejects(channel().update(row.id, { name: 'stale', version: 1 }), rejects('VERSION_CONFLICT'));
   await assert.rejects(channel().remove(row.id, { version: 1 }), rejects('VERSION_CONFLICT'));
   await channel().remove(row.id, { version: 2 });
-  assert.equal(await db.channel.count(), 0);
+  assert.equal(await db.channel.count({ where: { deletedAt: null } }), 0);
+  assert.ok((await db.channel.findUniqueOrThrow({ where: { id: row.id } })).deletedAt);
 });
 test('channel SELF and ORG scopes exclude outsiders and unidentified historical rows', async () => {
   const own = await channel().create({ name: '本人', type: 'OTHER', branchId: org });

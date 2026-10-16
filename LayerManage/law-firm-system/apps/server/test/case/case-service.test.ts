@@ -173,7 +173,7 @@ test('deletion enforces permission/version/state and protects financial contract
   await assert.rejects(() => service.deleteCase(closed, { version: 1 }), { code: 'CASE_STATE_INVALID' });
 });
 
-test('deletion rolls back on audit failure and removes only the selected case with its children', async () => {
+test('deletion rolls back on audit failure and preserves the selected case children for recovery', async () => {
   const service = serviceFor('delete', actor('delete'));
   const id = await seedCase(), otherId = await seedCase('保留案件');
   await taskServiceFor('delete', actor('delete')).createTask(id, { name: '本案任务', nodeType: '立案准备' });
@@ -184,8 +184,8 @@ test('deletion rolls back on audit failure and removes only the selected case wi
   assert.equal((await service.getCase(id)).tasks.length, 1);
   await service.deleteCase(id, { version });
   await assert.rejects(() => service.getCase(id), { code: 'CASE_NOT_FOUND' });
-  assert.equal(await prisma.caseTask.count({ where: { caseId: id } }), 0);
-  assert.equal(await prisma.communication.count({ where: { caseId: id } }), 0);
+  assert.equal(await prisma.caseTask.count({ where: { caseId: id } }), 1);
+  assert.equal(await prisma.communication.count({ where: { caseId: id } }), 1);
   assert.equal((await service.getCase(otherId)).title, '保留案件');
   assert.ok(await prisma.operationLog.findFirst({ where: { targetId: id, action: 'CASE_DELETE' } }));
 });

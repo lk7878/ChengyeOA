@@ -52,6 +52,25 @@ const props = {
   onConflict: vi.fn(),
 };
 
+test('contract status provides a workflow action instead of an unvalidated status write', () => {
+  const action = vi.fn();
+  render(
+    <GridCell
+      {...props}
+      businessSource="CONTRACTS"
+      field={{ ...field, writable: false, options: { businessKey: 'status' } }}
+      onBusinessAction={action}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: '标题：原值' }));
+  expect(action).toHaveBeenCalledOnce();
+  expect(screen.getByRole('button', { name: '标题：原值' })).toHaveAttribute(
+    'title',
+    expect.stringContaining('业务流程'),
+  );
+  expect(patch).not.toHaveBeenCalled();
+});
+
 test('a single click edits a cell and saves with record/schema versions', async () => {
   vi.mocked(patch).mockResolvedValue({ id: 'r', version: 3 });
   render(<GridCell {...props} />);
@@ -75,9 +94,20 @@ test('readonly rows and fields cannot enter editing or submit writes', () => {
   expect(screen.queryByLabelText('单元格编辑')).toBeNull();
   expect(patch).not.toHaveBeenCalled();
 });
-test.each(['LEADS', 'FOLLOWS', 'CONTRACTS', 'CUSTOMERS', 'NEGOTIATIONS', 'CHANNELS', 'COSTS', 'INVENTORY_ITEMS'])('%s double-click editing can cancel or save a versioned field value', async (source) => {
+test.each([
+  'LEADS',
+  'FOLLOWS',
+  'CONTRACTS',
+  'CUSTOMERS',
+  'NEGOTIATIONS',
+  'CHANNELS',
+  'COSTS',
+  'INVENTORY_ITEMS',
+])('%s double-click editing can cancel or save a versioned field value', async (source) => {
   vi.mocked(patch).mockResolvedValue({ id: 'r', version: 3 });
-  render(<GridCell {...props} field={{ ...field, options: { businessSource: source, businessKey: 'name' } }} />);
+  render(
+    <GridCell {...props} field={{ ...field, options: { businessSource: source, businessKey: 'name' } }} />,
+  );
   fireEvent.doubleClick(screen.getByRole('button', { name: '标题：原值' }));
   fireEvent.change(screen.getByLabelText('单元格编辑'), { target: { value: '取消的修改' } });
   fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
@@ -85,5 +115,11 @@ test.each(['LEADS', 'FOLLOWS', 'CONTRACTS', 'CUSTOMERS', 'NEGOTIATIONS', 'CHANNE
   fireEvent.doubleClick(screen.getByRole('button', { name: '标题：原值' }));
   fireEvent.change(screen.getByLabelText('单元格编辑'), { target: { value: '保存的修改' } });
   fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
-  await waitFor(() => expect(patch).toHaveBeenCalledWith('/tables/t/records/r', { values: { f: '保存的修改' }, version: 2, schemaVersion: 3 }, expect.any(String)));
+  await waitFor(() =>
+    expect(patch).toHaveBeenCalledWith(
+      '/tables/t/records/r',
+      { values: { f: '保存的修改' }, version: 2, schemaVersion: 3 },
+      expect.any(String),
+    ),
+  );
 });

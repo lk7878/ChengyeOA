@@ -69,6 +69,10 @@ export default (app: Application) => {
   router.patch('/api/v1/tables/:tableId/fields/:fieldId', controller.collaboration.field);
   router.post('/api/v1/tables/:tableId/views', controller.collaboration.view);
   router.patch('/api/v1/tables/:tableId/views/:viewId', controller.collaboration.view);
+  router.get('/api/v1/collaboration/contract-choices', controller.collaboration.contractChoices);
+  router.get('/api/v1/tables/:tableId/record-operations', controller.collaboration.recordOperations);
+  router.post('/api/v1/tables/:tableId/record-operations/:operationId', controller.collaboration.reverseRecordOperation);
+  router.post('/api/v1/tables/:tableId/records/delete-batch', controller.collaboration.deleteRecords);
   router.post('/api/v1/tables/:tableId/records/batch', controller.collaboration.saveRecords);
   router.post('/api/v1/tables/:tableId/records/query', controller.collaboration.query);
   router.get('/api/v1/tables/:tableId/records/:recordId/business', controller.collaboration.businessDetail);

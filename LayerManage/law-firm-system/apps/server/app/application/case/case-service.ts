@@ -545,7 +545,7 @@ export class CaseService {
     return { id: caseId };
   }
 
-  // Callers must clean up returned files only after their enclosing transaction commits.
+  // Soft deletion keeps child records and files intact; the cleanup list stays empty.
   async deleteCaseRecords(caseId: string, input: { version: number }, tx: Prisma.TransactionClient) {
     this.authorization.requireAction(this.authorizationContext, 'case.delete');
     const id = normalizeRequiredText(caseId, 1, 100);
@@ -582,7 +582,10 @@ export class CaseService {
       row._count.assessments
     )
       throw new CaseError(CASE_ERROR_CODES.CASE_IN_USE, 409, 'case has financial references');
-    await tx.case.delete({ where: { id } });
+    await tx.case.update({
+      where: { id },
+      data: { deletedAt: new Date(), updatedBy: this.actor.actorUserId, version: { increment: 1 } },
+    });
     await tx.operationLog.create({
       data: {
         userId: this.actor.actorUserId,
@@ -601,7 +604,7 @@ export class CaseService {
         ip: this.actor.ip,
       },
     });
-    return row.files;
+    return [] as import('@prisma/client').CaseFile[];
   }
 
   /** 案件列表：case.read → 过滤（keyword/status/lawyerId/priority/customerId）+ 分页 createdAt DESC。 */

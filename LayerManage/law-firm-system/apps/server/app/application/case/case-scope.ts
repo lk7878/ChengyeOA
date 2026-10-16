@@ -17,7 +17,7 @@ export async function buildCaseScopeWhere(
   const authorization = new AuthorizationService(new DataScopeService(db));
   authorization.requireAction(actor, permission);
   const resolved = await authorization.resolveScopeTargets(actor, 'case', permission);
-  if (resolved.all) return {};
+  if (resolved.all) return { deletedAt: null };
   const clauses: Prisma.CaseWhereInput[] = [];
   if (resolved.employeeIds.length) {
     const users = await reader.user.findMany({
@@ -59,7 +59,7 @@ export async function buildCaseScopeWhere(
       .map((row) => row.id);
     if (ids.length) clauses.push({ id: { in: ids } });
   }
-  return clauses.length ? { OR: clauses } : { id: { in: [] } };
+  return { deletedAt: null, ...(clauses.length ? { OR: clauses } : { id: { in: [] } }) };
 }
 
 export async function requireCaseAccess(

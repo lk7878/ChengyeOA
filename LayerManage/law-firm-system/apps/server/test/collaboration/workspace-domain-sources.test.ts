@@ -18,6 +18,7 @@ const context = (userId: string, employeeId: string): AuthorizationContext => {
     'negotiation.update',
     'contract.read',
     'contract.submit',
+    'contract.update',
   ];
   return {
     userId,

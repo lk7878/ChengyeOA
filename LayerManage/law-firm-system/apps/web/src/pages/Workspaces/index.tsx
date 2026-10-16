@@ -46,6 +46,7 @@ import { displayValue } from '@/features/workspaces/display-value';
 import PasteDialog from '@/features/workspaces/PasteDialog';
 import type { PasteSnapshot } from '@/features/workspaces/clipboard';
 import { groupedRows, type GridRow } from '@/features/workspaces/grouping';
+import RecordOperations from '@/features/workspaces/RecordOperations';
 import GridCell from '@/features/workspaces/GridCell';
 import { changedValues, rebaseDraft } from '@/features/workspaces/editing';
 import FilterEditor from '@/features/workspaces/FilterEditor';
@@ -100,6 +101,9 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   const [config, setConfig] = useState<ViewConfig>({});
   const [configDirty, setConfigDirty] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [recordSelection, setRecordSelection] = useState<{ scope: string; ids: string[] }>({ scope: '', ids: [] });
+  const selectionScope = tableId + ':' + revision;
+  const selectedRecords = recordSelection.scope === selectionScope ? recordSelection.ids : [];
   const [page, setPage] = useState(1);
   const [folds, setFolds] = useState<{ scope: string; keys: Set<string> }>({ scope: '', keys: new Set() });
   const [anchor, setAnchor] = useState<{ rowId: string; fieldId: string }>();
@@ -1183,6 +1187,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                       创建个人视图
                     </Button>
                   )}
+                  {detail.access.level >= 2 && <RecordOperations key={tableId} tableId={tableId} schemaVersion={detail.table.schemaVersion} selected={records.filter(r => selectedRecords.includes(r.id))} canDelete={Boolean(detail.canDeleteRecords)} disabled={inlineDirty || busy} revision={revision} onChanged={refresh} />}
                   <Button onClick={() => setSettings('fields')}>字段配置</Button>
                   <Button onClick={() => setSettings('view')}>视图配置</Button>
                   <Button icon={<FilterOutlined />} onClick={() => setSettings('filter')}>
@@ -1273,6 +1278,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                           y: 520,
                         }}
                         rowKey="id"
+                        rowSelection={detail.canDeleteRecords ? { selectedRowKeys: selectedRecords, onChange: keys => setRecordSelection({ scope: selectionScope, ids: keys.map(String) }), getCheckboxProps: (row: GridRow) => ({ disabled: Boolean(row.group) || inlineDirty }) } : undefined}
                         dataSource={gridRows}
                         pagination={false}
                         locale={{ emptyText: '没有符合条件的记录，可新增记录或调整筛选。' }}
@@ -1348,6 +1354,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                                   row={row}
                                   canBegin={!inlineDirty}
                                   field={f}
+                                  businessSource={detail.table.source}
+                                  onBusinessAction={() => { if (isBusinessSource(detail.table.source) && detail.table.source !== 'FOLLOWS') navigate(businessSources[detail.table.source].path + '/' + row.id); else void openRecord(row); }}
                                   directory={directory}
                                   tableId={tableId}
                                   schemaVersion={detail.table.schemaVersion}
@@ -1377,15 +1385,18 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                           {
                             key: 'record-actions',
                             title: '操作',
-                            width: 140,
+                            width: 230,
+                            fixed: 'right' as const,
                             onCell: (row) => (row.group ? { colSpan: 0 } : {}),
                             render: (_: unknown, row: GridRow) => row.group ? null : <Space>
                               <Button size="small" disabled={inlineDirty} onClick={() => void openRecord(row)}>{row.writable !== false && fields.some(f => f.writable) ? '编辑' : '详情'}</Button>
+                              {isBusinessSource(detail.table.source) && detail.table.source !== 'FOLLOWS' && <Button size="small" disabled={inlineDirty} onClick={() => { if (isBusinessSource(detail.table.source)) navigate(businessSources[detail.table.source].path + '/' + row.id); }}>办理</Button>}
+                              {!detail.canDeleteRecords && <span className="workspace-muted" title="当前角色没有删除权限，或此业务流水须通过作废、冲销等业务操作处理">删除受限</span>}
                               {detail.canDeleteRecords && <Button size="small" danger disabled={inlineDirty || detail.access.level < 2} onClick={() => {
                                 const key = crypto.randomUUID();
                                 Modal.confirm({
                                   title: '删除这条记录？',
-                                  content: detail.table.source === 'LEADS' ? '将删除正式线索，其跟进记录也将从工作表中隐藏。已转客户或存在邀约、SOP任务的线索不能删除。历史审计保留。' : detail.table.source === 'FOLLOWS' ? '将删除此条正式跟进记录，其他工作表和线索详情同步移除，关联线索保留。此操作无法撤销。' : detail.table.source === 'CONTRACTS' ? '将删除正式合同记录，所有工作表和合同列表将同步移除。仅草稿或已作废且无签署、财务、案件等关联的合同允许删除，历史审计保留。' : detail.table.source === 'CASES' ? '将删除正式案件及其关联任务、沟通和附件。存在合同、财务或其他业务引用的案件不能删除。' : '删除后该记录不再显示在工作表中，历史变更仍保留。',
+                                  content: '删除后移入记录回收站，可恢复或撤销。有关联业务或处于不允许删除状态的记录会被拒绝；关联材料和历史审计保留。',
                                   okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
                                   onOk: async () => {
                                     try {

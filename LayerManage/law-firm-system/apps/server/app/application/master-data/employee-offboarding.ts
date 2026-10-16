@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 
 export async function employeeHandoverBlockers(tx: Prisma.TransactionClient, employeeId: string) {
   const [cases, leads, subordinates, organizations, teams] = await Promise.all([
-    tx.case.findMany({ where: { lawyerId: employeeId, status: { notIn: ['CLOSED', 'ARCHIVED'] } }, select: { id: true, caseNo: true, title: true, status: true }, orderBy: { caseNo: 'asc' } }),
+    tx.case.findMany({ where: { deletedAt: null, lawyerId: employeeId, status: { notIn: ['CLOSED', 'ARCHIVED'] } }, select: { id: true, caseNo: true, title: true, status: true }, orderBy: { caseNo: 'asc' } }),
     tx.lead.findMany({ where: { assignedTo: employeeId, deletedAt: null, status: { notIn: ['SIGNED', 'CONVERTED', 'LOST'] } }, select: { id: true, leadNo: true, name: true, status: true }, orderBy: { leadNo: 'asc' } }),
     tx.employeeReportingLine.findMany({ where: { managerEmployeeId: employeeId, endedAt: null }, select: { id: true, employee: { select: { id: true, name: true, employeeNo: true } } } }),
     tx.organization.findMany({ where: { managerEmployeeId: employeeId }, select: { id: true, name: true, code: true } }),

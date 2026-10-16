@@ -456,7 +456,8 @@ test('follow revisions are shared across worksheets; clearing optional data and 
     deletion = { version: 2, schemaVersion: 1, archived: true };
   const result = await svc.saveRecord(t.id, id, deletion, mutation);
   assert.deepEqual(await svc.saveRecord(t.id, id, deletion, mutation), result);
-  assert.equal(await db.leadFollow.count({ where: { id } }), 0);
+  assert.equal(await db.leadFollow.count({ where: { id, deletedAt: null } }), 0);
+  assert.ok((await db.leadFollow.findUniqueOrThrow({ where: { id } })).deletedAt);
   assert.ok(await db.lead.findUnique({ where: { id: current.leadId } }));
   assert.equal((await svc.query(second.id, {})).total, 0);
   assert.equal(
@@ -550,4 +551,195 @@ test('CRM core and extension changes roll back together; lead phone hashes stay 
   const lead = await db.lead.findUniqueOrThrow({ where: { id } });
   assert.equal(lead.phone, '13900000000');
   assert.equal(lead.phoneHash, (await import('../../app/domain/crm/lead-policy')).hashPhone('13900000000'));
+});
+
+for (const source of ['COSTS', 'FOLLOWS', 'LEADS', 'CONTRACTS', 'CUSTOMERS', 'CHANNELS'])
+  test(source + ' soft deletion can be restored and redone without losing canonical data', async () => {
+    const t = await table(source),
+      id = await seed(source);
+    const removed = await svc.saveRecord(t.id, id, { schemaVersion: 1, version: 1, archived: true }, key());
+    assert.equal((await svc.query(t.id, {})).total, 0);
+    const denied = new CollaborationService(db, {
+      ...svc.actor,
+      permissionCodes: svc.actor.permissionCodes.filter((p) => !p.endsWith('.delete')),
+    });
+    await assert.rejects(
+      denied.reverseRecordOperation(t.id, removed.operationId, { direction: 'undo' }, key()),
+    );
+    assert.equal((await svc.query(t.id, {})).total, 0);
+    const restoreKey = key();
+    const restored = await svc.reverseRecordOperation(
+      t.id,
+      removed.operationId,
+      { direction: 'undo' },
+      restoreKey,
+    );
+    assert.deepEqual(
+      await svc.reverseRecordOperation(t.id, removed.operationId, { direction: 'undo' }, restoreKey),
+      restored,
+    );
+    assert.equal((await svc.query(t.id, {})).records[0].id, id);
+    await svc.reverseRecordOperation(t.id, removed.operationId, { direction: 'redo' }, key());
+    assert.equal((await svc.query(t.id, {})).total, 0);
+    assert.equal(await db.operationLog.count({ where: { targetId: id, action: 'WORKSHEET_UNDO' } }), 1);
+  });
+test('worksheet undo/redo restores deltas across consecutive edits and detects external changes', async () => {
+  const t = await table('COSTS'),
+    id = await seed('COSTS');
+  const one = await svc.saveRecord(
+    t.id,
+    id,
+    { schemaVersion: 1, version: 1, values: { [t.fields.amount]: '200.00' } },
+    key(),
+  );
+  const two = await svc.saveRecord(
+    t.id,
+    id,
+    { schemaVersion: 1, version: 2, values: { [t.fields.note]: '备注' } },
+    key(),
+  );
+  await svc.reverseRecordOperation(t.id, two.operationId, { direction: 'undo' }, key());
+  await svc.reverseRecordOperation(t.id, one.operationId, { direction: 'undo' }, key());
+  assert.equal((await db.costEntry.findUniqueOrThrow({ where: { id } })).amount.toFixed(2), '100.00');
+  await svc.reverseRecordOperation(t.id, one.operationId, { direction: 'redo' }, key());
+  await svc.reverseRecordOperation(t.id, two.operationId, { direction: 'redo' }, key());
+  const row = await db.costEntry.findUniqueOrThrow({ where: { id } });
+  assert.equal(row.amount.toFixed(2), '200.00');
+  assert.equal(row.note, '备注');
+  await db.costEntry.update({ where: { id }, data: { amount: '900.00', version: { increment: 1 } } });
+  await assert.rejects(
+    svc.reverseRecordOperation(t.id, two.operationId, { direction: 'undo' }, key()),
+    code('COLLAB_RECORD_CONFLICT'),
+  );
+  assert.equal((await db.costEntry.findUniqueOrThrow({ where: { id } })).amount.toFixed(2), '900.00');
+});
+test('batch deletion rolls back records and recovery history on a stale row or outbox failure', async () => {
+  const t = await table('COSTS'),
+    first = await seed('COSTS'),
+    second = await seed('COSTS');
+  await assert.rejects(
+    svc.deleteRecords(
+      t.id,
+      {
+        schemaVersion: 1,
+        records: [
+          { id: first, version: 1 },
+          { id: second, version: 99 },
+        ],
+      },
+      key(),
+    ),
+    code('COLLAB_RECORD_CONFLICT'),
+  );
+  assert.equal((await svc.query(t.id, {})).total, 2);
+  assert.equal(await db.collabRecordOperation.count(), 0);
+  await withFailingCollaborationOutbox(db, async () => {
+    await assert.rejects(
+      svc.deleteRecords(t.id, { schemaVersion: 1, records: [{ id: first, version: 1 }] }, key()),
+    );
+  });
+  assert.equal(await db.collabRecordOperation.count(), 0);
+  const deleted = await svc.deleteRecords(
+    t.id,
+    {
+      schemaVersion: 1,
+      records: [
+        { id: first, version: 1 },
+        { id: second, version: 1 },
+      ],
+    },
+    key(),
+  );
+  assert.equal(deleted.records.length, 2);
+  for (const row of deleted.records)
+    await svc.reverseRecordOperation(t.id, row.operationId, { direction: 'undo' }, key());
+  assert.equal((await svc.query(t.id, {})).total, 2);
+});
+test('unappointed workspace owner costs and null-organization contracts use the same visible business source', async () => {
+  await db.user.update({ where: { id: user }, data: { employeeId: null } });
+  svc = new CollaborationService(db, { ...svc.actor, employeeId: null });
+  const t = await table('COSTS'),
+    id = await seed('COSTS');
+  assert.equal((await svc.query(t.id, {})).records[0].id, id);
+  const contract = await seed('CONTRACTS');
+  await db.contract.update({ where: { id: contract }, data: { branchId: null } });
+  const workspaceId = (await db.collabBase.findUniqueOrThrow({ where: { id: base } })).workspaceId;
+  assert.equal((await svc.contractChoices({ workspaceId, id: contract })).list[0].id, contract);
+  const foreign = key();
+  await db.organization.create({
+    data: { id: foreign, code: foreign, name: '其他分所', type: 'BRANCH', path: '/' + foreign },
+  });
+  await db.contract.update({ where: { id: contract }, data: { branchId: foreign } });
+  assert.equal((await svc.contractChoices({ workspaceId, id: contract })).total, 0);
+  const denied = new CollaborationService(db, {
+    ...svc.actor,
+    permissionCodes: svc.actor.permissionCodes.filter((p) => p !== 'contract.read'),
+  });
+  await assert.rejects(denied.contractChoices({ workspaceId }));
+});
+
+test('undo never overwrites another writer between two commands by the same actor', async () => {
+  const t = await table('COSTS'),
+    id = await seed('COSTS');
+  const one = await svc.saveRecord(
+    t.id,
+    id,
+    { schemaVersion: 1, version: 1, values: { [t.fields.amount]: '200.00' } },
+    key(),
+  );
+  await db.costEntry.update({ where: { id }, data: { amount: '800.00', version: { increment: 1 } } });
+  const two = await svc.saveRecord(
+    t.id,
+    id,
+    { schemaVersion: 1, version: 3, values: { [t.fields.amount]: '900.00' } },
+    key(),
+  );
+  await svc.reverseRecordOperation(t.id, two.operationId, { direction: 'undo' }, key());
+  assert.equal((await db.costEntry.findUniqueOrThrow({ where: { id } })).amount.toFixed(2), '800.00');
+  await assert.rejects(
+    svc.reverseRecordOperation(t.id, one.operationId, { direction: 'undo' }, key()),
+    code('COLLAB_RECORD_CONFLICT'),
+  );
+});
+test('custom row creation, editing and deletion all retain recoverable data', async () => {
+  const t = await table('CUSTOM');
+  const field = await svc.saveField(t.id, undefined, { name: '内容', type: 'TEXT', version: 1 }, key());
+  const schemaVersion = (await svc.describe(t.id)).table.schemaVersion;
+  const created = await svc.saveRecord(
+    t.id,
+    undefined,
+    {
+      schemaVersion,
+      values: {
+        ...Object.fromEntries(t.detail.fields.filter((f) => f.required).map((f) => [f.id, '测试记录'])),
+        [field.id]: '原始内容',
+      },
+    },
+    key(),
+  );
+  await svc.reverseRecordOperation(t.id, created.operationId, { direction: 'undo' }, key());
+  assert.equal((await svc.query(t.id, {})).total, 0);
+  const trash = await svc.recordOperations(t.id, { trash: 'true' });
+  assert.ok(!Array.isArray(trash) && trash.rows.some((r) => r.id === created.operationId));
+  await svc.saveField(
+    t.id,
+    undefined,
+    { name: '新必填字段', type: 'TEXT', required: true, defaultValue: '默认内容', version: schemaVersion },
+    key(),
+  );
+  await svc.reverseRecordOperation(t.id, created.operationId, { direction: 'redo' }, key());
+  assert.equal((await svc.record(t.id, created.id)).record.values[field.id], '原始内容');
+});
+test('all worksheet source families describe and query through the common permission-aware component', async () => {
+  const { domainSources } = await import('../../app/application/crm/workspace-domain-source');
+  for (const source of ['CUSTOM', 'LEADS', 'FOLLOWS', ...Object.keys(domainSources)]) {
+    const t = await table(source);
+    assert.equal(t.detail.table.source, source);
+    const result = await svc.query(t.id, {});
+    assert.equal(result.total, 0, source);
+    assert.ok(
+      t.detail.fields.every((field) => typeof field.writable === 'boolean'),
+      source,
+    );
+  }
 });

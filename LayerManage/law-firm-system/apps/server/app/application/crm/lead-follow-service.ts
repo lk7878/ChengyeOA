@@ -198,7 +198,7 @@ export class LeadFollowService {
     const page = Number(raw.page ?? 1), pageSize = Number(raw.pageSize ?? 20);
     if (!Number.isSafeInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100 || !Number.isSafeInteger((page - 1) * pageSize))
       throw new MasterDataError('VALIDATION_FAILED', 400);
-    const where = { lead: { AND: [await this.scopeWhere('lead.read'), { deletedAt: null }] } };
+    const where: Prisma.LeadFollowWhereInput = { deletedAt: null, lead: { AND: [await this.scopeWhere('lead.read'), { deletedAt: null }] } };
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.leadFollow.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * pageSize, take: pageSize }),
       this.prisma.leadFollow.count({ where }),
@@ -216,7 +216,7 @@ export class LeadFollowService {
     });
     if (!lead) throw new CrmError(LEAD_NOT_FOUND, 404, 'lead not found');
     const follows = await this.prisma.leadFollow.findMany({
-      where: { leadId: lead.id },
+      where: { leadId: lead.id, deletedAt: null },
       orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     });
     return follows.map(projectLeadFollow);

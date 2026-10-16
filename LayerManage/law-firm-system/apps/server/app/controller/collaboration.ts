@@ -25,6 +25,31 @@ export default class CollaborationController extends Controller {
       requestId: this.ctx.get('x-request-id') || randomUUID(),
     };
   }
+  async contractChoices() {
+    this.respond(await this.collaborationService().contractChoices(this.ctx.query));
+  }
+  async recordOperations() {
+    this.respond(await this.collaborationService().recordOperations(this.ctx.params.tableId, this.ctx.query));
+  }
+  async reverseRecordOperation() {
+    this.respond(
+      await this.collaborationService().reverseRecordOperation(
+        this.ctx.params.tableId,
+        this.ctx.params.operationId,
+        this.ctx.request.body,
+        this.key(),
+      ),
+    );
+  }
+  async deleteRecords() {
+    this.respond(
+      await this.collaborationService().deleteRecords(
+        this.ctx.params.tableId,
+        this.ctx.request.body,
+        this.key(),
+      ),
+    );
+  }
   async index() {
     this.respond(await this.collaborationService().listWorkspaces());
   }

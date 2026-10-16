@@ -345,12 +345,12 @@ export class CostService {
    * COST_DELETE（恰 costEntryId+category）。软删后 get 404、list 不见（读面 deletedAt
    * null 恒过滤）。
    */
-  async deleteCostEntry(id: string): Promise<{ id: string }> {
+  async deleteCostEntry(id: string, transaction?: Prisma.TransactionClient): Promise<{ id: string }> {
     this.authorization.requireAction(this.authorizationContext, 'cost.delete');
     const costId = normalizeRequiredText(id, 1, 100);
     const scopeWhere = await buildCostScopeWhere(this.prisma, this.authorizationContext, 'cost.delete');
 
-    return this.prisma.$transaction(async (tx) => {
+    return crmTransaction(this.prisma, transaction, async (tx) => {
       await tx.$queryRaw`SELECT id FROM cost_entry WHERE id = ${costId} FOR UPDATE`;
       const before = await this.probeCostEntry(tx, costId, scopeWhere);
       const flipped = await tx.costEntry.updateMany({

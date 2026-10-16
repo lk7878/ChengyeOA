@@ -630,6 +630,7 @@ model SystemInitialization {
 // ==================== 运营/渠道模块 ====================
 
 model Channel {
+  deletedAt DateTime?
   createdBy String?
   updatedBy String?
   branchId String?
@@ -708,6 +709,7 @@ model Lead {
 }
 
 model LeadFollow {
+  deletedAt DateTime?
   id        String    @id @default(uuid())
   leadId    String
   type      String // PHONE | WECHAT | VISIT | ONLINE | OTHER
@@ -1138,6 +1140,7 @@ model CostEntry {
 // ==================== 案件模块 ====================
 
 model Case {
+  deletedAt DateTime?
   assessments SatisfactionAssessment[]
   specialAnalyses SpecialAnalysis[]
   qualitySamples QualitySamplingItem[]
@@ -2438,4 +2441,21 @@ model SopContinuation {
   creator User @relation(fields:[createdBy],references:[id],onDelete:Restrict)
   @@unique([sourceInstanceId,targetInstanceId])
   @@map("sop_continuation")
+}
+
+// Private reversible worksheet commands. Payloads are never returned to clients.
+model CollabRecordOperation {
+  id String @id @default(uuid())
+  tableId String
+  recordId String
+  actorId String
+  kind String
+  before Json
+  after Json
+  expectedVersion Int
+  schemaVersion Int
+  undone Boolean @default(false)
+  createdAt DateTime @default(now())
+  @@index([tableId, actorId, createdAt])
+  @@map("collab_record_operation")
 }

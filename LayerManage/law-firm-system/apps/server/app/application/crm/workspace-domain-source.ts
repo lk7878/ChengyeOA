@@ -489,6 +489,11 @@ export class WorkspaceDomainSource {
     }
     if (source === 'COSTS') {
       const creators = await costCreatorIds(this.db, ids);
+      const workspace = await this.db.collabWorkspace.findUnique({
+        where: { id: access.workspaceId }, select: { ownerId: true, owner: { select: { employeeId: true } } },
+      });
+      if (workspace && !workspace.owner.employeeId && !creators.includes(workspace.ownerId))
+        creators.push(workspace.ownerId);
       organization = Prisma.sql`(k."branchId" IN (${Prisma.join(ids)}) OR (b."caseId" IS NULL AND ${creators.length ? Prisma.sql`b."createdBy" IN (${Prisma.join(creators)})` : Prisma.sql`FALSE`}))`;
     }
     if (source === 'CUSTOMERS') {

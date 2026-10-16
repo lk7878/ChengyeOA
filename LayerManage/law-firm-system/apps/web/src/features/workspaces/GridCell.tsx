@@ -14,6 +14,8 @@ export default function GridCell({
   schemaVersion,
   height,
   canBegin = true,
+  businessSource,
+  onBusinessAction,
   onDirty,
   onSaved,
   onConflict,
@@ -25,12 +27,28 @@ export default function GridCell({
   schemaVersion: number;
   height: number;
   canBegin?: boolean;
+  businessSource?: string;
+  onBusinessAction?(): void;
   onDirty(dirty: boolean): void;
   onSaved(): void;
   onConflict(draft: unknown, remote: RecordRow): void;
 }) {
   const [draft, setDraft] = useState<{ value: unknown; version: number; schema: number; key: string }>();
   const [saving, setSaving] = useState(false);
+  const editable = field.writable && row.writable !== false;
+  const workflow = Boolean(
+    field.options.businessKey &&
+      ['status', 'approvalId', 'receivedAmount', 'stock', 'score', 'bonus'].includes(
+        field.options.businessKey,
+      ),
+  );
+  const readonlyReason = !field.writable
+    ? field.options.businessKey
+      ? workflow
+        ? '此字段由业务流程维护，点击办理；系统将校验操作权限和状态。'
+        : '业务关联或系统字段只读；可在详情中查看相关资料。'
+      : '系统字段或当前字段权限为只读。'
+    : '当前记录状态或数据权限不允许修改，请打开业务详情办理。';
   const begin = () => {
     if (canBegin && field.writable && row.writable !== false) {
       setDraft({
@@ -138,15 +156,15 @@ export default function GridCell({
       className="workspace-cell"
       data-record-id={row.id}
       data-field-id={field.id}
-      style={{ minHeight: height }}
+      style={{ minHeight: height, ...(!editable ? { backgroundColor: '#f5f5f5', color: '#737373' } : {}) }}
       aria-label={
         field.name +
         '：' +
         ((row.displayValues?.[field.id] ?? displayValue(field, row.values[field.id], directory)) || '空')
       }
-      onClick={begin}
-      onDoubleClick={begin}
-      title={field.writable && row.writable !== false ? "双击编辑，回车保存，Esc 取消" : "只读字段"}
+      onClick={editable ? begin : workflow && businessSource ? onBusinessAction : undefined}
+      onDoubleClick={editable ? begin : workflow && businessSource ? onBusinessAction : undefined}
+      title={editable ? '双击编辑，回车保存，Esc 取消' : readonlyReason}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -172,6 +190,9 @@ export default function GridCell({
         }
       }}
     >
+      {!editable && workflow && onBusinessAction && (
+        <span style={{ color: '#1677ff', marginRight: 6 }}>办理</span>
+      )}
       {(row.displayValues?.[field.id] ?? displayValue(field, row.values[field.id], directory)) || (
         <span className="workspace-muted">—</span>
       )}

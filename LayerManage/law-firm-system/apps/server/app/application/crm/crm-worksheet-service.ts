@@ -34,7 +34,7 @@ export class CrmWorksheetService {
     const authorization = new AuthorizationService(new DataScopeService(this.db));
     authorization.requireAction(this.actor, permission);
     const scope = await buildLeadScopeWhere(this.db, authorization, this.actor, permission);
-    const follow = source === 'FOLLOWS' ? await tx.leadFollow.findUnique({ where: { id } }) : null;
+    const follow = source === 'FOLLOWS' ? await tx.leadFollow.findUnique({ where: { id, deletedAt: null } }) : null;
     const leadId = source === 'LEADS' ? id : follow?.leadId;
     if (!leadId) throw new CrmError('LEAD_NOT_FOUND', 404, 'record not found');
     await tx.$queryRaw`SELECT id FROM lead WHERE id = ${leadId} FOR UPDATE`;
@@ -83,7 +83,7 @@ export class CrmWorksheetService {
       const changed = await tx.lead.updateMany({ where: { id, version }, data });
       if (changed.count !== 1) throw new MasterDataError('VERSION_CONFLICT', 409);
     } else if (deleting) {
-      const changed = await tx.leadFollow.deleteMany({ where: { id, version } });
+      const changed = await tx.leadFollow.updateMany({ where: { id, version, deletedAt: null }, data: { deletedAt: new Date(), updatedBy: this.actor.userId, version: { increment: 1 } } });
       if (changed.count !== 1) throw new MasterDataError('VERSION_CONFLICT', 409);
     } else {
       const data: Prisma.LeadFollowUpdateManyMutationInput = {

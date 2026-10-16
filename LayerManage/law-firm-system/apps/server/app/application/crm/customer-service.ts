@@ -318,13 +318,13 @@ export class CustomerService {
   }
 
   /** SPEC-CUSTOMER-CRUD-20260914：软删除、业务关联保护与审计使用同一事务。 */
-  async deleteCustomer(customerId: string, input: { version: number }): Promise<void> {
+  async deleteCustomer(customerId: string, input: { version: number }, transaction?: Prisma.TransactionClient): Promise<void> {
     this.authorization.requireAction(this.authorizationContext, 'customer.delete');
     const id = normalizeRequiredText(customerId, 1, 100);
     assertExactKeys(input, ['version']);
     const version = normalizeCustomerVersion(input.version);
     const scopeWhere = await this.buildCustomerScopeWhere('customer.delete');
-    await this.prisma.$transaction(async (tx) => {
+    await crmTransaction(this.prisma, transaction, async (tx) => {
       const visible = await tx.customer.findFirst({ where: { AND: [scopeWhere, { id, deletedAt: null }] } });
       if (!visible) throw new CrmError(LEAD_NOT_FOUND, 404, 'customer not found');
       await tx.$queryRaw`SELECT id FROM customer WHERE id = ${id} FOR UPDATE`;

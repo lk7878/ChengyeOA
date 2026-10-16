@@ -251,7 +251,7 @@ export class WorkspaceBusinessTable {
       COALESCE(e."updatedBy", b."createdBy") AS "updatedBy",
       ${leads ? Prisma.sql`b."updatedAt"` : Prisma.sql`b."createdAt"`} AS "updatedAt"
       FROM ${core} LEFT JOIN collab_extension e ON e."tableId" = ${table.id} AND e."recordId" = b.id
-      WHERE ${domain} AND ${access.selfOnly ? Prisma.sql`b."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`}`;
+      WHERE b."deletedAt" IS NULL AND ${domain} AND ${access.selfOnly ? Prisma.sql`b."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`}`;
   }
   async query(
     table: CollabTable,
