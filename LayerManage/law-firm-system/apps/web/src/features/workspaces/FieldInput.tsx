@@ -1,6 +1,6 @@
 import LifecycleSelect from './LifecycleSelect';
 import { isInventoryDecimal } from './inventory-decimal';
-import { displayValue } from './display-value';
+import { displayValue, isCasePercent } from './display-value';
 import { useEffect, useState } from 'react';
 import { Button, Checkbox, Input, InputNumber, Select, Space, Upload, message } from 'antd';
 import { post, errorMessage } from './api';
@@ -72,8 +72,23 @@ export default function FieldInput({
         aria-label={field.name}
         disabled={disabled}
         style={{ width: '100%' }}
-        stringMode={field.type === 'CURRENCY' || isInventoryDecimal(field)}
-        precision={field.type === 'CURRENCY' ? 2 : isInventoryDecimal(field) ? 3 : undefined}
+        stringMode={
+          field.type === 'CURRENCY' ||
+          isInventoryDecimal(field) ||
+          field.options.businessKey?.startsWith('intake.')
+        }
+        precision={
+          field.options.businessKey === 'intake.managementFeeRatio'
+            ? 0
+            : field.type === 'CURRENCY' || isCasePercent(field)
+              ? 2
+              : isInventoryDecimal(field)
+                ? 3
+                : undefined
+        }
+        min={isCasePercent(field) ? 0 : undefined}
+        max={isCasePercent(field) ? 100 : undefined}
+        suffix={isCasePercent(field) ? '%' : field.type === 'CURRENCY' ? '元' : undefined}
         value={value as string | number | null}
         onChange={onChange}
       />

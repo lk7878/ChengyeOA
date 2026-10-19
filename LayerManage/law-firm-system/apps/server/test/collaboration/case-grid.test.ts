@@ -208,3 +208,29 @@ test('pasting case fields uses the same validation and rolls back the entire bat
   assert.equal((await db.case.findUniqueOrThrow({ where: { id: record } })).title, '批量一');
   assert.equal((await db.case.findUniqueOrThrow({ where: { id: second.id } })).priority, 'HIGH');
 });
+
+test('standard case fields round-trip through role-authorized grid and display IDs remain protected', async () => {
+  const description = await editor.describe(table);
+  assert.equal(description.fields.find(f=>f.id===fields['intake.agencyProcedure'])?.type,'MULTI_SELECT');
+  await editor.saveRecord(table,record,{schemaVersion:description.table.schemaVersion,version:1,values:{[fields['intake.agencyProcedure']]:['一审','二审'],[fields['intake.installment']]:false,[fields['intake.signedDate']]:'2026-10-19T02:30:00.000Z',[fields['intake.managementFeeRatio']]:'15'}},key());
+  const row=(await editor.query(table,{})).records.find(r=>r.id===record)!;
+  assert.deepEqual((row.values as Record<string, unknown>)[fields['intake.agencyProcedure']],['一审','二审']);
+  assert.equal((row.values as Record<string, unknown>)[fields['intake.installment']],false);
+  assert.match(String((row.values as Record<string, unknown>)[fields.contractDisplayId]),/^\d{3,}$/);
+  assert.equal(description.fields.find(f=>f.id===fields.contractDisplayId)?.writable,false);
+  await assert.rejects(editor.saveRecord(table,record,{schemaVersion:description.table.schemaVersion,version:2,values:{[fields.contractDisplayId]:'001'}},key()),code('COLLAB_USE_BUSINESS_ACTION'));
+});
+
+test('case attachment columns enforce separate file-read scope and formula fields cannot be overwritten', async () => {
+  const file = await db.caseFile.create({data:{caseId:record, category:'案情报告',fileName:'报告.pdf',fileType:'application/pdf',filePath:'test-only',fileSize:1,uploadedBy:owner.actor.userId}});
+  let row=(await editor.query(table,{})).records.find(r=>r.id===record)!;
+  assert.equal((row.values as Record<string, unknown>)[fields['files.案情报告']],null);
+  editor.actor.permissionCodes.push('case.file.read');
+  editor.actor.grants.push({sourceType:'ROLE',sourceId:'fixture',permissionCode:'case.file.read',resource:'case',scopeIds:['ALL'],validUntil:null});
+  row=(await editor.query(table,{})).records.find(r=>r.id===record)!;
+  const values=(row.values as Record<string, unknown>)[fields['files.案情报告']] as string[];
+  assert.equal(JSON.parse(values[0].slice(10)).id,file.id);
+  const description=await editor.describe(table);
+  assert.equal(description.fields.find(f=>f.id===fields['intake.lawyerCommissionAmount'])?.writable,false);
+  await assert.rejects(editor.saveRecord(table,record,{schemaVersion:description.table.schemaVersion,version:1,values:{[fields['intake.lawyerCommissionAmount']]:'100'}},key()),code('COLLAB_USE_BUSINESS_ACTION'));
+});

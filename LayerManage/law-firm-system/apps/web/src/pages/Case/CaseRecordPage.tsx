@@ -41,7 +41,7 @@ import { customerApi } from '@/api/customer';
 import type { UploadFile } from 'antd';
 import { Upload, Divider } from 'antd';
 import IntakeFields from './IntakeFields';
-import { ATTACHMENT_CATEGORIES, INTAKE_FIELDS } from './intake-contract';
+import { ATTACHMENT_CATEGORIES, INTAKE_FIELDS, intakeSelections } from './intake-contract';
 import type { CaseIntake, IntakeAttachment } from './intake-contract';
 import { caseDraft, clearCaseDraft } from './case-draft';
 import { showRequestError } from '@/api/errors';
@@ -98,7 +98,7 @@ interface CreateFormValues {
   contractId?: string;
   branchId?: string;
   workspaceId?: string;
-  intakeData?: Record<string, string | dayjs.Dayjs | null>;
+  intakeData?: Record<string, string | string[] | boolean | dayjs.Dayjs | null>;
   title: string;
   customerId: string;
   lawyerId?: string;
@@ -302,7 +302,9 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
       const { data: current } = await caseApi.detail(record.id);
       const fields: CreateFormValues['intakeData'] = { ...current.intakeData };
       for (const [key, , kind] of INTAKE_FIELDS)
-        if (kind === 'date' && fields[key]) fields[key] = dayjs(String(fields[key]));
+        if (kind === 'datetime' && fields[key]) fields[key] = dayjs(String(fields[key]));
+        else if (kind === 'multi' && fields[key] !== undefined) fields[key] = intakeSelections(fields[key]);
+        else if (kind === 'boolean' && fields[key] !== undefined) fields[key] = fields[key] === 'true';
       const stored: Record<string, UploadFile[]> = {};
       for (const file of current.files ?? []) {
         const category = file.category ?? '其他附件';
@@ -375,9 +377,9 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
         const value = values.intakeData?.[key];
         if (value !== undefined && value !== null && value !== '')
           intakeData[key] =
-            kind === 'date' && dayjs.isDayjs(value) ? value.format('YYYY-MM-DD') : String(value).trim();
+            kind === 'datetime' && dayjs.isDayjs(value) ? value.toISOString() : kind === 'multi' ? JSON.stringify(value) : String(value).trim();
       }
-      if (intakeData.agencyProcedure !== '自定义') delete intakeData.customProcedure;
+      if (!intakeSelections(intakeData.agencyProcedure).includes('自定义')) delete intakeData.customProcedure;
       const fileInputs: IntakeAttachment[] = [];
       for (const category of ATTACHMENT_CATEGORIES) {
         for (const upload of attachments[category] ?? []) {
@@ -648,8 +650,12 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   const intakeValue = (record: Case, key: string, kind: string) => {
     const value = record.intakeData?.[key as keyof CaseIntake];
     if (!value) return '-';
+    if (kind === 'multi') return intakeSelections(value).join('、');
+    if (kind === 'boolean') return value === 'true' ? '是' : '否';
+    if (kind === 'datetime') return dayjs(value).format('YYYY/MM/DD HH:mm');
+    if (kind === 'user') return employeeMap.get(value) ?? value;
     if (kind === 'department') return departments.find((item) => item.value === value)?.label ?? value;
-    return kind === 'money' ? `${value} 元` : kind === 'ratio' ? `${value}%` : value;
+    return kind === 'money' || kind === 'formulaMoney' ? `${value} 元` : kind === 'ratio' || kind === 'integerRatio' || kind === 'formulaRatio' ? `${value}%` : value;
   };
   const isTerminal = detail?.status === 'CLOSED' || detail?.status === 'ARCHIVED';
 
@@ -891,6 +897,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
           </Row>
           <IntakeFields
             departments={departments}
+            employees={employees.map(e => ({ value: e.id, label: e.name }))}
             createdAt={editingCase?.createdAt}
             updatedAt={editingCase?.updatedAt}
           />

@@ -6,7 +6,7 @@ import { performanceScope } from '../performance/performance-scope';
 import { creatorIdsInOrganizations } from '../authorization/creator-organization';
 import { buildFinancialRecordScopeWhere } from '../finance/financial-record-scope';
 import { buildCostScopeWhere, costCreatorIds } from '../finance/cost-scope';
-import { INTAKE_FIELDS } from '../case/intake-contract';
+import { INTAKE_FIELDS, ATTACHMENT_CATEGORIES } from '../case/intake-contract';
 import { buildCaseScopeWhere } from '../case/case-scope';
 import { CollabField, CollabRecord, CollabTable, Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
@@ -214,6 +214,10 @@ export const domainSources = {
     edit: 'case.update',
     table: '"case"',
     columns: [
+      ['contractDisplayId', '合同ID', 'TEXT'],
+      ...ATTACHMENT_CATEGORIES.map(category => ['files.' + category, category, 'FILE'] as const),
+      ['isClosed', '是否结案', 'BOOLEAN'],
+      ['closedAt', '结案日期', 'DATETIME'],
       ['caseNo', '案件编号', 'TEXT'],
       ['contractNo', '合同编号（同步）', 'TEXT'],
       ['contractAmount', '合同金额（同步）', 'CURRENCY'],
@@ -231,13 +235,17 @@ export const domainSources = {
           [
             'intake.' + key,
             label,
-            kind === 'money'
+            kind === 'money' || kind === 'formulaMoney'
               ? 'CURRENCY'
-              : kind === 'date'
-                ? 'DATE'
-                : kind === 'department'
-                  ? 'ORGANIZATION'
-                  : 'TEXT',
+              : kind === 'datetime'
+                ? 'DATETIME'
+                : kind === 'multi' ? 'MULTI_SELECT'
+                  : kind === 'select' ? 'SINGLE_SELECT'
+                    : kind === 'boolean' ? 'BOOLEAN'
+                      : kind === 'user' ? 'USER'
+                        : ['number', 'ratio', 'integerRatio', 'formulaNumber', 'formulaRatio'].includes(kind)
+                          ? 'NUMBER'
+                          : kind === 'department' ? 'ORGANIZATION' : 'TEXT',
           ] as const,
       ),
       ['branchId', '所属组织', 'ORGANIZATION'],
@@ -559,6 +567,19 @@ export class WorkspaceDomainSource {
       else linked.customerName = Prisma.sql`NULL`;
     }
     if (table.source === 'CASES') {
+      linked.contractDisplayId = Prisma.sql`CASE WHEN b."contractDisplayId" < 1000 THEN lpad(b."contractDisplayId"::text, 3, '0') ELSE b."contractDisplayId"::text END`;
+      linked.isClosed = Prisma.sql`b.status IN ('CLOSED', 'ARCHIVED')`;
+      const fileScope = this.actor.permissionCodes.includes('case.file.read')
+        ? await this.scope('CASES', access, 'file.read') : Prisma.sql`FALSE`;
+      for (const category of ATTACHMENT_CATEGORIES) {
+        linked['files.' + category] = Prisma.sql`(
+          SELECT jsonb_agg('case-file:' || jsonb_build_object(
+            'id', f.id, 'name', f."fileName", 'mimeType', f."fileType"
+          )::text ORDER BY f."createdAt", f.id)
+          FROM case_file f WHERE f."caseId" = b.id AND f.category = ${category}
+          AND f."caseId" IN (SELECT b.id FROM "case" b WHERE ${fileScope})
+        )`;
+      }
       const permitted = this.actor.permissionCodes.includes('contract.read')
         ? await this.scope('CONTRACTS', access)
         : Prisma.sql`FALSE`;
@@ -579,7 +600,14 @@ export class WorkspaceDomainSource {
         typeof key === 'string' && linked[key]
           ? linked[key]
           : typeof key === 'string' && table.source === 'CASES' && key.startsWith('intake.')
-            ? Prisma.sql`b."intakeData" ->> ${key.slice(7)}`
+            ? f.type === 'MULTI_SELECT'
+              ? Prisma.sql`CASE
+                  WHEN b."intakeData" ->> ${key.slice(7)} LIKE '[%' THEN (b."intakeData" ->> ${key.slice(7)})::jsonb
+                  WHEN b."intakeData" ->> ${key.slice(7)} IS NULL THEN NULL
+                  ELSE jsonb_build_array(b."intakeData" ->> ${key.slice(7)}) END`
+              : f.type === 'BOOLEAN' ? Prisma.sql`(b."intakeData" ->> ${key.slice(7)})::boolean`
+                : f.type === 'DATETIME' ? Prisma.sql`(b."intakeData" ->> ${key.slice(7)})::timestamptz`
+                  : Prisma.sql`b."intakeData" ->> ${key.slice(7)}`
             : key
               ? Prisma.raw('b."' + key + '"')
               : null;

@@ -1,3 +1,5 @@
+import { CASE_FIELD_ORDER } from '../case/intake-contract';
+import { caseGridChoices } from '../collaboration/case-grid-fields';
 import { domainSources, isDomainSource, WorkspaceDomainSource } from './workspace-domain-source';
 import { CollabField, CollabTable, CollabRecord, Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
@@ -43,12 +45,14 @@ const columns = {
 };
 export function businessFields(source: string) {
   if (!isDomainSource(source) && source !== 'LEADS' && source !== 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
-  return (isDomainSource(source) ? domainSources[source].columns : columns[source]).map(
+  const definitions = [...(isDomainSource(source) ? domainSources[source].columns : columns[source])];
+  if (source === 'CASES') definitions.sort((a, b) => (CASE_FIELD_ORDER.indexOf(a[0]) < 0 ? 1000 : CASE_FIELD_ORDER.indexOf(a[0])) - (CASE_FIELD_ORDER.indexOf(b[0]) < 0 ? 1000 : CASE_FIELD_ORDER.indexOf(b[0])));
+  return definitions.map(
     ([key, name, type], position) => ({
       name,
       type,
       position,
-      options: { businessKey: key, businessSource: source },
+      options: { businessKey: key, businessSource: source, ...(source === 'CASES' && caseGridChoices(key) ? { choices: caseGridChoices(key) } : {}) },
     }),
   );
 }

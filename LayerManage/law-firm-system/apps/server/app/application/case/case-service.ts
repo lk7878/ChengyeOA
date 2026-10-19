@@ -1,3 +1,4 @@
+import { FORMULA_KEYS, INTAKE_FIELDS, CaseIntake } from './intake-contract';
 import { notifyDeliveryChange } from '../collaboration/delivery-change';
 import { sopTaskScope } from '../sop/execution-scope';
 import { buildOrganizationScopeWhere } from '../authorization/resource-scope-resolvers';
@@ -45,6 +46,11 @@ const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
 
 export class CaseService {
+  private async validateIntakeUsers(intake: CaseIntake | undefined, previous: CaseIntake = {}) {
+    const ids = [...new Set(INTAKE_FIELDS.filter(f => f[2] === 'user').map(([key]) => intake?.[key] && intake[key] !== previous[key] ? intake[key] : undefined).filter((id): id is string => !!id))];
+    if (ids.length && await this.prisma.employee.count({ where: { id: { in: ids } } }) !== ids.length) throw new MasterDataError('VALIDATION_FAILED', 400);
+  }
+
   private readonly authorization: AuthorizationService;
 
   constructor(
@@ -273,6 +279,8 @@ export class CaseService {
     const contractId = normalizeOptionalText(input.contractId, 100);
     const lawyerId = normalizeRequiredText(input.lawyerId, 1, 100);
     const intakeData = normalizeIntake(input.intakeData);
+    await this.validateIntakeUsers(intakeData);
+    if (FORMULA_KEYS.some(key => intakeData[key] !== undefined)) throw new MasterDataError('VALIDATION_FAILED', 400);
     const branchId = normalizeOptionalText(input.branchId, 100) || intakeData.departmentId || null;
     if (
       branchId &&
@@ -457,7 +465,15 @@ export class CaseService {
     const data: Prisma.CaseUncheckedUpdateManyInput = {};
     if (customerId !== undefined) data.customerId = customerId;
     if (fee !== undefined) data.fee = fee;
-    if (intakeData !== undefined) data.intakeData = intakeData;
+    if (intakeData !== undefined) {
+      await this.validateIntakeUsers(intakeData, (existing.intakeData ?? {}) as CaseIntake);
+      const previous = (existing.intakeData ?? {}) as Record<string, string>;
+      for (const key of FORMULA_KEYS) {
+        if (intakeData[key] !== undefined && intakeData[key] !== previous[key]) throw new MasterDataError('VALIDATION_FAILED', 400);
+        if (previous[key] !== undefined) intakeData[key] = previous[key];
+      }
+      data.intakeData = intakeData;
+    }
     if (title !== undefined) data.title = title;
     if (caseType !== undefined) data.caseType = caseType;
     if (priority !== undefined) data.priority = priority;

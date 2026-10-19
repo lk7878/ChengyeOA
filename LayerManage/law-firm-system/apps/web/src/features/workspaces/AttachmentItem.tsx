@@ -8,6 +8,20 @@ export default function AttachmentItem({ tableId, id }: { tableId: string; id: s
   const [preview, setPreview] = useState<string>();
   useEffect(() => {
     let alive = true;
+    if (id.startsWith('case-file:')) {
+      try {
+        const value = JSON.parse(id.slice(10));
+        if (
+          typeof value.id === 'string' &&
+          typeof value.name === 'string' &&
+          typeof value.mimeType === 'string'
+        )
+          setMetadata({ name: value.name, mimeType: value.mimeType });
+      } catch {
+        setMetadata(undefined);
+      }
+      return;
+    }
     void get<{ name: string; mimeType: string }>('/tables/' + tableId + '/files/' + id + '?metadata=true')
       .then((result) => {
         if (alive) setMetadata(result);
@@ -25,7 +39,12 @@ export default function AttachmentItem({ tableId, id }: { tableId: string; id: s
   );
   const open = async () => {
     try {
-      const response = await authenticatedFetch('/api/v1/tables/' + tableId + '/files/' + id);
+      const caseFile = id.startsWith('case-file:') ? JSON.parse(id.slice(10)) : null;
+      const response = await authenticatedFetch(
+        caseFile
+          ? '/api/v1/files/' + encodeURIComponent(caseFile.id) + '/download'
+          : '/api/v1/tables/' + tableId + '/files/' + id,
+      );
       if (!response.ok) throw new Error('unavailable');
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);

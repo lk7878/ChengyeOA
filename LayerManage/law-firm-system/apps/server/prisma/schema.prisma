@@ -1153,6 +1153,7 @@ model Case {
   updatedBy String?
   id           String    @id @default(uuid())
   caseNo       String    @unique
+  contractDisplayId Int @unique @default(autoincrement())
   title        String
   customerId   String
   contractId   String?   @unique

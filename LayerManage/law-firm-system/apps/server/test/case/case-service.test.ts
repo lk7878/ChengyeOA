@@ -120,7 +120,7 @@ test('editing persists every intake field, exact money, customer/lawyer names an
   const departmentId = randomUUID();
   const department = await prisma.organization.create({ data: { id: departmentId, name: '案件业务部', code: randomUUID(), path: `/${departmentId}`, type: 'DEPARTMENT', status: 'ENABLED' } });
   const intakeData: CaseIntake = {};
-  for (const [key, , kind] of INTAKE_FIELDS) intakeData[key] = kind === 'date' ? '2026-09-14' : kind === 'money' ? '123.45' : kind === 'ratio' ? '25.00' : kind === 'department' ? department.id : kind === 'select' ? INTAKE_OPTIONS[key][0] : key === 'customerPhone' ? '13800000001' : `字段-${key}`;
+  for (const [key, , kind] of INTAKE_FIELDS.filter(field => !field[2].startsWith('formula'))) intakeData[key] = kind === 'datetime' ? '2026-09-14T02:30:00.000Z' : kind === 'boolean' ? 'true' : kind === 'user' ? lawyerId : kind === 'multi' ? JSON.stringify([INTAKE_OPTIONS[key][0]]) : kind === 'integerRatio' ? '25' : kind === 'number' ? '123.45' : kind === 'money' ? '123.45' : kind === 'ratio' ? '25.00' : kind === 'department' ? department.id : kind === 'select' ? INTAKE_OPTIONS[key][0] : key === 'customerPhone' ? '13800000001' : `字段-${key}`;
   intakeData.agencyProcedure = '自定义';
   const updated = await service.updateCase(id, { customerId, lawyerId, fee: '9999999999999999.99', intakeData, description: '完整描述', version: 1 });
   assert.deepEqual(updated.intakeData, intakeData);
@@ -232,10 +232,10 @@ test('case intake and categorized attachments persist atomically and missing law
   await assert.rejects(() => service.createCase({ ...input, intakeData: { departmentId: 'missing' } }), { code: 'VALIDATION_FAILED' });
   const attachments = [{ fileName: '合同.pdf', fileType: 'application/pdf', category: '合同附件' as const, base64: Buffer.from('test document').toString('base64') }];
   await assert.rejects(() => serviceFor('no-files', actor('no-files')).createCase({ ...input, attachments }), { name: 'AuthorizationError' });
-  const row = await service.createCase({ ...input, intakeData: { fixedAgencyFee: '12.30', signedDate: '2026-09-14', caseCategory: '民事', totalReceivedAmount: '1000', lawyerCommissionRatio: '20' }, attachments });
+  const row = await service.createCase({ ...input, intakeData: { fixedAgencyFee: '12.30', signedDate: '2026-09-14', caseCategory: '民事', totalReceivedAmount: '1000', riskAgencyRatio: '20' }, attachments });
   const stored = await service.getCase(row.id);
   assert.equal(stored.intakeData.fixedAgencyFee, '12.30');
-  assert.equal(stored.intakeData.lawyerCommissionRatio, '20.00');
+  assert.equal(stored.intakeData.riskAgencyRatio, '20.00');
   assert.equal(stored.intakeData.signedDate, '2026-09-14');
   const file = await prisma.caseFile.findFirstOrThrow({ where: { caseId: row.id } });
   assert.equal(file.category, '合同附件');
@@ -367,4 +367,13 @@ test('case tasks follow the PENDING → IN_PROGRESS → COMPLETED state machine;
     () => commService.createCommunication(randomUUID(), { type: 'PHONE', content: 'x' }),
     (error: unknown) => error instanceof CaseError && error.code === CASE_ERROR_CODES.CASE_NOT_FOUND,
   );
+});
+
+test('pending formula amounts retain historical values and reject direct overwrites', async () => {
+  const service=serviceFor('editor',actor('editor'));
+  const id=await seedCase();
+  await prisma.case.update({where:{id},data:{intakeData:{lawyerCommissionAmount:'120.00'}}});
+  await assert.rejects(service.updateCase(id,{version:1,intakeData:{lawyerCommissionAmount:'1.00'}}),{code:'VALIDATION_FAILED'});
+  const saved=await service.updateCase(id,{version:1,intakeData:{region:'上海'}});
+  assert.equal(saved.intakeData?.lawyerCommissionAmount,'120.00');
 });

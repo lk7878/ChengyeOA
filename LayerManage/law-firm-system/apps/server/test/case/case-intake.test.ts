@@ -32,3 +32,12 @@ test('attachment validation rejects malformed or oversized uploads and preserves
 test('web and server intake contracts stay aligned', () => {
   assert.equal(fs.readFileSync('app/application/case/intake-contract.ts', 'utf8'), fs.readFileSync('../web/src/pages/Case/intake-contract.ts', 'utf8'));
 });
+
+test('standard intake accepts multi-select, checkbox, datetime and validates percentages', () => {
+  const result = normalizeIntake({agencyProcedure:['一审','二审','一审'],receiptMethod:['现金','转账'],installment:false,signedDate:'2026-10-19T10:30:00+08:00',managementFeeRatio:'15',invoiceAmount:'100'});
+  assert.equal(result.agencyProcedure, '["一审","二审"]');
+  assert.equal(result.installment, 'false');
+  assert.equal(result.managementFeeRatio, '15');
+  assert.deepEqual(normalizeIntake(result), result);
+  for (const data of [{agencyProcedure:['不存在']},{installment:'falsey'},{managementFeeRatio:'0.5'},{signedDate:'2026-02-30T12:00:00+08:00'},{signedDate:'2026-13-01'},{negotiatorId:'fake-user'}]) assert.throws(()=>normalizeIntake(data), {code:'VALIDATION_FAILED'});
+});

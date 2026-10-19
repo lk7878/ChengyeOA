@@ -1,3 +1,12 @@
+import { FORMULA_KEYS } from '@/pages/Case/intake-contract';
+export const isCasePercent = (field: Field) =>
+  field.options.businessSource === 'CASES' &&
+  [
+    'intake.riskAgencyRatio',
+    'intake.managementFeeRatio',
+    'intake.lawyerCommissionRatio',
+    'intake.proportionalGuarantee',
+  ].includes(field.options.businessKey || '');
 import { CONTRACT_STATUS_META, CONTRACT_TYPE_META, NEGOTIATION_STATUS_META } from '@/pages/contracts/meta';
 import {
   LEAD_STATUS_META,
@@ -15,6 +24,13 @@ export const fieldLabel = (field: Field) =>
       : field.name + '（元）'
     : field.name;
 export function fieldHint(field: Field) {
+  if (
+    field.options.businessSource === 'CASES' &&
+    FORMULA_KEYS.some((key) => 'intake.' + key === field.options.businessKey)
+  )
+    return '计算口径待配置；已有数值保留，暂不自动计算或允许手动覆盖。';
+  if (field.options.businessSource === 'CASES' && field.options.businessKey?.startsWith('files.'))
+    return '附件从案件同步；请在详情与办理中上传、移除。';
   if (field.options.lifecycleKey && !field.writable) return '由上游业务实时同步；请到原业务记录修改。';
   if (field.options.businessKey && !field.writable) return '由关联业务或业务流程维护，当前字段只读。';
   if (!field.writable) return '系统字段或当前权限为只读。';
@@ -28,6 +44,9 @@ export function fieldHint(field: Field) {
 export function displayValue(field: Field, value: unknown, directory: Directory): string {
   if (value === null || value === undefined || value === '') return '';
   if (field.type === 'CURRENCY') return formatMoney(value);
+  if (isCasePercent(field)) return `${Number(value)}%`;
+  if (field.type === 'DATETIME' && field.options.businessSource === 'CASES')
+    return formatBusinessDate(value).replace(/-/g, '/').slice(0, 16);
   if (['DATE', 'DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(field.type))
     return formatBusinessDate(value, field.type === 'DATE');
   if (field.options.businessSource === 'REFUNDS' && field.options.businessKey === 'status')

@@ -1047,7 +1047,7 @@ export class CollaborationService {
           : {}),
         ...(table.source === 'CASES' && caseGridChoices(String(object(f.options).businessKey))
           ? {
-              type: 'SINGLE_SELECT',
+              type: ['intake.agencyProcedure', 'intake.receiptMethod', 'intake.receiptAccount'].includes(String(object(f.options).businessKey)) ? 'MULTI_SELECT' : 'SINGLE_SELECT',
               options: {
                 ...object(f.options),
                 choices: caseGridChoices(String(object(f.options).businessKey)),
@@ -2617,7 +2617,7 @@ export class CollaborationService {
             if (!editableCaseKey(businessKey)) fail('COLLAB_USE_BUSINESS_ACTION', 409);
             if (businessKey.startsWith('intake.')) {
               const intake = object(update.intakeData ?? current.intakeData ?? {});
-              intake[businessKey.slice(7)] = value === null ? '' : String(value);
+              intake[businessKey.slice(7)] = value === null ? '' : Array.isArray(value) ? JSON.stringify(value) : String(value);
               update.intakeData = intake;
             } else update[businessKey] = businessKey === 'fee' ? String(value ?? '') : value;
           }
