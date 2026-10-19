@@ -1,3 +1,4 @@
+import { notifyDeliveryChange } from '../collaboration/delivery-change';
 // SPEC-010 Task 7: contract-service A —— 合同（CON）创建四来源/提交/审批/驳回/签署。
 // 形态逐字对齐 Task 6 negotiation-service：构造（prisma+actor+context+可选 outbox）、
 // requireAction 首行、同事务 EventLog（outbox append）+ OperationLog、P2002 编号重试上限 2、
@@ -88,7 +89,7 @@ import {
 } from '../../domain/master-data/master-data-validation';
 import { nextCaseNo, nextContractNo, nextEngagementNo } from './contract-number-service';
 import { projectContract } from './contract-projection';
-import { buildContractScopeWhere, buildCustomerVisibilityWhere } from './contract-scope';
+import { buildContractScopeWhere, buildCustomerVisibilityWhere, buildNegotiationScopeWhere } from './contract-scope';
 import {
   ApproveContractInput,
   ContractListQuery,
@@ -194,6 +195,7 @@ export class ContractService {
         ip: this.actor.ip,
       },
     });
+    await notifyDeliveryChange(tx, this.actor.actorUserId, id);
     return { id, version: current.version + 1 };
   }
 
@@ -554,6 +556,7 @@ export class ContractService {
         },
       });
       const after = await tx.contract.findUniqueOrThrow({ where: { id: contract.id } });
+      await notifyDeliveryChange(tx, this.actor.actorUserId, after.id);
       return projectContract(after);
     });
   }
@@ -769,6 +772,7 @@ export class ContractService {
         },
       });
       const after = await tx.contract.findUniqueOrThrow({ where: { id: contract.id } });
+      await notifyDeliveryChange(tx, this.actor.actorUserId, after.id);
       return projectContract(after);
     });
   }
@@ -780,6 +784,16 @@ export class ContractService {
     for (let attempt = 0; attempt < BUSINESS_NO_RETRY_LIMIT; attempt += 1) {
       try {
         return await this.prisma.$transaction(async tx => {
+          if (data.negotiationId) {
+            this.authorization.requireAction(this.authorizationContext, 'negotiation.read');
+            await tx.$queryRaw`SELECT id FROM negotiation WHERE id = ${data.negotiationId} FOR UPDATE`;
+            const upstream = await tx.negotiation.findFirst({ where: { AND: [
+              await buildNegotiationScopeWhere(this.prisma, this.authorization, this.authorizationContext, 'negotiation.read'),
+              { id: data.negotiationId, deletedAt: null },
+            ] } });
+            if (!upstream || upstream.customerId !== data.customerId) throw new MasterDataError('LIFECYCLE_NEGOTIATION_UNAVAILABLE', 404);
+            if (upstream.status !== 'SIGNED') throw new MasterDataError('LIFECYCLE_NEGOTIATION_NOT_SIGNED', 409);
+          }
           const contract = await tx.contract.create({
             data: {
               ...data,

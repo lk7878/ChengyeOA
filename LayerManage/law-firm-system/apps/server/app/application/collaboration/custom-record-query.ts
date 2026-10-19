@@ -14,7 +14,9 @@ export async function queryCustomRecords(
   fields: CollabField[],
   page: number,
   pageSize: number,
+  source?: Prisma.Sql,
 ) {
+  const from = source ? Prisma.sql`(${source})` : Prisma.sql`collab_record`;
   const sorts = config.sorts ?? [];
   const sortColumns = sorts.map(
     (sort, index) =>
@@ -42,14 +44,14 @@ export async function queryCustomRecords(
     : Prisma.sql`'[]'::jsonb`;
   const rows = await db.$queryRaw<QueryRow[]>(Prisma.sql`
     WITH matched AS MATERIALIZED (
-      SELECT ${Prisma.join(columns)} FROM collab_record r WHERE ${where}
+      SELECT ${Prisma.join(columns)} FROM ${from} r WHERE ${where}
     ), page AS (
       SELECT id, row_number() OVER (ORDER BY ${Prisma.join(ordering)}) AS ordinal
       FROM matched ORDER BY ${Prisma.join(ordering)} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
     )
     SELECT r.*, stats.total AS "_total", ${groups} AS "_groups"
     FROM (SELECT count(*) AS total FROM matched) stats
-    LEFT JOIN page ON TRUE LEFT JOIN collab_record r ON r.id = page.id
+    LEFT JOIN page ON TRUE LEFT JOIN ${from} r ON r.id = page.id
     ORDER BY page.ordinal
   `);
   const records: CollabRecord[] = rows

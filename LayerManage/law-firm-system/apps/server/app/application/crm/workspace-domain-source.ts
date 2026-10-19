@@ -215,6 +215,9 @@ export const domainSources = {
     table: '"case"',
     columns: [
       ['caseNo', '案件编号', 'TEXT'],
+      ['contractNo', '合同编号（同步）', 'TEXT'],
+      ['contractAmount', '合同金额（同步）', 'CURRENCY'],
+      ['customerName', '客户名称（同步）', 'TEXT'],
       ['title', '案件名称', 'TEXT'],
       ['caseType', '案由', 'TEXT'],
       ['status', '案件状态', 'TEXT'],
@@ -266,6 +269,7 @@ export const domainSources = {
     table: 'negotiation',
     columns: [
       ['negotiationNo', '谈案编号', 'TEXT'],
+      ['customerName', '客户名称（同步）', 'TEXT'],
       ['customerId', '关联客户', 'TEXT'],
       ['negotiatorEmployeeId', '谈案人', 'USER'],
       ['quotedAmount', '报价金额', 'CURRENCY'],
@@ -282,6 +286,10 @@ export const domainSources = {
     table: 'contract',
     columns: [
       ['contractNo', '合同编号', 'TEXT'],
+      ['negotiationId', '关联谈案', 'TEXT'],
+      ['negotiationNo', '谈案编号（同步）', 'TEXT'],
+      ['quotedAmount', '谈案报价（同步）', 'CURRENCY'],
+      ['customerName', '客户名称（同步）', 'TEXT'],
       ['title', '合同名称', 'TEXT'],
       ['contractType', '合同类型', 'TEXT'],
       ['customerId', '关联客户', 'TEXT'],
@@ -544,15 +552,37 @@ export class WorkspaceDomainSource {
     const definition = domainSources[table.source];
     const immutable = table.source === 'INVENTORY_MOVEMENTS' || table.source === 'INVENTORY_STOCKTAKES';
     const inventory = table.source.startsWith('INVENTORY_');
+    const linked: Record<string, Prisma.Sql> = {};
+    if (['CASES', 'CONTRACTS', 'NEGOTIATIONS'].includes(table.source)) {
+      if (this.actor.permissionCodes.includes('customer.read'))
+        linked.customerName = Prisma.sql`(SELECT u.name FROM (SELECT b.id,b.name FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${await this.scope('CUSTOMERS', access)}) u WHERE u.id=b."customerId")`;
+      else linked.customerName = Prisma.sql`NULL`;
+    }
+    if (table.source === 'CASES') {
+      const permitted = this.actor.permissionCodes.includes('contract.read')
+        ? await this.scope('CONTRACTS', access)
+        : Prisma.sql`FALSE`;
+      linked.contractNo = Prisma.sql`(SELECT u."contractNo" FROM (SELECT b.id,b."contractNo" FROM contract b WHERE ${permitted}) u WHERE u.id=b."contractId")`;
+      linked.contractAmount = Prisma.sql`(SELECT u.amount FROM (SELECT b.id,b.amount FROM contract b WHERE ${permitted}) u WHERE u.id=b."contractId")`;
+    }
+    if (table.source === 'CONTRACTS') {
+      const permitted = this.actor.permissionCodes.includes('negotiation.read')
+        ? await this.scope('NEGOTIATIONS', access)
+        : Prisma.sql`FALSE`;
+      linked.negotiationNo = Prisma.sql`(SELECT u."negotiationNo" FROM (SELECT b.id,b."negotiationNo" FROM negotiation b WHERE ${permitted}) u WHERE u.id=b."negotiationId")`;
+      linked.quotedAmount = Prisma.sql`(SELECT u."quotedAmount" FROM (SELECT b.id,b."quotedAmount" FROM negotiation b WHERE ${permitted}) u WHERE u.id=b."negotiationId")`;
+    }
     const pairs = fields.flatMap((f) => {
       const key = object(f.options).businessKey;
       if (key && !definition.columns.some((c) => c[0] === key)) fail('COLLAB_INVALID_FIELD');
       const column =
-        typeof key === 'string' && table.source === 'CASES' && key.startsWith('intake.')
-          ? Prisma.sql`b."intakeData" ->> ${key.slice(7)}`
-          : key
-            ? Prisma.raw('b."' + key + '"')
-            : null;
+        typeof key === 'string' && linked[key]
+          ? linked[key]
+          : typeof key === 'string' && table.source === 'CASES' && key.startsWith('intake.')
+            ? Prisma.sql`b."intakeData" ->> ${key.slice(7)}`
+            : key
+              ? Prisma.raw('b."' + key + '"')
+              : null;
       const value = column
         ? ['DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(f.type)
           ? Prisma.sql`to_jsonb(${column} AT TIME ZONE 'UTC')`

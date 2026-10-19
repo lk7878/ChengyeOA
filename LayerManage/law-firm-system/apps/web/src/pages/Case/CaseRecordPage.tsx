@@ -1,3 +1,4 @@
+import LinkedContractCase from './LinkedContractCase';
 import { BusinessTableLinks } from '@/features/crm/BusinessWorkspacePage';
 import { get, errorMessage } from '@/features/workspaces/api';
 import type { Directory, Workspace } from '@/features/workspaces/types';
@@ -94,6 +95,7 @@ const TASK_STATUS_META: Record<string, { text: string; color: string }> = {
 };
 
 interface CreateFormValues {
+  contractId?: string;
   branchId?: string;
   workspaceId?: string;
   intakeData?: Record<string, string | dayjs.Dayjs | null>;
@@ -171,6 +173,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
     String(resumeCase ? caseDraft.values?.workspaceId || '' : searchParams.get('workspace') || ''),
   );
   const [binding, setBinding] = useState<Case>();
+  const [upstreamContracts, setUpstreamContracts] = useState<ContractView[]>([]);
   const [financeContracts, setFinanceContracts] = useState<ContractView[]>([]);
   const [financeContractId, setFinanceContractId] = useState<string>();
   const [bindingBusy, setBindingBusy] = useState(false);
@@ -184,6 +187,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   const [createOpen, setCreateOpen] = useState(!id || resumeCase);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createForm] = Form.useForm<CreateFormValues>();
+  const selectedUpstreamContractId = Form.useWatch('contractId', createForm);
 
   const [closeOpen, setCloseOpen] = useState(false);
   const [closeSubmitting, setCloseSubmitting] = useState(false);
@@ -358,6 +362,11 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
     }
   };
 
+  useEffect(() => {
+    let live = true;
+    if (createOpen) void contractApi.list({status:'EFFECTIVE',page:1,pageSize:100}).then(r=>{if(live)setUpstreamContracts(r.data.list);}).catch(()=>undefined);
+    return ()=>{live=false;};
+  }, [createOpen]);
   const handleCreate = async (values: CreateFormValues) => {
     setCreateSubmitting(true);
     try {
@@ -416,7 +425,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
               .map((file) => file.id),
           })
         ).data;
-      } else saved = (await caseApi.create({ ...payload, branchId: values.branchId })).data;
+      } else saved = (await caseApi.create({ ...payload, contractId: values.contractId, branchId: values.branchId })).data;
       if (!mounted.current) return;
       clearCaseDraft();
       setAttachments({});
@@ -778,7 +787,12 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
           onFinish={handleCreate}
           disabled={createSubmitting || (!id && !canCreate)}
         >
-          <Form.Item label="办理工作区">
+          {!editingCase && <LinkedContractCase contractId={selectedUpstreamContractId} />}
+          {!editingCase && <Form.Item name="contractId" label="关联合同（已生效）" extra="选择后自动回填客户、合同编号与金额；已自动建档的合同请进入已有案件办理。">
+              <Select showSearch optionFilterProp="label" allowClear options={upstreamContracts.map(c=>({value:c.id,label:c.contractNo+' · '+c.title}))}
+                onChange={id=>{const c=upstreamContracts.find(v=>v.id===id);if(c) { createForm.setFieldsValue({customerId:c.customerId,fee:c.amount,intakeData:{...createForm.getFieldValue('intakeData'),contractNumber:c.contractNo}}); }}} />
+            </Form.Item>}
+            <Form.Item label="办理工作区">
             <Select
               aria-label="办理工作区"
               value={workspaceId || undefined}
@@ -805,6 +819,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
               <Form.Item name="customerId" label="客户" rules={[{ required: true, message: '请选择客户' }]}>
                 <Select
                   aria-label="客户"
+                  disabled={Boolean(selectedUpstreamContractId)}
                   showSearch
                   optionFilterProp="label"
                   filterOption={false}

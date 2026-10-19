@@ -15,6 +15,7 @@ export interface Field extends Option {
     targetTableId?: string;
     helpText?: string;
     businessKey?: string;
+    lifecycleKey?: string;
     businessSource?: string;
   };
 }
@@ -47,6 +48,7 @@ export interface View extends Option {
   config: ViewConfig;
 }
 export interface DataTable extends Option {
+  lifecycleKind?: string | null;
   canManage?: boolean;
   canDelete?: boolean;
   baseId?: string;
@@ -85,6 +87,7 @@ export interface TableDetail {
   employeeId: string | null;
 }
 export interface RecordRow {
+  lifecycle?: {caseId: string; caseNo: string; contractId: string | null};
   displayValues?: Record<string, string>;
   writable?: boolean;
   id: string;

@@ -1140,6 +1140,7 @@ model CostEntry {
 // ==================== 案件模块 ====================
 
 model Case {
+  lifecycleLinks CollabLifecycleLink[]
   deletedAt DateTime?
   assessments SatisfactionAssessment[]
   specialAnalyses SpecialAnalysis[]
@@ -1785,6 +1786,7 @@ model DriveVisit {
 }
 
 model CollabTable {
+  lifecycleKind String?
   accessPolicy  Json?
   accessVersion Int               @default(1)
   id            String            @id @default(uuid())
@@ -1842,6 +1844,8 @@ model CollabView {
 }
 
 model CollabRecord {
+  lifecycleLink CollabLifecycleLink? @relation("LifecycleRecord")
+  lifecycleChildren CollabLifecycleLink[] @relation("LifecycleParent")
   outgoingRelations CollabRelation[] @relation("CollabSource")
   incomingRelations CollabRelation[] @relation("CollabTarget")
   id                String           @id @default(uuid())
@@ -2458,4 +2462,19 @@ model CollabRecordOperation {
   createdAt DateTime @default(now())
   @@index([tableId, actorId, createdAt])
   @@map("collab_record_operation")
+}
+
+model CollabLifecycleLink {
+  recordId String @id
+  tableId String
+  caseId String
+  parentRecordId String?
+  kind String
+  status String @default("OPEN")
+  record CollabRecord @relation("LifecycleRecord", fields: [recordId], references: [id], onDelete: Cascade)
+  parent CollabRecord? @relation("LifecycleParent", fields: [parentRecordId], references: [id], onDelete: Restrict)
+  case Case @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  @@unique([tableId, caseId])
+  @@index([parentRecordId])
+  @@map("collab_lifecycle_link")
 }

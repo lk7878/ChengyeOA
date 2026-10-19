@@ -1,3 +1,4 @@
+import { LifecycleWorksheet, lifecycleFields, lifecycleKinds, lifecycleKey, syncedLifecycleKeys, LifecycleKind } from './lifecycle-worksheet';
 import { domainSources, isDomainSource, WorkspaceDomainSource } from '../crm/workspace-domain-source';
 import { CaseService } from '../case/case-service';
 import { UpdateCaseInput } from '../case/case-types';
@@ -466,6 +467,7 @@ export class CollaborationService {
       name: string;
       source: string;
       baseId: string;
+      lifecycleKind: string | null;
       baseName: string;
       workspaceName: string;
     }[] = [];
@@ -504,6 +506,7 @@ export class CollaborationService {
               id: table.id,
               name: table.name,
               source: table.source,
+              lifecycleKind: table.lifecycleKind,
               baseId: base.id,
               baseName: base.name,
               workspaceName: workspace.name,
@@ -812,7 +815,7 @@ export class CollaborationService {
     const tables = await tx.collabTable.findMany({
       where: { baseId },
       orderBy: [{ position: 'asc' }, { id: 'asc' }],
-      select: { id: true, name: true, source: true, position: true, schemaVersion: true, archived: true },
+      select: { id: true, name: true, source: true, lifecycleKind: true, position: true, schemaVersion: true, archived: true },
     });
     const visible: Array<(typeof tables)[number] & { canManage: boolean; canDelete: boolean }> = [];
     for (const table of tables) {
@@ -872,6 +875,61 @@ export class CollaborationService {
       return { order };
     });
   }
+  private lifecycle() {
+    return new LifecycleWorksheet(this.db, this.actor, (id, tx) => this.tableAccess(id, tx ?? this.db));
+  }
+  async configureLifecycle(tableId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['kind', 'schemaVersion']);
+    const kind = choice(input.kind, lifecycleKinds);
+    this.lifecycle().authorize(kind);
+    return this.write(key, ['lifecycle.configure', tableId, input], async (tx) => {
+      const initial = await this.tableAccess(tableId, tx, 3);
+      await this.lock(tx, initial.access.workspaceId);
+      const { table } = await this.tableAccess(tableId, tx, 3);
+      if (
+        table.source !== 'CUSTOM' ||
+        table.lifecycleKind ||
+        table.schemaVersion !== integer(input.schemaVersion)
+      )
+        fail('COLLAB_SCHEMA_CONFLICT', 409);
+      if (await tx.collabRecord.count({ where: { tableId } })) fail('LIFECYCLE_TABLE_NOT_EMPTY', 409);
+      // Preserve existing columns and views; only remove obsolete required flags on an empty table.
+      await tx.collabField.updateMany({ where: { tableId }, data: { required: false } });
+      for (const f of lifecycleFields(kind)) {
+        if (await tx.collabField.findUnique({ where: { tableId_name: { tableId, name: f.name } } }))
+          fail('LIFECYCLE_FIELD_NAME_CONFLICT', 409);
+        await tx.collabField.create({ data: { ...f, tableId } });
+      }
+      await tx.collabTable.update({
+        where: { id: tableId },
+        data: { lifecycleKind: kind, schemaVersion: { increment: 1 } },
+      });
+      await tx.operationLog.create({
+        data: {
+          userId: this.actor.userId,
+          action: 'WORKSHEET_LINK_CONFIGURE',
+          targetType: 'COLLAB_TABLE',
+          targetId: tableId,
+          newValues: JSON.stringify({ kind }),
+        },
+      });
+      await this.event(tx, table.baseId, 'table.updated', tableId);
+      return { id: tableId };
+    });
+  }
+  async lifecycleChoices(tableId: string, raw: unknown) {
+    const input = exact(raw, ['keyword', 'page']);
+    const { table, access, fields } = await this.tableAccess(tableId);
+    if (!table.lifecycleKind || !fields.some((f) => lifecycleKey(f) === 'upstreamId'))
+      fail('COLLAB_FORBIDDEN', 403);
+    return this.lifecycle().choices(
+      table,
+      access,
+      fields,
+      String(input.keyword ?? '').slice(0, 100),
+      integer(Number(input.page ?? 1), 1, 100000),
+    );
+  }
   async createTable(baseId: string, raw: unknown, key: unknown) {
     const input = exact(raw, ['name', 'template', 'source']);
     const source = choice(input.source ?? 'CUSTOM', [
@@ -902,37 +960,45 @@ export class CollaborationService {
           data: businessFields(source).map((f) => ({ ...f, tableId: table.id })),
         });
       } else {
-        const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS']);
-        await tx.collabField.create({
-          data: { tableId: table.id, name: '标题', type: 'TEXT', required: true },
-        });
-        if (template !== 'BLANK') {
-          await tx.collabField.create({
-            data: { tableId: table.id, name: '负责人', type: 'USER', position: 1 },
+        const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS', ...lifecycleKinds]);
+        if (lifecycleKinds.includes(template as LifecycleKind)) {
+          this.lifecycle().authorize(template);
+          await tx.collabTable.update({ where: { id: table.id }, data: { lifecycleKind: template } });
+          await tx.collabField.createMany({
+            data: lifecycleFields(template as LifecycleKind).map((f) => ({ ...f, tableId: table.id })),
           });
+        } else {
           await tx.collabField.create({
-            data: {
-              tableId: table.id,
-              name: template === 'TASKS' ? '截止日期' : '下次联系',
-              type: 'DATE',
-              position: 2,
-            },
+            data: { tableId: table.id, name: '标题', type: 'TEXT', required: true },
           });
-          await tx.collabField.create({
-            data: {
-              tableId: table.id,
-              name: '状态',
-              type: 'SINGLE_SELECT',
-              position: 3,
-              options: {
-                choices: [
-                  { id: 'todo', name: '待处理' },
-                  { id: 'doing', name: '进行中' },
-                  { id: 'done', name: '已完成' },
-                ],
+          if (template !== 'BLANK') {
+            await tx.collabField.create({
+              data: { tableId: table.id, name: '负责人', type: 'USER', position: 1 },
+            });
+            await tx.collabField.create({
+              data: {
+                tableId: table.id,
+                name: template === 'TASKS' ? '截止日期' : '下次联系',
+                type: 'DATE',
+                position: 2,
               },
-            },
-          });
+            });
+            await tx.collabField.create({
+              data: {
+                tableId: table.id,
+                name: '状态',
+                type: 'SINGLE_SELECT',
+                position: 3,
+                options: {
+                  choices: [
+                    { id: 'todo', name: '待处理' },
+                    { id: 'doing', name: '进行中' },
+                    { id: 'done', name: '已完成' },
+                  ],
+                },
+              },
+            });
+          }
         }
       }
       const view = await tx.collabView.create({
@@ -955,8 +1021,9 @@ export class CollaborationService {
       table: { ...table, accessPolicy: null as null, fields: [] as CollabField[] },
       canDeleteRecords:
         access.level >= 2 &&
-        (table.source === 'CUSTOM' ||
+        ((table.source === 'CUSTOM' && (!table.lifecycleKind || this.actor.permissionCodes.includes(table.lifecycleKind === 'AFTER_SALES' ? 'case.delete' : 'refund.create'))) ||
           (table.source === 'CASES' && this.actor.permissionCodes.includes('case.delete')) ||
+          (table.source === 'NEGOTIATIONS' && this.actor.permissionCodes.includes('negotiation.delete')) ||
           (table.source === 'CONTRACTS' && this.actor.permissionCodes.includes('contract.delete')) ||
           (table.source === 'COSTS' && this.actor.permissionCodes.includes('cost.delete')) ||
           (table.source === 'CUSTOMERS' && this.actor.permissionCodes.includes('customer.delete')) ||
@@ -1009,7 +1076,7 @@ export class CollaborationService {
               ))) &&
           access.level >= 2 &&
           !access.readonly.includes(f.id) &&
-          !isSystemField(f),
+          !isSystemField(f) && !syncedLifecycleKeys.includes(lifecycleKey(f)) && (!table.lifecycleKind || this.actor.permissionCodes.includes('case.update') && (table.lifecycleKind !== 'CASE_REFUNDS' || this.actor.permissionCodes.includes('refund.create'))),
       })),
       views: views.map((v) => ({ ...v, config: this.sanitizeConfig(v.config, fields) })),
       preferredViewId: preference?.viewId,
@@ -1057,6 +1124,7 @@ export class CollaborationService {
         const copy = await tx.collabTable.create({
           data: {
             baseId: table.baseId,
+            lifecycleKind: table.lifecycleKind,
             name: text(input.name),
             createdBy: this.actor.userId,
             position: table.position + 1,
@@ -1102,7 +1170,7 @@ export class CollaborationService {
             tableId: { not: tableId },
           },
         });
-        if (references) fail('COLLAB_REFERENCED_TABLE', 409, { references });
+        if (references || await tx.collabLifecycleLink.count({where:{parent:{tableId},record:{archived:false}}})) fail('COLLAB_REFERENCED_TABLE', 409, { references });
         if (await tx.collabRule.count({ where: { tableId, enabled: true } })) fail('COLLAB_ACTIVE_RULE', 409);
       }
       await tx.collabTable.update({
@@ -1127,6 +1195,7 @@ export class CollaborationService {
       const { table, access } = await this.tableAccess(tableId, tx, 3, true);
       if (access.selfOnly || access.hidden.length || access.readonly.length) fail('COLLAB_FORBIDDEN', 403);
       if (table.schemaVersion !== integer(input.version)) fail('COLLAB_SCHEMA_CONFLICT', 409);
+      if (table.lifecycleKind && await tx.collabRecord.count({where:{tableId}})) fail('LIFECYCLE_TABLE_HAS_RECORDS',409);
       // Archived fields also retain references and must not become dangling on restore.
       const reference = await tx.collabField.findFirst({
         where: {
@@ -1140,7 +1209,8 @@ export class CollaborationService {
           source: { tableId: { not: tableId } },
         },
       });
-      if (reference || linked) fail('COLLAB_REFERENCED_TABLE', 409);
+      const lifecycleChildren = await tx.collabLifecycleLink.count({where:{parent:{tableId},tableId:{not:tableId}}});
+      if (reference || linked || lifecycleChildren) fail('COLLAB_REFERENCED_TABLE', 409);
       const files = await tx.collabAttachment.findMany({ where: { tableId }, select: { storageKey: true } });
       if (files.some((file) => !/^[a-f0-9-]{36}$/i.test(file.storageKey)))
         fail('DRIVE_FILE_CLEANUP_FAILED', 500);
@@ -1181,7 +1251,7 @@ export class CollaborationService {
       const previous = fieldId ? table.fields.find((f) => f.id === fieldId) : undefined;
       if (fieldId && !previous) fail('COLLAB_NOT_FOUND', 404);
       if (fieldId && !fields.some((f) => f.id === fieldId)) fail('COLLAB_FORBIDDEN', 403);
-      if (previous && object(previous.options).businessKey) fail('COLLAB_USE_BUSINESS_ACTION', 409);
+      if (previous && (object(previous.options).businessKey || lifecycleKey(previous))) fail('COLLAB_USE_BUSINESS_ACTION', 409);
       const type = choice(input.type ?? previous?.type, FIELD_TYPES);
       if (table.source !== 'CUSTOM' && isSystemField({ type })) fail('COLLAB_USE_BUSINESS_ACTION', 409);
       const countValues = (values: Prisma.JsonFilter) =>
@@ -1225,7 +1295,7 @@ export class CollaborationService {
         fail('COLLAB_FIELD_MIGRATION_REQUIRED', 409);
       if (type === 'RELATION') {
         const target = await this.tableAccess(text(options.targetTableId), tx);
-        if (target.table.source !== 'CUSTOM') fail('COLLAB_CORE_RELATION_UNSUPPORTED');
+        if (target.table.source !== 'CUSTOM' || target.table.lifecycleKind) fail('COLLAB_CORE_RELATION_UNSUPPORTED');
         if (target.access.workspaceId !== initial.access.workspaceId) fail('COLLAB_CROSS_WORKSPACE_RELATION');
       }
       if (input.archived === true && previous) {
@@ -1365,6 +1435,10 @@ export class CollaborationService {
       where: { ...this.rowWhere(tableId, access), OR: references(fields) },
       select: { id: true },
     });
+    if (visible && table.lifecycleKind) {
+      const rows = await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT r.id FROM (${await this.lifecycle().sourceSql(table,access,fields)}) r WHERE r.id=${visible.id}`);
+      if (!rows.length) fail('COLLAB_FORBIDDEN',403);
+    }
     if (!visible) {
       const referenced = await tx.collabRecord.count({ where: { tableId, OR: references(table.fields) } });
       if (referenced || file.ownerId !== this.actor.userId) fail('COLLAB_FORBIDDEN', 403);
@@ -1383,7 +1457,22 @@ export class CollaborationService {
     for (const f of fields) {
       values[f.id] = isSystemField(f) ? system[f.type] : (original[f.id] ?? null);
     }
-    return { ...record, values };
+    const link = fields.find((f) => lifecycleKey(f) === 'upstreamId');
+    return {
+      ...record,
+      values,
+      ...(typeof original._lifecycleWritable === 'boolean' ? { writable: original._lifecycleWritable } : {}),
+      ...(link && original._lifecycleLabel
+        ? {
+            displayValues: { [link.id]: String(original._lifecycleLabel) },
+            lifecycle: {
+              caseId: String(original._lifecycleCaseId),
+              caseNo: original._lifecycleCaseNo ? String(original._lifecycleCaseNo) : '',
+              contractId: original._lifecycleContractId ? String(original._lifecycleContractId) : null,
+            },
+          }
+        : {}),
+    };
   }
   private async projectReferences(records: CollabRecord[], fields: CollabField[]) {
     const projected = records.map((record) => this.project(record, fields));
@@ -1441,7 +1530,7 @@ export class CollaborationService {
       return { ...result, records: await this.projectReferences(result.records, fields) };
     }
     const where = Prisma.sql`r."tableId" = ${tableId} AND r.archived = false AND ${access.selfOnly ? Prisma.sql`r."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`} AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}`;
-    const result = await queryCustomRecords(this.db, where, config, fields, page, pageSize);
+    const result = await queryCustomRecords(this.db, where, config, fields, page, pageSize, table.lifecycleKind ? await this.lifecycle().sourceSql(table, access, fields) : undefined);
     return {
       ...result,
       records: await this.projectReferences(result.records, fields),
@@ -1486,6 +1575,11 @@ export class CollaborationService {
       where: { ...this.rowWhere(tableId, access), id: recordId },
     });
     if (!record) fail('COLLAB_NOT_FOUND', 404);
+    if (table.lifecycleKind) {
+      const projected = await this.db.$queryRaw<CollabRecord[]>(Prisma.sql`SELECT r.* FROM (${await this.lifecycle().sourceSql(table, access, fields)}) r WHERE r.id = ${recordId}`);
+      if (!projected.length) fail('COLLAB_NOT_FOUND', 404);
+      record.values = projected[0].values;
+    }
     const revisions = await this.db.collabRevision.findMany({
       where: { recordId },
       orderBy: { version: 'desc' },
@@ -1778,7 +1872,7 @@ export class CollaborationService {
     const result = { ...existing };
     for (const [id, value] of Object.entries(patch)) {
       const field = fieldOf(fields, id);
-      if (access.readonly.includes(id) || isSystemField(field))
+      if (access.readonly.includes(id) || isSystemField(field) || syncedLifecycleKeys.includes(lifecycleKey(field)))
         fail('COLLAB_READONLY_FIELD', 403, { fieldId: id });
       try {
         result[id] = validateValue(field, value);
@@ -2126,6 +2220,7 @@ export class CollaborationService {
             {},
             restoredValues,
           );
+          if (table.lifecycleKind) await this.lifecycle().validate(tx, table, table.fields.filter(f => !f.archived), access, restoredValues, row, false);
           version = (
             await tx.collabRecord.update({
               where: { id: row.id },
@@ -2147,7 +2242,7 @@ export class CollaborationService {
                   ? domainSources[table.source].table
                   : '';
           if (
-            !['LEADS', 'FOLLOWS', 'CASES', 'CONTRACTS', 'COSTS', 'CUSTOMERS', 'CHANNELS'].includes(
+            !['LEADS', 'FOLLOWS', 'CASES', 'NEGOTIATIONS', 'CONTRACTS', 'COSTS', 'CUSTOMERS', 'CHANNELS'].includes(
               table.source,
             )
           )
@@ -2333,7 +2428,7 @@ export class CollaborationService {
     if (isEditableBusinessSource(initial.table.source) && recordId) {
       const input = exact(raw, [
         'values', 'version', 'schemaVersion',
-        ...(['CONTRACTS', 'COSTS', 'CUSTOMERS', 'CHANNELS'].includes(initial.table.source) ? ['archived'] : []),
+        ...(['NEGOTIATIONS', 'CONTRACTS', 'COSTS', 'CUSTOMERS', 'CHANNELS'].includes(initial.table.source) ? ['archived'] : []),
       ]);
       return this.write(
         key,
@@ -2362,7 +2457,7 @@ export class CollaborationService {
           if (input.archived !== undefined) {
             if (input.archived !== true || Object.keys(object(input.values ?? {})).length)
               fail('COLLAB_INVALID_VALUE');
-            const saved = source === 'CHANNELS'
+            const saved = source === 'NEGOTIATIONS' ? await new NegotiationService(this.db, {actorUserId:this.actor.userId},this.actor).deleteNegotiation(recordId,core.version,tx) : source === 'CHANNELS'
               ? (await new ChannelService(this.db, { actorUserId: this.actor.userId }, this.actor).remove(recordId, { version: core.version }, tx), { version: core.version + 1 })
               : source === 'CUSTOMERS'
               ? (await new CustomerService(this.db, { actorUserId: this.actor.userId }, this.actor).deleteCustomer(recordId, { version: core.version }, tx), { version: core.version + 1 })
@@ -2597,6 +2692,7 @@ export class CollaborationService {
           )
         )
           fail('COLLAB_REQUIRED_FIELD_FORBIDDEN', 403);
+        const lifecycleData = table.lifecycleKind ? await this.lifecycle().validate(tx, table, table.fields.filter(f => !f.archived), access, next, previous, input.archived === true) : null;
         const data = {
           values: json(next),
           updatedBy: this.actor.userId,
@@ -2610,6 +2706,10 @@ export class CollaborationService {
           : await tx.collabRecord.create({
               data: { ...data, tableId, createdBy: this.actor.userId, ownerId: this.actor.userId },
             });
+        if (lifecycleData) {
+          await tx.collabLifecycleLink.upsert({ where: { recordId: record.id }, create: { ...lifecycleData, recordId: record.id }, update: lifecycleData });
+          await tx.operationLog.create({ data: { userId: this.actor.userId, action: input.archived ? 'LIFECYCLE_DELETE' : previous ? 'LIFECYCLE_UPDATE' : 'LIFECYCLE_CREATE', targetType: 'COLLAB_RECORD', targetId: record.id, newValues: JSON.stringify({ ...lifecycleData, fields: Object.keys(object(input.values ?? {})), version: record.version }) } });
+        }
         const changes = Object.fromEntries(
           Object.keys(object(input.values ?? {})).map((id) => [
             id,

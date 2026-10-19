@@ -1,3 +1,4 @@
+import { notifyDeliveryChange } from '../collaboration/delivery-change';
 import { sopTaskScope } from '../sop/execution-scope';
 import { buildOrganizationScopeWhere } from '../authorization/resource-scope-resolvers';
 import { buildCaseScopeWhere, requireCaseAccess, withAuthorizedCaseFiles } from './case-scope';
@@ -221,6 +222,7 @@ export class CaseService {
       });
       if (!row || !contract || row.customerId !== contract.customerId)
         throw new MasterDataError('VALIDATION_FAILED', 400);
+      if (contract.status !== 'EFFECTIVE') throw new MasterDataError('LIFECYCLE_CONTRACT_NOT_EFFECTIVE', 409);
       if (row.version !== version) throw new MasterDataError('VERSION_CONFLICT', 409);
       if (row.contractId && row.contractId !== contractId)
         throw new MasterDataError('MASTER_DATA_IN_USE', 409);
@@ -240,6 +242,7 @@ export class CaseService {
           ip: this.actor.ip,
         },
       });
+      await notifyDeliveryChange(tx, this.actor.actorUserId, updated.id);
       return projectCase(updated);
     });
   }
@@ -323,6 +326,13 @@ export class CaseService {
     try {
       persistAttachments(attachments);
       return await this.prisma.$transaction(async (tx) => {
+        if (contractId) {
+          await tx.$queryRaw`SELECT id FROM contract WHERE id = ${contractId} FOR UPDATE`;
+          const upstream = await tx.contract.findUnique({ where: { id: contractId } });
+          if (!upstream || upstream.deletedAt || upstream.status !== 'EFFECTIVE' || upstream.customerId !== customerId)
+            throw new MasterDataError('LIFECYCLE_CONTRACT_NOT_EFFECTIVE', 409);
+          if (await tx.case.findUnique({ where: { contractId } })) throw new MasterDataError('LIFECYCLE_CONTRACT_HAS_CASE', 409);
+        }
         const created = await tx.case.create({
           data: {
             caseNo,
@@ -528,6 +538,7 @@ export class CaseService {
             ip: this.actor.ip,
           },
         });
+        await notifyDeliveryChange(tx, this.actor.actorUserId, row.id);
         return projectCase(row);
       };
       updated = await (transaction ? update(transaction) : this.prisma.$transaction(update));
@@ -560,6 +571,7 @@ export class CaseService {
         files: true,
         _count: {
           select: {
+            lifecycleLinks: true,
             costEntries: true,
             tasks: true,
             communications: true,
@@ -576,6 +588,7 @@ export class CaseService {
       throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
     if (
       row.contractId ||
+      row._count.lifecycleLinks ||
       row._count.costEntries ||
       row._count.sopInstances ||
       row._count.qualitySamples ||
@@ -621,6 +634,7 @@ export class CaseService {
       'lawyerId',
       'priority',
       'customerId',
+      'contractId',
       'caseNo',
       'branchId',
     ]);
@@ -651,6 +665,7 @@ export class CaseService {
           intakeData: { path: [key], string_contains: keyword },
         })),
       ];
+    if (query.contractId !== undefined) where.contractId = normalizeRequiredText(query.contractId, 1, 100);
     if (query.caseNo !== undefined) where.caseNo = normalizeRequiredText(query.caseNo, 1, 100);
     if (query.status !== undefined) where.status = normalizeAllowedValue(query.status, CASE_STATUSES);
     if (query.lawyerId !== undefined) where.lawyerId = normalizeRequiredText(query.lawyerId, 1, 100);

@@ -1,3 +1,4 @@
+import LinkedContractCase from '../Case/LinkedContractCase';
 import { BusinessTableLinks } from '@/features/crm/BusinessWorkspacePage';
 import Table from '@/components/ResizableTable';
 import React, { useEffect, useState } from 'react';
@@ -219,6 +220,7 @@ const ContractDetailPage: React.FC = () => {
 
   return (
     <div>
+      <LinkedContractCase contractId={id} revision={contract.version} />
       <Space style={{ marginBottom: 16 }} wrap>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/contracts')}>返回列表</Button>
           <BusinessTableLinks source="CONTRACTS" recordId={id} />

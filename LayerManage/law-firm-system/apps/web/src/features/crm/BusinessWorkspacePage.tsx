@@ -13,7 +13,7 @@ import { get, post, errorMessage } from '../workspaces/api';
 import { WorkspaceEditor } from '@/pages/Workspaces';
 
 interface BusinessDirectory {
-  tables: { id: string; name: string; source?: string; baseId: string; baseName: string; workspaceName: string }[];
+  tables: { id: string; name: string; source?: string; lifecycleKind?: string | null; baseId: string; baseName: string; workspaceName: string }[];
   targets: { id: string; name: string; workspaceName: string }[];
 }
 export function BusinessTableLinks({
@@ -140,7 +140,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
               >
                 <span>
                   <strong>{table.name}</strong>
-                  <small>{table.source === 'CUSTOM' ? '普通数据表（独立录入）' : '业务工作表（同步正式记录）'}</small>
+                  <small>{table.lifecycleKind ? (table.lifecycleKind === 'AFTER_SALES' ? '关联案件 · 基础信息实时同步' : '关联售后 · 基础信息实时同步') : table.source === 'CUSTOM' ? '普通数据表（独立录入）' : '业务工作表（同步正式记录）'}</small>
                   <small>
                     {table.workspaceName} / {table.baseName}
                   </small>

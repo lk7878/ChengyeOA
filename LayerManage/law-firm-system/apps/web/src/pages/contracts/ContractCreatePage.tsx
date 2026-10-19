@@ -268,7 +268,7 @@ const ContractCreatePage: React.FC = () => {
       <Form
         form={form}
         layout="vertical"
-        initialValues={{ contractType: 'FIRST_SIGN', sourceType: 'CUSTOMER', useTemplate: true, installment: false }}
+        initialValues={{ contractType: 'FIRST_SIGN', sourceType: 'NEGOTIATION', useTemplate: true, installment: false }}
         style={{ maxWidth: 720 }}
       >
         <div style={{ display: step === 0 ? 'block' : 'none' }}>
@@ -297,6 +297,7 @@ const ContractCreatePage: React.FC = () => {
             >
               <Select
                 aria-label="关联谈案"
+                onChange={id => { const upstream = signedNegotiations.find(n => n.id === id); if (upstream) form.setFieldsValue({ customerId: upstream.customerId, amount: upstream.quotedAmount == null ? undefined : Number(upstream.quotedAmount) }); }}
                 showSearch
                 optionFilterProp="label"
                 placeholder="选择已签约谈案"
@@ -338,6 +339,7 @@ const ContractCreatePage: React.FC = () => {
           <Form.Item name="customerId" label="客户" rules={[{ required: true, message: '请选择客户' }]}>
             <Select
               aria-label="客户"
+              disabled={sourceType === 'NEGOTIATION'}
               showSearch
               optionFilterProp="label"
               placeholder="搜索客户姓名/编号"

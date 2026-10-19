@@ -125,7 +125,7 @@ export default class CaseController extends Controller {
 
 /** 案件列表查询解析：page/pageSize/过滤透传（枚举/数字服务层校验）。 */
 function parseCaseListQuery(input: unknown): Record<string, unknown> {
-  assertExactKeys(input, ['page', 'pageSize', 'keyword', 'status', 'lawyerId', 'priority', 'customerId', 'caseNo', 'branchId']);
+  assertExactKeys(input, ['page', 'pageSize', 'keyword', 'status', 'lawyerId', 'priority', 'customerId', 'contractId', 'caseNo', 'branchId']);
   const query: Record<string, unknown> = {};
   if (input.page !== undefined) query.page = parseQueryInteger(input.page);
   if (input.pageSize !== undefined) query.pageSize = parseQueryInteger(input.pageSize);
@@ -135,6 +135,7 @@ function parseCaseListQuery(input: unknown): Record<string, unknown> {
   if (input.status !== undefined) query.status = input.status;
   if (input.lawyerId !== undefined) query.lawyerId = input.lawyerId;
   if (input.priority !== undefined) query.priority = input.priority;
+  if (input.contractId !== undefined) query.contractId = input.contractId;
   if (input.customerId !== undefined) query.customerId = input.customerId;
   return query;
 }

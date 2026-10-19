@@ -435,8 +435,9 @@ test('createContract enforces the NEGOTIATION source coupling and customer owner
     customerId: customer.id,
     negotiatorEmployeeId: negotiator.id,
     createdBy: userId,
+    status: 'SIGNED',
   });
-  const service = serviceFor(userId, actor);
+  const service = serviceFor(userId, actor, { permissionCodes: [...CONTRACT_PERMISSIONS, 'negotiation.read'] });
 
   await assert.rejects(
     () => service.createContract(contractInput(customer.id, { sourceType: 'NEGOTIATION' })),

@@ -67,6 +67,7 @@ export interface CloseCaseInput {
 }
 
 export interface CaseListQuery {
+  contractId?: string;
   branchId?: string;
   caseNo?: string;
   page?: number;

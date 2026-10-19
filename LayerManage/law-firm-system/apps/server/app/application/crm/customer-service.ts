@@ -1,3 +1,4 @@
+import { notifyDeliveryChange } from '../collaboration/delivery-change';
 import { crmTransaction } from '../crm/crm-transaction';
 // SPEC-009 Task 8: customer-service —— 客户主数据 + 联系人（ContactService 内联，决策 15）。
 // 事务边界（设计 §6.2）：业务写入、EventLog（outbox append）、OperationLog 全部同事务。
@@ -312,6 +313,7 @@ export class CustomerService {
           ip: this.actor.ip,
         },
       });
+      await notifyDeliveryChange(tx, this.actor.actorUserId, customer.id);
       const after = await tx.customer.findUniqueOrThrow({ where: { id: customer.id } });
       return projectCustomer(after, this.customerFieldPermissions());
     });

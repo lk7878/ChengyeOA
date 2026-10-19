@@ -324,6 +324,7 @@ export const PERMISSION_CATALOG = Object.freeze([
   permission('menu.payment', '收款管理', 'MENU', 'menu', 'view', 'LOW', '/payments'),
   permission('negotiation.read', '查看谈案', 'ACTION', 'negotiation', 'read', 'LOW'),
   permission('negotiation.create', '创建谈案', 'ACTION', 'negotiation', 'create', 'MEDIUM'),
+  permission('negotiation.delete', '删除谈案', 'ACTION', 'negotiation', 'delete', 'HIGH'),
   permission('negotiation.update', '修改谈案', 'ACTION', 'negotiation', 'update', 'MEDIUM'),
   permission('contract.read', '查看合同', 'ACTION', 'contract', 'read', 'LOW'),
   permission('contract.create', '创建合同', 'ACTION', 'contract', 'create', 'MEDIUM'),

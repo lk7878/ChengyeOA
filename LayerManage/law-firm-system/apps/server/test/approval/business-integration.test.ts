@@ -296,7 +296,7 @@ test('finance queries join by unique case number and existing contract records l
       title: '合同',
       customerId: customer.id,
       createdBy: a,
-      status: 'SIGNED',
+      status: 'EFFECTIVE',
       amount: 1000,
     },
   });

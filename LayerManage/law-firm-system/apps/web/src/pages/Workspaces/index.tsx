@@ -1,3 +1,4 @@
+import LifecycleTableControl from '@/features/workspaces/LifecycleTableControl';
 import Modal from '@/components/DraggableModal';
 import BaseModule from '@/features/workspaces/BaseModule';
 import { inventoryViewConfig } from '@/pages/Inventory/context';
@@ -61,6 +62,7 @@ type Dialog = {
   duplicate?: boolean;
 };
 type Editing = {
+  preview?: Record<string,unknown>;
   schemaVersion: number;
   row?: RecordRow;
   field?: Field;
@@ -76,6 +78,7 @@ export default function WorkspacesPage() {
 }
 
 export function WorkspaceEditor({ businessMode = false }: { businessMode?: boolean }) {
+  const canRequestRefund = useAuthStore(s => s.hasPermission('refund.create'));
   const [creatingLead, setCreatingLead] = useState(false);
   const unifiedShell = useUnifiedShell();
   const navigate = useNavigate();
@@ -616,7 +619,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       schemaVersion: detail?.table.schemaVersion || 1,
       row,
       field,
-      values: row ? { ...row.values } : {},
+      values: row ? { ...row.values } : Object.fromEntries((detail?.fields ?? []).filter(f=>f.writable && f.options.lifecycleKey && f.defaultValue != null).map(f=>[f.id,f.defaultValue])),
       key: crypto.randomUUID(),
     });
     const next = new URLSearchParams(params);
@@ -1034,6 +1037,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                 数据表
               </Button>
               <span>{detail?.table.name || '选择或新建数据表'}</span>
+              <LifecycleTableControl detail={detail} onChanged={refresh} />
               <Button type="text" icon={<ReloadOutlined />} aria-label="刷新数据" onClick={refresh} />
             </div>
             {detail && (
@@ -1390,6 +1394,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                             onCell: (row) => (row.group ? { colSpan: 0 } : {}),
                             render: (_: unknown, row: GridRow) => row.group ? null : <Space>
                               <Button size="small" disabled={inlineDirty} onClick={() => void openRecord(row)}>{row.writable !== false && fields.some(f => f.writable) ? '编辑' : '详情'}</Button>
+                              {row.lifecycle && <Button size="small" onClick={()=>navigate('/cases/'+row.lifecycle!.caseId)}>关联案件</Button>}
+                              {canRequestRefund && detail.table.lifecycleKind === 'CASE_REFUNDS' && row.lifecycle?.contractId && <Button size="small" onClick={()=>navigate('/refunds/new?'+new URLSearchParams({contract:row.lifecycle!.contractId!,case:row.lifecycle!.caseId,caseNo:row.lifecycle!.caseNo,workspace:detail.access.workspaceId}))}>申请财务退款</Button>}
                               {isBusinessSource(detail.table.source) && detail.table.source !== 'FOLLOWS' && <Button size="small" disabled={inlineDirty} onClick={() => { if (isBusinessSource(detail.table.source)) navigate(businessSources[detail.table.source].path + '/' + row.id); }}>办理</Button>}
                               {!detail.canDeleteRecords && <span className="workspace-muted" title="当前角色没有删除权限，或此业务流水须通过作废、冲销等业务操作处理">删除受限</span>}
                               {detail.canDeleteRecords && <Button size="small" danger disabled={inlineDirty || detail.access.level < 2} onClick={() => {
@@ -1793,9 +1799,11 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               {(editing.field ? [editing.field] : fields).map((f) => (
                 <Form.Item key={f.id} label={f.name} required={f.required}>
                   <FieldInput
-                    displayText={(editing.detail?.record ?? editing.row)?.displayValues?.[f.id]}
+                    onPreview={values=>setEditing(old=>old?{...old,preview:values}:old)}
+                    displayText={editing.preview && f.options.lifecycleKey ? undefined : (editing.detail?.record ?? editing.row)?.displayValues?.[f.id]}
                     field={f}
                     value={
+                      f.options.lifecycleKey && !f.writable && editing.preview ? editing.preview[f.options.lifecycleKey] :
                       f.options.businessKey && !f.writable
                         ? (editing.detail?.record.values[f.id] ?? editing.values[f.id])
                         : editing.values[f.id]
@@ -2001,6 +2009,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     label: '连接业务 · ' + businessSources[source].title,
                     disabled: (baseAccess?.level || 0) < 4,
                   })),
+                  { value: 'AFTER_SALES', label: '案件关联 · 售后管理表' },
+                  { value: 'CASE_REFUNDS', label: '售后关联 · 退费管理表' },
                   { value: 'BLANK', label: '空白数据表' },
                   { value: 'TASKS', label: '任务管理模板' },
                   { value: 'CONTACTS', label: '客户跟进模板' },

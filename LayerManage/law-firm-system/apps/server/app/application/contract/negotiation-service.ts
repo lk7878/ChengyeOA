@@ -1,3 +1,4 @@
+import { notifyDeliveryChange } from '../collaboration/delivery-change';
 import { crmTransaction } from '../crm/crm-transaction';
 // SPEC-010 Task 6: negotiation-service —— 谈案（CRM-07）创建/列表/详情/更新/完结。
 // 事务边界（设计 §6.2）：业务写入、EventLog（outbox append）、OperationLog 全部同事务。
@@ -71,6 +72,35 @@ const CLOSE_OUTCOMES = ['SIGNED', 'UNSIGNED'] as const;
 type CloseOutcome = (typeof CLOSE_OUTCOMES)[number];
 
 export class NegotiationService {
+  async deleteNegotiation(id: string, version: number, tx: Prisma.TransactionClient) {
+    this.authorization.requireAction(this.authorizationContext, 'negotiation.delete');
+    await tx.$queryRaw`SELECT id FROM negotiation WHERE id = ${id} FOR UPDATE`;
+    const scope = await buildNegotiationScopeWhere(
+      this.prisma,
+      this.authorization,
+      this.authorizationContext,
+      'negotiation.delete',
+    );
+    const row = await tx.negotiation.findFirst({ where: { AND: [scope, { id, deletedAt: null }] } });
+    if (!row) throw new MasterDataError('LIFECYCLE_NEGOTIATION_UNAVAILABLE', 404);
+    if (row.version !== version) throw new MasterDataError('VERSION_CONFLICT', 409);
+    if (row.status === 'SIGNED' || (await tx.contract.count({ where: { negotiationId: id } })))
+      throw new MasterDataError('LIFECYCLE_NEGOTIATION_IN_USE', 409);
+    await tx.negotiation.update({
+      where: { id },
+      data: { deletedAt: new Date(), version: { increment: 1 }, updatedBy: this.actor.actorUserId },
+    });
+    await tx.operationLog.create({
+      data: {
+        userId: this.actor.actorUserId,
+        action: 'NEGOTIATION_DELETE',
+        targetType: 'NEGOTIATION',
+        targetId: id,
+        newValues: JSON.stringify({ version: version + 1 }),
+      },
+    });
+    return { id, version: version + 1 };
+  }
   private readonly authorization: AuthorizationService;
   private readonly outbox: EventOutboxWriter;
 
@@ -292,6 +322,7 @@ export class NegotiationService {
         },
       });
       const after = await tx.negotiation.findUniqueOrThrow({ where: { id: negotiation.id } });
+      await notifyDeliveryChange(tx, this.actor.actorUserId, after.id);
       return projectNegotiation(after);
     });
   }
@@ -355,6 +386,7 @@ export class NegotiationService {
         },
       });
       const after = await tx.negotiation.findUniqueOrThrow({ where: { id: negotiation.id } });
+      await notifyDeliveryChange(tx, this.actor.actorUserId, after.id);
       return projectNegotiation(after);
     });
   }

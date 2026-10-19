@@ -1,3 +1,4 @@
+import LifecycleSelect from './LifecycleSelect';
 import { isInventoryDecimal } from './inventory-decimal';
 import { displayValue } from './display-value';
 import { useEffect, useState } from 'react';
@@ -14,6 +15,7 @@ export default function FieldInput({
   tableId,
   disabled,
   displayText,
+  onPreview,
 }: {
   field: Field;
   value: unknown;
@@ -22,6 +24,7 @@ export default function FieldInput({
   tableId: string;
   disabled?: boolean;
   displayText?: string;
+  onPreview?(values: Record<string, unknown>): void;
 }) {
   const [relations, setRelations] = useState<{ value: string; label: string }[]>([]);
   useEffect(() => {
@@ -44,7 +47,18 @@ export default function FieldInput({
       alive = false;
     };
   }, [field.type, field.options.targetTableId]);
-  if (disabled && field.options.businessKey)
+  if (field.options.lifecycleKey === 'upstreamId')
+    return (
+      <LifecycleSelect
+        tableId={tableId}
+        value={value}
+        onChange={onChange}
+        disabled={disabled || !field.writable}
+        label={displayText}
+        onPreview={onPreview}
+      />
+    );
+  if (disabled && (field.options.businessKey || field.options.lifecycleKey))
     return <Input disabled value={displayText ?? displayValue(field, value, directory)} />;
   if (field.type === 'BOOLEAN')
     return (

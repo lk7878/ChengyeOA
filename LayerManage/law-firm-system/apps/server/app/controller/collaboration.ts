@@ -25,6 +25,8 @@ export default class CollaborationController extends Controller {
       requestId: this.ctx.get('x-request-id') || randomUUID(),
     };
   }
+  async configureLifecycle() { this.respond(await this.collaborationService().configureLifecycle(this.ctx.params.tableId, this.ctx.request.body, this.key())); }
+  async lifecycleChoices() { this.respond(await this.collaborationService().lifecycleChoices(this.ctx.params.tableId, this.ctx.query)); }
   async contractChoices() {
     this.respond(await this.collaborationService().contractChoices(this.ctx.query));
   }
