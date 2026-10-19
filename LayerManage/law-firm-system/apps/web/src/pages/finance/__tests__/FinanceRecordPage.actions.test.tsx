@@ -88,7 +88,7 @@ test.each([
 ] as const)('%s %s exposes %s only to the authorized operator', async (kind, status, permission, label) => {
   permissions([(kind + '.read') as PermissionCode]);
   const view = open(kind, status);
-  await screen.findByText(record.amount, { exact: false });
+  await screen.findByText('9,999,999,999,999,999.99');
   expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument();
   view.unmount();
   permissions([(kind + '.read') as PermissionCode, permission]);

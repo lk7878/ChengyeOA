@@ -145,6 +145,7 @@ export default function SecuritySettingsPage() {
       <Typography.Title level={2}>账号安全</Typography.Title>
       <Space orientation="vertical" size="large" style={{ width: '100%' }}>
         <Card title="多因素验证" loading={loading}>
+          <Typography.Paragraph>退费审批等操作使用身份验证器中的六位动态验证码。请先在自己的手机身份验证器中绑定本账号；验证码不会显示在 OA 审批页面，也不会通过短信发送。</Typography.Paragraph>
           {status && <>
             <Descriptions items={[
               { key: 'state', label: '状态', children: <Tag color={status.enabled ? 'success' : 'default'}>{status.enabled ? '已启用' : '未启用'}</Tag> },
@@ -155,9 +156,9 @@ export default function SecuritySettingsPage() {
               <Button aria-label="重新生成恢复码" onClick={() => setRegenConfirm(true)}>重新生成恢复码</Button>
               {!isAdministrator && <Button danger aria-label="停用 MFA" onClick={() => setDisableConfirm(true)}>停用 MFA</Button>}
             </Space>}
-            {!status.enabled && !isAdministrator && (
-              <Button type="primary" aria-label="启用 MFA" onClick={() => void startEnrollment()}>
-                启用 MFA
+            {!status.enabled && (
+              <Button type="primary" aria-label="绑定身份验证器" onClick={() => void startEnrollment()}>
+                绑定身份验证器
               </Button>
             )}
           </>}

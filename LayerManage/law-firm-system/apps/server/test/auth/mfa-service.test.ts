@@ -21,7 +21,7 @@ let userId: string;
 let username: string;
 let now: Date;
 
-function services() {
+function services(localPasswordLogin = false) {
   const challenges = new AuthChallengeService(prisma, () => new Date(now));
   const secretCrypto = new MfaSecretCrypto(new Map([[1, key]]));
   return {
@@ -36,6 +36,7 @@ function services() {
       new StepUpService(prisma, new TotpService(), secretCrypto, undefined, () => new Date(now)),
       undefined,
       () => new Date(now),
+      localPasswordLogin,
     ),
   };
 }
@@ -281,4 +282,20 @@ test('reports factor state and remaining recovery codes', async () => {
   assert.equal(status.enabled, true);
   assert.deepEqual(status.verifiedAt, now);
   assert.equal(status.recoveryCodesRemaining, 9);
+});
+
+
+test('local password administrator can bind MFA but cannot replace a verified factor or use a revoked session', async () => {
+  const role = await prisma.role.create({data:{code:'SYSTEM_SUPER_ADMIN',name:'Super Admin',type:'SYSTEM'}});
+  await prisma.userRole.create({data:{userId,roleId:role.id}});
+  const claims = await activeClaims(userId);
+  const mfa = services(true).mfa;
+  const challenge = await mfa.startOptionalEnrollment(claims);
+  const enrollment = await mfa.beginEnrollment(challenge.challengeToken);
+  const verified = await mfa.confirmEnrollment(challenge.challengeToken, totpCode(enrollment.secret, now));
+  assert.equal(verified.assuranceLevel, 'MFA');
+  assert.ok((await mfa.status(userId)).enabled);
+  await assert.rejects(()=>mfa.startOptionalEnrollment(claims), hasCode('MFA_INVALID'));
+  const fresh = await activeClaims(userId,'MFA');
+  await assert.rejects(()=>mfa.startOptionalEnrollment(fresh), hasCode('MFA_INVALID'));
 });

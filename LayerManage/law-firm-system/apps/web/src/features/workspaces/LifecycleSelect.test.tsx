@@ -49,5 +49,5 @@ test('upstream permission failures stay visible; synchronized fields cannot be e
       directory={{ organizations: [], employees: [], teams: [], users: [] }}
     />,
   );
-  expect(screen.getByDisplayValue('1200.00')).toBeDisabled();
+  expect(screen.getByDisplayValue('1,200.00')).toBeDisabled();
 });

@@ -237,7 +237,7 @@ export class AuthenticationService {
       }),
     ]);
     if (!user) throw authenticationFailed();
-    if (this.localPasswordLogin) return this.completeAuthentication(userId, 'PASSWORD', metadata);
+    if (this.localPasswordLogin && !factor) return this.completeAuthentication(userId, 'PASSWORD', metadata);
     if (factor) {
       const challenge = await this.challenges.issue(userId, 'MFA_VERIFY');
       return { mode: 'MFA_CHALLENGE_REQUIRED', challengeToken: challenge.token, expiresIn: 300 };

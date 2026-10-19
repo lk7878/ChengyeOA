@@ -1,3 +1,4 @@
+import { formatMoney, formatBusinessDate, refundStatusLabels } from '@/utils/business-format';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -260,7 +261,7 @@ function FinanceDetail({ id, kind }: { id: string; kind: FinanceKind }) {
         record && (
           <>
             <Space wrap style={{ marginBottom: 16 }}>
-              {'status' in record && <Tag>{statusNames[record.status] || record.status}</Tag>}
+              {'status' in record && <Tag>{(kind === 'refund' ? refundStatusLabels[record.status] : statusNames[record.status]) || record.status}</Tag>}
               {available
                 .filter((name) => hasPermission(permission(name)))
                 .map((name) => (
@@ -289,7 +290,7 @@ function FinanceDetail({ id, kind }: { id: string; kind: FinanceKind }) {
                           ? record.requestNo
                           : record.id,
                   },
-                  { key: 'amount', label: '金额（元）', children: record.amount },
+                  { key: 'amount', label: '金额（元）', children: formatMoney(record.amount) },
                   ...('category' in record
                     ? [
                         {
@@ -350,7 +351,7 @@ function FinanceDetail({ id, kind }: { id: string; kind: FinanceKind }) {
                         {
                           key: 'paidAt',
                           label: '收款时间',
-                          children: record.paidAt ? dayjs(record.paidAt).format('YYYY-MM-DD HH:mm') : '—',
+                          children: record.paidAt ? formatBusinessDate(record.paidAt) : '—',
                         },
                       ]
                     : []),
@@ -362,7 +363,7 @@ function FinanceDetail({ id, kind }: { id: string; kind: FinanceKind }) {
                         {
                           key: 'occurredAt',
                           label: '发生时间',
-                          children: dayjs(record.occurredAt).format('YYYY-MM-DD HH:mm'),
+                          children: formatBusinessDate(record.occurredAt),
                         },
                       ]
                     : []),
@@ -402,12 +403,12 @@ function FinanceDetail({ id, kind }: { id: string; kind: FinanceKind }) {
                   {
                     key: 'created',
                     label: '创建时间',
-                    children: dayjs(record.createdAt).format('YYYY-MM-DD HH:mm'),
+                    children: formatBusinessDate(record.createdAt),
                   },
                   {
                     key: 'updated',
                     label: '更新时间',
-                    children: dayjs(record.updatedAt).format('YYYY-MM-DD HH:mm'),
+                    children: formatBusinessDate(record.updatedAt),
                   },
                 ]}
               />

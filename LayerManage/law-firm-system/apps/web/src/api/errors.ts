@@ -116,7 +116,13 @@ const messages: Record<string, string> = {
   ACCOUNT_BINDING_CONFLICT: '该员工或账号已存在绑定关系',
   REPORTING_LINE_CYCLE: '汇报关系不能形成循环，请重新选择上级',
   MFA_ENROLLMENT_REQUIRED: '此操作需要先绑定身份验证器',
-  STEP_UP_REQUIRED: '此操作需要完成身份验证',
+  STEP_UP_REQUIRED: '当前会话未完成多因素验证，请绑定验证器或退出后重新登录',
+  STEP_UP_INVALID: '验证码无效、已过期或已使用，请等待验证器生成新的六位验证码后重试',
+  MFA_INVALID: '验证码无效，请检查账号并使用验证器中的当前验证码',
+  MFA_REQUIRED: '请退出后重新登录，并完成身份验证器验证',
+  MFA_RATE_LIMITED: '验证失败次数过多，请稍后重新验证',
+  STEP_UP_EXPIRED: '身份验证已过期，请重新验证',
+  STEP_UP_TARGET_MISMATCH: '操作目标或版本已变化，请刷新后重新操作',
 };
 
 type RequestFailure = { response?: { status?: number; data?: { message?: string; errors?: { organizationDeleteBlockers?: unknown } } } };

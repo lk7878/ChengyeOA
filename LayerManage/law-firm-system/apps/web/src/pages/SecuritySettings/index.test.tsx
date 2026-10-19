@@ -73,7 +73,7 @@ test('allows an ordinary user to start and complete optional MFA enrollment', as
   });
   render(<SecuritySettingsPage />);
 
-  fireEvent.click(await screen.findByRole('button', { name: '启用 MFA' }));
+  fireEvent.click(await screen.findByRole('button', { name: '绑定身份验证器' }));
   await waitFor(() => expect(authApi.startMfaEnrollment).toHaveBeenCalledOnce());
   fireEvent.click(await screen.findByRole('button', { name: 'complete optional enrollment' }));
 
@@ -113,4 +113,12 @@ test('binds session revoke and logout-all grants to the intended targets', async
     { purpose: 'SESSION_REVOKE', target: { sessionId: 's2' } },
     { purpose: 'SESSION_REVOKE_ALL', target: { userId: 'u1' } },
   ]);
+});
+
+
+test('unbound local administrator has an enrollment entry while disabling MFA stays unavailable', async()=>{
+ setUser(true);vi.mocked(authApi.mfaStatus).mockResolvedValue({data:{enabled:false,verifiedAt:null,recoveryCodesRemaining:0}} as never);
+ render(<SecuritySettingsPage/>);fireEvent.click(await screen.findByRole('button',{name:'绑定身份验证器'}));
+ await waitFor(()=>expect(authApi.startMfaEnrollment).toHaveBeenCalledOnce());
+ expect(screen.queryByRole('button',{name:'停用 MFA'})).not.toBeInTheDocument();
 });

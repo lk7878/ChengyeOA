@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button, Space, message } from 'antd';
 import AttachmentItem from './AttachmentItem';
 import FieldInput from './FieldInput';
-import { displayValue } from './display-value';
+import { displayValue, fieldHint } from './display-value';
 import { errorMessage, errorStatus, get, patch } from './api';
 import type { Directory, Field, RecordDetail, RecordRow } from './types';
 
@@ -43,7 +43,7 @@ export default function GridCell({
       ),
   );
   const readonlyReason = !field.writable
-    ? field.options.businessKey
+    ? field.options.lifecycleKey ? fieldHint(field) : field.options.businessKey
       ? workflow
         ? '此字段由业务流程维护，点击办理；系统将校验操作权限和状态。'
         : '业务关联或系统字段只读；可在详情中查看相关资料。'

@@ -43,7 +43,7 @@ import type {
 } from '@/features/workspaces/types';
 import { fieldNames } from '@/features/workspaces/types';
 import FieldInput from '@/features/workspaces/FieldInput';
-import { displayValue } from '@/features/workspaces/display-value';
+import { displayValue, fieldLabel, fieldHint } from '@/features/workspaces/display-value';
 import PasteDialog from '@/features/workspaces/PasteDialog';
 import type { PasteSnapshot } from '@/features/workspaces/clipboard';
 import { groupedRows, type GridRow } from '@/features/workspaces/grouping';
@@ -1338,14 +1338,15 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                             title: (
                               <button
                                 className="workspace-field-heading"
+                                title={fieldHint(f)}
                                 onClick={() =>
                                   canManage &&
                                   !f.options.businessKey &&
                                   openDialog({ kind: 'field', field: f })
                                 }
                               >
-                                {f.name}
-                                {f.required ? ' *' : ''}
+                                {fieldLabel(f)}
+                                {f.required && f.writable ? ' *' : ''}
                               </button>
                             ),
                             key: f.id,
@@ -1797,7 +1798,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               )}
             <Form layout="vertical">
               {(editing.field ? [editing.field] : fields).map((f) => (
-                <Form.Item key={f.id} label={f.name} required={f.required}>
+                <Form.Item key={f.id} label={fieldLabel(f)} required={f.required && f.writable && editing.row?.writable !== false} extra={fieldHint(f)}>
                   <FieldInput
                     onPreview={values=>setEditing(old=>old?{...old,preview:values}:old)}
                     displayText={editing.preview && f.options.lifecycleKey ? undefined : (editing.detail?.record ?? editing.row)?.displayValues?.[f.id]}

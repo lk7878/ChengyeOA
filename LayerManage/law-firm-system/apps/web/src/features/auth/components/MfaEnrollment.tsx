@@ -74,6 +74,7 @@ export default function MfaEnrollment({ challengeToken, onAuthenticated, onExpir
   return (
     <Spin spinning={loading}>
       <Typography.Title level={4}>绑定身份验证器</Typography.Title>
+      <Typography.Paragraph>在手机身份验证器中添加账号，扫描下方二维码或输入密钥，再填写验证器生成的六位验证码。绑定完成后，登录和退费审批均使用该验证器；每次请使用新生成的验证码。</Typography.Paragraph>
       {error && <Alert role="alert" type="error" title={error} />}
       {qr && <img src={qr} alt="身份验证器二维码" width={220} height={220} />}
       <Typography.Paragraph copyable={{ text: manualKey }}>

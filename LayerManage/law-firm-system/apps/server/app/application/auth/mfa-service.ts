@@ -39,6 +39,7 @@ export class MfaService {
     private readonly stepUp: StepUpService,
     private readonly auditWriter: AuditWriter = writeAuditLog,
     private readonly clock: () => Date = () => new Date(),
+    private readonly localPasswordLogin = false,
   ) {}
 
   async beginEnrollment(challengeToken: string): Promise<{
@@ -127,7 +128,7 @@ export class MfaService {
       || session.revokedAt
       || session.expiresAt.getTime() <= now.getTime()
       || user.mfaFactors.length > 0
-      || isAdministrator
+      || (isAdministrator && !this.localPasswordLogin)
     ) {
       throw new SecurityError('MFA_INVALID', 403);
     }

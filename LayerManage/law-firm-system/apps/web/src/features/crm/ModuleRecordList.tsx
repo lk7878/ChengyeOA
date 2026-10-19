@@ -1,3 +1,4 @@
+import { formatMoney, formatBusinessDate, refundStatusLabels } from '@/utils/business-format';
 import { useEffect, useState } from 'react';
 import { Alert, Button, Input, Space, Table } from 'antd';
 import Modal from '@/components/DraggableModal';
@@ -116,12 +117,13 @@ export default function ModuleRecordList({ source }: { source: Exclude<BusinessS
           },
         }}
         columns={[
-          ...definition.columns.map(([dataIndex, title]) => ({ dataIndex, title, render: recordCell })),
+          ...definition.columns.map(([dataIndex, title]) => ({ dataIndex, title: ['amount', 'fee', 'quotedAmount'].includes(dataIndex) && !title.includes('元') ? title + '（元）' : title,
+            render: (value: unknown) => ['amount', 'fee', 'quotedAmount'].includes(dataIndex) ? formatMoney(value) : source === 'REFUNDS' && dataIndex === 'status' ? refundStatusLabels[String(value)] || recordCell(value) : recordCell(value) })),
           {
             title: '创建时间',
             dataIndex: 'createdAt',
             render: (value: unknown) =>
-              typeof value === 'string' ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—',
+              formatBusinessDate(value),
           },
           {
             title: '操作',

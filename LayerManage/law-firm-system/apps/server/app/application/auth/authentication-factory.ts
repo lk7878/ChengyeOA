@@ -43,6 +43,9 @@ export function createAuthenticationServices(ctx: Context): AuthenticationServic
     secretCrypto,
     hasher,
     stepUp,
+    undefined,
+    undefined,
+    config.identitySecurity.localPasswordLogin === true,
   );
   return {
     authentication: new AuthenticationService(

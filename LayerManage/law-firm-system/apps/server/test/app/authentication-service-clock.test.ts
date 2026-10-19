@@ -202,14 +202,14 @@ test('administrator MFA stays required by default', async () => {
   }
 });
 
-test('local password login lets administrators sign in with or without an existing MFA factor', async () => {
+test('local password login preserves the MFA challenge once a factor has been bound', async () => {
   for (const verifiedFactor of [false, true]) {
     const harness = createHarness({
       passwordMatches: true, failedLoginCount: 0, lockedUntil: null,
       administrator: true, verifiedFactor, localPasswordLogin: true,
     });
-    assert.equal((await harness.service.login('root.admin', 'Correct-Horse-92', {})).mode, 'AUTHENTICATED');
-    assert.equal(harness.logs[0].data.outcome, 'SUCCESS');
+    assert.equal((await harness.service.login('root.admin', 'Correct-Horse-92', {})).mode, verifiedFactor ? 'MFA_CHALLENGE_REQUIRED' : 'AUTHENTICATED');
+    if (!verifiedFactor) assert.equal(harness.logs[0].data.outcome, 'SUCCESS');
   }
 });
 

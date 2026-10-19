@@ -7,9 +7,31 @@ import {
   CUSTOMER_TYPE_META,
 } from '@/pages/leads/meta';
 import type { Directory, Field } from './types';
+import { formatMoney, formatBusinessDate, refundStatusLabels } from '@/utils/business-format';
+export const fieldLabel = (field: Field) =>
+  field.type === 'CURRENCY' && !/[元¥￥]/.test(field.name)
+    ? field.name.endsWith('（同步）')
+      ? field.name.replace(/（同步）$/, '（元，同步）')
+      : field.name + '（元）'
+    : field.name;
+export function fieldHint(field: Field) {
+  if (field.options.lifecycleKey && !field.writable) return '由上游业务实时同步；请到原业务记录修改。';
+  if (field.options.businessKey && !field.writable) return '由关联业务或业务流程维护，当前字段只读。';
+  if (!field.writable) return '系统字段或当前权限为只读。';
+  return field.type === 'CURRENCY'
+    ? '单位：元，最多两位小数。'
+    : ['DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(field.type)
+      ? '按北京时间显示。'
+      : undefined;
+}
 
 export function displayValue(field: Field, value: unknown, directory: Directory): string {
   if (value === null || value === undefined || value === '') return '';
+  if (field.type === 'CURRENCY') return formatMoney(value);
+  if (['DATE', 'DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(field.type))
+    return formatBusinessDate(value, field.type === 'DATE');
+  if (field.options.businessSource === 'REFUNDS' && field.options.businessKey === 'status')
+    return refundStatusLabels[String(value)] || String(value);
   if (['PAYMENTS', 'INVOICES', 'REFUNDS', 'COSTS'].includes(field.options.businessSource || '')) {
     const names: Record<string, Record<string, string>> = {
       status: {

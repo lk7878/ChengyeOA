@@ -7,7 +7,7 @@ import { MemoryRouter, Routes, Route } from 'react-router';
 import FinanceRecordPage from '../FinanceRecordPage';
 vi.mock('@/features/crm/BusinessWorkspacePage', () => ({ BusinessTableLinks: () => null }));
 
-vi.mock('@/api/auth', () => ({ authApi: { stepUp: vi.fn() } }));
+vi.mock('@/api/auth', () => ({ authApi: { stepUp: vi.fn(), mfaStatus: vi.fn(), sessions: vi.fn() } }));
 vi.mock('@/api/refund', () => ({
   refundApi: {
     create: vi.fn(),
@@ -61,6 +61,8 @@ function setPermissions(permissions: string[]): void {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(authApi.mfaStatus).mockResolvedValue({data:{enabled:true}} as never);
+  vi.mocked(authApi.sessions).mockResolvedValue({data:[{current:true,assuranceLevel:'MFA'}]} as never);
   vi.mocked(refundApi.detail).mockResolvedValue({ code: 200, message: 'OK', data: pendingRefund });
   setPermissions(['refund.read', 'refund.create', 'refund.approve', 'refund.execute']);
   vi.mocked(refundApi.list).mockResolvedValue({
@@ -90,6 +92,7 @@ async function openApproveDialog(): Promise<void> {
   );
   fireEvent.click(await screen.findByRole('button', { name: '审批通过' }));
   fireEvent.click(await screen.findByRole('button', { name: '确认办理' }));
+  await screen.findByLabelText('当前六位验证码');
 }
 
 test('approve button opens a REFUND_APPROVE step-up challenge before any API call', async () => {

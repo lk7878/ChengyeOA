@@ -1,3 +1,4 @@
+import { formatMoney } from '@/utils/business-format';
 import { useEffect, useState } from 'react';
 import { Alert, Button, Select, Space, Table } from 'antd';
 import { Link } from 'react-router';
@@ -94,7 +95,7 @@ export default function NegotiationList() {
             dataIndex: 'status',
             render: (value: NegotiationStatus) => NEGOTIATION_STATUS_META[value].text,
           },
-          { title: '报价金额', dataIndex: 'quotedAmount', render: (value) => value ?? '—' },
+          { title: '报价金额（元）', dataIndex: 'quotedAmount', render: formatMoney },
           { title: '未签原因', dataIndex: 'unsignedReason', render: (value) => value || '—' },
           { title: '操作', render: (_, row) => <Link to={'/negotiations/' + row.id}>详情与办理</Link> },
         ]}
