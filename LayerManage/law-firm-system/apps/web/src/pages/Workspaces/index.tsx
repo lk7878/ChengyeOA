@@ -1,3 +1,4 @@
+import { createRefreshScheduler } from '@/features/workspaces/refresh-scheduler';
 import LifecycleTableControl from '@/features/workspaces/LifecycleTableControl';
 import Modal from '@/components/DraggableModal';
 import BaseModule from '@/features/workspaces/BaseModule';
@@ -136,6 +137,11 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   const dirtyRef = useRef(false);
   const inlineDirtyRef = useRef(false);
   const draftRef = useRef(false);
+  const refreshPausedRef = useRef(false);
+  const loadedTableRef = useRef('');
+  useEffect(() => {
+    refreshPausedRef.current = configDirty || inlineDirty || !!editing || !!paste || busy || !!settings || !!dialog || creatingLead;
+  }, [configDirty, inlineDirty, editing, paste, busy, settings, dialog, creatingLead]);
   useEffect(() => {
     dirtyRef.current = configDirty;
     inlineDirtyRef.current = inlineDirty;
@@ -225,12 +231,12 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
           setDetail(undefined);
           return;
         }
-        if (!inlineDirtyRef.current) setDetail(r);
+        if (!draftRef.current) setDetail(r);
         const v =
           r.views.find((v) => v.id === selectedViewId) ||
           r.views.find((v) => v.id === r.preferredViewId) ||
           r.views.find((v) => v.isDefault);
-        if (v && (currentView.current !== v.id || (!dirtyRef.current && !inlineDirtyRef.current))) {
+        if (v && (currentView.current !== v.id || (!dirtyRef.current && !draftRef.current))) {
           if (currentView.current !== v.id) setPage(1);
           currentView.current = v.id;
           setConfig(v.config);
@@ -257,9 +263,9 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   useEffect(() => {
     let alive = true;
     if (!tableId || !detail || detail.table.id !== tableId) return;
-    // Loading state follows this authenticated request, including SSE refreshes.
+    // Only initial loading blocks the grid; background updates keep existing rows interactive.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoading(true);
+    setLoading(loadedTableRef.current !== tableId);
     setQueryError('');
     let queryConfig: ViewConfig;
     try {
@@ -284,7 +290,10 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       pageSize: 50,
     })
       .then((r) => {
-        if (alive && !inlineDirtyRef.current) setResult(r);
+        if (alive && !draftRef.current) {
+          loadedTableRef.current = tableId;
+          setResult(r);
+        }
       })
       .catch((e) => {
         if (alive) {
@@ -302,11 +311,16 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
     return () => {
       alive = false;
     };
-  }, [tableId, detail, view?.id, config, page, revision, financeContractId, financeCaseId, params]);
+  }, [tableId, detail, view?.id, config, page, financeContractId, financeCaseId, params]);
   useEffect(() => {
     if (!baseId) return;
     let stopped = false,
       connecting = false;
+    const updates = createRefreshScheduler(refresh, () =>
+      refreshPausedRef.current || inlineDirtyRef.current || document.visibilityState === 'hidden',
+    );
+    let connectedOnce = false;
+    let reconnectDelay = 10_000;
     let attempt: AbortController | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const schedule = (delay: number) => {
@@ -328,7 +342,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
             if (stopped) return;
             if (kind === 'ready') {
               setConnection('实时同步已连接');
-              refresh();
+              if (connectedOnce) updates.queue();
+              connectedOnce = true;
             }
             if (kind === 'invalidate') {
               if ((payload as { kind?: string }).kind === 'access.updated') {
@@ -340,8 +355,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                 setPaste(undefined);
                 setSettings(null);
                 setDialog(undefined);
-              }
-              refresh();
+                refresh();
+              } else updates.queue();
             }
             if (kind === 'presence') setOnline((payload as { users: { id: string; name: string }[] }).users);
             if (kind === 'revoked') {
@@ -362,6 +377,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               setQueryError('访问权限或会话已失效，请重新打开工作区。');
               setConnection('连接已失效');
               stopped = true;
+              updates.dispose();
               attempt?.abort();
             }
           },
@@ -374,7 +390,10 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
         if (!stopped) {
           setOnline([]);
           setConnection(navigator.onLine ? '连接中断，正在重连' : '网络已断开，未提交草稿已保留');
-          if (navigator.onLine) schedule(2000);
+          if (navigator.onLine) {
+            schedule(reconnectDelay);
+            reconnectDelay = Math.min(reconnectDelay * 2, 60_000);
+          }
         }
       }
     };
@@ -393,6 +412,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
     else offline();
     return () => {
       stopped = true;
+      updates.dispose();
       clearTimeout(timer);
       attempt?.abort();
       window.removeEventListener('offline', offline);

@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import Modal from '@/components/DraggableModal';
 import { WorkspaceEditor } from './index';
-import { get, patch, post } from '@/features/workspaces/api';
+import { get, patch, post, streamEvents } from '@/features/workspaces/api';
 
 vi.mock('@/features/workspaces/api', () => ({
   get: vi.fn(),
@@ -11,9 +11,10 @@ vi.mock('@/features/workspaces/api', () => ({
   patch: vi.fn(),
   errorMessage: () => '失败',
   errorStatus: () => 500,
-  streamEvents: () => new Promise(() => {}),
+  streamEvents: vi.fn(() => new Promise(() => {})),
 }));
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   cleanup();
   vi.clearAllMocks();
@@ -55,6 +56,23 @@ test.each(['NEGOTIATIONS', 'CUSTOMERS', 'CASES', 'CONTRACTS', 'CUSTOM'])(
     );
     expect(await screen.findByRole('tab', { name: '总表' })).toBeInTheDocument();
     expect(screen.queryByText('选择或新建数据表')).not.toBeInTheDocument();
+    if (source === 'CASES') {
+      const notify = vi.mocked(streamEvents).mock.calls[0][2];
+      const count = () => vi.mocked(get).mock.calls.filter(([url]) => url === '/tables/t').length;
+      const baseline = count();
+      vi.useFakeTimers();
+      await act(async () => {
+        notify('ready', {});
+        for (let i = 0; i < 20; i++) notify('invalidate', {kind:'record.updated'});
+        await vi.advanceTimersByTimeAsync(29_999);
+      });
+      expect(count()).toBe(baseline);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(count()).toBe(baseline + 1);
+      await act(async () => { notify('invalidate', {kind:'access.updated'}); });
+      expect(count()).toBe(baseline + 2);
+      vi.useRealTimers();
+    }
   },
 );
 
