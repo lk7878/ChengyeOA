@@ -5,8 +5,8 @@ import path from 'node:path';
 import { normalizeIntake, prepareAttachments, persistAttachments, cleanAttachments } from '../../app/application/case/case-intake';
 
 test('intake normalizes exact monetary precision, dates, enums and custom proceedings', () => {
-  assert.deepEqual(normalizeIntake({ fixedAgencyFee: '9999999999999999.99', riskAgencyRatio: '10.5', signedDate: '2024-02-29', agencyProcedure: '自定义', customProcedure: '自定义测试' }), {
-    fixedAgencyFee: '9999999999999999.99', riskAgencyRatio: '10.50', signedDate: '2024-02-29', agencyProcedure: '自定义', customProcedure: '自定义测试',
+  assert.deepEqual(normalizeIntake({ fixedAgencyFee: '9999999999999999.99', riskAgencyRatio: '10.5', signedDate: '2024-02-29', agencyProcedure: '代书' }), {
+    fixedAgencyFee: '9999999999999999.99', riskAgencyRatio: '10.50', signedDate: '2024-02-29', agencyProcedure: '代书',
   });
   for (const data of [{ fixedAgencyFee: '-1' }, { refundAmount: '0.001' }, { riskAgencyRatio: '101' }, { signedDate: '2026-02-30' }, { caseCategory: '无效' }, { agencyProcedure: '自定义' }, { bogus: 'x' }, { customerPhone: 'abc' }]) {
     assert.throws(() => normalizeIntake(data), { code: 'VALIDATION_FAILED' });

@@ -4,7 +4,7 @@ import LifecycleSelect from './LifecycleSelect';
 import FieldInput from './FieldInput';
 import { get } from './api';
 import type { Field } from './types';
-vi.mock('./api', () => ({ get: vi.fn(), post: vi.fn(), errorMessage: () => '关联记录不可访问' }));
+vi.mock('./api', () => ({ get: vi.fn(), post: vi.fn(), authenticatedFetch: vi.fn(), errorMessage: () => '关联记录不可访问' }));
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -50,4 +50,14 @@ test('upstream permission failures stay visible; synchronized fields cannot be e
     />,
   );
   expect(screen.getByDisplayValue('1,200.00')).toBeDisabled();
+});
+
+
+test('read-only refund receipt lookup keeps attachment preview available without upload controls', async()=>{
+  vi.mocked(get).mockResolvedValue({name:'退款凭证.pdf',mimeType:'application/pdf'});
+  const field:Field={id:'receipt',name:'退款凭证',type:'FILE',required:false,writable:false,archived:false,position:0,defaultValue:null,options:{lifecycleKey:'refundReceiptLookup'}};
+  render(<FieldInput field={field} value={['receipt-file']} disabled onChange={vi.fn()} tableId="refund-table" directory={{organizations:[],employees:[],teams:[],users:[]}} />);
+  expect(await screen.findByRole('button',{name:'退款凭证.pdf'})).toBeEnabled();
+  expect(get).toHaveBeenCalledWith('/tables/refund-table/files/receipt-file?metadata=true');
+  expect(screen.queryByText('上传附件')).not.toBeInTheDocument();
 });

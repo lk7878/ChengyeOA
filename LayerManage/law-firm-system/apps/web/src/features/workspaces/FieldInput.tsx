@@ -58,6 +58,9 @@ export default function FieldInput({
         onPreview={onPreview}
       />
     );
+  if (disabled && field.type === 'FILE')
+    return <Space orientation="vertical">{(Array.isArray(value) ? value : []).map(id =>
+      <AttachmentItem key={String(id)} tableId={tableId} id={String(id)} />)}</Space>;
   if (disabled && (field.options.businessKey || field.options.lifecycleKey))
     return <Input disabled value={displayText ?? displayValue(field, value, directory)} />;
   if (field.type === 'BOOLEAN')

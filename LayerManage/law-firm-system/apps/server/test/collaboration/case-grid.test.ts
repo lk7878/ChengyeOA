@@ -83,7 +83,7 @@ test.beforeEach(async () => {
       },
     })
   ).id;
-  await db.collabField.create({ data: { tableId: table, name: '备注', type: 'TEXT' } });
+  await db.collabField.create({ data: { tableId: table, name: '扩展备注', type: 'TEXT' } });
   fields = Object.fromEntries(
     (await db.collabField.findMany({ where: { tableId: table } })).map((f) => [
       String((f.options as { businessKey?: string } | null)?.businessKey ?? 'extra'),

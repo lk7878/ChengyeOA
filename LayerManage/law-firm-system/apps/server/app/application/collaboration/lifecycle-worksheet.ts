@@ -1,3 +1,5 @@
+import { INTAKE_OPTIONS } from '../case/intake-contract';
+import { auditRawL3Access } from '../crm/lead-audit';
 import { AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
 import { buildContractScopeWhere } from '../contract/contract-scope';
@@ -11,20 +13,94 @@ type Tx = Prisma.TransactionClient;
 export const lifecycleKinds = ['AFTER_SALES', 'CASE_REFUNDS'] as const;
 export type LifecycleKind = (typeof lifecycleKinds)[number];
 export const lifecycleKey = (f: CollabField) => String(object(f.options).lifecycleKey ?? '');
-export const syncedLifecycleKeys = ['contractNo', 'caseNo', 'caseTitle', 'customerName', 'contractAmount'];
+export const syncedLifecycleKeys = [
+  'contractNo',
+  'caseNo',
+  'caseTitle',
+  'customerName',
+  'contractAmount',
+  'signedDate',
+  'caseCategory',
+  'agencyProcedure',
+  'customerPhone',
+  'handlingLawyer',
+  'caseCause',
+  'terminated',
+  'feeTotalLookup',
+  'refundReceiptLookup',
+];
 export function lifecycleFields(kind: LifecycleKind) {
   const specs: Array<[string, string, string, boolean, unknown?]> = [
-    ['upstreamId', kind === 'AFTER_SALES' ? '关联案件（案件ID）' : '关联售后（售后记录ID）', 'TEXT', true],
+    ['signedDate', '签约日期', 'DATETIME', false],
+    ['customerName', '客户姓名', 'TEXT', false],
+    ['caseCategory', '案件类型', 'TEXT', false],
+    ['agencyProcedure', '代理程序', 'MULTI_SELECT', false],
+    ['upstreamId', '合同编号', 'TEXT', true],
+    ['customerPhone', '客户电话', 'TEXT', false],
+    ['handlingLawyer', '承办律师', 'TEXT', false],
+    ['caseCause', '案由', 'TEXT', false],
+  ];
+  if (kind === 'AFTER_SALES')
+    specs.push(
+      ['feeTotal', '收费总金额', 'TEXT', false],
+      ['terminated', '是否解除合同', 'SINGLE_SELECT', false],
+      ['refundAmount', '退费金额', 'CURRENCY', false],
+      ['refundReceipt', '退款凭证', 'FILE', false],
+      ['refundReason', '退费原因', 'TEXT', false],
+      ['closed', '是否结案', 'SINGLE_SELECT', false],
+      ['reportMonth', '汇报月份', 'DATETIME', false],
+      ['afterSalesSource', '售后来源', 'SINGLE_SELECT', false],
+      ['review', '复盘情况', 'TEXT', false],
+      ['content', '当事人诉求', 'TEXT', true],
+      ['problemCause', '问题缘由', 'SINGLE_SELECT', false],
+      ...Array.from({ length: 6 }, (_, i): [string, string, string, boolean] => [
+        'handling' + (i + 1),
+        '处理情况' + (i + 1),
+        'TEXT',
+        false,
+      ]),
+      ['createdAt', '创建时间', 'CREATED_AT', false],
+      ['updatedAt', '最新更新时间', 'UPDATED_AT', false],
+    );
+  else
+    specs.push(
+      ['terminated', '是否解除合同', 'SINGLE_SELECT', false],
+      ['feeTotalLookup', '收费总金额', 'TEXT', false],
+      ['amount', '申请退款金额', 'CURRENCY', true],
+      ['recipientName', '退款人姓名', 'TEXT', false],
+      ['recipientBank', '退款人开户行', 'TEXT', false],
+      ['recipientAccount', '退款人银行账号', 'TEXT', false],
+      ['bankCardFiles', '银行卡附件', 'FILE', false],
+      ['lawyerWork', '律师工作内容', 'TEXT', false],
+      ['lawyerWorkFiles', '律师工作文书材料', 'FILE', false],
+      ['interview', '面谈记录', 'TEXT', false],
+      ['interviewFiles', '面谈记录材料', 'FILE', false],
+      ['content', '退案事由', 'TEXT', true],
+      ['terminationFiles', '解除委托代理协议', 'FILE', false],
+      ['interviewer', '面谈人', 'TEXT', false],
+      ['departmentInterview', '部门负责人面谈结果', 'TEXT', false],
+      ['refundReceiptLookup', '退款凭证', 'FILE', false],
+      ['createdAt', '记录创建时间', 'CREATED_AT', false],
+      ['updatedAt', '最近更新记录', 'UPDATED_AT', false],
+      ['remark', '备注', 'TEXT', false],
+    );
+  const visibleCount = specs.length;
+  // Keep workflow and historical keys available in detail/settings, outside the requested grid layout.
+  specs.push(
+    ['status', kind === 'AFTER_SALES' ? '协商状态' : '退费办理状态', 'SINGLE_SELECT', true, 'OPEN'],
     ['contractNo', '合同编号（同步）', 'TEXT', false],
     ['caseNo', '案件编号（同步）', 'TEXT', false],
     ['caseTitle', '案件名称（同步）', 'TEXT', false],
-    ['customerName', '客户名称（同步）', 'TEXT', false],
     ['contractAmount', '合同金额（同步）', 'CURRENCY', false],
-    ['content', kind === 'AFTER_SALES' ? '售后问题' : '退费原因', 'LONG_TEXT', true],
-    ['status', kind === 'AFTER_SALES' ? '协商状态' : '退费办理状态', 'SINGLE_SELECT', true, 'OPEN'],
-    ['remark', '办理备注', 'LONG_TEXT', false],
-  ];
-  if (kind === 'CASE_REFUNDS') specs.push(['amount', '申请退费金额', 'CURRENCY', true]);
+  );
+  if (kind === 'AFTER_SALES') specs.push(['remark', '办理备注', 'TEXT', false]);
+  const options: Record<string, string[]> = {
+    terminated: ['是', '否'],
+    closed: ['是', '否'],
+    afterSalesSource: ['当事人', '司法局'],
+    problemCause: ['当事人', '律师助理', '律师', '证据不足', '制度原因'],
+    agencyProcedure: [...INTAKE_OPTIONS.agencyProcedure],
+  };
   return specs.map(([key, name, type, required, defaultValue], position) => ({
     name,
     type,
@@ -33,6 +109,8 @@ export function lifecycleFields(kind: LifecycleKind) {
     ...(defaultValue === undefined ? {} : { defaultValue: defaultValue as Prisma.InputJsonValue }),
     options: {
       lifecycleKey: key,
+      defaultVisible: position < visibleCount,
+      ...(options[key] ? { choices: options[key].map((name) => ({ id: name, name })) } : {}),
       ...(key === 'status'
         ? {
             choices: (kind === 'AFTER_SALES'
@@ -59,6 +137,23 @@ export class LifecycleWorksheet {
     private actor: AuthorizationContext,
     private parentAccess: (tableId: string, tx?: Tx) => Promise<{ access: Access; fields: CollabField[] }>,
   ) {}
+  async auditPhone(fields: CollabField[], count: number) {
+    if (!count || !fields.some((f) => lifecycleKey(f) === 'customerPhone')) return;
+    const permissions = new WorkspaceDomainSource(this.db, this.actor).permissions();
+    await auditRawL3Access(
+      this.db,
+      { actorUserId: this.actor.userId },
+      'CUSTOMER',
+      'LIST',
+      'customer',
+      {
+        phone: this.actor.permissionCodes.includes('customer.read') ? permissions.phone : 'NONE',
+        wechat: 'NONE',
+      },
+      count,
+      'workspace.lifecycle.customer-phone',
+    );
+  }
   authorize(kind: string, deleting = false) {
     if (
       !this.actor.permissionCodes.includes(
@@ -96,6 +191,64 @@ export class LifecycleWorksheet {
         )})`
       : Prisma.sql`FALSE`;
   }
+  private async expressions(table: CollabTable, access: Access, contractAlias: 'c' | 'ct') {
+    const domain = new WorkspaceDomainSource(this.db, this.actor);
+    const contract = (key: string) => Prisma.raw(contractAlias + '."' + key + '"');
+    const phoneLevel = domain.permissions().phone;
+    const expressions: Record<string, Prisma.Sql> = {
+      contractNo: Prisma.sql`COALESCE(NULLIF(b."intakeData"->>'contractNumber',''), ${contract('contractNo')})`,
+      caseNo: Prisma.sql`b."caseNo"`,
+      caseTitle: Prisma.sql`b.title`,
+      customerName: Prisma.sql`cu.name`,
+      contractAmount: Prisma.sql`${contract('amount')}::text`,
+      signedDate: Prisma.sql`b."intakeData"->>'signedDate'`,
+      caseCategory: Prisma.sql`b."intakeData"->>'caseCategory'`,
+      agencyProcedure: Prisma.sql`CASE WHEN b."intakeData"->>'agencyProcedure' LIKE '[%' THEN (b."intakeData"->>'agencyProcedure')::jsonb WHEN b."intakeData"->>'agencyProcedure' IS NULL THEN NULL ELSE jsonb_build_array(b."intakeData"->>'agencyProcedure') END`,
+      customerPhone:
+        phoneLevel === 'READ'
+          ? Prisma.sql`cu.phone`
+          : phoneLevel === 'NONE'
+            ? Prisma.sql`NULL::text`
+            : Prisma.sql`CASE WHEN cu.phone IS NULL THEN NULL WHEN length(cu.phone)>=7 THEN left(cu.phone,3)||'****'||right(cu.phone,4) ELSE '****' END`,
+      handlingLawyer: Prisma.sql`b."intakeData"->>'handlingLawyer'`,
+      caseCause: Prisma.sql`b."caseType"`,
+      terminated: Prisma.sql`CASE WHEN ${contract('status')} IS NULL THEN NULL WHEN ${contract('status')} IN ('TERMINATED','VOID') THEN '是' ELSE '否' END`,
+      feeTotalLookup: Prisma.sql`NULL::text`,
+      refundReceiptLookup: Prisma.sql`NULL::jsonb`,
+    };
+    if (table.lifecycleKind === 'CASE_REFUNDS') {
+      const tables = await this.db.collabTable.findMany({
+        where: { lifecycleKind: 'AFTER_SALES', archived: false },
+        select: { id: true },
+      });
+      const permitted: Array<{ id: string; fields: CollabField[] }> = [];
+      for (const t of tables)
+        try {
+          const a = await this.parentAccess(t.id);
+          if (a.access.workspaceId === access.workspaceId) permitted.push({ id: t.id, fields: a.fields });
+        } catch (e) {
+          if (![403, 404].includes(Number((e as { status?: number }).status))) throw e;
+        }
+      for (const key of Object.keys(expressions)) {
+        const upstreamKey =
+          key === 'feeTotalLookup' ? 'feeTotal' : key === 'refundReceiptLookup' ? 'refundReceipt' : key;
+        const columns = permitted.flatMap((t) => {
+          const f = t.fields.find((f) => lifecycleKey(f) === upstreamKey);
+          return f ? [{ table: t.id, field: f.id }] : [];
+        });
+        const clauses = columns.map(
+          (c) =>
+            Prisma.sql`WHEN p."tableId"=${c.table} THEN ${key === 'feeTotalLookup' ? Prisma.sql`p.values->>${c.field}` : key === 'refundReceiptLookup' ? Prisma.sql`p.values->${c.field}` : expressions[key]}`,
+        );
+        expressions[key] = clauses.length
+          ? Prisma.sql`CASE ${Prisma.join(clauses, ' ')} ELSE NULL END`
+          : key === 'refundReceiptLookup' || key === 'agencyProcedure'
+            ? Prisma.sql`NULL::jsonb`
+            : Prisma.sql`NULL::text`;
+      }
+    }
+    return expressions;
+  }
   async sourceSql(table: CollabTable, access: Access, fields: CollabField[]) {
     const domain = new WorkspaceDomainSource(this.db, this.actor);
     const parent =
@@ -108,15 +261,9 @@ export class LifecycleWorksheet {
     const contractScope = this.actor.permissionCodes.includes('contract.read')
       ? await domain.scope('CONTRACTS', access)
       : Prisma.sql`FALSE`;
-    const expressions: Record<string, Prisma.Sql> = {
-      contractNo: Prisma.sql`ct."contractNo"`,
-      caseNo: Prisma.sql`b."caseNo"`,
-      caseTitle: Prisma.sql`b.title`,
-      customerName: Prisma.sql`cu.name`,
-      contractAmount: Prisma.sql`ct.amount::text`,
-    };
+    const expressions = await this.expressions(table, access, 'ct');
     const visibleKeys = fields.map(lifecycleKey);
-    const label = Prisma.sql`concat_ws(' · ', ${visibleKeys.includes('contractNo') ? expressions.contractNo : Prisma.sql`NULL`}, ${visibleKeys.includes('caseNo') ? expressions.caseNo : Prisma.sql`NULL`}, ${visibleKeys.includes('caseTitle') ? expressions.caseTitle : Prisma.sql`NULL`})`;
+    const label = Prisma.sql`concat_ws(' · ', ${visibleKeys.includes('contractNo') || visibleKeys.includes('upstreamId') ? expressions.contractNo : Prisma.sql`NULL`}, ${visibleKeys.includes('caseNo') ? expressions.caseNo : Prisma.sql`NULL`}, ${visibleKeys.includes('caseTitle') ? expressions.caseTitle : Prisma.sql`NULL`})`;
     const writeScope =
       this.actor.permissionCodes.includes('case.update') &&
       (table.lifecycleKind !== 'CASE_REFUNDS' || this.actor.permissionCodes.includes('refund.create'))
@@ -126,12 +273,12 @@ export class LifecycleWorksheet {
       .filter((f) => syncedLifecycleKeys.includes(lifecycleKey(f)))
       .flatMap((f) => [Prisma.sql`${f.id}::text`, Prisma.sql`to_jsonb(${expressions[lifecycleKey(f)]})`]);
     return Prisma.sql`SELECT r.id, r."tableId", r."createdBy", r."updatedBy", r."ownerId", r.version, r.archived, r."createdAt", r."updatedAt",
-      r.values || jsonb_build_object('_lifecycleCaseId', b.id, '_lifecycleCaseNo', ${visibleKeys.includes('caseNo') ? expressions.caseNo : Prisma.sql`NULL`}, '_lifecycleContractId', ${visibleKeys.includes('contractNo') ? Prisma.sql`ct.id` : Prisma.sql`NULL`}, '_lifecycleWritable', (${writeScope}), '_lifecycleLabel', ${label}) || ${pairs.length ? Prisma.sql`jsonb_build_object(${Prisma.join(pairs)})` : Prisma.sql`'{}'::jsonb`} AS values
+      r.values || jsonb_build_object('_lifecycleCaseId', b.id, '_lifecycleCaseNo', ${visibleKeys.includes('caseNo') ? expressions.caseNo : Prisma.sql`NULL`}, '_lifecycleContractId', ${visibleKeys.includes('contractNo') || visibleKeys.includes('upstreamId') ? Prisma.sql`ct.id` : Prisma.sql`NULL`}, '_lifecycleWritable', (${writeScope}), '_lifecycleLabel', ${label}) || ${pairs.length ? Prisma.sql`jsonb_build_object(${Prisma.join(pairs)})` : Prisma.sql`'{}'::jsonb`} AS values
       FROM collab_record r JOIN collab_lifecycle_link x ON x."recordId" = r.id
       JOIN "case" b ON b.id = x."caseId"
       LEFT JOIN collab_record p ON p.id = x."parentRecordId"
-      LEFT JOIN (SELECT b.id, b."contractNo", b.amount FROM contract b WHERE ${contractScope}) ct ON ct.id = b."contractId"
-      LEFT JOIN (SELECT b.id, b.name FROM customer b LEFT JOIN lead l ON l.id = b."sourceLeadId" WHERE ${customerScope}) cu ON cu.id = b."customerId"
+      LEFT JOIN (SELECT b.id, b."contractNo", b.amount, b.status FROM contract b WHERE ${contractScope}) ct ON ct.id = b."contractId"
+      LEFT JOIN (SELECT b.id, b.name, b.phone FROM customer b LEFT JOIN lead l ON l.id = b."sourceLeadId" WHERE ${customerScope}) cu ON cu.id = b."customerId"
       WHERE r."tableId" = ${table.id} AND ${await domain.scope('CASES', access)} AND ${parent}
       AND ${table.lifecycleKind === 'CASE_REFUNDS' ? Prisma.sql`p.archived = false` : Prisma.sql`TRUE`}`;
   }
@@ -143,35 +290,31 @@ export class LifecycleWorksheet {
     const customerScope = this.actor.permissionCodes.includes('customer.read')
       ? await domain.scope('CUSTOMERS', access)
       : Prisma.sql`FALSE`;
-    const expressions: Record<string, Prisma.Sql> = {
-      contractNo: Prisma.sql`c."contractNo"`,
-      caseNo: Prisma.sql`b."caseNo"`,
-      caseTitle: Prisma.sql`b.title`,
-      customerName: Prisma.sql`cu.name`,
-      contractAmount: Prisma.sql`c.amount::text`,
-    };
+    const expressions = await this.expressions(table, access, 'c');
     const keys = fields.map(lifecycleKey).filter((k) => syncedLifecycleKeys.includes(k));
     const preview = keys.length
       ? Prisma.sql`jsonb_build_object(${Prisma.join(keys.flatMap((k) => [Prisma.sql`${k}::text`, expressions[k]]))})`
       : Prisma.sql`'{}'::jsonb`;
-    const label = Prisma.sql`concat_ws(' · ', ${keys.includes('contractNo') ? expressions.contractNo : Prisma.sql`NULL`}, ${keys.includes('caseNo') ? expressions.caseNo : Prisma.sql`NULL`}, ${keys.includes('caseTitle') ? expressions.caseTitle : Prisma.sql`NULL`})`;
-    const customerJoin = Prisma.sql`LEFT JOIN (SELECT b.id,b.name FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${customerScope}) cu ON cu.id=b."customerId"`;
+    const label = Prisma.sql`concat_ws(' · ', ${keys.includes('contractNo') || fields.some((f) => lifecycleKey(f) === 'upstreamId') ? expressions.contractNo : Prisma.sql`NULL`}, ${keys.includes('caseNo') ? expressions.caseNo : Prisma.sql`NULL`}, ${keys.includes('caseTitle') ? expressions.caseTitle : Prisma.sql`NULL`})`;
+    const customerJoin = Prisma.sql`LEFT JOIN (SELECT b.id,b.name,b.phone FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${customerScope}) cu ON cu.id=b."customerId"`;
     if (table.lifecycleKind === 'CASE_REFUNDS') {
       const parent = await this.parentPredicate(access.workspaceId);
       const rows = await this.db.$queryRaw<Array<{ id: string; label: string }>>(Prisma.sql`
         SELECT p.id, ${label} AS label, ${preview} AS preview
         FROM collab_record p JOIN collab_lifecycle_link x ON x."recordId" = p.id JOIN "case" b ON b.id = x."caseId"
-        LEFT JOIN (SELECT b.id, b."contractNo", b.amount FROM contract b WHERE ${contractScope}) c ON c.id = b."contractId" ${customerJoin}
+        LEFT JOIN (SELECT b.id, b."contractNo", b.amount, b.status FROM contract b WHERE ${contractScope}) c ON c.id = b."contractId" ${customerJoin}
         WHERE x.kind = 'AFTER_SALES' AND x.status = 'REFUND_REQUIRED' AND p.archived = false AND ${parent}
         AND ${await domain.scope('CASES', access)} AND ${label} ILIKE ${'%' + keyword + '%'}
         ORDER BY p.id LIMIT 20 OFFSET ${(page - 1) * 20}`);
+      await this.auditPhone(fields, rows.length);
       return { rows, hasMore: rows.length === 20 };
     }
     const rows = await this.db.$queryRaw<Array<{ id: string; label: string }>>(Prisma.sql`
       SELECT b.id, ${label} AS label, ${preview} AS preview
-      FROM "case" b LEFT JOIN (SELECT b.id, b."contractNo", b.amount FROM contract b WHERE ${contractScope}) c ON c.id = b."contractId" ${customerJoin}
+      FROM "case" b LEFT JOIN (SELECT b.id, b."contractNo", b.amount, b.status FROM contract b WHERE ${contractScope}) c ON c.id = b."contractId" ${customerJoin}
       WHERE ${await domain.scope('CASES', access)} AND ${label} ILIKE ${'%' + keyword + '%'}
       ORDER BY b.id LIMIT 20 OFFSET ${(page - 1) * 20}`);
+    await this.auditPhone(fields, rows.length);
     return { rows, hasMore: rows.length === 20 };
   }
   async validate(

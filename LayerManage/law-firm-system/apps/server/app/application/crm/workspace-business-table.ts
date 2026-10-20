@@ -49,7 +49,7 @@ export function businessFields(source: string) {
   if (source === 'CASES') definitions.sort((a, b) => (CASE_FIELD_ORDER.indexOf(a[0]) < 0 ? 1000 : CASE_FIELD_ORDER.indexOf(a[0])) - (CASE_FIELD_ORDER.indexOf(b[0]) < 0 ? 1000 : CASE_FIELD_ORDER.indexOf(b[0])));
   return definitions.map(
     ([key, name, type], position) => ({
-      name,
+      name: source === 'CASES' ? ({ customerName: '客户姓名', 'intake.fixedAgencyFee': '固定代理费', createdAt: '记录创建时间', updatedAt: '最近修改时间' } as Record<string, string>)[key] ?? name : name,
       type,
       position,
       options: { businessKey: key, businessSource: source, ...(source === 'CASES' && caseGridChoices(key) ? { choices: caseGridChoices(key) } : {}) },

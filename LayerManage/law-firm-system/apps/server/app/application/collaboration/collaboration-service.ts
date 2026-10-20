@@ -1,4 +1,5 @@
 import { LifecycleWorksheet, lifecycleFields, lifecycleKinds, lifecycleKey, syncedLifecycleKeys, LifecycleKind } from './lifecycle-worksheet';
+import { CASE_FIELD_ORDER } from '../case/intake-contract';
 import { domainSources, isDomainSource, WorkspaceDomainSource } from '../crm/workspace-domain-source';
 import { CaseService } from '../case/case-service';
 import { UpdateCaseInput } from '../case/case-types';
@@ -899,7 +900,9 @@ export class CollaborationService {
       // Preserve existing columns and views; only remove obsolete required flags on an empty table.
       await tx.collabField.updateMany({ where: { tableId }, data: { required: false } });
       for (const f of lifecycleFields(kind)) {
-        const previous = existing.find((field) => lifecycleKey(field) === object(f.options).lifecycleKey);
+        const fieldKey = String(object(f.options).lifecycleKey);
+        const previous = existing.find((field) => lifecycleKey(field) === fieldKey) ??
+          (kind === 'CASE_REFUNDS' ? existing.find(field => lifecycleKey(field) === ({feeTotalLookup:'feeTotal',refundReceiptLookup:'refundReceipt'} as Record<string,string>)[fieldKey]) : undefined);
         if (existing.some((field) => field.name === f.name && field.id !== previous?.id))
           fail('LIFECYCLE_FIELD_NAME_CONFLICT', 409);
         if (previous)
@@ -1009,7 +1012,12 @@ export class CollaborationService {
         }
       }
       const view = await tx.collabView.create({
-        data: { tableId: table.id, name: '总表', ownerId: this.actor.userId, shared: true, isDefault: true },
+        data: { tableId: table.id, name: '总表', ownerId: this.actor.userId, shared: true, isDefault: true,
+          ...((source === 'CASES' || lifecycleKinds.includes(input.template as LifecycleKind)) ? {
+            config: { visibleFields: (await tx.collabField.findMany({ where: { tableId: table.id }, orderBy: { position: 'asc' } }))
+              .filter(f => source === 'CASES' ? CASE_FIELD_ORDER.includes(String(object(f.options).businessKey)) : object(f.options).defaultVisible === true).map(f => f.id) },
+          } : {}),
+        },
       });
       await this.event(tx, baseId, 'table.created', table.id);
       return { id: table.id, viewId: view.id };
@@ -1411,9 +1419,20 @@ export class CollaborationService {
   private rowWhere(tableId: string, access: Access): Prisma.CollabRecordWhereInput {
     return { tableId, archived: false, ...(access.selfOnly ? { createdBy: this.actor.userId } : {}) };
   }
-  async attachment(tableId: string, fileId: string, tx: Tx = this.db) {
+  async attachment(tableId: string, fileId: string, tx: Tx = this.db): Promise<import('@prisma/client').CollabAttachment> {
     const { access, fields, table } = await this.tableAccess(tableId, tx);
     const file = await tx.collabAttachment.findFirst({ where: { id: fileId, tableId } });
+    if (!file && table.lifecycleKind === 'CASE_REFUNDS') {
+      const lookup = fields.find(f => lifecycleKey(f) === 'refundReceiptLookup');
+      if (!lookup) fail('COLLAB_FORBIDDEN', 403);
+      const visible = await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT r.id FROM (${await this.lifecycle().sourceSql(table, access, fields)}) r
+        WHERE r.archived=false AND ${access.selfOnly ? Prisma.sql`r."createdBy"=${this.actor.userId}` : Prisma.sql`TRUE`}
+        AND r.values->${lookup.id} @> ${JSON.stringify([fileId])}::jsonb LIMIT 1`);
+      if (!visible.length) fail('COLLAB_FORBIDDEN', 403);
+      const original = await tx.collabAttachment.findUnique({where:{id:fileId}});
+      if (!original || original.tableId === tableId) fail('COLLAB_NOT_FOUND',404);
+      return this.attachment(original.tableId,fileId,tx);
+    }
     if (!file) fail('COLLAB_NOT_FOUND', 404);
     if (table.source !== 'CUSTOM') {
       const source = await new WorkspaceBusinessTable(this.db, this.actor).sourceSql(table, access, fields);
@@ -1542,6 +1561,7 @@ export class CollaborationService {
     }
     const where = Prisma.sql`r."tableId" = ${tableId} AND r.archived = false AND ${access.selfOnly ? Prisma.sql`r."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`} AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}`;
     const result = await queryCustomRecords(this.db, where, config, fields, page, pageSize, table.lifecycleKind ? await this.lifecycle().sourceSql(table, access, fields) : undefined);
+    if (table.lifecycleKind) await this.lifecycle().auditPhone(fields,result.records.length);
     return {
       ...result,
       records: await this.projectReferences(result.records, fields),
@@ -1590,6 +1610,7 @@ export class CollaborationService {
       const projected = await this.db.$queryRaw<CollabRecord[]>(Prisma.sql`SELECT r.* FROM (${await this.lifecycle().sourceSql(table, access, fields)}) r WHERE r.id = ${recordId}`);
       if (!projected.length) fail('COLLAB_NOT_FOUND', 404);
       record.values = projected[0].values;
+      await this.lifecycle().auditPhone(fields,1);
     }
     const revisions = await this.db.collabRevision.findMany({
       where: { recordId },

@@ -45,7 +45,7 @@ export function displayValue(field: Field, value: unknown, directory: Directory)
   if (value === null || value === undefined || value === '') return '';
   if (field.type === 'CURRENCY') return formatMoney(value);
   if (isCasePercent(field)) return `${Number(value)}%`;
-  if (field.type === 'DATETIME' && field.options.businessSource === 'CASES')
+  if (['DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(field.type) && (field.options.businessSource === 'CASES' || field.options.lifecycleKey))
     return formatBusinessDate(value).replace(/-/g, '/').slice(0, 16);
   if (['DATE', 'DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(field.type))
     return formatBusinessDate(value, field.type === 'DATE');

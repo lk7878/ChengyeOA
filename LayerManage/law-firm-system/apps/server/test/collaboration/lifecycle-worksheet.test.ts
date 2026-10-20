@@ -1,3 +1,4 @@
+import { standardizeCaseWorksheets } from '../../scripts/maintenance/standardize-case-worksheets';
 import { ContractService } from '../../app/application/contract/contract-service';
 import { CaseService } from '../../app/application/case/case-service';
 import test from 'node:test';
@@ -460,4 +461,67 @@ test('contract-to-case lookup uses the canonical case scope and excludes deleted
   );
   await db.case.update({ where: { id: row.id }, data: { deletedAt: new Date() } });
   assert.equal((await service.listCases({ contractId: contract.id })).total, 0);
+});
+
+
+test('standard fields synchronize case data and refund attachment lookup enforces parent field permissions', async()=>{
+  const {a,r,row,contract,vals,create}=await setup();
+  await db.case.update({where:{id:row.id},data:{intakeData:{contractNumber:'CUSTOM-001',signedDate:'2026-10-20T01:30:00.000Z',caseCategory:'民事',agencyProcedure:'["一审","二审"]',handlingLawyer:'张律师'}}});
+  const caseOptions=await svc.lifecycleChoices(a.table.id,{keyword:'CUSTOM-001'});
+  assert.equal(caseOptions.rows[0].id,row.id);
+  const aField=(k:string)=>a.fields.find(f=>(f.options as Record<string,unknown>).lifecycleKey===k)!;
+  const rField=(k:string)=>r.fields.find(f=>(f.options as Record<string,unknown>).lifecycleKey===k)!;
+  const file=await db.collabAttachment.create({data:{tableId:a.table.id,ownerId:user,name:'退款凭证.pdf',mimeType:'application/pdf',size:1,storageKey:key()}});
+  const parent=await create(a,{upstreamId:row.id,content:'协商退费',status:'REFUND_REQUIRED',feeTotal:'12,000.00',refundReceipt:[file.id],closed:'否',handling1:'第一次沟通'});
+  const refund=await create(r,{upstreamId:parent.id,content:'解除委托',amount:'100',recipientName:'王某',recipientBank:'招商',recipientAccount:'0012345'});
+  let view=(await svc.record(r.table.id,refund.id)).record;
+  assert.equal(view.values[rField('feeTotalLookup').id],'12,000.00');
+  assert.deepEqual(view.values[rField('refundReceiptLookup').id],[file.id]);
+  assert.equal(view.values[rField('handlingLawyer').id],'张律师');
+  assert.deepEqual(view.values[rField('agencyProcedure').id],['一审','二审']);
+  assert.equal(view.values[rField('customerPhone').id],'13800000001');
+  assert.equal(view.values[rField('terminated').id],'否');
+  assert.equal((await svc.attachment(r.table.id,file.id)).id,file.id);
+  await db.contract.update({where:{id:contract.id},data:{status:'TERMINATED'}});
+  view=(await svc.record(r.table.id,refund.id)).record;
+  assert.equal(view.values[rField('terminated').id],'是');
+  assert.equal(rField('refundReceiptLookup').writable,false);
+  await assert.rejects(svc.saveRecord(r.table.id,refund.id,{schemaVersion:1,version:1,values:vals(r,{refundReceiptLookup:[]})},key()),/COLLAB_READONLY_FIELD/);
+  const other=(await db.user.create({data:{username:key(),password:'unused'}})).id;
+  const actor={...ctx,userId:other,isSystemSuperAdmin:false};
+  const ordinary=new CollaborationService(db,actor);
+  const workspaceId=(await db.collabBase.findUniqueOrThrow({where:{id:base}})).workspaceId;
+  const member=await db.collabMember.create({data:{workspaceId,principalId:other,role:'READER',rowScope:'ALL',hiddenFields:[aField('refundReceipt').id,aField('feeTotal').id]}});
+  const hidden=(await ordinary.record(r.table.id,refund.id)).record;
+  assert.equal(hidden.values[rField('refundReceiptLookup').id],null);
+  assert.equal(hidden.values[rField('feeTotalLookup').id],null);
+  assert.equal(hidden.values[rField('customerPhone').id],'138****0001');
+  await assert.rejects(ordinary.attachment(r.table.id,file.id),/COLLAB_FORBIDDEN/);
+  await db.collabMember.update({where:{id:member.id},data:{hiddenFields:[]}});
+  assert.equal((await ordinary.attachment(r.table.id,file.id)).id,file.id);
+  assert.equal((a.views[0].config as {visibleFields:string[]}).visibleFields.length,27);
+  assert.equal((r.views[0].config as {visibleFields:string[]}).visibleFields.length,27);
+});
+
+
+test('field layout upgrade preserves records and IDs while applying exact defaults to existing tables',async()=>{
+ const {a,r,row,create}=await setup();
+ await db.user.update({where:{id:user},data:{username:'admin'}});
+ const cases=await svc.createTable(base,{name:'案件管理表',source:'CASES'},key());
+ const saved=await create(a,{upstreamId:row.id,content:'保留业务数据'});
+ const missing=r.fields.find(f=>(f.options as Record<string,unknown>).lifecycleKey==='recipientBank')!;
+ await db.collabField.delete({where:{id:missing.id}});
+ const oldFields=await db.collabField.findMany({where:{tableId:cases.id}});
+ const first=oldFields.find(f=>(f.options as Record<string,unknown>).businessKey==='contractDisplayId')!;
+ await db.collabField.update({where:{id:first.id},data:{position:99}});
+ await standardizeCaseWorksheets(db,true);
+ await standardizeCaseWorksheets(db,true);
+ assert.equal(await db.collabRecord.count({where:{id:saved.id}}),1);
+ assert.equal(await db.collabField.count({where:{tableId:cases.id}}),oldFields.length);
+ for(const f of oldFields)assert.ok(await db.collabField.findUnique({where:{id:f.id}}));
+ const updated=await svc.describe(cases.id);
+ const ids=(updated.views[0].config as {visibleFields:string[]}).visibleFields;
+ assert.deepEqual(ids.map(id=>updated.fields.find(f=>f.id===id)!.name),['合同ID','合同未回','签约日期','合同编号','客户姓名','地区','客户电话','对方当事人','案件类型','案由','代理程序','代理费收款方式','固定代理费','案件基础代理费','风险代理金额','风险代理比例','代理费付款特别约定','所属业务部门','承办律师','合同附件','记录创建时间','最近修改时间','备注']);
+ for(const t of [a,r])assert.equal(((await svc.describe(t.table.id)).views[0].config as {visibleFields:string[]}).visibleFields.length,27);
+ assert.ok((await svc.describe(r.table.id)).fields.some(f=>(f.options as Record<string,unknown>).lifecycleKey==='recipientBank'));
 });
