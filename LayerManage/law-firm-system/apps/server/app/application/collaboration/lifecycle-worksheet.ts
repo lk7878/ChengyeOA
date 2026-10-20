@@ -212,7 +212,8 @@ export class LifecycleWorksheet {
             : Prisma.sql`CASE WHEN cu.phone IS NULL THEN NULL WHEN length(cu.phone)>=7 THEN left(cu.phone,3)||'****'||right(cu.phone,4) ELSE '****' END`,
       handlingLawyer: Prisma.sql`b."intakeData"->>'handlingLawyer'`,
       caseCause: Prisma.sql`b."caseType"`,
-      terminated: Prisma.sql`CASE WHEN ${contract('status')} IS NULL THEN NULL WHEN ${contract('status')} IN ('TERMINATED','VOID') THEN '是' ELSE '否' END`,
+      // The user will supply the rule later. Keep both worksheets read-only and blank.
+      terminated: Prisma.sql`NULL::text`,
       feeTotalLookup: Prisma.sql`NULL::text`,
       refundReceiptLookup: Prisma.sql`NULL::jsonb`,
     };

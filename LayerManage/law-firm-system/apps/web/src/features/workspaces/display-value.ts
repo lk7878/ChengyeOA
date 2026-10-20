@@ -24,6 +24,7 @@ export const fieldLabel = (field: Field) =>
       : field.name + '（元）'
     : field.name;
 export function fieldHint(field: Field) {
+  if (field.options.lifecycleKey === 'terminated') return '判断规则待补充；暂时保持只读空值。';
   if (
     field.options.businessSource === 'CASES' &&
     FORMULA_KEYS.some((key) => 'intake.' + key === field.options.businessKey)

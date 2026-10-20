@@ -480,11 +480,16 @@ test('standard fields synchronize case data and refund attachment lookup enforce
   assert.equal(view.values[rField('handlingLawyer').id],'张律师');
   assert.deepEqual(view.values[rField('agencyProcedure').id],['一审','二审']);
   assert.equal(view.values[rField('customerPhone').id],'13800000001');
-  assert.equal(view.values[rField('terminated').id],'否');
+  assert.equal(view.values[rField('terminated').id],null);
+  assert.equal((await svc.record(a.table.id,parent.id)).record.values[aField('terminated').id],null);
+  assert.equal(aField('terminated').writable,false);
+  assert.equal(rField('terminated').writable,false);
+  await assert.rejects(svc.saveRecord(a.table.id,parent.id,{schemaVersion:1,version:1,values:vals(a,{terminated:'是'})},key()),/COLLAB_READONLY_FIELD/);
   assert.equal((await svc.attachment(r.table.id,file.id)).id,file.id);
   await db.contract.update({where:{id:contract.id},data:{status:'TERMINATED'}});
   view=(await svc.record(r.table.id,refund.id)).record;
-  assert.equal(view.values[rField('terminated').id],'是');
+  assert.equal(view.values[rField('terminated').id],null);
+  assert.equal((await svc.record(a.table.id,parent.id)).record.values[aField('terminated').id],null);
   assert.equal(rField('refundReceiptLookup').writable,false);
   await assert.rejects(svc.saveRecord(r.table.id,refund.id,{schemaVersion:1,version:1,values:vals(r,{refundReceiptLookup:[]})},key()),/COLLAB_READONLY_FIELD/);
   const other=(await db.user.create({data:{username:key(),password:'unused'}})).id;
