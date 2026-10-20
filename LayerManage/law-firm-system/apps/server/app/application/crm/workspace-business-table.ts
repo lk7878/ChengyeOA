@@ -45,7 +45,7 @@ const columns = {
 };
 export function businessFields(source: string) {
   if (!isDomainSource(source) && source !== 'LEADS' && source !== 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
-  const definitions = [...(isDomainSource(source) ? domainSources[source].columns : columns[source])];
+  const definitions = [...(isDomainSource(source) ? domainSources[source].columns : columns[source])].filter(([key]) => source !== 'CASES' || CASE_FIELD_ORDER.includes(key));
   if (source === 'CASES') definitions.sort((a, b) => (CASE_FIELD_ORDER.indexOf(a[0]) < 0 ? 1000 : CASE_FIELD_ORDER.indexOf(a[0])) - (CASE_FIELD_ORDER.indexOf(b[0]) < 0 ? 1000 : CASE_FIELD_ORDER.indexOf(b[0])));
   return definitions.map(
     ([key, name, type], position) => ({
@@ -100,7 +100,7 @@ export class WorkspaceBusinessTable {
   }
   private key(source: string, field: CollabField, query = false): string {
     const key = object(field.options).businessKey;
-    if (!businessFields(source).some((f) => f.options.businessKey === key)) fail('COLLAB_INVALID_FIELD');
+    if (!(isDomainSource(source) ? domainSources[source].columns.some((f) => f[0] === key) : businessFields(source).some((f) => f.options.businessKey === key))) fail('COLLAB_INVALID_FIELD');
     // Never infer sensitive raw values through filtering, grouping, or ordering a masked column.
     if (query && ['phone', 'wechat', 'intake.customerPhone'].includes(String(key))) fail('COLLAB_SENSITIVE_QUERY_UNSUPPORTED');
     return String(key);

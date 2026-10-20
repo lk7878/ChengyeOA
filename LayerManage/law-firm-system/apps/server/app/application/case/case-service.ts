@@ -1,4 +1,5 @@
-import { FORMULA_KEYS, INTAKE_FIELDS, CaseIntake } from './intake-contract';
+import { CONTRACT_INTAKE_KEYS, projectLinkedIntake } from './case-linked-intake';
+import { CASE_FIELD_ORDER, FORMULA_KEYS, INTAKE_FIELDS, CaseIntake } from './intake-contract';
 import { notifyDeliveryChange } from '../collaboration/delivery-change';
 import { sopTaskScope } from '../sop/execution-scope';
 import { buildOrganizationScopeWhere } from '../authorization/resource-scope-resolvers';
@@ -249,7 +250,7 @@ export class CaseService {
         },
       });
       await notifyDeliveryChange(tx, this.actor.actorUserId, updated.id);
-      return projectCase(updated);
+      return (await projectLinkedIntake(this.prisma, this.authorizationContext, [projectCase(updated)], tx))[0];
     });
   }
 
@@ -340,6 +341,13 @@ export class CaseService {
           if (!upstream || upstream.deletedAt || upstream.status !== 'EFFECTIVE' || upstream.customerId !== customerId)
             throw new MasterDataError('LIFECYCLE_CONTRACT_NOT_EFFECTIVE', 409);
           if (await tx.case.findUnique({ where: { contractId } })) throw new MasterDataError('LIFECYCLE_CONTRACT_HAS_CASE', 409);
+          // Ignore client copies for contract-linked values; phone stays in the customer record.
+          delete intakeData.customerPhone;
+          delete intakeData.signedDate;
+          delete intakeData.region;
+          if (upstream.signDate) intakeData.signedDate = upstream.signDate.toISOString();
+          const linkedCustomer = await tx.customer.findUniqueOrThrow({ where: { id: customerId } });
+          if (linkedCustomer.address) intakeData.region = linkedCustomer.address;
         }
         const created = await tx.case.create({
           data: {
@@ -383,7 +391,7 @@ export class CaseService {
         await requireCaseAccess(this.prisma, this.authorizationContext, created.id, 'case.create', tx);
         if (attachments.length)
           await requireCaseAccess(this.prisma, this.authorizationContext, created.id, 'case.file.manage', tx);
-        return projectCase(created);
+        return (await projectLinkedIntake(this.prisma, this.authorizationContext, [projectCase(created)], tx))[0];
       });
     } catch (error) {
       cleanAttachments(attachments);
@@ -466,13 +474,21 @@ export class CaseService {
     if (customerId !== undefined) data.customerId = customerId;
     if (fee !== undefined) data.fee = fee;
     if (intakeData !== undefined) {
+      if (existing.contractId && CONTRACT_INTAKE_KEYS.some(key => intakeData[key] !== undefined && intakeData[key] !== ((existing.intakeData ?? {}) as CaseIntake)[key]))
+        throw new MasterDataError('VALIDATION_FAILED', 400);
       await this.validateIntakeUsers(intakeData, (existing.intakeData ?? {}) as CaseIntake);
       const previous = (existing.intakeData ?? {}) as Record<string, string>;
       for (const key of FORMULA_KEYS) {
         if (intakeData[key] !== undefined && intakeData[key] !== previous[key]) throw new MasterDataError('VALIDATION_FAILED', 400);
         if (previous[key] !== undefined) intakeData[key] = previous[key];
       }
-      data.intakeData = intakeData;
+      // Retired worksheet fields remain in historical case data; omitted active fields can still be cleared.
+      const legacy = Object.fromEntries(Object.entries(previous).filter(([key]) => !CASE_FIELD_ORDER.includes('intake.' + key)));
+      data.intakeData = { ...legacy, ...intakeData };
+      if (existing.contractId) {
+        for (const key of CONTRACT_INTAKE_KEYS) if (previous[key] !== undefined) (data.intakeData as Record<string, string>)[key] = previous[key];
+        delete (data.intakeData as Record<string, string>).customerPhone;
+      }
     }
     if (title !== undefined) data.title = title;
     if (caseType !== undefined) data.caseType = caseType;
@@ -555,7 +571,7 @@ export class CaseService {
           },
         });
         await notifyDeliveryChange(tx, this.actor.actorUserId, row.id);
-        return projectCase(row);
+        return (await projectLinkedIntake(this.prisma, this.authorizationContext, [projectCase(row)], tx))[0];
       };
       updated = await (transaction ? update(transaction) : this.prisma.$transaction(update));
     } catch (error) {
@@ -702,7 +718,7 @@ export class CaseService {
       list: await withAuthorizedCaseFiles(
         this.prisma,
         this.authorizationContext,
-        rows.map((row) => projectCase(row)),
+        await projectLinkedIntake(this.prisma, this.authorizationContext, rows.map((row) => projectCase(row))),
       ),
       page,
       pageSize,
@@ -736,7 +752,7 @@ export class CaseService {
       },
     });
     if (!row) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
-    return (await withAuthorizedCaseFiles(this.prisma, this.authorizationContext, [projectCase(row)]))[0];
+    return (await withAuthorizedCaseFiles(this.prisma, this.authorizationContext, await projectLinkedIntake(this.prisma, this.authorizationContext, [projectCase(row)])))[0];
   }
 
   /** Controlled acceptance, processing and archive; closing retains its dedicated result form. */
@@ -769,7 +785,7 @@ export class CaseService {
           ip: this.actor.ip,
         },
       });
-      return projectCase(updated);
+      return (await projectLinkedIntake(this.prisma, this.authorizationContext, [projectCase(updated)], tx))[0];
     });
   }
 
@@ -824,7 +840,7 @@ export class CaseService {
           ip: this.actor.ip,
         },
       });
-      return projectCase(row);
+      return (await projectLinkedIntake(this.prisma, this.authorizationContext, [projectCase(row)], tx))[0];
     });
   }
 }

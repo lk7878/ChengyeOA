@@ -1083,7 +1083,7 @@ export class CollaborationService {
               editableBusinessKey(table.source, String(object(f.options).businessKey), this.actor) &&
               this.actor.permissionCodes.includes(domainSources[table.source].edit)) ||
             (table.source === 'CASES' &&
-              editableCaseKey(String(object(f.options).businessKey)) &&
+              editableCaseKey(String(object(f.options).businessKey), this.actor) &&
               this.actor.permissionCodes.includes('case.update')) ||
             (!object(f.options).businessKey &&
               this.actor.permissionCodes.includes(
@@ -2646,7 +2646,8 @@ export class CollaborationService {
               extras[id] = value;
               continue;
             }
-            if (!editableCaseKey(businessKey)) fail('COLLAB_USE_BUSINESS_ACTION', 409);
+            if (current.contractId && ['intake.signedDate', 'intake.region', 'intake.customerPhone'].includes(businessKey)) fail('COLLAB_READONLY_FIELD', 403);
+            if (!editableCaseKey(businessKey, this.actor)) fail('COLLAB_USE_BUSINESS_ACTION', 409);
             if (businessKey.startsWith('intake.')) {
               const intake = object(update.intakeData ?? current.intakeData ?? {});
               intake[businessKey.slice(7)] = value === null ? '' : Array.isArray(value) ? JSON.stringify(value) : String(value);
@@ -2826,7 +2827,7 @@ export class CollaborationService {
             initial.table.source !== 'CUSTOM' &&
             object(field.options).businessKey &&
             !(
-              initial.table.source === 'CASES' && editableCaseKey(String(object(field.options).businessKey))
+              initial.table.source === 'CASES' && editableCaseKey(String(object(field.options).businessKey), this.actor)
             ) &&
             !editableBusinessKey(initial.table.source, String(object(field.options).businessKey), this.actor) &&
             !editableCrmKey(initial.table.source, String(object(field.options).businessKey), this.actor)

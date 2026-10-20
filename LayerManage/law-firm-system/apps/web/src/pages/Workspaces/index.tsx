@@ -1847,6 +1847,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     tableId={tableId}
                     disabled={
                       !f.writable ||
+                      (editing.detail?.record ?? editing.row)?.readonlyFields?.includes(f.id) ||
                       (editing.detail?.record.writable ?? editing.row?.writable) === false ||
                       busy
                     }

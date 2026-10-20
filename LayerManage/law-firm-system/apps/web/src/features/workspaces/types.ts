@@ -87,6 +87,7 @@ export interface TableDetail {
   employeeId: string | null;
 }
 export interface RecordRow {
+  readonlyFields?: string[];
   lifecycle?: {caseId: string; caseNo: string; contractId: string | null};
   displayValues?: Record<string, string>;
   writable?: boolean;

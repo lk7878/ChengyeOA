@@ -352,11 +352,11 @@ test('signed negotiation and effective contract display synchronized fields in d
   assert.equal((await svc.query(ct.id, {})).records[0].values[quoted.id], '888.00');
   const caseFields = (await svc.describe(ca.id)).fields;
   const amount = caseFields.find(
-    (f) => (f.options as Record<string, unknown>).businessKey === 'contractAmount',
+    (f) => (f.options as Record<string, unknown>).businessKey === 'intake.contractNumber',
   )!;
   assert.equal(
     (await svc.query(ca.id, {})).records.find((r) => r.id === row.id)!.values[amount.id],
-    '1200.00',
+    contract.contractNo,
   );
   const cs = new ContractService(db, { actorUserId: user }, ctx);
   await assert.rejects(
@@ -516,6 +516,9 @@ test('field layout upgrade preserves records and IDs while applying exact defaul
  const saved=await create(a,{upstreamId:row.id,content:'保留业务数据'});
  const missing=r.fields.find(f=>(f.options as Record<string,unknown>).lifecycleKey==='recipientBank')!;
  await db.collabField.delete({where:{id:missing.id}});
+ const retired = await db.collabField.create({ data: { tableId: cases.id, name: '首次代理费', type: 'CURRENCY', options: { businessKey: 'intake.firstPayment', businessSource: 'CASES' } } });
+ const originalView = await db.collabView.findFirstOrThrow({ where: { tableId: cases.id } });
+ await db.collabView.update({ where: { id: originalView.id }, data: { config: { filter: { fieldId: retired.id, operator: 'eq', value: '10' }, sorts: [{ fieldId: retired.id, direction: 'asc' }], groupBy: [retired.id] } } });
  const oldFields=await db.collabField.findMany({where:{tableId:cases.id}});
  const first=oldFields.find(f=>(f.options as Record<string,unknown>).businessKey==='contractDisplayId')!;
  await db.collabField.update({where:{id:first.id},data:{position:99}});
@@ -524,9 +527,73 @@ test('field layout upgrade preserves records and IDs while applying exact defaul
  assert.equal(await db.collabRecord.count({where:{id:saved.id}}),1);
  assert.equal(await db.collabField.count({where:{tableId:cases.id}}),oldFields.length);
  for(const f of oldFields)assert.ok(await db.collabField.findUnique({where:{id:f.id}}));
+ assert.equal(await db.collabField.count({ where: { tableId: cases.id, archived: false } }), 23);
+ assert.equal((await db.collabField.findUniqueOrThrow({ where: { id: retired.id } })).archived, true);
  const updated=await svc.describe(cases.id);
+ assert.equal(updated.fields.length, 23);
+ assert.equal((updated.views[0].config as { filter?: unknown }).filter, undefined);
+ await assert.rejects(svc.saveRecord(cases.id,row.id,{schemaVersion:updated.table.schemaVersion,version:1,values:{[retired.id]:'20'}},key()), /COLLAB_FIELD_UNAVAILABLE/);
  const ids=(updated.views[0].config as {visibleFields:string[]}).visibleFields;
  assert.deepEqual(ids.map(id=>updated.fields.find(f=>f.id===id)!.name),['合同ID','合同未回','签约日期','合同编号','客户姓名','地区','客户电话','对方当事人','案件类型','案由','代理程序','代理费收款方式','固定代理费','案件基础代理费','风险代理金额','风险代理比例','代理费付款特别约定','所属业务部门','承办律师','合同附件','记录创建时间','最近修改时间','备注']);
  for(const t of [a,r])assert.equal(((await svc.describe(t.table.id)).views[0].config as {visibleFields:string[]}).visibleFields.length,27);
  assert.ok((await svc.describe(r.table.id)).fields.some(f=>(f.options as Record<string,unknown>).lifecycleKey==='recipientBank'));
+});
+
+
+test('customer address upgrades existing worksheets and supports authorized edit and clear', async () => {
+  const { customer } = await setup();
+  await db.user.update({ where: { id: user }, data: { username: 'admin' } });
+  const table = await svc.createTable(base, { name: '客户管理', source: 'CUSTOMERS' }, key());
+  const field = (await svc.describe(table.id)).fields.find(f => f.options.businessKey === 'address')!;
+  await db.collabField.delete({ where: { id: field.id } });
+  await standardizeCaseWorksheets(db, true);
+  const description = await svc.describe(table.id);
+  const address = description.fields.find(f => f.options.businessKey === 'address')!;
+  assert.ok(address.writable);
+  const before = (await svc.record(table.id, customer.id)).record;
+  const input = { schemaVersion: description.table.schemaVersion, version: before.version, values: { [address.id]: '重庆市永川区' } };
+  const other = await db.user.create({ data: { username: key(), password: 'unused' } });
+  const workspaceId = (await db.collabBase.findUniqueOrThrow({where:{id:base}})).workspaceId;
+  const member = await db.collabMember.create({ data: { workspaceId, principalId: other.id, role: 'READER', rowScope: 'ALL' } });
+  const ordinary = new CollaborationService(db, { ...ctx, userId: other.id, isSystemSuperAdmin: false });
+  await assert.rejects(ordinary.saveRecord(table.id, customer.id, input, key()), /COLLAB_FORBIDDEN/);
+  await db.collabMember.update({where:{id:member.id},data:{role:'EDITOR'}});
+  const saved = await ordinary.saveRecord(table.id, customer.id, input, key());
+  assert.equal((await db.customer.findUniqueOrThrow({where:{id:customer.id}})).address,'重庆市永川区');
+  assert.equal((await svc.record(table.id,customer.id)).record.values[address.id],'重庆市永川区');
+  await ordinary.saveRecord(table.id,customer.id,{...input,version:saved.version,values:{[address.id]:null}},key());
+  assert.equal((await db.customer.findUniqueOrThrow({where:{id:customer.id}})).address,null);
+});
+
+test('linked cases fill authoritative intake; manual cases keep editable values', async () => {
+  const { customer } = await setup();
+  await db.customer.update({where:{id:customer.id},data:{address:'重庆市永川区'}});
+  const upstream = await db.contract.create({data:{contractNo:key(),title:'新的已生效合同',contractType:'FIRST_SIGN',customerId:customer.id,status:'EFFECTIVE',signDate:new Date('2026-02-13T00:00:00Z'),createdBy:user,branchId:org}});
+  const service = new CaseService(db,{actorUserId:user},ctx);
+  const input = { title:'新案件',caseType:'合同纠纷',customerId:customer.id,lawyerId:employee,branchId:org };
+  const linked = await service.createCase({...input,contractId:upstream.id,intakeData:{signedDate:'2020-01-01T00:00:00.000Z',region:'伪造地区',customerPhone:'13811112222'}});
+  assert.equal(linked.intakeData.region,'重庆市永川区');
+  assert.equal(linked.intakeData.signedDate,'2026-02-13T00:00:00.000Z');
+  assert.equal(linked.intakeData.customerPhone,customer.phone);
+  const table=await svc.createTable(base,{name:'案件管理',source:'CASES'},key());
+  const description=await svc.describe(table.id);
+  assert.equal(description.fields.length,23);
+  const field=(name:string)=>description.fields.find(f=>f.options.businessKey===name)!;
+  const record=(await svc.record(table.id,linked.id)).record;
+  for(const name of ['signedDate','region','customerPhone']) {
+    assert.ok(record.readonlyFields?.includes(field('intake.'+name).id));
+    await assert.rejects(svc.saveRecord(table.id,linked.id,{schemaVersion:1,version:linked.version,values:{[field('intake.'+name).id]:'篡改'}},key()),/COLLAB_READONLY_FIELD/);
+  }
+  await assert.rejects(service.updateCase(linked.id,{version:linked.version,intakeData:{region:'篡改'}}),/VALIDATION_FAILED/);
+  const manual=await service.createCase({...input,intakeData:{region:'手工地区',signedDate:'2026-10-20T00:00:00.000Z',customerPhone:'13911112222'}});
+  const manualRecord=(await svc.record(table.id,manual.id)).record;
+  assert.deepEqual(manualRecord.readonlyFields,[]);
+  assert.equal(manualRecord.values[field('intake.customerPhone').id],'13911112222');
+  const saved=await svc.saveRecord(table.id,manual.id,{schemaVersion:1,version:manual.version,values:{[field('intake.customerPhone').id]:'13933334444',[field('intake.region').id]:'手工新地区'}},key());
+  assert.equal((await service.getCase(manual.id)).intakeData.customerPhone,'13933334444');
+  assert.equal((await db.customer.findUniqueOrThrow({where:{id:customer.id}})).phone,customer.phone);
+  await svc.saveRecord(table.id,manual.id,{schemaVersion:1,version:saved.version,values:{[field('intake.region').id]:null}},key());
+  assert.equal((await service.getCase(manual.id)).intakeData.region,undefined);
+  const restricted = {...ctx,isSystemSuperAdmin:false};
+  assert.equal((await new CaseService(db,{actorUserId:user},restricted).getCase(linked.id)).intakeData.customerPhone,'138****0001');
 });

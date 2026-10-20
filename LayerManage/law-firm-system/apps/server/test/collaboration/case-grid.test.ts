@@ -1,3 +1,4 @@
+import { domainSources } from '../../app/application/crm/workspace-domain-source';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID as key } from 'node:crypto';
@@ -61,6 +62,10 @@ test.beforeEach(async () => {
   });
   const base = await owner.createBase(workspace, { name: '案件' }, key());
   table = (await owner.createTable(base.id, { name: '案件工作表', source: 'CASES' }, key())).id;
+  // Exercise legacy tables as well: existing deployments keep these until the explicit schema upgrade.
+  const active = await db.collabField.findMany({ where: { tableId: table } });
+  for (const [businessKey, name, type] of domainSources.CASES.columns) if (!active.some(f => (f.options as { businessKey?: string }).businessKey === businessKey))
+    await db.collabField.create({ data: { tableId: table, name, type, options: { businessKey, businessSource: 'CASES' } } });
   const customer = await db.customer.create({
     data: {
       customerNo: key(),
@@ -211,7 +216,8 @@ test('pasting case fields uses the same validation and rolls back the entire bat
 
 test('case phone follows the authorized customer and cannot leak through editing or queries', async () => {
   const customerId = (await db.case.findUniqueOrThrow({ where: { id: record } })).customerId;
-  await db.case.update({ where: { id: record }, data: { intakeData: { customerPhone: 'old copy' } } });
+  const contract = await db.contract.create({ data: { contractNo: key(), contractType: 'FIRST_SIGN', title: '已关联', status: 'EFFECTIVE', customerId, createdBy: owner.actor.userId } });
+  await db.case.update({ where: { id: record }, data: { contractId: contract.id, intakeData: { customerPhone: 'old copy' } } });
   const phone = fields['intake.customerPhone'];
   const value = async (service: CollaborationService) =>
     (await service.query(table, {})).records[0].values[phone];
@@ -221,8 +227,9 @@ test('case phone follows the authorized customer and cannot leak through editing
   assert.equal(await value(owner), '13912345678');
   assert.equal(await value(editor), '139****5678');
   const description = await owner.describe(table);
-  assert.equal(description.fields.find(f => f.id === phone)?.writable, false);
-  await assert.rejects(owner.saveRecord(table, record, { schemaVersion: description.table.schemaVersion, version: 1, values: { [phone]: 'override' } }, key()), code('COLLAB_USE_BUSINESS_ACTION'));
+  assert.equal(description.fields.find(f => f.id === phone)?.writable, true);
+  assert.ok((await owner.record(table, record)).record.readonlyFields?.includes(phone));
+  await assert.rejects(owner.saveRecord(table, record, { schemaVersion: description.table.schemaVersion, version: 1, values: { [phone]: 'override' } }, key()), code('COLLAB_READONLY_FIELD'));
   await assert.rejects(editor.query(table, { config: { sorts: [{ fieldId: phone, direction: 'asc' }] } }), code('COLLAB_SENSITIVE_QUERY_UNSUPPORTED'));
   editor.actor.permissionCodes = editor.actor.permissionCodes.filter(p => p !== 'customer.read');
   assert.equal((await editor.describe(table)).fields.some(f => f.id === phone), false);

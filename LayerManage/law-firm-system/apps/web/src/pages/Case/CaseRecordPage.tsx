@@ -1,3 +1,4 @@
+import { useContractIntake } from './useContractIntake';
 import LinkedContractCase from './LinkedContractCase';
 import { BusinessTableLinks } from '@/features/crm/BusinessWorkspacePage';
 import { get, errorMessage } from '@/features/workspaces/api';
@@ -188,6 +189,8 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createForm] = Form.useForm<CreateFormValues>();
   const selectedUpstreamContractId = Form.useWatch('contractId', createForm);
+  const linkedIntakeContractId = editingCase?.contractId || selectedUpstreamContractId;
+  const contractIntake = useContractIntake(createForm, editingCase ? undefined : selectedUpstreamContractId, true, createOpen);
 
   const [closeOpen, setCloseOpen] = useState(false);
   const [closeSubmitting, setCloseSubmitting] = useState(false);
@@ -370,6 +373,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
     return ()=>{live=false;};
   }, [createOpen]);
   const handleCreate = async (values: CreateFormValues) => {
+    if (contractIntake.loading || contractIntake.error) { message.error(contractIntake.error || '正在读取合同资料，请稍候保存'); return; }
     setCreateSubmitting(true);
     try {
       const intakeData: CaseIntake = {};
@@ -380,6 +384,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
             kind === 'datetime' && dayjs.isDayjs(value) ? value.toISOString() : kind === 'multi' ? JSON.stringify(value) : String(value).trim();
       }
       if (!intakeSelections(intakeData.agencyProcedure).includes('自定义')) delete intakeData.customProcedure;
+      if (linkedIntakeContractId) for (const key of ['signedDate', 'region', 'customerPhone'] as const) delete intakeData[key];
       const fileInputs: IntakeAttachment[] = [];
       for (const category of ATTACHMENT_CATEGORIES) {
         for (const upload of attachments[category] ?? []) {
@@ -793,10 +798,12 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
           onFinish={handleCreate}
           disabled={createSubmitting || (!id && !canCreate)}
         >
+          {contractIntake.loading && <Alert type="info" title="正在读取合同签约日期和客户地区、电话…" />}
+          {contractIntake.error && <Alert type="error" title={contractIntake.error} />}
           {!editingCase && <LinkedContractCase contractId={selectedUpstreamContractId} />}
-          {!editingCase && <Form.Item name="contractId" label="关联合同（已生效）" extra="选择后自动回填客户、合同编号与金额；已自动建档的合同请进入已有案件办理。">
+          {!editingCase && <Form.Item name="contractId" label="关联合同（已生效）" extra="选择后自动回填客户、合同编号、金额及签约日期、地区、电话；后三项只读，清除合同后可手工填写。已自动建档的合同请进入已有案件办理。">
               <Select showSearch optionFilterProp="label" allowClear options={upstreamContracts.map(c=>({value:c.id,label:c.contractNo+' · '+c.title}))}
-                onChange={id=>{const c=upstreamContracts.find(v=>v.id===id);if(c) { createForm.setFieldsValue({customerId:c.customerId,fee:c.amount,intakeData:{...createForm.getFieldValue('intakeData'),contractNumber:c.contractNo}}); }}} />
+ />
             </Form.Item>}
             <Form.Item label="办理工作区">
             <Select
@@ -896,6 +903,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
             </Col>
           </Row>
           <IntakeFields
+            contractLinked={Boolean(linkedIntakeContractId)}
             departments={departments}
             employees={employees.map(e => ({ value: e.id, label: e.name }))}
             createdAt={editingCase?.createdAt}

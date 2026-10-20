@@ -260,6 +260,7 @@ export const domainSources = {
     table: 'customer',
     columns: [
       ['customerNo', '客户编号', 'TEXT'],
+      ['address', '地址', 'TEXT'],
       ['name', '客户名称', 'TEXT'],
       ['phone', '联系电话', 'PHONE'],
       ['wechat', '微信', 'TEXT'],
@@ -569,9 +570,9 @@ export class WorkspaceDomainSource {
       else linked.customerName = Prisma.sql`NULL::text`;
     }
     if (table.source === 'CASES') {
-      // Derive from the authorized customer, never from the stale intake copy.
+      // Linked cases read the authorized customer; unlinked cases keep their manual contact value.
       linked['intake.customerPhone'] = this.actor.permissionCodes.includes('customer.read')
-        ? Prisma.sql`(SELECT u.phone FROM (SELECT b.id,b.phone FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${await this.scope('CUSTOMERS', access)}) u WHERE u.id=b."customerId")`
+        ? Prisma.sql`CASE WHEN b."contractId" IS NULL THEN b."intakeData"->>'customerPhone' ELSE (SELECT u.phone FROM (SELECT b.id,b.phone FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${await this.scope('CUSTOMERS', access)}) u WHERE u.id=b."customerId") END`
         : Prisma.sql`NULL::text`;
       linked.contractDisplayId = Prisma.sql`CASE WHEN b."contractDisplayId" < 1000 THEN lpad(b."contractDisplayId"::text, 3, '0') ELSE b."contractDisplayId"::text END`;
       linked.isClosed = Prisma.sql`b.status IN ('CLOSED', 'ARCHIVED')`;
@@ -589,7 +590,11 @@ export class WorkspaceDomainSource {
       const permitted = this.actor.permissionCodes.includes('contract.read')
         ? await this.scope('CONTRACTS', access)
         : Prisma.sql`FALSE`;
+      linked['intake.signedDate'] = Prisma.sql`CASE WHEN b."contractId" IS NULL THEN (b."intakeData"->>'signedDate')::timestamptz ELSE (SELECT u."signDate" FROM (SELECT b.id,b."signDate" FROM contract b WHERE ${permitted}) u WHERE u.id=b."contractId") END`;
+      const customerScope = this.actor.permissionCodes.includes('customer.read') ? await this.scope('CUSTOMERS', access) : Prisma.sql`FALSE`;
+      linked['intake.region'] = Prisma.sql`CASE WHEN b."contractId" IS NULL THEN b."intakeData"->>'region' ELSE (SELECT u.address FROM (SELECT b.id,b.address FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${customerScope}) u WHERE u.id=b."customerId") END`;
       linked.contractNo = Prisma.sql`(SELECT u."contractNo" FROM (SELECT b.id,b."contractNo" FROM contract b WHERE ${permitted}) u WHERE u.id=b."contractId")`;
+      linked['intake.contractNumber'] = Prisma.sql`COALESCE(NULLIF(b."intakeData"->>'contractNumber',''), ${linked.contractNo})`;
       linked.contractAmount = Prisma.sql`(SELECT u.amount FROM (SELECT b.id,b.amount FROM contract b WHERE ${permitted}) u WHERE u.id=b."contractId")`;
     }
     if (table.source === 'CONTRACTS') {
@@ -695,6 +700,10 @@ export class WorkspaceDomainSource {
         b.id IN (${Prisma.join(rows.map((r) => r.id))}) AND ${await this.scope(source, access, 'update')}
         AND ${source === 'NEGOTIATIONS' ? Prisma.sql`b.status = 'NEGOTIATING'` : source === 'CONTRACTS' ? Prisma.sql`b.status = 'DRAFT'` : Prisma.sql`TRUE`}`);
     const ids = new Set(editable.map((r) => r.id));
+    const linkedCases = source === 'CASES' && rows.length
+      ? await this.db.case.findMany({ where: { id: { in: rows.map(r => r.id) }, contractId: { not: null } }, select: { id: true } }) : [];
+    const linkedIds = new Set(linkedCases.map(r => r.id));
+    const linkedFieldIds = fields.filter(f => ['intake.signedDate', 'intake.region', 'intake.customerPhone'].includes(String(object(f.options).businessKey))).map(f => f.id);
     const customerField = fields.find((f) => object(f.options).businessKey === 'customerId');
     const labels = new Map<string, string>();
     if (customerField && rows.length && this.actor.permissionCodes.includes('customer.read')) {
@@ -789,6 +798,7 @@ export class WorkspaceDomainSource {
       return {
         ...row,
         writable: ids.has(row.id),
+        readonlyFields: linkedIds.has(row.id) ? linkedFieldIds : [],
         ...(Object.keys(displayValues).length ? { displayValues } : {}),
       };
     });

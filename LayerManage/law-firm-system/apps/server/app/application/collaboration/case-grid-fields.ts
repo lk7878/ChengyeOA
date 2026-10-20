@@ -1,9 +1,19 @@
+import { AuthorizationContext } from '../authorization/authorization-service';
+import { FieldProjectionService } from '../authorization/field-projection-service';
 import { INTAKE_FIELDS, INTAKE_OPTIONS } from '../case/intake-contract';
 
-export function editableCaseKey(key: string) {
+export function editableCaseKey(key: string, actor?: AuthorizationContext) {
+  if (key === 'intake.customerPhone')
+    return (
+      !!actor &&
+      new FieldProjectionService().fieldCapability(actor, 'customer', 'customer.phone', 'customer.read')
+        .readLevel === 'READ'
+    );
   return (
     ['title', 'caseType', 'priority', 'lawyerId', 'fee'].includes(key) ||
-    INTAKE_FIELDS.some(([name, , kind]) => name !== 'customerPhone' && key === 'intake.' + name && !kind.startsWith('formula'))
+    INTAKE_FIELDS.some(
+      ([name, , kind]) => name !== 'customerPhone' && key === 'intake.' + name && !kind.startsWith('formula'),
+    )
   );
 }
 

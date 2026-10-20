@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
 import { CaseService } from '../../app/application/case/case-service';
-import { INTAKE_FIELDS, INTAKE_OPTIONS, CaseIntake } from '../../app/application/case/intake-contract';
+import { CASE_FIELD_ORDER, INTAKE_FIELDS, INTAKE_OPTIONS, CaseIntake } from '../../app/application/case/intake-contract';
 import { CaseTaskService } from '../../app/application/case/case-task-service';
 import { CaseCommunicationService } from '../../app/application/case/case-communication-service';
 import { AuditActor } from '../../app/application/master-data/master-data-types';
@@ -45,6 +45,8 @@ function caseContext(userId: string, overrides: { permissionCodes?: PermissionCo
   const permissionCodes = overrides.permissionCodes ?? CASE_PERMISSIONS;
   return {
     userId,
+    fieldRules: [],
+    evaluatedAt: new Date(),
     employeeId: overrides.employeeId ?? null,
     isSystemAdmin: false,
     isSystemSuperAdmin: false,
@@ -121,14 +123,15 @@ test('editing persists every intake field, exact money, customer/lawyer names an
   const department = await prisma.organization.create({ data: { id: departmentId, name: '案件业务部', code: randomUUID(), path: `/${departmentId}`, type: 'DEPARTMENT', status: 'ENABLED' } });
   const intakeData: CaseIntake = {};
   for (const [key, , kind] of INTAKE_FIELDS.filter(field => !field[2].startsWith('formula'))) intakeData[key] = kind === 'datetime' ? '2026-09-14T02:30:00.000Z' : kind === 'boolean' ? 'true' : kind === 'user' ? lawyerId : kind === 'multi' ? JSON.stringify([INTAKE_OPTIONS[key][0]]) : kind === 'integerRatio' ? '25' : kind === 'number' ? '123.45' : kind === 'money' ? '123.45' : kind === 'ratio' ? '25.00' : kind === 'department' ? department.id : kind === 'select' ? INTAKE_OPTIONS[key][0] : key === 'customerPhone' ? '13800000001' : `字段-${key}`;
-  intakeData.agencyProcedure = '自定义';
+  intakeData.agencyProcedure = '代书';
+  delete intakeData.customProcedure;
   const updated = await service.updateCase(id, { customerId, lawyerId, fee: '9999999999999999.99', intakeData, description: '完整描述', version: 1 });
-  assert.deepEqual(updated.intakeData, intakeData);
+  assert.deepEqual(updated.intakeData, { ...intakeData, customerPhone: '138****0001' });
   assert.equal(updated.fee, '9999999999999999.99');
   assert.equal((await service.getCase(id)).lawyerName, '律师甲');
   for (const keyword of ['字段-contractNumber', '字段-region', '刑事', '客户甲']) assert.equal((await service.listCases({ keyword })).list.some(item => item.id === id), true);
   const cleared = await service.updateCase(id, { intakeData: {}, fee: '0', description: '', version: 2 });
-  assert.deepEqual(cleared.intakeData, {});
+  assert.deepEqual(cleared.intakeData, Object.fromEntries(Object.entries(intakeData).filter(([key]) => !CASE_FIELD_ORDER.includes('intake.' + key))));
   assert.equal(cleared.description, null);
   await assert.rejects(() => service.updateCase(id, { lawyerId: null, version: 3 }), { code: 'VALIDATION_FAILED' });
   await assert.rejects(() => service.updateCase(id, { intakeData: { departmentId: 'missing' }, version: 3 }), { code: 'VALIDATION_FAILED' });

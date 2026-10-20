@@ -123,3 +123,12 @@ test.each([
     ),
   );
 });
+
+test('linked record fields cannot enter inline editing while unlinked records remain editable', () => {
+  const view=render(<GridCell {...props} row={{...row, readonlyFields:['f']}} />);
+  fireEvent.doubleClick(screen.getByText('原值'));
+  expect(screen.queryByLabelText('单元格编辑')).not.toBeInTheDocument();
+  view.rerender(<GridCell {...props} row={{...row, readonlyFields:[]}} />);
+  fireEvent.doubleClick(screen.getByText('原值'));
+  expect(screen.getByLabelText('单元格编辑')).toBeInTheDocument();
+});

@@ -511,13 +511,14 @@ export class ContractService {
       if (contractType === 'FORMAL') {
         const customer = await tx.customer.findUniqueOrThrow({
           where: { id: contract.customerId },
-          select: { name: true },
+          select: { name: true, address: true },
         });
         const createdCase = await tx.case.create({
           data: {
             caseNo: nextCaseNo(),
             createdBy: this.actor.actorUserId, updatedBy: this.actor.actorUserId, branchId: contract.branchId,
             title: `${customer.name}-${contract.title}`,
+            intakeData: { contractNumber: contract.contractNo, ...(contract.signDate ? { signedDate: contract.signDate.toISOString() } : {}), ...(customer.address ? { region: customer.address } : {}) },
             customerId: contract.customerId,
             contractId: contract.id,
             caseType: 'GENERAL',

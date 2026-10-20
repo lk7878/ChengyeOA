@@ -35,14 +35,16 @@ export default function GridCell({
 }) {
   const [draft, setDraft] = useState<{ value: unknown; version: number; schema: number; key: string }>();
   const [saving, setSaving] = useState(false);
-  const editable = field.writable && row.writable !== false;
+  const editable = field.writable && row.writable !== false && !row.readonlyFields?.includes(field.id);
   const workflow = Boolean(
     field.options.businessKey &&
       ['status', 'approvalId', 'receivedAmount', 'stock', 'score', 'bonus'].includes(
         field.options.businessKey,
       ),
   );
-  const readonlyReason = !field.writable
+  const readonlyReason = row.readonlyFields?.includes(field.id)
+    ? '此字段从关联合同或客户档案同步，请在来源记录中维护。'
+    : !field.writable
     ? field.options.lifecycleKey ? fieldHint(field) : field.options.businessKey
       ? workflow
         ? '此字段由业务流程维护，点击办理；系统将校验操作权限和状态。'
@@ -50,7 +52,7 @@ export default function GridCell({
       : '系统字段或当前字段权限为只读。'
     : '当前记录状态或数据权限不允许修改，请打开业务详情办理。';
   const begin = () => {
-    if (canBegin && field.writable && row.writable !== false) {
+    if (canBegin && editable) {
       setDraft({
         value: row.values[field.id],
         version: row.version,
@@ -146,7 +148,7 @@ export default function GridCell({
         {(row.values[field.id] as string[]).slice(0, 3).map((id) => (
           <AttachmentItem key={id} tableId={tableId} id={id} />
         ))}
-        <Button size="small" disabled={!field.writable || row.writable === false} onClick={begin}>
+        <Button size="small" disabled={!editable} onClick={begin}>
           编辑附件
         </Button>
       </div>
