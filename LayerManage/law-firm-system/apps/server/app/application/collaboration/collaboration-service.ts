@@ -885,20 +885,26 @@ export class CollaborationService {
     return this.write(key, ['lifecycle.configure', tableId, input], async (tx) => {
       const initial = await this.tableAccess(tableId, tx, 3);
       await this.lock(tx, initial.access.workspaceId);
-      const { table } = await this.tableAccess(tableId, tx, 3);
+      const { table, access } = await this.tableAccess(tableId, tx, 3);
+      if (access.selfOnly || access.hidden.length || access.readonly.length) fail('COLLAB_FORBIDDEN', 403);
       if (
         table.source !== 'CUSTOM' ||
-        table.lifecycleKind ||
+        (table.lifecycleKind === 'CASE_REFUNDS' && kind !== table.lifecycleKind) ||
         table.schemaVersion !== integer(input.schemaVersion)
       )
         fail('COLLAB_SCHEMA_CONFLICT', 409);
       if (await tx.collabRecord.count({ where: { tableId } })) fail('LIFECYCLE_TABLE_NOT_EMPTY', 409);
+      if (table.lifecycleKind) this.lifecycle().authorize(table.lifecycleKind);
+      const existing = await tx.collabField.findMany({ where: { tableId } });
       // Preserve existing columns and views; only remove obsolete required flags on an empty table.
       await tx.collabField.updateMany({ where: { tableId }, data: { required: false } });
       for (const f of lifecycleFields(kind)) {
-        if (await tx.collabField.findUnique({ where: { tableId_name: { tableId, name: f.name } } }))
+        const previous = existing.find((field) => lifecycleKey(field) === object(f.options).lifecycleKey);
+        if (existing.some((field) => field.name === f.name && field.id !== previous?.id))
           fail('LIFECYCLE_FIELD_NAME_CONFLICT', 409);
-        await tx.collabField.create({ data: { ...f, tableId } });
+        if (previous)
+          await tx.collabField.update({ where: { id: previous.id }, data: { ...f, archived: false } });
+        else await tx.collabField.create({ data: { ...f, tableId } });
       }
       await tx.collabTable.update({
         where: { id: tableId },
@@ -910,6 +916,7 @@ export class CollaborationService {
           action: 'WORKSHEET_LINK_CONFIGURE',
           targetType: 'COLLAB_TABLE',
           targetId: tableId,
+          oldValues: JSON.stringify({ kind: table.lifecycleKind }),
           newValues: JSON.stringify({ kind }),
         },
       });
@@ -1220,6 +1227,10 @@ export class CollaborationService {
       // Only collaboration data cascades; canonical business records have no table FK.
       await tx.collabRecordOperation.deleteMany({ where: { tableId } });
       await tx.collabTable.delete({ where: { id: tableId } });
+      await tx.operationLog.create({ data: {
+        userId: this.actor.userId, action: 'WORKSHEET_DELETE', targetType: 'COLLAB_TABLE', targetId: tableId,
+        oldValues: JSON.stringify({ name: table.name, source: table.source, lifecycleKind: table.lifecycleKind, baseId: table.baseId }),
+      } });
       await this.event(tx, table.baseId, 'table.deleted', tableId);
       return { id: tableId, files: files.map((file) => file.storageKey) };
     });

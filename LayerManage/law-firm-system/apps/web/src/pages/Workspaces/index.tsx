@@ -739,6 +739,20 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
           : '将永久删除此工作表的入口、视图、自定义扩展数据、附件和自动化规则。关联的原始业务记录会保留，可重新连接业务数据。未保存的修改会丢失。'
         : undefined,
       onOk: async () => {
+        if (deleting) {
+          const confirmed = await new Promise<boolean>((resolve) => {
+            Modal.confirm({
+              title: '高危操作：再次确认永久删除',
+              content: `即将永久删除“${table.name}”。请确认已备份需要保留的数据，此操作无法撤销。`,
+              okText: '确认永久删除',
+              okButtonProps: { danger: true },
+              cancelText: '保留此表',
+              onOk: () => { resolve(true); },
+              onCancel: () => { resolve(false); },
+            });
+          });
+          if (!confirmed) return;
+        }
         try {
           await patch(
             '/tables/' + table.id,

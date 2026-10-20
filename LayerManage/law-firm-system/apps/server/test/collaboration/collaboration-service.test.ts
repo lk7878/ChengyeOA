@@ -584,6 +584,7 @@ test('table deletion removes archived custom data, preferences and attachments a
   assert.equal(await db.collabAttachment.count({ where: { tableId } }), 0);
   assert.equal((await admin.listTables(baseId)).tables.length, 0);
   assert.equal(await db.operationLog.count({ where: { action: 'table.deleted', targetId: tableId } }), 1);
+    assert.equal(await db.operationLog.count({ where: { action: 'WORKSHEET_DELETE', targetId: tableId } }), 1);
   assert.ok((await admin.createTable(baseId, { name: '自建表' }, randomUUID())).id);
 });
 

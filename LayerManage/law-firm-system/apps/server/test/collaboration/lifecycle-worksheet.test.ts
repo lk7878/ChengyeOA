@@ -117,6 +117,24 @@ async function setup() {
     );
   return { customer, contract, row, a, r, vals, create };
 }
+test('an empty misconfigured after-sales table can become a refund table without replacing field IDs', async () => {
+  const { a, row, create } = await setup();
+  await svc.configureLifecycle(a.table.id, { kind: 'CASE_REFUNDS', schemaVersion: a.table.schemaVersion }, key());
+  const changed = await svc.describe(a.table.id);
+  assert.equal(changed.table.lifecycleKind, 'CASE_REFUNDS');
+  for (const field of a.fields) assert.ok(changed.fields.some(f => f.id === field.id));
+  assert.ok(changed.fields.some(f => (f.options as Record<string, unknown>).lifecycleKey === 'amount'));
+  await assert.rejects(create(changed, { upstreamId: row.id, content: '不能直接选案件', amount: '1' }));
+  assert.equal(await db.operationLog.count({ where: { targetId: a.table.id, action: 'WORKSHEET_LINK_CONFIGURE' } }), 1);
+});
+
+test('reconfiguration never clears existing lifecycle data', async () => {
+  const { a, row, create } = await setup();
+  await create(a, { upstreamId: row.id, content: '保留数据' });
+  await assert.rejects(svc.configureLifecycle(a.table.id, { kind: 'CASE_REFUNDS', schemaVersion: a.table.schemaVersion }, key()), /LIFECYCLE_TABLE_NOT_EMPTY/);
+  assert.equal((await svc.query(a.table.id, {})).total, 1);
+});
+
 test('linked worksheets query current upstream fields; edits, deletion and undo retain stable IDs', async () => {
   const { customer, contract, row, a, vals, create } = await setup();
   const saved = await create(a, { upstreamId: row.id, content: '未及时沟通' });

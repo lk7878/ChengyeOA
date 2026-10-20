@@ -3,7 +3,7 @@ import { INTAKE_FIELDS, INTAKE_OPTIONS } from '../case/intake-contract';
 export function editableCaseKey(key: string) {
   return (
     ['title', 'caseType', 'priority', 'lawyerId', 'fee'].includes(key) ||
-    INTAKE_FIELDS.some(([name, , kind]) => key === 'intake.' + name && !kind.startsWith('formula'))
+    INTAKE_FIELDS.some(([name, , kind]) => name !== 'customerPhone' && key === 'intake.' + name && !kind.startsWith('formula'))
   );
 }
 

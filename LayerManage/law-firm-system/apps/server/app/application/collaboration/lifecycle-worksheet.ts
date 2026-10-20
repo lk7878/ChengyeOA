@@ -14,7 +14,7 @@ export const lifecycleKey = (f: CollabField) => String(object(f.options).lifecyc
 export const syncedLifecycleKeys = ['contractNo', 'caseNo', 'caseTitle', 'customerName', 'contractAmount'];
 export function lifecycleFields(kind: LifecycleKind) {
   const specs: Array<[string, string, string, boolean, unknown?]> = [
-    ['upstreamId', kind === 'AFTER_SALES' ? '关联合同 / 案件' : '关联售后 / 合同', 'TEXT', true],
+    ['upstreamId', kind === 'AFTER_SALES' ? '关联案件（案件ID）' : '关联售后（售后记录ID）', 'TEXT', true],
     ['contractNo', '合同编号（同步）', 'TEXT', false],
     ['caseNo', '案件编号（同步）', 'TEXT', false],
     ['caseTitle', '案件名称（同步）', 'TEXT', false],

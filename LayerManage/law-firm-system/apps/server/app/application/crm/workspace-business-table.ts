@@ -102,7 +102,7 @@ export class WorkspaceBusinessTable {
     const key = object(field.options).businessKey;
     if (!businessFields(source).some((f) => f.options.businessKey === key)) fail('COLLAB_INVALID_FIELD');
     // Never infer sensitive raw values through filtering, grouping, or ordering a masked column.
-    if (query && ['phone', 'wechat'].includes(String(key))) fail('COLLAB_SENSITIVE_QUERY_UNSUPPORTED');
+    if (query && ['phone', 'wechat', 'intake.customerPhone'].includes(String(key))) fail('COLLAB_SENSITIVE_QUERY_UNSUPPORTED');
     return String(key);
   }
   private filter(source: string, fields: CollabField[], raw: unknown): Record<string, unknown> {

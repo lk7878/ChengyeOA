@@ -71,14 +71,27 @@ test.each(['CUSTOM', 'CASES'])(
     const config = confirm.mock.calls[0][0];
     expect(config.content).toContain(source === 'CUSTOM' ? '表内数据' : '原始业务记录会保留');
     expect(patch).not.toHaveBeenCalled();
+    const acceptSecondConfirmation = async () => {
+      const pending = config.onOk?.();
+      const second = confirm.mock.calls.at(-1)![0];
+      expect(second.title).toContain('高危操作');
+      second.onOk?.();
+      return pending;
+    };
+    await act(async () => {
+      const pending = config.onOk?.();
+      confirm.mock.calls.at(-1)![0].onCancel?.();
+      await pending;
+    });
+    expect(patch).not.toHaveBeenCalled();
     if (source === 'CUSTOM') {
       vi.mocked(patch).mockRejectedValueOnce(new Error('failed'));
-      await act(async () => { await expect(config.onOk?.()).rejects.toThrow('failed'); });
+      await act(async () => { await expect(acceptSecondConfirmation()).rejects.toThrow('failed'); });
       expect(screen.getByRole('button', { name: '管理待删除表' })).toBeInTheDocument();
       expect(screen.getByTestId('location').textContent).toContain('table=t');
     }
     await act(async () => {
-      await config.onOk?.();
+      await acceptSecondConfirmation();
     });
     expect(patch).toHaveBeenCalledWith('/tables/t', { remove: true, version: 3 }, expect.any(String));
     if (source === 'CUSTOM') expect(vi.mocked(patch).mock.calls[0][2]).toBe(vi.mocked(patch).mock.calls[1][2]);

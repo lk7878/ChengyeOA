@@ -346,10 +346,12 @@ export class WorkspaceDomainSource {
     const permissions = this.permissions();
     return fields.filter(
       (f) =>
-        source !== 'CUSTOMERS' ||
+        (source !== 'CASES' || object(f.options).businessKey !== 'intake.customerPhone' ||
+          (this.actor.permissionCodes.includes('customer.read') && permissions.phone !== 'NONE')) &&
+        (source !== 'CUSTOMERS' ||
         !['phone', 'wechat'].some(
           (key) => object(f.options).businessKey === key && permissions[key as 'phone' | 'wechat'] === 'NONE',
-        ),
+        )),
     );
   }
   private compile(raw: unknown, alias: 'b' | 'l' | 'c' | 'k' | 'i' = 'b'): Prisma.Sql {
@@ -564,9 +566,13 @@ export class WorkspaceDomainSource {
     if (['CASES', 'CONTRACTS', 'NEGOTIATIONS'].includes(table.source)) {
       if (this.actor.permissionCodes.includes('customer.read'))
         linked.customerName = Prisma.sql`(SELECT u.name FROM (SELECT b.id,b.name FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${await this.scope('CUSTOMERS', access)}) u WHERE u.id=b."customerId")`;
-      else linked.customerName = Prisma.sql`NULL`;
+      else linked.customerName = Prisma.sql`NULL::text`;
     }
     if (table.source === 'CASES') {
+      // Derive from the authorized customer, never from the stale intake copy.
+      linked['intake.customerPhone'] = this.actor.permissionCodes.includes('customer.read')
+        ? Prisma.sql`(SELECT u.phone FROM (SELECT b.id,b.phone FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${await this.scope('CUSTOMERS', access)}) u WHERE u.id=b."customerId")`
+        : Prisma.sql`NULL::text`;
       linked.contractDisplayId = Prisma.sql`CASE WHEN b."contractDisplayId" < 1000 THEN lpad(b."contractDisplayId"::text, 3, '0') ELSE b."contractDisplayId"::text END`;
       linked.isClosed = Prisma.sql`b.status IN ('CLOSED', 'ARCHIVED')`;
       const fileScope = this.actor.permissionCodes.includes('case.file.read')
@@ -651,10 +657,12 @@ export class WorkspaceDomainSource {
     rows: CollabRecord[],
     recordId?: string,
   ) {
-    if (source === 'CUSTOMERS') {
+    if (source === 'CUSTOMERS' || source === 'CASES') {
       const permissions = this.permissions();
       for (const key of ['phone', 'wechat'] as const) {
-        const field = fields.find((f) => object(f.options).businessKey === key);
+        const field = source === 'CASES'
+          ? (key === 'phone' ? fields.find((f) => object(f.options).businessKey === 'intake.customerPhone') : undefined)
+          : fields.find((f) => object(f.options).businessKey === key);
         if (!field) {
           permissions[key] = 'NONE';
           continue;
@@ -678,7 +686,7 @@ export class WorkspaceDomainSource {
         'customer',
         permissions,
         rows.length,
-        'workspace.customers',
+        source === 'CASES' ? 'workspace.cases.customer-phone' : 'workspace.customers',
       );
     }
     let editable: Array<{ id: string }> = [];

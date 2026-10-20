@@ -209,6 +209,26 @@ test('pasting case fields uses the same validation and rolls back the entire bat
   assert.equal((await db.case.findUniqueOrThrow({ where: { id: second.id } })).priority, 'HIGH');
 });
 
+test('case phone follows the authorized customer and cannot leak through editing or queries', async () => {
+  const customerId = (await db.case.findUniqueOrThrow({ where: { id: record } })).customerId;
+  await db.case.update({ where: { id: record }, data: { intakeData: { customerPhone: 'old copy' } } });
+  const phone = fields['intake.customerPhone'];
+  const value = async (service: CollaborationService) =>
+    (await service.query(table, {})).records[0].values[phone];
+  assert.equal(await value(owner), '13800000000');
+  assert.equal(await value(editor), '138****0000');
+  await db.customer.update({ where: { id: customerId }, data: { phone: '13912345678' } });
+  assert.equal(await value(owner), '13912345678');
+  assert.equal(await value(editor), '139****5678');
+  const description = await owner.describe(table);
+  assert.equal(description.fields.find(f => f.id === phone)?.writable, false);
+  await assert.rejects(owner.saveRecord(table, record, { schemaVersion: description.table.schemaVersion, version: 1, values: { [phone]: 'override' } }, key()), code('COLLAB_USE_BUSINESS_ACTION'));
+  await assert.rejects(editor.query(table, { config: { sorts: [{ fieldId: phone, direction: 'asc' }] } }), code('COLLAB_SENSITIVE_QUERY_UNSUPPORTED'));
+  editor.actor.permissionCodes = editor.actor.permissionCodes.filter(p => p !== 'customer.read');
+  assert.equal((await editor.describe(table)).fields.some(f => f.id === phone), false);
+  assert.equal(await value(editor), undefined);
+});
+
 test('standard case fields round-trip through role-authorized grid and display IDs remain protected', async () => {
   const description = await editor.describe(table);
   assert.equal(description.fields.find(f=>f.id===fields['intake.agencyProcedure'])?.type,'MULTI_SELECT');
