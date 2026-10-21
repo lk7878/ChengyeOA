@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import ReceiptDetails from './ReceiptDetails';
 import { Button, Space, message } from 'antd';
 import AttachmentItem from './AttachmentItem';
 import FieldInput from './FieldInput';
@@ -42,7 +43,8 @@ export default function GridCell({
         field.options.businessKey,
       ),
   );
-  const readonlyReason = row.readonlyFields?.includes(field.id)
+  const financeReadonly = ['receiptDetails','receiptTotal','receiptFiles'].includes(field.options.businessKey || '') || ['actualRefundAmount','refundPaidAt','refundStatus','refundReceiptLookup'].includes(field.options.lifecycleKey || '');
+  const readonlyReason = financeReadonly ? '财务数据仅限财务部录入，此处为自动同步' : row.readonlyFields?.includes(field.id)
     ? '此字段从关联合同或客户档案同步，请在来源记录中维护。'
     : !field.writable
     ? field.options.lifecycleKey ? fieldHint(field) : field.options.businessKey
@@ -92,6 +94,7 @@ export default function GridCell({
       setSaving(false);
     }
   };
+  if (field.options.businessKey === 'receiptDetails') return <ReceiptDetails value={row.values[field.id]} tableId={tableId}/>;
   if (draft)
     return (
       <div
@@ -165,7 +168,7 @@ export default function GridCell({
         ((row.displayValues?.[field.id] ?? displayValue(field, row.values[field.id], directory)) || '空')
       }
       onClick={editable ? begin : workflow && businessSource ? onBusinessAction : undefined}
-      onDoubleClick={editable ? begin : workflow && businessSource ? onBusinessAction : undefined}
+      onDoubleClick={financeReadonly ? ()=>message.info('财务数据仅限财务部录入，此处为自动同步') : editable ? begin : workflow && businessSource ? onBusinessAction : undefined}
       title={editable ? '双击编辑，回车保存，Esc 取消' : readonlyReason}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {

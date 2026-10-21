@@ -20,6 +20,12 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  FINANCE_RECEIPT_HAS_REFUND: '此收款已有退款申请或执行记录，不能修改或删除，请先核对关联退费。',
+  LIFECYCLE_FINANCE_LOCKED: '关联退费已进入财务审批或执行流程，不能修改申请或删除来源记录。',
+  REFUND_EXECUTION_DETAILS_REQUIRED: '请先填写实际退费金额、退费时间并上传凭证，再执行退款。',
+  REFUND_AMOUNT_EXCEEDED: '退费金额不能超过申请金额或合同可退的已确认收款余额。',
+  REFUND_STATE_INVALID: '请先完成退款审批；执行后的退款记录不可再修改。',
+  PAYMENT_AMOUNT_EXCEEDED: '收款金额超过合同或收款计划的可收余额，请核对后重试。',
   LIFECYCLE_NEGOTIATION_IN_USE: '谈案已经签约或存在关联合同，不能删除；请保留业务链路。',
   LIFECYCLE_REFUND_CONTRACT_UNAVAILABLE: '请先为案件关联有效合同，并确认具有该合同的退费登记权限。',
   LIFECYCLE_TABLE_HAS_RECORDS: '关联表中有业务历史，请使用行删除或归档表，以保留关联和恢复记录。',

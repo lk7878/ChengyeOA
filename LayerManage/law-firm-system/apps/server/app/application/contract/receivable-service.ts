@@ -1,4 +1,5 @@
 import { createOnce } from '../finance/domain-mutation';
+import { notifyDeliveryChange } from '../collaboration/delivery-change';
 import { buildFinancialRecordScopeWhere, FinancialRecordScope } from '../finance/financial-record-scope';
 import { assertFinancialCaseLink, financialCaseFilter, projectFinancialCases } from '../finance/financial-case-projection';
 // SPEC-010 Task 8: receivable-service —— 应收计划生成段（CON-07）。
@@ -498,6 +499,7 @@ export class ReceivableService {
           ip: this.actor.ip,
         },
       });
+      await notifyDeliveryChange(tx,this.actor.actorUserId,payment.id);
       const after = await tx.payment.findUniqueOrThrow({ where: { id: payment.id } });
       return projectPayment(after);
     });
@@ -541,6 +543,7 @@ export class ReceivableService {
       // 幂等翻转：where 仅 {id, version, status:'CONFIRMED'}（协调者裁决①——软删写入
       // 路径不存在，与 confirmPayment 翻转谓词同形）。败者 count=0 → 重读：已 VOIDED →
       // 返回现状投影零重冲（零事件零审计零回补）；其他 → PAYMENT_STATE_INVALID 409。
+      if(await tx.refundAllocation.count({where:{paymentId:payment.id}})) throw new MasterDataError('FINANCE_RECEIPT_HAS_REFUND',409);
       const flipped = await tx.payment.updateMany({
         where: { id: payment.id, version: payment.version, status: 'CONFIRMED' },
         data: {
@@ -590,6 +593,7 @@ export class ReceivableService {
           ip: this.actor.ip,
         },
       });
+      await notifyDeliveryChange(tx,this.actor.actorUserId,payment.id);
       const after = await tx.payment.findUniqueOrThrow({ where: { id: payment.id } });
       return projectPayment(after);
     });

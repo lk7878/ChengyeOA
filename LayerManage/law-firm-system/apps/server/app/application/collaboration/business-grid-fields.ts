@@ -30,6 +30,7 @@ export function editableBusinessKey(source: string, key: string, actor: Authoriz
   return true;
 }
 export function businessGridChoices(source: string, key: string) {
+  if(source==='PAYMENTS' && key==='invoiceStatus') return [{id:'NOT_ISSUED',name:'未开票'},{id:'ISSUED',name:'已开票'}];
   const choices =
     source === 'CUSTOMERS' && key === 'customerType'
       ? [

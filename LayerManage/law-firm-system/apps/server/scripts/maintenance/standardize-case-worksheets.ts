@@ -27,7 +27,7 @@ export async function standardizeCaseWorksheets(db: PrismaClient, apply: boolean
     source: t.source,
     kind: t.lifecycleKind,
     visibleCount:
-      t.source === 'CASES' ? 23 : t.source === 'CUSTOMERS' ? businessFields('CUSTOMERS').length : 27,
+      t.source === 'CASES' ? CASE_FIELD_ORDER.length : t.source === 'CUSTOMERS' ? businessFields('CUSTOMERS').length : lifecycleFields(t.lifecycleKind as LifecycleKind).filter(f=>f.options.defaultVisible).length,
     archiveFields:
       t.source === 'CASES'
         ? t.fields

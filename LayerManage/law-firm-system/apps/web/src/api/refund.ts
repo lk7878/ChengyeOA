@@ -15,6 +15,13 @@ export type RefundStatus = (typeof REFUND_STATUSES)[number];
 
 /** 镜像 apps/server app/application/finance/finance-projection.ts RefundRequestView（日期传输层为 ISO 串）。 */
 export interface RefundView {
+  sourceRecordId?: string | null;
+  actualAmount?: string | null;
+  paidAt?: string | null;
+  voucherFiles?: string[];
+  recipientName?: string | null;
+  recipientBank?: string | null;
+  recipientAccount?: string | null;
   linkedCase?: { id: string; caseNo: string; title: string } | null;
   id: string;
   requestNo: string;

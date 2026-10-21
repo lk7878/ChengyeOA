@@ -1,4 +1,6 @@
 import { createOnce } from './domain-mutation';
+import { notifyDeliveryChange } from '../collaboration/delivery-change';
+import { fail } from '../collaboration/collaboration-policy';
 import { buildFinancialRecordScopeWhere, FinancialRecordScope } from './financial-record-scope';
 import { assertFinancialCaseLink, financialCaseFilter, projectFinancialCases } from './financial-case-projection';
 // SPEC-011 Task 6: refund-service —— 退款/减免申请全生命周期（FIN-03 回补核心，本 SPEC
@@ -241,6 +243,7 @@ export class RefundService {
         fromStatus: 'PENDING',
         toStatus: 'APPROVED',
       });
+      await notifyDeliveryChange(tx,this.actor.actorUserId,refund.id);
       const after = await tx.refundRequest.findUniqueOrThrow({ where: { id: refund.id } });
       return projectRefundRequest(after);
     });
@@ -292,6 +295,7 @@ export class RefundService {
         fromStatus: 'PENDING',
         toStatus: 'REJECTED',
       });
+      await notifyDeliveryChange(tx,this.actor.actorUserId,refund.id);
       const after = await tx.refundRequest.findUniqueOrThrow({ where: { id: refund.id } });
       return projectRefundRequest(after);
     });
@@ -331,6 +335,38 @@ export class RefundService {
     return this.prisma.$transaction(async tx => {
       const refund = await this.probeRefundRequest(tx, refundId, scopeWhere);
       const contract = await this.lockContract(tx, refund.contractId);
+
+      // Read execution details after the contract lock: a worksheet save may have just committed.
+      const current=await tx.refundRequest.findUniqueOrThrow({where:{id:refund.id},include:{sourceRecord:{include:{lifecycleLink:{include:{case:true}}}}}});
+      if (current.sourceRecordId || current.type === 'REFUND' && current.actualAmount) {
+        if(current.status==='EXECUTED') return projectRefundRequest(current);
+        if(current.status!=='APPROVED') fail('REFUND_STATE_INVALID',409);
+        const link=current.sourceRecord?.lifecycleLink;
+        if(current.sourceRecordId && (!link||current.sourceRecord?.archived||link.kind!=='CASE_REFUNDS'||link.case.deletedAt||link.case.contractId!==current.contractId)) fail('LIFECYCLE_PARENT_UNAVAILABLE',409);
+        const amount=current.actualAmount;
+        if(!amount||!amount.greaterThan(0)||amount.greaterThan(current.amount)||!current.paidAt||!Array.isArray(current.voucherFiles)||!current.voucherFiles.length) fail('REFUND_EXECUTION_DETAILS_REQUIRED',422);
+        if(amount.greaterThan(contract.receivedAmount)) fail('REFUND_AMOUNT_EXCEEDED',409);
+        const payments=await tx.payment.findMany({where:{contractId:contract.id,...(current.paymentId?{id:current.paymentId}:{}),deletedAt:null,status:'CONFIRMED',refundRequests:{none:{id:{not:current.id},status:{in:['PENDING','APPROVED']}}}},include:{refundAllocations:true},orderBy:[{paidAt:'asc'},{id:'asc'}]});
+        let remaining=amount;
+        for(const payment of payments) {
+          const used=payment.refundAllocations.reduce((sum,item)=>sum.plus(item.amount),new Prisma.Decimal(0));
+          const available=payment.amount.minus(used);
+          const applied=Prisma.Decimal.min(remaining,available);
+          if(!applied.greaterThan(0)) continue;
+          await tx.refundAllocation.create({data:{refundId:current.id,paymentId:payment.id,amount:applied}});
+          await tx.payment.update({where:{id:payment.id},data:{status:applied.equals(available)?'REFUNDED':'CONFIRMED',version:{increment:1},updatedBy:this.actor.actorUserId}});
+          remaining=remaining.minus(applied);
+          if(remaining.isZero()) break;
+        }
+        if(!remaining.isZero()) fail('REFUND_AMOUNT_EXCEEDED',409);
+        await sweepBackReceived(tx,contract.id,amount,this.actor.actorUserId);
+        const saved=await tx.refundRequest.update({where:{id:current.id},data:{status:'EXECUTED',executedAt:new Date(),executedBy:this.actor.actorUserId,updatedBy:this.actor.actorUserId,version:{increment:1}}});
+        await tx.operationLog.create({data:{userId:this.actor.actorUserId,action:'REFUND_EXECUTE',targetType:'REFUND_REQUEST',targetId:saved.id,newValues:JSON.stringify({sourceRecordId:current.sourceRecordId,actualAmount:amount.toFixed(2),status:'EXECUTED'})}});
+        // Multi-receipt execution retains its exact anchors in refund_allocation.
+        await this.outbox.append(tx,this.envelope(saved.id,{refundRequestId:saved.id,contractId:contract.id,paymentId:null,planId:null,status:'EXECUTED'},contract,REFUND_EXECUTED));
+        await notifyDeliveryChange(tx,this.actor.actorUserId,saved.id);
+        return projectRefundRequest(saved);
+      }
 
       this.assertTransitionOrReplay(refund, 'execute', 'EXECUTED');
       const flipped = await tx.refundRequest.updateMany({
@@ -434,6 +470,7 @@ export class RefundService {
           ip: this.actor.ip,
         },
       });
+      await notifyDeliveryChange(tx,this.actor.actorUserId,refund.id);
       const after = await tx.refundRequest.findUniqueOrThrow({ where: { id: refund.id } });
       return projectRefundRequest(after);
     });
@@ -594,6 +631,7 @@ export class RefundService {
         'refund amount must equal the payment amount',
       );
     }
+    if(await tx.refundAllocation.count({where:{paymentId:payment.id}})) fail('FINANCE_RECEIPT_HAS_REFUND',409);
     const inFlight = await tx.refundRequest.findFirst({
       where: { paymentId: payment.id, type: 'REFUND', status: { in: IN_FLIGHT_STATUSES } },
       select: { id: true },

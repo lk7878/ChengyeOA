@@ -1,4 +1,8 @@
 import { INTAKE_OPTIONS } from '../case/intake-contract';
+import { nextRefundNo } from '../contract/contract-number-service';
+import { PrismaEventOutboxWriter } from '../events/event-outbox-writer';
+import { randomUUID } from 'node:crypto';
+import { notifyDeliveryChange } from './delivery-change';
 import { auditRawL3Access } from '../crm/lead-audit';
 import { AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
@@ -28,6 +32,7 @@ export const syncedLifecycleKeys = [
   'terminated',
   'feeTotalLookup',
   'refundReceiptLookup',
+  'actualRefundAmount', 'refundPaidAt', 'refundStatus', 'refundRequestNo',
 ];
 export function lifecycleFields(kind: LifecycleKind) {
   const specs: Array<[string, string, string, boolean, unknown?]> = [
@@ -80,6 +85,10 @@ export function lifecycleFields(kind: LifecycleKind) {
       ['interviewer', '面谈人', 'TEXT', false],
       ['departmentInterview', '部门负责人面谈结果', 'TEXT', false],
       ['refundReceiptLookup', '退款凭证', 'FILE', false],
+      ['actualRefundAmount', '实际退费金额', 'CURRENCY', false],
+      ['refundPaidAt', '退费时间', 'DATETIME', false],
+      ['refundStatus', '退款状态', 'TEXT', false],
+      ['refundRequestNo', '退费单号', 'TEXT', false],
       ['createdAt', '记录创建时间', 'CREATED_AT', false],
       ['updatedAt', '最近更新记录', 'UPDATED_AT', false],
       ['remark', '备注', 'TEXT', false],
@@ -216,6 +225,10 @@ export class LifecycleWorksheet {
       terminated: Prisma.sql`NULL::text`,
       feeTotalLookup: Prisma.sql`NULL::text`,
       refundReceiptLookup: Prisma.sql`NULL::jsonb`,
+      actualRefundAmount: Prisma.sql`NULL::text`,
+      refundPaidAt: Prisma.sql`NULL::text`,
+      refundStatus: Prisma.sql`NULL::text`,
+      refundRequestNo: Prisma.sql`NULL::text`,
     };
     if (table.lifecycleKind === 'CASE_REFUNDS') {
       const tables = await this.db.collabTable.findMany({
@@ -231,6 +244,7 @@ export class LifecycleWorksheet {
           if (![403, 404].includes(Number((e as { status?: number }).status))) throw e;
         }
       for (const key of Object.keys(expressions)) {
+        if(['refundReceiptLookup','actualRefundAmount','refundPaidAt','refundStatus','refundRequestNo'].includes(key)) continue;
         const upstreamKey =
           key === 'feeTotalLookup' ? 'feeTotal' : key === 'refundReceiptLookup' ? 'refundReceipt' : key;
         const columns = permitted.flatMap((t) => {
@@ -263,6 +277,14 @@ export class LifecycleWorksheet {
       ? await domain.scope('CONTRACTS', access)
       : Prisma.sql`FALSE`;
     const expressions = await this.expressions(table, access, 'ct');
+    if (table.lifecycleKind === 'CASE_REFUNDS') {
+      // Execution fields come exclusively from the uniquely linked financial application.
+      expressions.actualRefundAmount=Prisma.sql`(SELECT f."actualAmount"::text FROM refund_request f WHERE f."sourceRecordId"=r.id AND f.status='EXECUTED')`;
+      expressions.refundPaidAt=Prisma.sql`(SELECT f."paidAt"::text FROM refund_request f WHERE f."sourceRecordId"=r.id AND f.status='EXECUTED')`;
+      expressions.refundReceiptLookup=Prisma.sql`(SELECT f."voucherFiles" FROM refund_request f WHERE f."sourceRecordId"=r.id AND f.status='EXECUTED')`;
+      expressions.refundRequestNo=Prisma.sql`(SELECT f."requestNo" FROM refund_request f WHERE f."sourceRecordId"=r.id)`;
+      expressions.refundStatus=Prisma.sql`(SELECT CASE f.status WHEN 'EXECUTED' THEN '已退款' WHEN 'REJECTED' THEN '已驳回' WHEN 'APPROVED' THEN '待退款（已审批）' ELSE '待退款（待审批）' END FROM refund_request f WHERE f."sourceRecordId"=r.id)`;
+    }
     const visibleKeys = fields.map(lifecycleKey);
     const label = Prisma.sql`concat_ws(' · ', ${visibleKeys.includes('contractNo') || visibleKeys.includes('upstreamId') ? expressions.contractNo : Prisma.sql`NULL`}, ${visibleKeys.includes('caseNo') ? expressions.caseNo : Prisma.sql`NULL`}, ${visibleKeys.includes('caseTitle') ? expressions.caseTitle : Prisma.sql`NULL`})`;
     const writeScope =
@@ -390,6 +412,10 @@ export class LifecycleWorksheet {
     });
     if (duplicate) fail('LIFECYCLE_DUPLICATE_CASE', 409);
     if (table.lifecycleKind === 'CASE_REFUNDS') {
+      if (previous) {
+        const financial = await tx.refundRequest.findUnique({where:{sourceRecordId:previous.id}});
+        if (financial && (!['PENDING','REJECTED'].includes(financial.status) || financial.contractId !== rows[0].contractId)) fail('LIFECYCLE_FINANCE_LOCKED',409);
+      }
       const contractScope = await buildContractScopeWhere(
         this.db,
         new AuthorizationService(new DataScopeService(this.db)),
@@ -419,5 +445,23 @@ export class LifecycleWorksheet {
       kind: table.lifecycleKind!,
       status: text(get('status')),
     };
+  }
+  async syncFinancialApplication(tx: Tx, table: CollabTable, record: CollabRecord, fields: CollabField[], caseId: string) {
+    if (table.lifecycleKind !== 'CASE_REFUNDS') return;
+    const values=object(record.values);
+    const get=(key:string)=>values[fields.find(f=>lifecycleKey(f)===key)?.id??''];
+    const linkedCase=await tx.case.findUniqueOrThrow({where:{id:caseId}});
+    if(!linkedCase.contractId) fail('LIFECYCLE_REFUND_CONTRACT_UNAVAILABLE',409);
+    await tx.$queryRaw`SELECT id FROM contract WHERE id=${linkedCase.contractId} FOR UPDATE`;
+    const existing=await tx.refundRequest.findUnique({where:{sourceRecordId:record.id}});
+    if(existing && !['PENDING','REJECTED'].includes(existing.status)) fail('LIFECYCLE_FINANCE_LOCKED',409);
+    const data={amount:new Prisma.Decimal(String(get('amount'))),reason:String(get('content')),recipientName:String(get('recipientName')??''),recipientBank:String(get('recipientBank')??''),recipientAccount:String(get('recipientAccount')??''),status:record.archived?'REJECTED':'PENDING',approvalComment:record.archived?'SOURCE_ARCHIVED':null,updatedBy:this.actor.userId};
+    const request=await tx.refundRequest.upsert({where:{sourceRecordId:record.id},create:{...data,sourceRecordId:record.id,requestNo:nextRefundNo(),contractId:linkedCase.contractId,customerId:linkedCase.customerId,type:'REFUND',createdBy:record.createdBy},update:{...data,approvedBy:null,approvedAt:null,actualAmount:null,paidAt:null,voucherFiles:[],version:{increment:1}}});
+    if(!existing) {
+      const contract=await tx.contract.findUniqueOrThrow({where:{id:linkedCase.contractId}});
+      await new PrismaEventOutboxWriter().append(tx,{eventType:'refund.requested',eventVersion:1,objectType:'REFUND_REQUEST',objectId:request.id,operatorUserId:this.actor.userId,organizationId:null,branchId:contract.branchId,teamId:contract.professionalTeamId,traceId:randomUUID(),occurredAt:new Date(),payload:{refundRequestId:request.id,requestNo:request.requestNo,contractId:request.contractId,customerId:request.customerId,type:'REFUND',status:'PENDING'}});
+    }
+    await tx.operationLog.create({data:{userId:this.actor.userId,action:'REFUND_APPLICATION_SYNC',targetType:'REFUND_REQUEST',targetId:request.id,newValues:JSON.stringify({sourceRecordId:record.id,status:request.status})}});
+    await notifyDeliveryChange(tx,this.actor.userId,request.id);
   }
 }

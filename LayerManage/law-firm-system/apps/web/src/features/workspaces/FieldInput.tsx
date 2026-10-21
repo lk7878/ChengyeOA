@@ -1,4 +1,5 @@
 import LifecycleSelect from './LifecycleSelect';
+import ReceiptDetails from './ReceiptDetails';
 import { isInventoryDecimal } from './inventory-decimal';
 import { displayValue, isCasePercent } from './display-value';
 import { useEffect, useState } from 'react';
@@ -47,6 +48,7 @@ export default function FieldInput({
       alive = false;
     };
   }, [field.type, field.options.targetTableId]);
+  if (field.options.businessKey === 'receiptDetails') return <ReceiptDetails value={value} tableId={tableId}/>;
   if (field.options.lifecycleKey === 'upstreamId')
     return (
       <LifecycleSelect

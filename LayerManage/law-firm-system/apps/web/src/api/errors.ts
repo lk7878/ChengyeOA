@@ -2,6 +2,10 @@ import { message } from 'antd';
 
 const reported = new WeakSet<object>();
 const messages: Record<string, string> = {
+  FINANCE_RECEIPT_HAS_REFUND: '此收款已有退款申请或执行记录，不能修改、删除或冲销，请先核对关联退费。',
+  LIFECYCLE_FINANCE_LOCKED: '关联退费已进入财务审批或执行流程，不能修改申请或删除来源记录。',
+  REFUND_EXECUTION_DETAILS_REQUIRED: '请先在退费业务表填写实际退费金额、退费时间并上传凭证，再执行退款。',
+  REFUND_AMOUNT_EXCEEDED: '实际退费金额不能超过申请金额或合同可退的已确认收款余额。',
   EMPLOYEE_TRANSFER_REQUIRED: '该账号仍拥有文档或其他材料，请指定资源接收人后再删除',
   EMPLOYEE_ACCOUNT_NOT_BOUND: '该员工未绑定账号，无需暂停',
   EMPLOYEE_OFFBOARDING_INCOMPLETE: '请先暂停账号并登记离职完成，再删除登录账号',

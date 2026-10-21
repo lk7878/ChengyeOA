@@ -1,5 +1,7 @@
 import { standardizeCaseWorksheets } from '../../scripts/maintenance/standardize-case-worksheets';
 import { ContractService } from '../../app/application/contract/contract-service';
+import { ReceivableService } from '../../app/application/contract/receivable-service';
+import { RefundService } from '../../app/application/finance/refund-service';
 import { CaseService } from '../../app/application/case/case-service';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,6 +13,107 @@ import { PERMISSION_CATALOG } from '../../app/domain/authorization/permission-ca
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 
 let db: PrismaClient, svc: CollaborationService, base: string, org: string, user: string, employee: string;
+
+test('three canonical receipts sync to cases; edits, delete/undo, vouchers and role boundaries remain consistent', async()=>{
+  const {contract,row}=await setup();
+  await db.contract.update({where:{id:contract.id},data:{amount:'30000'}});
+  const payments=await svc.createTable(base,{name:'财务明细',source:'PAYMENTS'},key());
+  const cases=await svc.createTable(base,{name:'案件',source:'CASES'},key());
+  const p=await svc.describe(payments.id),c=await svc.describe(cases.id);
+  const pf=(name:string)=>p.fields.find(f=>(f.options as Record<string,unknown>).businessKey===name)!;
+  const cf=(name:string)=>c.fields.find(f=>(f.options as Record<string,unknown>).businessKey===name)!;
+  const finance=new ReceivableService(db,{actorUserId:user},ctx);
+  const saved=[];
+  for(const [amount,date] of [['10000','2026-01-02'],['5000','2026-03-06'],['5000','2026-10-15']]) {
+    const item=await finance.createPayment({contractId:contract.id,amount,paidAt:date+'T02:00:00.000Z'});
+    saved.push(await finance.confirmPayment(item.id,{}));
+  }
+  const read=async()=> (await svc.record(cases.id,row.id)).record;
+  assert.equal((await read()).values[cf('receiptTotal').id],'20000.00');
+  assert.equal(((await read()).values[cf('receiptDetails').id] as unknown[]).length,3);
+  assert.equal(cf('receiptTotal').writable,false);
+  await assert.rejects(svc.saveRecord(cases.id,row.id,{schemaVersion:1,version:row.version,values:{[cf('receiptTotal').id]:'1'}},key()),/COLLAB_USE_BUSINESS_ACTION|COLLAB_READONLY_FIELD/);
+  const deleted=await svc.saveRecord(payments.id,saved[1].id,{schemaVersion:1,version:saved[1].version,archived:true},key());
+  assert.equal((await read()).values[cf('receiptTotal').id],'15000.00');
+  assert.equal((await db.contract.findUniqueOrThrow({where:{id:contract.id}})).receivedAmount.toFixed(2),'15000.00');
+  await svc.reverseRecordOperation(payments.id,deleted.operationId,{direction:'undo'},key());
+  assert.equal((await read()).values[cf('receiptTotal').id],'20000.00');
+  const file=await db.collabAttachment.create({data:{tableId:payments.id,ownerId:user,name:'第一笔.pdf',mimeType:'application/pdf',size:1,storageKey:key()}});
+  await svc.saveRecord(payments.id,saved[0].id,{schemaVersion:1,version:saved[0].version,values:{[pf('voucherFiles').id]:[file.id],[pf('invoiceNo').id]:'INV-001',[pf('invoiceStatus').id]:'ISSUED'}},key());
+  const ordinary={...ctx,isSystemSuperAdmin:false,permissionCodes:ctx.permissionCodes.filter(p=>!p.startsWith('payment.')),grants:ctx.grants.filter(p=>!p.permissionCode.startsWith('payment.'))};
+  const caseReader=new CollaborationService(db,ordinary);
+  assert.equal((await caseReader.record(cases.id,row.id)).record.values[cf('receiptTotal').id],'20000.00');
+  assert.equal((await caseReader.attachment(cases.id,file.id)).id,file.id);
+  await assert.rejects(caseReader.saveRecord(payments.id,saved[2].id,{schemaVersion:1,version:saved[2].version,values:{[pf('amount').id]:'1'}},key()));
+  const unrelated=await db.collabAttachment.create({data:{tableId:payments.id,ownerId:user,name:'未关联.pdf',mimeType:'application/pdf',size:1,storageKey:key()}});
+  await assert.rejects(caseReader.attachment(cases.id,unrelated.id),/COLLAB_FORBIDDEN/);
+  const otherTable=await svc.createTable(base,{name:'同源收款表',source:'PAYMENTS'},key());
+  assert.equal((await svc.attachment(otherTable.id,file.id)).id,file.id,'canonical vouchers work from every authorized receipt worksheet');
+  const adjusted=await svc.saveRecord(payments.id,saved[2].id,{schemaVersion:1,version:saved[2].version,values:{[pf('amount').id]:'4500'}},key());
+  assert.equal((await read()).values[cf('receiptTotal').id],'19500.00');
+  await svc.reverseRecordOperation(payments.id,adjusted.operationId,{direction:'undo'},key());
+  assert.equal((await read()).values[cf('receiptTotal').id],'20000.00');
+  assert.equal(await db.payment.count({where:{deletedAt:null}}),3);
+});
+
+test('case refund creates one financial application; approved execution writes back immutable results exactly once', async()=>{
+  const {a,r,row,contract,vals,create}=await setup();
+  const finance=new ReceivableService(db,{actorUserId:user},ctx);
+  const payment=await finance.createPayment({contractId:contract.id,amount:'300',paidAt:'2026-10-20T01:00:00Z'});
+  await finance.confirmPayment(payment.id,{});
+  const after=await create(a,{upstreamId:row.id,content:'协商失败',status:'REFUND_REQUIRED'});
+  const source=await create(r,{upstreamId:after.id,content:'申请退款',amount:'100',recipientName:'张某',recipientAccount:'001234'});
+  let request=await db.refundRequest.findUniqueOrThrow({where:{sourceRecordId:source.id}});
+  assert.equal(request.status,'PENDING'); assert.equal(request.amount.toFixed(2),'100.00'); assert.equal(request.recipientAccount,'001234');
+  const financialTable=await svc.createTable(base,{name:'退费业务',source:'REFUNDS'},key());
+  const f=await svc.describe(financialTable.id);
+  const ff=(name:string)=>f.fields.find(field=>(field.options as Record<string,unknown>).businessKey===name)!;
+  assert.equal((await svc.query(financialTable.id,{})).total,1);
+  const refundService=new RefundService(db,{actorUserId:user},ctx);
+  // Previously submitted finance requests retain their payment anchor when linked by the upgrade.
+  await db.refundRequest.update({where:{id:request.id},data:{paymentId:payment.id}});
+  await refundService.approveRefundRequest(request.id,{});
+  await assert.rejects(refundService.executeRefundRequest(request.id,{}),/REFUND_EXECUTION_DETAILS_REQUIRED/);
+  const file=await db.collabAttachment.create({data:{tableId:financialTable.id,ownerId:user,name:'退款回单.pdf',mimeType:'application/pdf',size:1,storageKey:key()}});
+  request=await db.refundRequest.findUniqueOrThrow({where:{id:request.id}});
+  await svc.saveRecord(financialTable.id,request.id,{schemaVersion:1,version:request.version,values:{[ff('actualAmount').id]:'80',[ff('paidAt').id]:'2026-10-21T03:00:00.000Z',[ff('voucherFiles').id]:[file.id]}},key());
+  const noFinance={...ctx,isSystemSuperAdmin:false,permissionCodes:ctx.permissionCodes.filter(p=>p!=='refund.execute'),grants:ctx.grants.filter(p=>p.permissionCode!=='refund.execute')};
+  await assert.rejects(new RefundService(db,{actorUserId:user},noFinance).executeRefundRequest(request.id,{}));
+  await refundService.executeRefundRequest(request.id,{});
+  await refundService.executeRefundRequest(request.id,{});
+  const result=(await svc.record(r.table.id,source.id)).record;
+  const rf=(name:string)=>r.fields.find(field=>(field.options as Record<string,unknown>).lifecycleKey===name)!;
+  assert.equal(result.values[rf('actualRefundAmount').id],'80.00');
+  assert.equal(result.values[rf('refundStatus').id],'已退款');
+  assert.deepEqual(result.values[rf('refundReceiptLookup').id],[file.id]);
+  assert.equal((await svc.attachment(r.table.id,file.id)).id,file.id);
+  assert.equal((await db.contract.findUniqueOrThrow({where:{id:contract.id}})).receivedAmount.toFixed(2),'220.00');
+  assert.equal(await db.refundAllocation.count({where:{refundId:request.id}}),1);
+  await assert.rejects(svc.saveRecord(r.table.id,source.id,{schemaVersion:1,version:1,values:vals(r,{actualRefundAmount:'1'})},key()),/COLLAB_READONLY_FIELD/);
+  await assert.rejects(svc.saveRecord(r.table.id,source.id,{schemaVersion:1,version:1,archived:true},key()),/LIFECYCLE_FINANCE_LOCKED/);
+  await assert.rejects(finance.voidPayment(payment.id,{reason:'不能覆盖退款历史'}),/FINANCE_RECEIPT_HAS_REFUND/);
+  assert.equal(await db.refundRequest.count({where:{sourceRecordId:source.id}}),1);
+});
+test('pending refund deletion cancels its application; undo and rejected resubmission reuse the same financial request', async()=>{
+  const {a,r,row,vals,create}=await setup();
+  const after=await create(a,{upstreamId:row.id,content:'协商失败',status:'REFUND_REQUIRED'});
+  const source=await create(r,{upstreamId:after.id,content:'退款申请',amount:'100'});
+  const request=await db.refundRequest.findUniqueOrThrow({where:{sourceRecordId:source.id}});
+  const removed=await svc.saveRecord(r.table.id,source.id,{schemaVersion:1,version:1,archived:true},key());
+  assert.equal((await db.refundRequest.findUniqueOrThrow({where:{id:request.id}})).status,'REJECTED');
+  await svc.reverseRecordOperation(r.table.id,removed.operationId,{direction:'undo'},key());
+  assert.equal((await db.refundRequest.findUniqueOrThrow({where:{id:request.id}})).status,'PENDING');
+  await new RefundService(db,{actorUserId:user},ctx).rejectRefundRequest(request.id,{comment:'请补充说明'});
+  const latest=(await svc.record(r.table.id,source.id)).record;
+  await svc.saveRecord(r.table.id,source.id,{schemaVersion:1,version:latest.version,values:vals(r,{content:'补充退款原因',amount:'90'})},key());
+  const resubmitted=await db.refundRequest.findUniqueOrThrow({where:{id:request.id}});
+  assert.equal(resubmitted.status,'PENDING');
+  assert.equal(resubmitted.amount.toFixed(2),'90.00');
+  assert.equal(resubmitted.approvedBy,null);
+  assert.equal(resubmitted.approvedAt,null);
+  assert.equal(await db.refundRequest.count({where:{sourceRecordId:source.id}}),1);
+});
+
 test.before(() => {
   db = createTestPrisma();
 });
@@ -521,7 +624,7 @@ test('standard fields synchronize case data and refund attachment lookup enforce
   const refund=await create(r,{upstreamId:parent.id,content:'解除委托',amount:'100',recipientName:'王某',recipientBank:'招商',recipientAccount:'0012345'});
   let view=(await svc.record(r.table.id,refund.id)).record;
   assert.equal(view.values[rField('feeTotalLookup').id],'12,000.00');
-  assert.deepEqual(view.values[rField('refundReceiptLookup').id],[file.id]);
+  assert.equal(view.values[rField('refundReceiptLookup').id],null, 'an after-sales attachment is not proof of a financial refund');
   assert.equal(view.values[rField('handlingLawyer').id],'张律师');
   assert.deepEqual(view.values[rField('agencyProcedure').id],['一审','二审']);
   assert.equal(view.values[rField('customerPhone').id],'13800000001');
@@ -530,7 +633,7 @@ test('standard fields synchronize case data and refund attachment lookup enforce
   assert.equal(aField('terminated').writable,false);
   assert.equal(rField('terminated').writable,false);
   await assert.rejects(svc.saveRecord(a.table.id,parent.id,{schemaVersion:1,version:1,values:vals(a,{terminated:'是'})},key()),/COLLAB_READONLY_FIELD/);
-  assert.equal((await svc.attachment(r.table.id,file.id)).id,file.id);
+  await assert.rejects(svc.attachment(r.table.id,file.id),/COLLAB_FORBIDDEN/);
   await db.contract.update({where:{id:contract.id},data:{status:'TERMINATED'}});
   view=(await svc.record(r.table.id,refund.id)).record;
   assert.equal(view.values[rField('terminated').id],null);
@@ -548,9 +651,9 @@ test('standard fields synchronize case data and refund attachment lookup enforce
   assert.equal(hidden.values[rField('customerPhone').id],'138****0001');
   await assert.rejects(ordinary.attachment(r.table.id,file.id),/COLLAB_FORBIDDEN/);
   await db.collabMember.update({where:{id:member.id},data:{hiddenFields:[]}});
-  assert.equal((await ordinary.attachment(r.table.id,file.id)).id,file.id);
+  await assert.rejects(ordinary.attachment(r.table.id,file.id),/COLLAB_FORBIDDEN/);
   assert.equal((a.views[0].config as {visibleFields:string[]}).visibleFields.length,27);
-  assert.equal((r.views[0].config as {visibleFields:string[]}).visibleFields.length,27);
+  assert.equal((r.views[0].config as {visibleFields:string[]}).visibleFields.length,31);
 });
 
 
@@ -572,15 +675,15 @@ test('field layout upgrade preserves records and IDs while applying exact defaul
  assert.equal(await db.collabRecord.count({where:{id:saved.id}}),1);
  assert.equal(await db.collabField.count({where:{tableId:cases.id}}),oldFields.length);
  for(const f of oldFields)assert.ok(await db.collabField.findUnique({where:{id:f.id}}));
- assert.equal(await db.collabField.count({ where: { tableId: cases.id, archived: false } }), 23);
+ assert.equal(await db.collabField.count({ where: { tableId: cases.id, archived: false } }), 26);
  assert.equal((await db.collabField.findUniqueOrThrow({ where: { id: retired.id } })).archived, true);
  const updated=await svc.describe(cases.id);
- assert.equal(updated.fields.length, 23);
+ assert.equal(updated.fields.length, 26);
  assert.equal((updated.views[0].config as { filter?: unknown }).filter, undefined);
  await assert.rejects(svc.saveRecord(cases.id,row.id,{schemaVersion:updated.table.schemaVersion,version:1,values:{[retired.id]:'20'}},key()), /COLLAB_FIELD_UNAVAILABLE/);
  const ids=(updated.views[0].config as {visibleFields:string[]}).visibleFields;
- assert.deepEqual(ids.map(id=>updated.fields.find(f=>f.id===id)!.name),['合同ID','合同未回','签约日期','合同编号','客户姓名','地区','客户电话','对方当事人','案件类型','案由','代理程序','代理费收款方式','固定代理费','案件基础代理费','风险代理金额','风险代理比例','代理费付款特别约定','所属业务部门','承办律师','合同附件','记录创建时间','最近修改时间','备注']);
- for(const t of [a,r])assert.equal(((await svc.describe(t.table.id)).views[0].config as {visibleFields:string[]}).visibleFields.length,27);
+ assert.deepEqual(ids.map(id=>updated.fields.find(f=>f.id===id)!.name),['合同ID','合同未回','签约日期','合同编号','客户姓名','地区','客户电话','对方当事人','案件类型','案由','代理程序','代理费收款方式','固定代理费','案件基础代理费','风险代理金额','风险代理比例','代理费付款特别约定','所属业务部门','承办律师','合同附件','收款明细','累计收款总额','收款凭证（同步）','记录创建时间','最近修改时间','备注']);
+ for(const t of [a,r])assert.equal(((await svc.describe(t.table.id)).views[0].config as {visibleFields:string[]}).visibleFields.length,t.table.lifecycleKind==='AFTER_SALES'?27:31);
  assert.ok((await svc.describe(r.table.id)).fields.some(f=>(f.options as Record<string,unknown>).lifecycleKey==='recipientBank'));
 });
 
@@ -622,7 +725,7 @@ test('linked cases fill authoritative intake; manual cases keep editable values'
   assert.equal(linked.intakeData.customerPhone,customer.phone);
   const table=await svc.createTable(base,{name:'案件管理',source:'CASES'},key());
   const description=await svc.describe(table.id);
-  assert.equal(description.fields.length,23);
+  assert.equal(description.fields.length,26);
   const field=(name:string)=>description.fields.find(f=>f.options.businessKey===name)!;
   const record=(await svc.record(table.id,linked.id)).record;
   for(const name of ['signedDate','region','customerPhone']) {

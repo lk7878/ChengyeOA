@@ -6,7 +6,7 @@ export async function notifyDeliveryChange(tx: Prisma.TransactionClient, actorId
   const tables = await tx.collabTable.findMany({
     where: {
       archived: false,
-      OR: [{ source: { in: ['CASES', 'CONTRACTS', 'NEGOTIATIONS'] } }, { lifecycleKind: { not: null } }],
+      OR: [{ source: { in: ['CASES', 'CONTRACTS', 'NEGOTIATIONS', 'PAYMENTS', 'INVOICES', 'REFUNDS'] } }, { lifecycleKind: { not: null } }],
     },
     select: { baseId: true },
     distinct: ['baseId'],

@@ -134,7 +134,7 @@ export const domainSources = {
 
   PAYMENTS: {
     resource: 'payment',
-    edit: 'payment.create',
+    edit: 'payment.confirm',
     table: 'payment',
     columns: [
       ['paymentNo', '收款编号', 'TEXT'],
@@ -144,6 +144,9 @@ export const domainSources = {
       ['method', '收款方式', 'TEXT'],
       ['account', '收款账户', 'TEXT'],
       ['paidAt', '收款日期', 'DATETIME'],
+      ['invoiceNo', '发票号码', 'TEXT'],
+      ['invoiceStatus', '开票状态', 'TEXT'],
+      ['voucherFiles', '发票／收款凭证', 'FILE'],
       ['status', '收款状态', 'TEXT'],
       ['confirmedBy', '确认人', 'TEXT'],
       ['confirmedAt', '确认时间', 'DATETIME'],
@@ -174,7 +177,7 @@ export const domainSources = {
   },
   REFUNDS: {
     resource: 'refund',
-    edit: 'refund.create',
+    edit: 'refund.execute',
     table: 'refund_request',
     columns: [
       ['requestNo', '申请编号', 'TEXT'],
@@ -187,6 +190,12 @@ export const domainSources = {
       ['status', '退款减免状态', 'TEXT'],
       ['reason', '申请理由', 'LONG_TEXT'],
       ['executedAt', '执行时间', 'DATETIME'],
+      ['actualAmount', '实际退费金额', 'CURRENCY'],
+      ['paidAt', '退费时间', 'DATETIME'],
+      ['voucherFiles', '退费凭证', 'FILE'],
+      ['recipientName', '退款人姓名', 'TEXT'],
+      ['recipientBank', '开户行', 'TEXT'],
+      ['recipientAccount', '银行卡账号', 'TEXT'],
       ['createdBy', '创建人', 'CREATED_BY'],
       ['createdAt', '创建时间', 'CREATED_AT'],
       ['updatedAt', '更新时间', 'UPDATED_AT'],
@@ -215,6 +224,9 @@ export const domainSources = {
     table: '"case"',
     columns: [
       ['contractDisplayId', '合同ID', 'TEXT'],
+      ['receiptDetails', '收款明细', 'LONG_TEXT'],
+      ['receiptTotal', '累计收款总额', 'CURRENCY'],
+      ['receiptFiles', '收款凭证（同步）', 'FILE'],
       ...ATTACHMENT_CATEGORIES.map(category => ['files.' + category, category, 'FILE'] as const),
       ['isClosed', '是否结案', 'BOOLEAN'],
       ['closedAt', '结案日期', 'DATETIME'],
@@ -328,7 +340,7 @@ export class WorkspaceDomainSource {
   }
   authorize(source: DomainSource, action = 'read') {
     const permission =
-      action === 'update'
+      source === 'PAYMENTS' && action === 'delete' ? 'payment.void' : action === 'update'
         ? domainSources[source].edit
         : (source === 'QUALITY_ANALYSES' ? 'quality.analysis.read' : source === 'QUALITY_REVIEWS' ? 'quality.inspection.read' : source === 'QUALITY_ISSUES' ? 'quality.issue.read' : source === 'SOP_TASKS' ? 'sop.task.read' : `${domainSources[source].resource}.${action}` as PermissionCode);
     if (!this.actor.permissionCodes.includes(permission)) fail('COLLAB_FORBIDDEN', 403);
@@ -570,6 +582,10 @@ export class WorkspaceDomainSource {
       else linked.customerName = Prisma.sql`NULL::text`;
     }
     if (table.source === 'CASES') {
+      // Authorized case rows expose read-only receipts for their contract, never finance write access.
+      linked.receiptTotal = Prisma.sql`(SELECT COALESCE(sum(p.amount),0) FROM payment p WHERE p."contractId"=b."contractId" AND p."deletedAt" IS NULL AND p.status IN ('CONFIRMED','REFUNDED'))`;
+      linked.receiptDetails = Prisma.sql`(SELECT COALESCE(jsonb_agg(jsonb_build_object('id',p.id,'number',p."paymentNo",'amount',p.amount::text,'paidAt',p."paidAt",'invoiceNo',p."invoiceNo",'invoiceStatus',p."invoiceStatus",'files',${fields.some(f=>object(f.options).businessKey==='receiptFiles')?Prisma.sql`p."voucherFiles"`:Prisma.sql`'[]'::jsonb`}) ORDER BY p."paidAt" NULLS LAST,p."createdAt",p.id),'[]'::jsonb) FROM payment p WHERE p."contractId"=b."contractId" AND p."deletedAt" IS NULL AND p.status IN ('CONFIRMED','REFUNDED'))`;
+      linked.receiptFiles = Prisma.sql`(SELECT COALESCE(jsonb_agg(f.value),'[]'::jsonb) FROM payment p CROSS JOIN LATERAL jsonb_array_elements(p."voucherFiles") f WHERE p."contractId"=b."contractId" AND p."deletedAt" IS NULL AND p.status IN ('CONFIRMED','REFUNDED'))`;
       // Linked cases read the authorized customer; unlinked cases keep their manual contact value.
       linked['intake.customerPhone'] = this.actor.permissionCodes.includes('customer.read')
         ? Prisma.sql`CASE WHEN b."contractId" IS NULL THEN b."intakeData"->>'customerPhone' ELSE (SELECT u.phone FROM (SELECT b.id,b.phone FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${await this.scope('CUSTOMERS', access)}) u WHERE u.id=b."customerId") END`
@@ -698,7 +714,7 @@ export class WorkspaceDomainSource {
     if (rows.length && access.level >= 2 && this.actor.permissionCodes.includes(domainSources[source].edit))
       editable = await this.db.$queryRaw(Prisma.sql`SELECT b.id FROM ${this.from(source)} WHERE
         b.id IN (${Prisma.join(rows.map((r) => r.id))}) AND ${await this.scope(source, access, 'update')}
-        AND ${source === 'NEGOTIATIONS' ? Prisma.sql`b.status = 'NEGOTIATING'` : source === 'CONTRACTS' ? Prisma.sql`b.status = 'DRAFT'` : Prisma.sql`TRUE`}`);
+        AND ${source === 'NEGOTIATIONS' ? Prisma.sql`b.status = 'NEGOTIATING'` : source === 'CONTRACTS' ? Prisma.sql`b.status = 'DRAFT'` : source === 'REFUNDS' ? Prisma.sql`b.status = 'APPROVED' AND b.type = 'REFUND'` : source === 'PAYMENTS' ? Prisma.sql`b.status IN ('PENDING','CONFIRMED')` : Prisma.sql`TRUE`}`);
     const ids = new Set(editable.map((r) => r.id));
     const linkedCases = source === 'CASES' && rows.length
       ? await this.db.case.findMany({ where: { id: { in: rows.map(r => r.id) }, contractId: { not: null } }, select: { id: true } }) : [];

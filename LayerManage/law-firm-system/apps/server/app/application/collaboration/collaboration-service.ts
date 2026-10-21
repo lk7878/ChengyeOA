@@ -1,5 +1,6 @@
 import { LifecycleWorksheet, lifecycleFields, lifecycleKinds, lifecycleKey, syncedLifecycleKeys, LifecycleKind } from './lifecycle-worksheet';
 import { CASE_FIELD_ORDER } from '../case/intake-contract';
+import { WorksheetFinance, paymentWorksheetKeys, refundExecutionKeys } from '../finance/worksheet-finance';
 import { domainSources, isDomainSource, WorkspaceDomainSource } from '../crm/workspace-domain-source';
 import { CaseService } from '../case/case-service';
 import { UpdateCaseInput } from '../case/case-types';
@@ -1038,6 +1039,7 @@ export class CollaborationService {
         access.level >= 2 &&
         ((table.source === 'CUSTOM' && (!table.lifecycleKind || this.actor.permissionCodes.includes(table.lifecycleKind === 'AFTER_SALES' ? 'case.delete' : 'refund.create'))) ||
           (table.source === 'CASES' && this.actor.permissionCodes.includes('case.delete')) ||
+          (table.source === 'PAYMENTS' && this.actor.permissionCodes.includes('payment.void')) ||
           (table.source === 'NEGOTIATIONS' && this.actor.permissionCodes.includes('negotiation.delete')) ||
           (table.source === 'CONTRACTS' && this.actor.permissionCodes.includes('contract.delete')) ||
           (table.source === 'COSTS' && this.actor.permissionCodes.includes('cost.delete')) ||
@@ -1077,6 +1079,8 @@ export class CollaborationService {
           table.source === 'CUSTOM' || !['phone', 'wechat'].includes(String(object(f.options).businessKey)),
         writable:
           (table.source === 'CUSTOM' ||
+            (table.source === 'PAYMENTS' && paymentWorksheetKeys.includes(String(object(f.options).businessKey)) && this.actor.permissionCodes.includes('payment.confirm')) ||
+            (table.source === 'REFUNDS' && refundExecutionKeys.includes(String(object(f.options).businessKey)) && this.actor.permissionCodes.includes('refund.execute')) ||
             (editableCrmKey(table.source, String(object(f.options).businessKey), this.actor) &&
               this.actor.permissionCodes.includes('lead.update')) ||
             (isEditableBusinessSource(table.source) &&
@@ -1422,16 +1426,15 @@ export class CollaborationService {
   async attachment(tableId: string, fileId: string, tx: Tx = this.db): Promise<import('@prisma/client').CollabAttachment> {
     const { access, fields, table } = await this.tableAccess(tableId, tx);
     const file = await tx.collabAttachment.findFirst({ where: { id: fileId, tableId } });
-    if (!file && table.lifecycleKind === 'CASE_REFUNDS') {
-      const lookup = fields.find(f => lifecycleKey(f) === 'refundReceiptLookup');
-      if (!lookup) fail('COLLAB_FORBIDDEN', 403);
-      const visible = await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT r.id FROM (${await this.lifecycle().sourceSql(table, access, fields)}) r
-        WHERE r.archived=false AND ${access.selfOnly ? Prisma.sql`r."createdBy"=${this.actor.userId}` : Prisma.sql`TRUE`}
-        AND r.values->${lookup.id} @> ${JSON.stringify([fileId])}::jsonb LIMIT 1`);
-      if (!visible.length) fail('COLLAB_FORBIDDEN', 403);
+    if (!file && (['CASES','PAYMENTS','REFUNDS'].includes(table.source) || table.lifecycleKind === 'CASE_REFUNDS')) {
+      const lookup = fields.find(f => table.source === 'CASES' ? object(f.options).businessKey === 'receiptFiles' : table.source !== 'CUSTOM' ? object(f.options).businessKey === 'voucherFiles' : lifecycleKey(f) === 'refundReceiptLookup');
+      if (!lookup) fail('COLLAB_FORBIDDEN',403);
+      const source = table.source !== 'CUSTOM' ? await new WorkspaceBusinessTable(this.db,this.actor).sourceSql(table,access,fields) : await this.lifecycle().sourceSql(table,access,fields);
+      const visible = await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT r.id FROM (${source}) r WHERE r.archived=false AND ${access.selfOnly ? Prisma.sql`r."createdBy"=${this.actor.userId}` : Prisma.sql`TRUE`} AND r.values->${lookup.id} @> ${JSON.stringify([fileId])}::jsonb LIMIT 1`);
+      if(!visible.length) fail('COLLAB_FORBIDDEN',403);
       const original = await tx.collabAttachment.findUnique({where:{id:fileId}});
-      if (!original || original.tableId === tableId) fail('COLLAB_NOT_FOUND',404);
-      return this.attachment(original.tableId,fileId,tx);
+      if(!original) fail('COLLAB_NOT_FOUND',404);
+      return original;
     }
     if (!file) fail('COLLAB_NOT_FOUND', 404);
     if (table.source !== 'CUSTOM') {
@@ -1453,7 +1456,8 @@ export class CollaborationService {
               .map((f) => ({ values: { path: [f.id], array_contains: [fileId] } })),
           },
         });
-        if (referenced || file.ownerId !== this.actor.userId) fail('COLLAB_FORBIDDEN', 403);
+        const financialReferences = await tx.payment.count({where:{voucherFiles:{array_contains:[fileId]}}}) + await tx.refundRequest.count({where:{voucherFiles:{array_contains:[fileId]}}});
+        if (referenced || financialReferences || file.ownerId !== this.actor.userId) fail('COLLAB_FORBIDDEN', 403);
       }
       return file;
     }
@@ -2264,6 +2268,15 @@ export class CollaborationService {
               },
             })
           ).version;
+          if(table.lifecycleKind==='CASE_REFUNDS') {
+            const link=await tx.collabLifecycleLink.findUniqueOrThrow({where:{recordId:row.id}});
+            await this.lifecycle().syncFinancialApplication(tx,table,{...row,values:restoredValues as Prisma.JsonObject,archived:false,version},table.fields,link.caseId);
+          }
+        } else if (table.source === 'PAYMENTS') {
+          const extension = await tx.collabExtension.findUnique({where:{tableId_recordId:{tableId,recordId:operation.recordId}}});
+          const saved = await new WorksheetFinance(this.db,this.actor).payment(tx,operation.recordId,operation.expectedVersion-(extension?.version??0),{},'restore');
+          await new WorkspaceDomainSource(this.db,this.actor).target('PAYMENTS',access,operation.recordId,tx,'delete');
+          version=saved.version+(extension?.version??0);
         } else {
           const sqlTable =
             table.source === 'LEADS'
@@ -2381,6 +2394,35 @@ export class CollaborationService {
     transaction?: Tx,
   ) {
     const initial = await this.tableAccess(tableId, transaction ?? this.db, 2);
+    if (['PAYMENTS','REFUNDS'].includes(initial.table.source) && recordId) {
+      const input=exact(raw,['values','version','schemaVersion','archived']);
+      return this.write(key,['finance.record.save',tableId,recordId,input],async tx=>{
+        await this.lock(tx,initial.access.workspaceId,true);
+        const {table,access,fields}=await this.tableAccess(tableId,tx,2);
+        if(table.schemaVersion!==integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT',409);
+        const deleting=input.archived===true;
+        if(input.archived!==undefined&&!deleting) fail('COLLAB_INVALID_VALUE');
+        if(deleting&&table.source!=='PAYMENTS') fail('COLLAB_USE_BUSINESS_ACTION',409);
+        const core=await new WorkspaceDomainSource(this.db,this.actor).target(table.source as 'PAYMENTS'|'REFUNDS',access,recordId,tx,deleting?'delete':'update');
+        const extension=await tx.collabExtension.findUnique({where:{tableId_recordId:{tableId,recordId}}});
+        if(integer(input.version)!==core.version+(extension?.version??0)) fail('COLLAB_RECORD_CONFLICT',409);
+        const patch:Record<string,unknown>={};
+        for(const [id,value] of Object.entries(object(input.values??{}))) {
+          const field=fields.find(f=>f.id===id);
+          if(!field||access.readonly.includes(id)) fail('COLLAB_FIELD_UNAVAILABLE',403);
+          const name=String(object(field.options).businessKey??'');
+          if(!(table.source==='PAYMENTS'?paymentWorksheetKeys:refundExecutionKeys).includes(name)) fail('COLLAB_READONLY_FIELD',403);
+          validateValue(field,value);
+          if(name==='voucherFiles') for(const fileId of value as string[]) await this.attachment(tableId,fileId,tx);
+          patch[name]=value;
+        }
+        if(deleting&&Object.keys(patch).length) fail('COLLAB_INVALID_VALUE');
+        const finance=new WorksheetFinance(this.db,this.actor);
+        const saved=table.source==='PAYMENTS'?await finance.payment(tx,recordId,core.version,patch,deleting?'delete':'edit'):await finance.refund(tx,recordId,core.version,patch);
+        await this.event(tx,table.baseId,deleting?'record.deleted':'record.updated',recordId);
+        return {id:recordId,version:saved.version+(extension?.version??0)};
+      },transaction);
+    }
     if (initial.table.source === 'LEADS' || initial.table.source === 'FOLLOWS') {
       if (!recordId) fail('COLLAB_USE_BUSINESS_ACTION', 409);
       const input = exact(raw, ['values', 'version', 'schemaVersion', 'archived']);
@@ -2741,6 +2783,7 @@ export class CollaborationService {
             });
         if (lifecycleData) {
           await tx.collabLifecycleLink.upsert({ where: { recordId: record.id }, create: { ...lifecycleData, recordId: record.id }, update: lifecycleData });
+          await this.lifecycle().syncFinancialApplication(tx,table,record,table.fields,lifecycleData.caseId);
           await tx.operationLog.create({ data: { userId: this.actor.userId, action: input.archived ? 'LIFECYCLE_DELETE' : previous ? 'LIFECYCLE_UPDATE' : 'LIFECYCLE_CREATE', targetType: 'COLLAB_RECORD', targetId: record.id, newValues: JSON.stringify({ ...lifecycleData, fields: Object.keys(object(input.values ?? {})), version: record.version }) } });
         }
         const changes = Object.fromEntries(

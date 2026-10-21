@@ -276,6 +276,7 @@ function FinanceDetail({ id, kind }: { id: string; kind: FinanceKind }) {
               <Button onClick={() => void refresh()}>刷新</Button>
             </Space>
             <Card>
+              {kind === 'refund' && 'sourceRecordId' in record && record.sourceRecordId && record.status !== 'EXECUTED' && <Alert type="info" title="此申请来自案管退费管理表" description="审批通过后，请通过上方“在工作表中打开”填写实际退费金额、退费时间并上传退费凭证，再执行退款。完成后将自动同步到案管表。" style={{marginBottom:16}} />}
               <Descriptions
                 bordered
                 column={{ xs: 1, sm: 2, lg: 3 }}
@@ -291,6 +292,13 @@ function FinanceDetail({ id, kind }: { id: string; kind: FinanceKind }) {
                           : record.id,
                   },
                   { key: 'amount', label: '金额（元）', children: formatMoney(record.amount) },
+                  ...('sourceRecordId' in record && record.sourceRecordId ? [
+                    {key:'actualAmount',label:'实际退费金额',children:formatMoney(record.actualAmount)},
+                    {key:'refundPaidAt',label:'退费时间',children:record.paidAt?formatBusinessDate(record.paidAt):'—'},
+                    {key:'recipientName',label:'收款人',children:record.recipientName||'—'},
+                    {key:'recipientBank',label:'开户行',children:record.recipientBank||'—'},
+                    {key:'recipientAccount',label:'银行卡账号',children:record.recipientAccount||'—'},
+                  ]:[]),
                   ...('category' in record
                     ? [
                         {

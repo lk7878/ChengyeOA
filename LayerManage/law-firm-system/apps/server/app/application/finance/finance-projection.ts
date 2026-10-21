@@ -39,6 +39,13 @@ export interface InvoiceRequestView {
 
 /** RefundRequest 输出视图：全字段投影（无 deletedAt——模型本无该列），amount toFixed(2)。 */
 export interface RefundRequestView {
+  sourceRecordId: string | null;
+  actualAmount: string | null;
+  paidAt: Date | null;
+  voucherFiles: unknown;
+  recipientName: string | null;
+  recipientBank: string | null;
+  recipientAccount: string | null;
   linkedCase?: { id: string; caseNo: string; title: string } | null;
   id: string;
   requestNo: string;
@@ -109,6 +116,13 @@ export function projectRefundRequest(refund: RefundRequest & { contract?: { case
   return {
     ...( refund.contract ? { linkedCase: refund.contract.case } : {}),
     id: refund.id,
+    sourceRecordId: refund.sourceRecordId,
+    actualAmount: refund.actualAmount?.toFixed(2) ?? null,
+    paidAt: refund.paidAt,
+    voucherFiles: refund.voucherFiles,
+    recipientName: refund.recipientName,
+    recipientBank: refund.recipientBank,
+    recipientAccount: refund.recipientAccount,
     requestNo: refund.requestNo,
     type: refund.type as RefundRequestType,
     contractId: refund.contractId,

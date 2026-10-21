@@ -1027,6 +1027,9 @@ model Payment {
   voidedAt      DateTime?
   voidReason    String?
   remark        String?
+  invoiceNo     String?
+  invoiceStatus String    @default("NOT_ISSUED")
+  voucherFiles  Json      @default("[]")
   createdBy     String
   updatedBy     String?
   version       Int       @default(1)
@@ -1038,6 +1041,7 @@ model Payment {
   paymentPlan    PaymentPlan?    @relation(fields: [paymentPlanId], references: [id])
   customer       Customer        @relation(fields: [customerId], references: [id])
   refundRequests RefundRequest[]
+  refundAllocations RefundAllocation[]
 
   @@index([contractId])
   @@index([paymentPlanId])
@@ -1093,6 +1097,13 @@ model RefundRequest {
   approvalComment String?
   executedBy      String?
   executedAt      DateTime?
+  sourceRecordId  String?   @unique
+  actualAmount    Decimal?  @db.Decimal(18, 2)
+  paidAt          DateTime?
+  voucherFiles    Json      @default("[]")
+  recipientName   String?
+  recipientBank   String?
+  recipientAccount String?
   createdBy       String
   updatedBy       String?
   version         Int       @default(1)
@@ -1103,12 +1114,24 @@ model RefundRequest {
   customer Customer     @relation(fields: [customerId], references: [id])
   payment  Payment?     @relation(fields: [paymentId], references: [id])
   plan     PaymentPlan? @relation(fields: [planId], references: [id])
+  sourceRecord CollabRecord? @relation(fields: [sourceRecordId], references: [id], onDelete: Restrict)
+  allocations RefundAllocation[]
 
   @@index([contractId])
   @@index([paymentId])
   @@index([planId])
   @@index([status])
   @@map("refund_request")
+}
+
+model RefundAllocation {
+  refundId String
+  paymentId String
+  amount Decimal @db.Decimal(18, 2)
+  refund RefundRequest @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  @@id([refundId, paymentId])
+  @@map("refund_allocation")
 }
 
 model CostEntry {
@@ -1845,6 +1868,7 @@ model CollabView {
 }
 
 model CollabRecord {
+  financialRefund RefundRequest?
   lifecycleLink CollabLifecycleLink? @relation("LifecycleRecord")
   lifecycleChildren CollabLifecycleLink[] @relation("LifecycleParent")
   outgoingRelations CollabRelation[] @relation("CollabSource")
