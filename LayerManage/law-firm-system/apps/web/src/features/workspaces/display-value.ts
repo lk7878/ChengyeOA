@@ -24,6 +24,8 @@ export const fieldLabel = (field: Field) =>
       : field.name + '（元）'
     : field.name;
 export function fieldHint(field: Field) {
+  if (field.options.lifecycleKey === 'status' && field.options.choices?.some(choice => choice.id === 'REFUND_REQUIRED'))
+    return '需要办理退费时，选择“协商未果 / 需退款”并保存，再到退费管理表选择该售后记录，填写退款信息。';
   if (field.options.lifecycleKey === 'terminated') return '判断规则待补充；暂时保持只读空值。';
   if (
     field.options.businessSource === 'CASES' &&

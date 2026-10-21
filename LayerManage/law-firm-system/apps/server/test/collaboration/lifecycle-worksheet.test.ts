@@ -186,6 +186,13 @@ test('linked worksheets query current upstream fields; edits, deletion and undo 
 test('refund requires unresolved after-sales; duplicates, orphan deletion and state rollback are rejected', async () => {
   const { row, a, r, vals, create } = await setup();
   const after = await create(a, { upstreamId: row.id, content: '退款争议' });
+  const pendingChoices = await svc.lifecycleChoices(r.table.id, {});
+  assert.equal('sourceKind' in pendingChoices && pendingChoices.sourceKind, 'AFTER_SALES');
+  const pending = pendingChoices.rows[0] as { id: string; disabled: boolean; disabledReason: string };
+  assert.equal(pending.id, after.id);
+  assert.equal(pending.disabled, true);
+  assert.match(pending.disabledReason, /协商中/);
+  assert.equal((await svc.query(r.table.id, {})).total, 0);
   await assert.rejects(
     create(r, { upstreamId: after.id, content: '退款', amount: '100' }),
     /LIFECYCLE_REFUND_STATE/,
@@ -196,7 +203,16 @@ test('refund requires unresolved after-sales; duplicates, orphan deletion and st
     { schemaVersion: 1, version: 1, values: vals(a, { status: 'REFUND_REQUIRED' }) },
     key(),
   );
+  const ready = (await svc.lifecycleChoices(r.table.id, {})).rows[0] as { id: string; disabled: boolean; disabledReason?: string };
+  assert.equal(ready.id, after.id);
+  assert.equal(ready.disabled, false);
+  assert.equal(ready.disabledReason, undefined);
+  assert.equal((await svc.query(r.table.id, {})).total, 0, 'status changes alone must not invent a refund amount or record');
   const refund = await create(r, { upstreamId: after.id, content: '协商失败退款', amount: '100' });
+  const linkedRefund = await db.collabLifecycleLink.findUniqueOrThrow({where:{recordId:refund.id}});
+  assert.equal(linkedRefund.parentRecordId, after.id);
+  assert.equal(linkedRefund.caseId, row.id);
+  assert.equal((await svc.query(r.table.id, {})).total, 1);
   assert.equal((await svc.lifecycleChoices(r.table.id, {})).rows[0].id, after.id);
   await assert.rejects(
     create(r, { upstreamId: after.id, content: '重复', amount: '100' }),
@@ -220,6 +236,10 @@ test('refund requires unresolved after-sales; duplicates, orphan deletion and st
     (e: unknown) => (e as { code: string }).code === 'CASE_IN_USE',
   );
   assert.ok(await db.collabRecord.findUnique({ where: { id: refund.id } }));
+  const feeField = r.fields.find(f => f.options.lifecycleKey === 'feeTotalLookup')!;
+  await svc.saveRecord(a.table.id, after.id, {schemaVersion:1,version:changed.version,values:vals(a,{feeTotal:'3000'})}, key());
+  assert.equal((await svc.record(r.table.id,refund.id)).record.values[feeField.id], '3000');
+
 });
 test('row scope, field permissions and current permissions are enforced on query, write and restore', async () => {
   const { row, a, create } = await setup();
@@ -247,6 +267,31 @@ test('row scope, field permissions and current permissions are enforced on query
     /LIFECYCLE_CASE_UNAVAILABLE/,
   );
   assert.equal((await db.collabRecord.findUniqueOrThrow({ where: { id: saved.id } })).archived, true);
+});
+
+test('refund choices explain visible status without exposing hidden, archived or out-of-scope after-sales', async () => {
+  const { row, a, r, vals, create } = await setup();
+  const after = await create(a, { upstreamId: row.id, content: '已解决的售后', status: 'RESOLVED' });
+  const other = await db.user.create({data:{username:key(),password:'unused'}});
+  const workspaceId = (await db.collabBase.findUniqueOrThrow({where:{id:base}})).workspaceId;
+  const member = await db.collabMember.create({data:{workspaceId,principalId:other.id,role:'READER',rowScope:'ALL'}});
+  const actor = {...ctx,userId:other.id,isSystemSuperAdmin:false};
+  const reader = new CollaborationService(db,actor);
+  const choice = (await reader.lifecycleChoices(r.table.id,{})).rows[0] as {id:string;disabled:boolean;disabledReason:string};
+  assert.equal(choice.id,after.id);
+  assert.equal(choice.disabled,true);
+  assert.match(choice.disabledReason,/已解决/);
+  await assert.rejects(reader.saveRecord(a.table.id,after.id,{schemaVersion:1,version:1,values:vals(a,{status:'REFUND_REQUIRED'})},key()),/COLLAB_FORBIDDEN/);
+  const status = a.fields.find(f=>f.options.lifecycleKey==='status')!;
+  await db.collabMember.update({where:{id:member.id},data:{hiddenFields:[status.id]}});
+  assert.deepEqual((await reader.lifecycleChoices(r.table.id,{})).rows,[]);
+  await db.collabMember.update({where:{id:member.id},data:{hiddenFields:[],rowScope:'SELF'}});
+  assert.deepEqual((await reader.lifecycleChoices(r.table.id,{})).rows,[]);
+  await db.collabMember.update({where:{id:member.id},data:{rowScope:'ALL'}});
+  const noCaseScope = new CollaborationService(db,{...actor,grants:actor.grants.filter(g=>!g.permissionCode.startsWith('case.'))});
+  assert.deepEqual((await noCaseScope.lifecycleChoices(r.table.id,{})).rows,[]);
+  await svc.saveRecord(a.table.id,after.id,{schemaVersion:1,version:1,archived:true},key());
+  assert.deepEqual((await svc.lifecycleChoices(r.table.id,{})).rows,[]);
 });
 test('empty custom tables can be linked without dropping columns; nonempty tables are protected', async () => {
   const empty = await svc.createTable(base, { name: key() }, key());

@@ -300,15 +300,26 @@ export class LifecycleWorksheet {
     const customerJoin = Prisma.sql`LEFT JOIN (SELECT b.id,b.name,b.phone FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${customerScope}) cu ON cu.id=b."customerId"`;
     if (table.lifecycleKind === 'CASE_REFUNDS') {
       const parent = await this.parentPredicate(access.workspaceId);
-      const rows = await this.db.$queryRaw<Array<{ id: string; label: string }>>(Prisma.sql`
-        SELECT p.id, ${label} AS label, ${preview} AS preview
+      const rows = await this.db.$queryRaw<Array<{ id: string; label: string; preview: Record<string, unknown>; afterSalesStatus: string; disabled: boolean }>>(Prisma.sql`
+        SELECT p.id, ${label} AS label, ${preview} AS preview,
+          x.status AS "afterSalesStatus", x.status <> 'REFUND_REQUIRED' AS disabled
         FROM collab_record p JOIN collab_lifecycle_link x ON x."recordId" = p.id JOIN "case" b ON b.id = x."caseId"
         LEFT JOIN (SELECT b.id, b."contractNo", b.amount, b.status FROM contract b WHERE ${contractScope}) c ON c.id = b."contractId" ${customerJoin}
-        WHERE x.kind = 'AFTER_SALES' AND x.status = 'REFUND_REQUIRED' AND p.archived = false AND ${parent}
+        WHERE x.kind = 'AFTER_SALES' AND p.archived = false AND ${parent}
         AND ${await domain.scope('CASES', access)} AND ${label} ILIKE ${'%' + keyword + '%'}
-        ORDER BY p.id LIMIT 20 OFFSET ${(page - 1) * 20}`);
+        ORDER BY (x.status = 'REFUND_REQUIRED') DESC, p.id LIMIT 20 OFFSET ${(page - 1) * 20}`);
       await this.auditPhone(fields, rows.length);
-      return { rows, hasMore: rows.length === 20 };
+      return {
+        sourceKind: 'AFTER_SALES' as const,
+        rows: rows.map(row => ({
+          ...row,
+          disabledReason: row.afterSalesStatus === 'REFUND_REQUIRED' ? undefined
+            : row.afterSalesStatus === 'OPEN' ? '协商中：请先在售后管理表将协商状态改为“协商未果 / 需退款”。'
+              : row.afterSalesStatus === 'RESOLVED' ? '已解决：当前无需办理退费。'
+                : '当前售后状态不能登记退费，请核对协商状态。',
+        })),
+        hasMore: rows.length === 20,
+      };
     }
     const rows = await this.db.$queryRaw<Array<{ id: string; label: string }>>(Prisma.sql`
       SELECT b.id, ${label} AS label, ${preview} AS preview

@@ -7,7 +7,7 @@ import type { Field } from './types';
 vi.mock('./api', () => ({ get: vi.fn(), post: vi.fn(), authenticatedFetch: vi.fn(), errorMessage: () => '关联记录不可访问' }));
 afterEach(() => {
   cleanup();
-  vi.clearAllMocks();
+  vi.resetAllMocks();
 });
 test('upstream selector searches server scope and pages instead of truncating choices', async () => {
   vi.mocked(get).mockResolvedValue({ rows: [{ id: 'case1', label: 'HT-001 · 案件甲' }], hasMore: true });
@@ -50,6 +50,28 @@ test('upstream permission failures stay visible; synchronized fields cannot be e
     />,
   );
   expect(screen.getByDisplayValue('1,200.00')).toBeDisabled();
+});
+
+test('refund choices explain ineligible after-sales and become selectable after an explicit refresh', async () => {
+  const onChange=vi.fn(), onPreview=vi.fn();
+  vi.mocked(get).mockResolvedValueOnce({sourceKind:'AFTER_SALES',rows:[{id:'after',label:'HT-001',disabled:true,disabledReason:'协商中：请先标记为需退款。'}],hasMore:false});
+  render(<LifecycleSelect tableId="refund" value={null} onChange={onChange} onPreview={onPreview} />);
+  await screen.findByText(/在售后管理表的行操作中/);
+  fireEvent.mouseDown(screen.getByRole('combobox'));
+  const reason=await screen.findByText('协商中：请先标记为需退款。');
+  expect(reason.closest('.ant-select-item-option')).toHaveClass('ant-select-item-option-disabled');
+  fireEvent.click(reason);
+  expect(onChange).not.toHaveBeenCalled();
+  vi.mocked(get).mockResolvedValueOnce({sourceKind:'AFTER_SALES',rows:[{id:'after',label:'HT-001',disabled:false,preview:{customerName:'客户甲',feeTotalLookup:'3000'}}],hasMore:false});
+  await waitFor(()=>expect(screen.getByRole('button',{name:'刷新关联项'})).toBeEnabled());
+  fireEvent.click(screen.getByRole('button',{name:'刷新关联项'}));
+  await waitFor(()=>expect(screen.queryByText('协商中：请先标记为需退款。')).not.toBeInTheDocument());
+  await waitFor(()=>expect(get).toHaveBeenCalledTimes(2));
+  await waitFor(()=>expect(screen.getByRole('button',{name:'刷新关联项'})).toBeEnabled());
+  fireEvent.mouseDown(screen.getByRole('combobox'));
+  fireEvent.click(await screen.findByText('HT-001'));
+  expect(onChange).toHaveBeenCalledWith('after');
+  expect(onPreview).toHaveBeenCalledWith({customerName:'客户甲',feeTotalLookup:'3000'});
 });
 
 

@@ -1,3 +1,4 @@
+import AfterSalesStatusAction from '@/features/workspaces/AfterSalesStatusAction';
 import { createRefreshScheduler } from '@/features/workspaces/refresh-scheduler';
 import LifecycleTableControl from '@/features/workspaces/LifecycleTableControl';
 import Modal from '@/components/DraggableModal';
@@ -1424,11 +1425,12 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                           {
                             key: 'record-actions',
                             title: '操作',
-                            width: 230,
+                            width: detail.table.lifecycleKind === 'AFTER_SALES' ? 450 : 230,
                             fixed: 'right' as const,
                             onCell: (row) => (row.group ? { colSpan: 0 } : {}),
                             render: (_: unknown, row: GridRow) => row.group ? null : <Space>
                               <Button size="small" disabled={inlineDirty} onClick={() => void openRecord(row)}>{row.writable !== false && fields.some(f => f.writable) ? '编辑' : '详情'}</Button>
+                              {detail.table.lifecycleKind === 'AFTER_SALES' && <AfterSalesStatusAction fields={fields} row={row} disabled={inlineDirty} onEdit={field => void openRecord(row, field)} />}
                               {row.lifecycle && <Button size="small" onClick={()=>navigate('/cases/'+row.lifecycle!.caseId)}>关联案件</Button>}
                               {canRequestRefund && detail.table.lifecycleKind === 'CASE_REFUNDS' && row.lifecycle?.contractId && <Button size="small" onClick={()=>navigate('/refunds/new?'+new URLSearchParams({contract:row.lifecycle!.contractId!,case:row.lifecycle!.caseId,caseNo:row.lifecycle!.caseNo,workspace:detail.access.workspaceId}))}>申请财务退款</Button>}
                               {isBusinessSource(detail.table.source) && detail.table.source !== 'FOLLOWS' && <Button size="small" disabled={inlineDirty} onClick={() => { if (isBusinessSource(detail.table.source)) navigate(businessSources[detail.table.source].path + '/' + row.id); }}>办理</Button>}
