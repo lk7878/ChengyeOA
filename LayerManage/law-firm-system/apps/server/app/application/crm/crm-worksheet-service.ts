@@ -1,3 +1,6 @@
+import { followProfileKeys, followChoices, followColumns } from './follow-worksheet-fields';
+import { object, validateValue } from '../collaboration/collaboration-policy';
+import { CollabField } from '@prisma/client';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
@@ -90,6 +93,14 @@ export class CrmWorksheetService {
         updatedBy: this.actor.userId,
         version: { increment: 1 },
       };
+      if (Object.hasOwn(patch,'enteredAt')) data.enteredAt=parseIsoDate(patch.enteredAt);
+      const profile={...object(follow!.profile)};
+      for (const key of followProfileKeys) if (Object.hasOwn(patch,key)) {
+        const column=followColumns.find(([name])=>name===key)!;
+        const field={id:key,type:column[2],required:false,options:{choices:followChoices[key]??[]}} as unknown as CollabField;
+        profile[key]=key==='phone' && patch[key] ? normalizePhone(patch[key]) : validateValue(field,patch[key]);
+      }
+      data.profile=profile as Prisma.InputJsonObject;
       if (Object.hasOwn(patch, 'type')) data.type = normalizeAllowedValue(patch.type, LEAD_FOLLOW_TYPES);
       if (Object.hasOwn(patch, 'content')) data.content = normalizeRequiredText(patch.content, 1, 2000);
       if (Object.hasOwn(patch, 'nextPlan')) data.nextPlan = normalizeOptionalText(patch.nextPlan, 500);

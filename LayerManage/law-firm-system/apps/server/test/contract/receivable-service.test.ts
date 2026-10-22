@@ -563,7 +563,7 @@ test('createPayment registers a PENDING payment with payment.created and audit i
   const contract = await createContractRow({ customerId: customer.id, createdBy: userId });
   const service = receivableServiceFor(userId, actor);
 
-  const view = await service.createPayment({ contractId: contract.id, amount: '4000.00' });
+  const view = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '4000.00' });
 
   assert.ok(view.id);
   assert.match(view.paymentNo, PAYMENT_NO_PATTERN);
@@ -574,7 +574,7 @@ test('createPayment registers a PENDING payment with payment.created and audit i
   assert.equal(view.status, 'PENDING');
   assert.equal(view.method, null);
   assert.equal(view.account, null);
-  assert.equal(view.paidAt, null);
+  assert.deepEqual(view.paidAt, new Date('2026-10-21T03:00:00.000Z'));
   assert.equal(view.remark, null);
   assert.equal(view.confirmedBy, null);
   assert.equal(view.confirmedAt, null);
@@ -667,7 +667,7 @@ test('createPayment rejects a DRAFT contract with CONTRACT_STATE_TRANSITION_INVA
   const service = receivableServiceFor(userId, actor);
 
   await assert.rejects(
-    () => service.createPayment({ contractId: contract.id, amount: '1000.00' }),
+    () => service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '1000.00' }),
     isContractStateInvalid409,
   );
   assert.equal(await prisma.payment.count({ where: { contractId: contract.id } }), 0);
@@ -689,7 +689,7 @@ test('createPayment rejects a forged paymentPlanId with VALIDATION_FAILED 400', 
   const service = receivableServiceFor(userId, actor);
 
   await assert.rejects(
-    () => service.createPayment({
+    () => service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z',
       contractId: contract.id,
       paymentPlanId: foreignPlan.id,
       amount: '1000.00',
@@ -698,7 +698,7 @@ test('createPayment rejects a forged paymentPlanId with VALIDATION_FAILED 400', 
     'a plan owned by another contract must be rejected',
   );
   await assert.rejects(
-    () => service.createPayment({
+    () => service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z',
       contractId: contract.id,
       paymentPlanId: randomUUID(),
       amount: '1000.00',
@@ -718,7 +718,7 @@ test('createPayment rejects non-positive, over-scale and malformed amounts with 
   const badAmounts: Array<string | number | undefined> = ['0', 0, '-1.00', '10.005', 'not-a-number', undefined];
   for (const amount of badAmounts) {
     await assert.rejects(
-      () => service.createPayment({ contractId: contract.id, amount: amount as string }),
+      () => service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: amount as string }),
       isValidationFailed400,
       `amount ${String(amount)} must be rejected`,
     );
@@ -743,7 +743,7 @@ test('createPayment accepts an EFFECTIVE contract and a paymentPlanId owned by t
   });
   const service = receivableServiceFor(userId, actor);
 
-  const view = await service.createPayment({
+  const view = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z',
     contractId: contract.id,
     paymentPlanId: plan.id,
     amount: '4000.00',
@@ -766,12 +766,12 @@ test('createPayment returns CONTRACT_NOT_FOUND 404 for an invisible or missing c
   });
 
   await assert.rejects(
-    () => scoped.createPayment({ contractId: foreign.id, amount: '1000.00' }),
+    () => scoped.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: foreign.id, amount: '1000.00' }),
     hasCode(CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND),
     'out-of-scope contract is indistinguishable from missing',
   );
   await assert.rejects(
-    () => scoped.createPayment({ contractId: randomUUID(), amount: '1000.00' }),
+    () => scoped.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: randomUUID(), amount: '1000.00' }),
     hasCode(CONTRACT_ERROR_CODES.CONTRACT_NOT_FOUND),
   );
   assert.equal(await prisma.payment.count({ where: { contractId: foreign.id } }), 0);
@@ -786,7 +786,7 @@ test('createPayment requires the payment.create action permission', async () => 
   });
 
   await assert.rejects(
-    () => denied.createPayment({ contractId: contract.id, amount: '1000.00' }),
+    () => denied.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '1000.00' }),
     hasCode('PERMISSION_DENIED'),
   );
   assert.equal(await prisma.payment.count({ where: { contractId: contract.id } }), 0);
@@ -809,7 +809,7 @@ test('confirmPayment applies a designated plan exactly to RECEIVED and accumulat
     contractId: contract.id, createdBy: userId, period: 2, dueDate: '2026-10-01', amount: '8000.00',
   });
   const service = receivableServiceFor(userId, actor);
-  const registered = await service.createPayment({
+  const registered = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z',
     contractId: contract.id,
     paymentPlanId: planOne.id,
     amount: '4000.00',
@@ -869,7 +869,7 @@ test('confirmPayment sweeps plans in dueDate order across periods when no plan i
     await createPlanRow({ contractId: contract.id, createdBy: userId, period: 3, dueDate: '2026-11-01', amount: '4000.00' }),
   ];
   const service = receivableServiceFor(userId, actor);
-  const registered = await service.createPayment({ contractId: contract.id, amount: '5000.00' });
+  const registered = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '5000.00' });
 
   await service.confirmPayment(registered.id, {});
 
@@ -902,8 +902,8 @@ test('confirmPayment walks a plan PENDING to PARTIAL to RECEIVED across sequenti
     contractId: contract.id, createdBy: userId, period: 1, dueDate: '2026-09-01', amount: '4000.00',
   });
   const service = receivableServiceFor(userId, actor);
-  const first = await service.createPayment({ contractId: contract.id, amount: '2000.00' });
-  const second = await service.createPayment({ contractId: contract.id, amount: '2000.00' });
+  const first = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '2000.00' });
+  const second = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '2000.00' });
 
   await service.confirmPayment(first.id, {});
   let storedPlan = await prisma.paymentPlan.findUniqueOrThrow({ where: { id: plan.id } });
@@ -932,7 +932,7 @@ test('confirmPayment on a SIGNED contract without plans accumulates only the con
     amount: '5000.00',
   });
   const service = receivableServiceFor(userId, actor);
-  const registered = await service.createPayment({ contractId: contract.id, amount: '2000.00' });
+  const registered = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '2000.00' });
 
   const view = await service.confirmPayment(registered.id, {});
   assert.equal(view.status, 'CONFIRMED');
@@ -964,7 +964,7 @@ test('confirmPayment rejects a payment exceeding the designated plan remainder a
     contractId: contract.id, createdBy: userId, period: 2, dueDate: '2026-10-01', amount: '4000.00',
   });
   const service = receivableServiceFor(userId, actor);
-  const registered = await service.createPayment({
+  const registered = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z',
     contractId: contract.id,
     paymentPlanId: planOne.id,
     amount: '5000.00',
@@ -1016,7 +1016,7 @@ test('confirmPayment rejects a payment exceeding the sweep remainder across plan
     contractId: contract.id, createdBy: userId, period: 2, dueDate: '2026-10-01', amount: '4000.00',
   });
   const service = receivableServiceFor(userId, actor);
-  const registered = await service.createPayment({ contractId: contract.id, amount: '9000.00' });
+  const registered = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '9000.00' });
 
   // 合同级本可通过（0+9000≤10000）——409 证明扫完仍有剩余的期溢出判定。
   await assert.rejects(() => service.confirmPayment(registered.id, {}), isAmountExceeded409);
@@ -1045,8 +1045,8 @@ test('confirmPayment rejects contract-level overflow on a planless SIGNED contra
     amount: '5000.00',
   });
   const service = receivableServiceFor(userId, actor);
-  const first = await service.createPayment({ contractId: contract.id, amount: '3000.00' });
-  const second = await service.createPayment({ contractId: contract.id, amount: '3000.00' });
+  const first = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
+  const second = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
 
   await service.confirmPayment(first.id, {});
   await assert.rejects(
@@ -1077,7 +1077,7 @@ test('confirmPayment replays an already-confirmed payment without double-applyin
     contractId: contract.id, createdBy: userId, period: 1, dueDate: '2026-09-01', amount: '4000.00',
   });
   const service = receivableServiceFor(userId, actor);
-  const registered = await service.createPayment({ contractId: contract.id, amount: '3000.00' });
+  const registered = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
 
   const first = await service.confirmPayment(registered.id, {});
   const replayed = await service.confirmPayment(registered.id, {});
@@ -1114,7 +1114,7 @@ test('concurrent confirmPayment of the same payment succeeds twice with exactly 
     contractId: contract.id, createdBy: userId, period: 1, dueDate: '2026-09-01', amount: '5000.00',
   });
   const service = receivableServiceFor(userId, actor);
-  const registered = await service.createPayment({ contractId: contract.id, amount: '3000.00' });
+  const registered = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
 
   // 确定性竞速（contract-service.test.ts:1406-1455 effect 竞速先例的 FOR UPDATE 行锁钉法）：
   // 第三方事务持合同行锁 1s，两个确认事务的 findFirst 均先读到 PENDING v1，随后双双阻塞
@@ -1201,7 +1201,7 @@ test('confirmPayment requires the payment.confirm action permission', async () =
   const customer = await createCustomerFixture(userId);
   const contract = await createContractRow({ customerId: customer.id, createdBy: userId });
   const service = receivableServiceFor(userId, actor);
-  const registered = await service.createPayment({ contractId: contract.id, amount: '1000.00' });
+  const registered = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '1000.00' });
   const denied = receivableServiceFor(userId, actor, {
     permissionCodes: ['payment.read', 'payment.create'],
   });

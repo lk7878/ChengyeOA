@@ -213,7 +213,7 @@ for (const source of ['PAYMENTS', 'INVOICES', 'REFUNDS', 'COSTS'] as DomainSourc
         { ...input, version: own.version + 1, values: { [core.id]: '伪造' } },
         key(),
       ),
-      rejects('COLLAB_USE_BUSINESS_ACTION'),
+      rejects(['PAYMENTS','REFUNDS'].includes(source) ? 'COLLAB_READONLY_FIELD' : 'COLLAB_USE_BUSINESS_ACTION'),
     );
     assert.equal(await db.collabRecord.count({ where: { tableId: table } }), 0);
     const noAction = new CollaborationService(db, {
@@ -287,7 +287,7 @@ test('all financial creates persist one result for concurrent normalized retries
   const jobs = [
     {
       make: (amount: string, idempotencyKey: string) =>
-        payment().createPayment({ contractId: contract.id, amount, idempotencyKey }),
+        payment().createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount, idempotencyKey }),
     },
     {
       make: (amount: string, idempotencyKey: string) =>
@@ -327,17 +327,17 @@ test('creation replay cannot cross operation types or revoked scopes and survive
   const contract = await contractFixture();
   const mutation = key();
   const input = { contractId: contract.id, amount: '10.00', idempotencyKey: mutation };
-  const created = await payment().createPayment(input);
+  const created = await payment().createPayment({...input,paidAt:'2026-10-21T03:00:00Z'});
   await db.contract.update({ where: { id: contract.id }, data: { status: 'TERMINATED' } });
-  assert.equal((await payment().createPayment(input)).id, created.id);
+  assert.equal((await payment().createPayment({...input,paidAt:'2026-10-21T03:00:00Z'})).id, created.id);
   await assert.rejects(invoice().createInvoice(input), rejects('IDEMPOTENCY_CONFLICT'));
   const noScope = { ...staff.actor, grants: staff.actor.grants.map((g) => ({ ...g, scopeIds: [] })) };
-  await assert.rejects(payment(noScope).createPayment(input), httpStatus(404));
+  await assert.rejects(payment(noScope).createPayment({...input,paidAt:'2026-10-21T03:00:00Z'}), httpStatus(404));
   const noAction = {
     ...staff.actor,
     permissionCodes: staff.actor.permissionCodes.filter((p) => p !== 'payment.create'),
   };
-  await assert.rejects(payment(noAction).createPayment(input), httpStatus(403));
+  await assert.rejects(payment(noAction).createPayment({...input,paidAt:'2026-10-21T03:00:00Z'}), httpStatus(403));
   assert.equal(await db.payment.count(), 1);
 });
 
@@ -411,7 +411,7 @@ test('financial linked case labels and case-number filters obey independent case
   assert.equal((await payment(ctx).listPayments({ caseNo: hiddenCase.caseNo })).total, 0);
   assert.equal((await payment().listPayments({})).list[0].linkedCase?.id, hiddenCase.id);
   await assert.rejects(
-    payment(ctx).createPayment({
+    payment(ctx).createPayment({ paidAt: '2026-10-21T03:00:00.000Z',
       contractId: paymentRow.contractId,
       amount: '1.00',
       caseNo: hiddenCase.caseNo,

@@ -1,3 +1,4 @@
+import { notifyDeliveryChange } from '../collaboration/delivery-change';
 import { createOnce } from './domain-mutation';
 import { buildFinancialRecordScopeWhere, FinancialRecordScope } from './financial-record-scope';
 import { assertFinancialCaseLink, financialCaseFilter, projectFinancialCases } from './financial-case-projection';
@@ -201,6 +202,7 @@ export class InvoiceService {
         fromStatus: 'PENDING',
         toStatus: 'APPROVED',
       });
+      await notifyDeliveryChange(tx, this.actor.actorUserId, invoice.id);
       const after = await tx.invoiceRequest.findUniqueOrThrow({ where: { id: invoice.id } });
       return projectInvoiceRequest(after);
     });
@@ -300,6 +302,7 @@ export class InvoiceService {
         status: 'COMPLETED',
       };
       await this.outbox.append(tx, this.envelope(invoice.id, payload, contract, INVOICE_COMPLETED));
+      await notifyDeliveryChange(tx, this.actor.actorUserId, invoice.id);
       await this.appendAudit(tx, invoice, 'INVOICE_COMPLETE', {
         requestNo: invoice.requestNo,
         contractId: contract.id,

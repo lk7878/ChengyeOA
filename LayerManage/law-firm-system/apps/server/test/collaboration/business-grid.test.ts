@@ -7,9 +7,46 @@ import { AuthorizationContext } from '../../app/application/authorization/author
 import { PERMISSION_CATALOG } from '../../app/domain/authorization/permission-catalog';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 import { withFailingCollaborationOutbox } from '../helpers/collaboration-outbox-failure';
+import { followColumns } from '../../app/application/crm/follow-worksheet-fields';
+import { standardizeFollowWorksheets } from '../../scripts/maintenance/standardize-follow-worksheets';
 
 let db: PrismaClient, svc: CollaborationService, base: string, org: string, user: string, employee: string;
 const code = (name: string) => (error: unknown) => (error as { code?: string }).code === name;
+test('standard follow fields share canonical edits, files and history across worksheets',async()=>{
+  const t=await svc.createTable(base,{name:'客户跟进记录表',source:'FOLLOWS'},key());
+  const id=await seed('FOLLOWS');
+  const detail=await svc.describe(t.id);
+  assert.deepEqual(detail.fields.map(f=>f.name),followColumns.map(c=>c[1]));
+  const field=(name:string)=>detail.fields.find(f=>f.options.businessKey===name)!;
+  const before=(await svc.record(t.id,id)).record;
+  assert.match(String(before.values[field('followNo').id]),/^KH\d{2,}$/);
+  const attachment=await db.collabAttachment.create({data:{tableId:t.id,ownerId:user,name:'录音.mp3',mimeType:'audio/mpeg',size:3,storageKey:key()}});
+  const patch={customerName:'客户姓名',wechat:'微信名',douyinName:'抖音名',phone:'13811112222',region:'重庆',concerns:'赔偿',objections:'费用',customerStage:'已发材料',currentStage:'已约面',followedBy:employee,followRole:'客服',type:'SMS',result:'预约中',content:'补充记录',summary:'摘要',caseTypes:['医疗','合同'],nextPlan:'电话沟通',nextTime:'2026-10-23T02:00:00.000Z',enteredAt:'2026-10-22T02:00:00.000Z',dropAt:'2026-11-01T02:00:00.000Z',overdue:true,changes:'补充材料',attachments:[attachment.id]};
+  const values=Object.fromEntries(Object.entries(patch).map(([k,v])=>[field(k).id,v]));
+  const edited=await svc.saveRecord(t.id,id,{schemaVersion:1,version:before.version,values},key());
+  const other=await svc.createTable(base,{name:'另一个跟进表',source:'FOLLOWS'},key());
+  const otherDetail=await svc.describe(other.id),shared=(await svc.record(other.id,id)).record;
+  assert.equal(shared.values[otherDetail.fields.find(f=>f.options.businessKey==='customerName')!.id],'客户姓名');
+  assert.equal((await svc.attachment(other.id,attachment.id)).id,attachment.id);
+  assert.equal(shared.values[otherDetail.fields.find(f=>f.options.businessKey==='lastOperator')!.id],employee);
+  await assert.rejects(svc.saveRecord(t.id,id,{schemaVersion:1,version:edited.version,values:{[field('followNo').id]:'KH00'}},key()));
+  await assert.rejects(svc.saveRecord(t.id,id,{schemaVersion:1,version:edited.version,values:{[field('currentStage').id]:'非法选项'}},key()));
+  await svc.reverseRecordOperation(t.id,edited.operationId,{direction:'undo'},key());
+  assert.equal((await svc.record(t.id,id)).record.values[field('customerName').id],'原线索');
+  await svc.reverseRecordOperation(t.id,edited.operationId,{direction:'redo'},key());
+  const latest=(await svc.record(t.id,id)).record;
+  const deleted=await svc.saveRecord(t.id,id,{schemaVersion:1,version:latest.version,archived:true},key());
+  assert.equal((await svc.query(other.id,{})).total,0);
+  await svc.reverseRecordOperation(t.id,deleted.operationId,{direction:'undo'},key());
+  assert.equal((await svc.query(other.id,{})).total,1);
+  const legacy=await db.collabField.create({data:{tableId:t.id,name:'废弃字段',type:'TEXT',position:99}});
+  await standardizeFollowWorksheets(db,user,true);
+  assert.equal((await db.collabField.findUniqueOrThrow({where:{id:legacy.id}})).archived,true);
+  assert.equal((await svc.describe(t.id)).fields.length,28);
+  const schema=(await svc.describe(t.id)).table.schemaVersion;
+  await standardizeFollowWorksheets(db,user,true);
+  assert.equal((await svc.describe(t.id)).table.schemaVersion,schema,'upgrade is idempotent');
+});
 test.before(() => {
   db = createTestPrisma();
 });

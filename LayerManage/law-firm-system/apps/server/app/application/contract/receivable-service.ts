@@ -335,7 +335,7 @@ export class ReceivableService {
     const amount = normalizePaymentAmount(input.amount);
     const method = normalizeOptionalText(input.method, 100);
     const account = normalizeOptionalText(input.account, 100);
-    const paidAt = input.paidAt === undefined ? null : parseIsoDate(input.paidAt);
+    const paidAt = parseIsoDate(input.paidAt);
     const remark = normalizeOptionalText(input.remark, 500);
     const idempotencyKey = normalizeOptionalText(input.idempotencyKey, 100);
 

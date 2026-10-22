@@ -436,58 +436,19 @@ test('creates, approves, executes a WAIVER end to end with plan decrement', asyn
   assert.equal(planAfter.status, 'PENDING');
 });
 
-test('requires a REFUND_APPROVE step-up grant to approve, with 400/409 matrix', async () => {
-  const session = await createMfaFinanceSession({ permissions: FULL_REFUND_PERMISSIONS });
-  const customer = await createCustomerFixture(session.userId);
-  const contract = await seedContract({ customerId: customer.id, createdBy: session.userId });
-  const plan = await seedPlan({ contractId: contract.id, createdBy: session.userId });
-  const created = await app.httpRequest()
-    .post('/api/v1/refunds')
-    .set(bearer(session.token))
-    .send({ type: 'WAIVER', contractId: contract.id, planId: plan.id, amount: '500', reason: 'StepUp审批矩阵' })
-    .expect(200);
-  const refundId = created.body.data.id as string;
-  const version = created.body.data.version as number;
-
-  // 无 x-step-up-token → 403 STEP_UP_REQUIRED。
-  const missing = await app.httpRequest()
-    .post(`/api/v1/refunds/${refundId}/approve`)
-    .set(bearer(session.token))
-    .send({ expectedVersion: version })
-    .expect(403);
-  assert.equal(missing.body.message, 'STEP_UP_REQUIRED');
-
-  // 有证但 body 缺 expectedVersion（目标无法绑定）→ 400 VALIDATION_FAILED。
-  const bound = await issueStepUp(session, 'REFUND_APPROVE', {
-    refundRequestId: refundId, expectedVersion: version,
-  });
-  const unbindable = await app.httpRequest()
-    .post(`/api/v1/refunds/${refundId}/approve`)
-    .set(bearer(session.token))
-    .set('X-Step-Up-Token', bound)
-    .send({ comment: '缺版本号' })
-    .expect(400);
-  assert.equal(unbindable.body.message, 'VALIDATION_FAILED');
-
-  // 有证但 target 的 expectedVersion 陈旧（≠ 服务重读版本）→ 409 REFUND_STATE_INVALID。
-  const stale = await issueStepUp(session, 'REFUND_APPROVE', {
-    refundRequestId: refundId, expectedVersion: version + 1,
-  });
-  const conflict = await app.httpRequest()
-    .post(`/api/v1/refunds/${refundId}/approve`)
-    .set(bearer(session.token))
-    .set('X-Step-Up-Token', stale)
-    .send({ expectedVersion: version + 1 })
-    .expect(409);
-  assert.equal(conflict.body.message, 'REFUND_STATE_INVALID');
-
-  const stored = await prisma.refundRequest.findUniqueOrThrow({ where: { id: refundId } });
-  assert.equal(stored.status, 'PENDING', 'no rejected approve mutates the request');
-  assert.equal(stored.version, 1);
-  assert.equal(
-    await prisma.eventLog.count({ where: { objectType: 'REFUND_REQUEST', eventType: 'refund.approved' } }),
-    0,
-  );
+test('approves without MFA while preserving version validation, permission gates and audit',async()=>{
+  const session=await createFinanceSession({permissions:FULL_REFUND_PERMISSIONS});
+  const customer=await createCustomerFixture(session.userId);
+  const contract=await seedContract({customerId:customer.id,createdBy:session.userId});
+  const plan=await seedPlan({contractId:contract.id,createdBy:session.userId});
+  const created=await app.httpRequest().post('/api/v1/refunds').set(bearer(session.token)).send({type:'WAIVER',contractId:contract.id,planId:plan.id,amount:'500',reason:'无需二次验证'}).expect(200);
+  const id=created.body.data.id;
+  await app.httpRequest().post('/api/v1/refunds/'+id+'/approve').set(bearer(session.token)).send({}).expect(400);
+  await app.httpRequest().post('/api/v1/refunds/'+id+'/approve').set(bearer(session.token)).send({expectedVersion:99}).expect(409);
+  const approved=await app.httpRequest().post('/api/v1/refunds/'+id+'/approve').set(bearer(session.token)).send({expectedVersion:1}).expect(200);
+  assert.equal(approved.body.data.status,'APPROVED');
+  assert.equal(await prisma.operationLog.count({where:{targetId:id,action:'REFUND_APPROVE'}}),1);
+  assert.equal(await prisma.eventLog.count({where:{objectId:id,eventType:'refund.approved'}}),1);
 });
 
 test('supports reject transition', async () => {

@@ -13,7 +13,7 @@ export type PoolStatus = (typeof POOL_STATUSES)[number];
 export const LEAD_SOURCE_TYPES = ['MANUAL', 'CAMPAIGN', 'REFERRAL', 'NATURAL', 'OFFLINE'] as const;
 export type LeadSourceType = (typeof LEAD_SOURCE_TYPES)[number];
 
-export const LEAD_FOLLOW_TYPES = ['PHONE', 'WECHAT', 'VISIT', 'ONLINE', 'OTHER'] as const;
+export const LEAD_FOLLOW_TYPES = ['PHONE', 'WECHAT', 'VISIT', 'ONLINE', 'OTHER', 'SMS'] as const;
 export type LeadFollowType = (typeof LEAD_FOLLOW_TYPES)[number];
 
 export const APPOINTMENT_CHANNELS = ['ONSITE', 'ONLINE'] as const;

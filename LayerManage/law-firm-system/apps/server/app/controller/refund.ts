@@ -5,7 +5,6 @@
 
 import { Controller } from 'egg';
 
-import { GovernanceStepUpAuthorization } from '../application/admin-governance/governance-step-up';
 import { refundService } from '../application/finance/finance-factory';
 import {
   CreateRefundRequestInput,
@@ -14,7 +13,7 @@ import {
 } from '../application/finance/finance-types';
 import { RefundRequestStatus, RefundRequestType } from '../domain/finance/finance-types';
 import { MasterDataError } from '../domain/master-data/master-data-errors';
-import { assertExactKeys } from '../domain/master-data/master-data-validation';
+import { assertExactKeys, normalizeVersion } from '../domain/master-data/master-data-validation';
 
 const CREATE_BODY_KEYS = ['type', 'contractId', 'caseNo', 'paymentId', 'planId', 'amount', 'reason', 'idempotencyKey'] as const;
 const ACTION_BODY_KEYS = ['comment', 'expectedVersion', 'idempotencyKey'] as const;
@@ -37,16 +36,14 @@ export default class RefundController extends Controller {
     this.respond(await refundService(this.ctx).getRefundRequest(this.ctx.params.id));
   }
 
-  /** POST /api/v1/refunds/:id/approve（refund.approve，SPECIAL/CRITICAL）：PENDING→APPROVED。
-   *  Task 7 接线：Step-Up 证明经 `x-step-up-token` HTTP 头 + ctx.state.user（claims）提取，
-   *  透传服务层同事务消费（沿 adminGovernance.stepUpAuthorization 形态）。 */
+  /** Approve under the authenticated session; role/scope checks and audit remain mandatory. */
   async approve() {
     const body = this.ctx.request.body;
     assertExactKeys(body, ACTION_BODY_KEYS);
+    normalizeVersion((body as RefundActionInput).expectedVersion);
     this.respond(await refundService(this.ctx).approveRefundRequest(
       this.ctx.params.id,
       body as unknown as RefundActionInput,
-      this.stepUpAuthorization(),
     ));
   }
 
@@ -68,15 +65,6 @@ export default class RefundController extends Controller {
       this.ctx.params.id,
       body as unknown as RefundActionInput,
     ));
-  }
-
-  /** Step-Up 授权提取（沿 adminGovernance.ts stepUpAuthorization 逐字形态）：claims 取
-   *  ctx.state.user（鉴权中间件载入），token 取 `x-step-up-token` HTTP 头。 */
-  private stepUpAuthorization(): GovernanceStepUpAuthorization {
-    return {
-      claims: this.ctx.state.user,
-      token: this.ctx.get('x-step-up-token').trim(),
-    };
   }
 
   private respond(data: unknown): void {

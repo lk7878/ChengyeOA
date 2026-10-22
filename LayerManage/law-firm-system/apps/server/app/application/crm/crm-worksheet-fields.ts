@@ -1,9 +1,10 @@
+import { followEditable } from './follow-worksheet-fields';
 import { AuthorizationContext } from '../authorization/authorization-service';
 import { FieldProjectionService } from '../authorization/field-projection-service';
 
 export const crmWorksheetFields = {
   LEADS: ['name', 'phone', 'wechat', 'intentionLevel'],
-  FOLLOWS: ['type', 'content', 'nextPlan', 'nextTime'],
+  FOLLOWS: followEditable,
 } as const;
 export function editableCrmKey(source: string, key: string, actor: AuthorizationContext) {
   if (
@@ -11,7 +12,7 @@ export function editableCrmKey(source: string, key: string, actor: Authorization
     !(crmWorksheetFields[source as keyof typeof crmWorksheetFields] as readonly string[]).includes(key)
   )
     return false;
-  if (source === 'LEADS' && ['phone', 'wechat'].includes(key)) {
+  if (['LEADS','FOLLOWS'].includes(source) && ['phone', 'wechat'].includes(key)) {
     const projection = new FieldProjectionService();
     return (
       projection.fieldCapability(actor, 'lead', 'lead.' + key, 'lead.read').readLevel === 'READ' &&
@@ -23,7 +24,7 @@ export function editableCrmKey(source: string, key: string, actor: Authorization
 export const followTypeChoices = [
   { id: 'PHONE', name: '电话' },
   { id: 'WECHAT', name: '微信' },
-  { id: 'VISIT', name: '到访' },
-  { id: 'ONLINE', name: '线上' },
-  { id: 'OTHER', name: '其他' },
+  { id: 'VISIT', name: '面谈' },
+  { id: 'ONLINE', name: '线上会议' },
+  { id: 'SMS', name: '短信' },
 ];

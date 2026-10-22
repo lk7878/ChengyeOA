@@ -24,8 +24,6 @@ import { costApi, type CostView } from '@/api/cost';
 import { useAuthStore } from '@/stores/authStore';
 import { requestErrorMessage as errorMessage } from '@/api/errors';
 import { BusinessTableLinks } from '@/features/crm/BusinessWorkspacePage';
-import StepUpDialog from '@/features/auth/components/StepUpDialog';
-import { useStepUp } from '@/features/auth/useStepUp';
 import type { PermissionCode } from '@/features/authorization/types';
 import FinanceCreatePage from './FinanceCreatePage';
 
@@ -87,7 +85,6 @@ function FinanceDetail({ id, kind }: { id: string; kind: FinanceKind }) {
   const [form] = Form.useForm();
   const alive = useRef(true);
   const sequence = useRef(0);
-  const stepUp = useStepUp();
   const returnParams = new URLSearchParams(params);
   if (returnParams.has('base')) returnParams.set('record', id);
   else returnParams.delete('record');
@@ -197,18 +194,8 @@ function FinanceDetail({ id, kind }: { id: string; kind: FinanceKind }) {
               : await invoiceApi.complete(id, { invoiceNo: values.invoiceNo?.trim() || undefined });
       } else if (kind === 'refund') {
         if (action.name === 'approve')
-          result = await stepUp.run({
-            purpose: 'REFUND_APPROVE',
-            target: { refundRequestId: id, expectedVersion: current.version },
-            impact: '批准当前退款或减免申请；后续仍需执行资金处理。',
-            mutate: (token) => {
-              if (!alive.current) throw new Error('STEP_UP_CANCELLED');
-              return refundApi.approve(
-                id,
-                { comment: values.comment?.trim(), expectedVersion: current.version },
-                token,
-              );
-            },
+          result = await refundApi.approve(id, {
+            comment: values.comment?.trim(), expectedVersion: current.version,
           });
         else
           result =
@@ -483,7 +470,6 @@ function FinanceDetail({ id, kind }: { id: string; kind: FinanceKind }) {
           )}
         </Form>
       </Modal>
-      <StepUpDialog {...stepUp.dialogProps} />
     </div>
   );
 }

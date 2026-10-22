@@ -60,7 +60,7 @@ import {
 import { buildLeadScopeWhere } from './lead-scope';
 
 /** schema LeadFollow.type 取值（决策 2，对齐 PRD 枚举）。 */
-export const LEAD_FOLLOW_TYPES = ['PHONE', 'WECHAT', 'VISIT', 'ONLINE', 'OTHER'] as const;
+export const LEAD_FOLLOW_TYPES = ['PHONE', 'WECHAT', 'VISIT', 'ONLINE', 'OTHER', 'SMS'] as const;
 export type LeadFollowType = (typeof LEAD_FOLLOW_TYPES)[number];
 
 export interface RecordFollowInput {

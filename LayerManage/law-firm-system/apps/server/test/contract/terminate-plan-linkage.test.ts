@@ -436,7 +436,7 @@ test('race: confirm-first wins under a held lock and terminate subsequently succ
   });
   const receivable = receivableServiceFor(userId, actor);
   const contractService = serviceFor(userId, actor);
-  const registered = await receivable.createPayment({ contractId: contract.id, amount: '3000.00' });
+  const registered = await receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
 
   // 确定性竞速（持锁钉法沿 receivable-service.test.ts:1119-1134）：
   // 第三方事务持合同行锁 1s——confirm 的 FOR UPDATE 阻塞排队（先胜者确定），
@@ -551,7 +551,7 @@ test('confirmPayment skips a CANCELLED plan and routes the amount to the next no
     contractId: contract.id, createdBy: userId, period: 2, dueDate: '2026-10-01', amount: '6000.00',
   });
   const receivable = receivableServiceFor(userId, actor);
-  const registered = await receivable.createPayment({ contractId: contract.id, amount: '5000.00' });
+  const registered = await receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '5000.00' });
 
   await receivable.confirmPayment(registered.id, {});
 
@@ -583,7 +583,7 @@ test('confirmPayment refuses a payment designated to a CANCELLED plan with 409 a
     contractId: contract.id, createdBy: userId, period: 1, dueDate: '2026-09-01', amount: '5000.00', status: 'CANCELLED',
   });
   const receivable = receivableServiceFor(userId, actor);
-  const registered = await receivable.createPayment({
+  const registered = await receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z',
     contractId: contract.id,
     paymentPlanId: cancelledPlan.id,
     amount: '1000.00',
@@ -626,7 +626,7 @@ test('race: terminate-first wins under a held lock and confirm subsequently hits
   });
   const receivable = receivableServiceFor(userId, actor);
   const contractService = serviceFor(userId, actor);
-  const registered = await receivable.createPayment({ contractId: contract.id, amount: '3000.00' });
+  const registered = await receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
   const confirmed = await receivable.confirmPayment(registered.id, {});
   assert.equal(confirmed.status, 'CONFIRMED');
 
@@ -719,7 +719,7 @@ test('race: terminate-first wins under a held lock and createPayment is blocked 
   const terminatePromise = contractService.terminateContract(contract.id, { reason: '竞速终止' });
   await new Promise(resolve => setTimeout(resolve, 250));
 
-  const createPromise = receivable.createPayment({ contractId: contract.id, amount: '3000.00' });
+  const createPromise = receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
   // 立即挂上 settle 处理（避免锁释放前 createPayment 若先拒则触发 unhandledRejection）。
   const createSettled = Promise.allSettled([createPromise]);
 
@@ -784,7 +784,7 @@ test('race: createPayment-first commits PENDING and terminate is blocked by the 
   }, { timeout: 15000 });
   await new Promise(resolve => setTimeout(resolve, 100));
 
-  const createPromise = receivable.createPayment({ contractId: contract.id, amount: '3000.00' });
+  const createPromise = receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
   await new Promise(resolve => setTimeout(resolve, 250));
 
   const terminatePromise = contractService.terminateContract(contract.id, { reason: '反向竞速' });

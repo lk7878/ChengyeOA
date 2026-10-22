@@ -109,9 +109,9 @@ export default function CreateBusinessFollow({
             options={[
               { value: 'PHONE', label: '电话' },
               { value: 'WECHAT', label: '微信' },
-              { value: 'VISIT', label: '到访' },
-              { value: 'ONLINE', label: '线上' },
-              { value: 'OTHER', label: '其他' },
+              { value: 'VISIT', label: '面谈' },
+              { value: 'ONLINE', label: '线上会议' },
+              { value: 'SMS', label: '短信' },
             ]}
           />
         </Form.Item>
@@ -123,12 +123,12 @@ export default function CreateBusinessFollow({
           <Input.TextArea rows={4} maxLength={2000} />
         </Form.Item>
         {allowedFields.includes('nextPlan') && (
-          <Form.Item name="nextPlan" label="下次计划">
+          <Form.Item name="nextPlan" label="下次跟进事项">
             <Input.TextArea maxLength={500} />
           </Form.Item>
         )}
         {allowedFields.includes('nextTime') && (
-          <Form.Item name="nextTime" label="下次联系">
+          <Form.Item name="nextTime" label="下次跟进时间">
             <DatePicker showTime />
           </Form.Item>
         )}

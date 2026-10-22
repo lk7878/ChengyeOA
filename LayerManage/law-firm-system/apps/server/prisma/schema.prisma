@@ -709,6 +709,10 @@ model Lead {
 }
 
 model LeadFollow {
+  serialNo  Int       @unique @default(autoincrement())
+  profile   Json      @default("{}")
+  enteredAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
   id        String    @id @default(uuid())
   leadId    String

@@ -1,3 +1,4 @@
+import { contractInvoiceProjection } from '../finance/invoice-worksheet-projection';
 import { qualityCaseScope } from '../quality/quality-scope';
 import { sopTaskScope } from '../sop/execution-scope';
 import { channelScope } from '../channel/channel-scope';
@@ -581,10 +582,16 @@ export class WorkspaceDomainSource {
         linked.customerName = Prisma.sql`(SELECT u.name FROM (SELECT b.id,b.name FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${await this.scope('CUSTOMERS', access)}) u WHERE u.id=b."customerId")`;
       else linked.customerName = Prisma.sql`NULL::text`;
     }
+    if (table.source === 'PAYMENTS') {
+      const invoice = contractInvoiceProjection(Prisma.sql`b."contractId"`);
+      linked.invoiceStatus = invoice.status;
+      linked.invoiceNo = invoice.numbers;
+    }
     if (table.source === 'CASES') {
+      const invoice = contractInvoiceProjection(Prisma.sql`p."contractId"`);
       // Authorized case rows expose read-only receipts for their contract, never finance write access.
       linked.receiptTotal = Prisma.sql`(SELECT COALESCE(sum(p.amount),0) FROM payment p WHERE p."contractId"=b."contractId" AND p."deletedAt" IS NULL AND p.status IN ('CONFIRMED','REFUNDED'))`;
-      linked.receiptDetails = Prisma.sql`(SELECT COALESCE(jsonb_agg(jsonb_build_object('id',p.id,'number',p."paymentNo",'amount',p.amount::text,'paidAt',p."paidAt",'invoiceNo',p."invoiceNo",'invoiceStatus',p."invoiceStatus",'files',${fields.some(f=>object(f.options).businessKey==='receiptFiles')?Prisma.sql`p."voucherFiles"`:Prisma.sql`'[]'::jsonb`}) ORDER BY p."paidAt" NULLS LAST,p."createdAt",p.id),'[]'::jsonb) FROM payment p WHERE p."contractId"=b."contractId" AND p."deletedAt" IS NULL AND p.status IN ('CONFIRMED','REFUNDED'))`;
+      linked.receiptDetails = Prisma.sql`(SELECT COALESCE(jsonb_agg(jsonb_build_object('id',p.id,'number',p."paymentNo",'amount',p.amount::text,'paidAt',p."paidAt",'invoiceNo',${invoice.numbers},'invoiceStatus',${invoice.status},'files',${fields.some(f=>object(f.options).businessKey==='receiptFiles')?Prisma.sql`p."voucherFiles"`:Prisma.sql`'[]'::jsonb`}) ORDER BY p."paidAt" NULLS LAST,p."createdAt",p.id),'[]'::jsonb) FROM payment p WHERE p."contractId"=b."contractId" AND p."deletedAt" IS NULL AND p.status IN ('CONFIRMED','REFUNDED'))`;
       linked.receiptFiles = Prisma.sql`(SELECT COALESCE(jsonb_agg(f.value),'[]'::jsonb) FROM payment p CROSS JOIN LATERAL jsonb_array_elements(p."voucherFiles") f WHERE p."contractId"=b."contractId" AND p."deletedAt" IS NULL AND p.status IN ('CONFIRMED','REFUNDED'))`;
       // Linked cases read the authorized customer; unlinked cases keep their manual contact value.
       linked['intake.customerPhone'] = this.actor.permissionCodes.includes('customer.read')

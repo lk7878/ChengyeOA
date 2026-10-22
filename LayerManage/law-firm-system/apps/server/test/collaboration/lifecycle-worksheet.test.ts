@@ -1,3 +1,4 @@
+import { InvoiceService } from '../../app/application/finance/invoice-service';
 import { standardizeCaseWorksheets } from '../../scripts/maintenance/standardize-case-worksheets';
 import { ContractService } from '../../app/application/contract/contract-service';
 import { ReceivableService } from '../../app/application/contract/receivable-service';
@@ -39,7 +40,17 @@ test('three canonical receipts sync to cases; edits, delete/undo, vouchers and r
   await svc.reverseRecordOperation(payments.id,deleted.operationId,{direction:'undo'},key());
   assert.equal((await read()).values[cf('receiptTotal').id],'20000.00');
   const file=await db.collabAttachment.create({data:{tableId:payments.id,ownerId:user,name:'第一笔.pdf',mimeType:'application/pdf',size:1,storageKey:key()}});
-  await svc.saveRecord(payments.id,saved[0].id,{schemaVersion:1,version:saved[0].version,values:{[pf('voucherFiles').id]:[file.id],[pf('invoiceNo').id]:'INV-001',[pf('invoiceStatus').id]:'ISSUED'}},key());
+  await svc.saveRecord(payments.id,saved[0].id,{schemaVersion:1,version:saved[0].version,values:{[pf('voucherFiles').id]:[file.id]}},key());
+  const invoices=new InvoiceService(db,{actorUserId:user},ctx);
+  const invoice=await invoices.createInvoice({contractId:contract.id,amount:'10000'});
+  assert.equal(((await read()).values[cf('receiptDetails').id] as {invoiceStatus:string}[])[0].invoiceStatus,'NOT_ISSUED');
+  await invoices.approveInvoice(invoice.id,{});
+  await invoices.completeInvoice(invoice.id,{invoiceNo:'INV-001'});
+  assert.equal(((await read()).values[cf('receiptDetails').id] as {invoiceStatus:string}[])[0].invoiceStatus,'ISSUED');
+  assert.equal((await svc.record(payments.id,saved[0].id)).record.values[pf('invoiceNo').id],'INV-001');
+  await assert.rejects(finance.createPayment({contractId:contract.id,amount:'1'}),/VALIDATION_FAILED/);
+  const receipt=(await svc.record(payments.id,saved[0].id)).record;
+  await assert.rejects(svc.saveRecord(payments.id,saved[0].id,{schemaVersion:1,version:receipt.version,values:{[pf('paidAt').id]:null}},key()),/COLLAB_REQUIRED_FIELD|COLLAB_INVALID_VALUE/);
   const ordinary={...ctx,isSystemSuperAdmin:false,permissionCodes:ctx.permissionCodes.filter(p=>!p.startsWith('payment.')),grants:ctx.grants.filter(p=>!p.permissionCode.startsWith('payment.'))};
   const caseReader=new CollaborationService(db,ordinary);
   assert.equal((await caseReader.record(cases.id,row.id)).record.values[cf('receiptTotal').id],'20000.00');

@@ -27,7 +27,7 @@ export default function ReceiptLedgerLinks() {
     <section style={{ marginBottom: 20 }}>
       <h2>财务收款明细</h2>
       <p>
-        每次到账单独登记并确认，可在表内维护收款时间、发票号码及凭证。已确认收款自动同步到案件表；开票申请金额不计入到账总额。
+        每次到账单独登记并确认，可在表内维护收款时间及凭证。发票号码和开票状态从关联合同的已完成开票申请同步；开票金额不计入到账总额。
       </p>
       {error && <Alert type="error" title={error} />}
       <Space wrap>

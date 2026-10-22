@@ -24,6 +24,7 @@ export const fieldLabel = (field: Field) =>
       : field.name + '（元）'
     : field.name;
 export function fieldHint(field: Field) {
+  if (field.options.businessSource === 'PAYMENTS' && ['invoiceNo','invoiceStatus'].includes(field.options.businessKey || '')) return '按关联合同的已完成开票申请同步；请在发票业务表办理开票。';
   if (['receiptDetails','receiptTotal','receiptFiles'].includes(field.options.businessKey || '') || ['actualRefundAmount','refundPaidAt','refundStatus','refundReceiptLookup'].includes(field.options.lifecycleKey || '')) return '财务数据仅限财务部录入，此处为自动同步。';
   if (field.options.lifecycleKey === 'status' && field.options.choices?.some(choice => choice.id === 'REFUND_REQUIRED'))
     return '需要办理退费时，选择“协商未果 / 需退款”并保存，再到退费管理表选择该售后记录，填写退款信息。';
@@ -50,7 +51,7 @@ export function displayValue(field: Field, value: unknown, directory: Directory)
   if (value === null || value === undefined || value === '') return '';
   if (field.type === 'CURRENCY') return formatMoney(value);
   if (isCasePercent(field)) return `${Number(value)}%`;
-  if (['DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(field.type) && (field.options.businessSource === 'CASES' || field.options.lifecycleKey))
+  if (['DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(field.type) && (['CASES','FOLLOWS'].includes(field.options.businessSource || '') || field.options.lifecycleKey))
     return formatBusinessDate(value).replace(/-/g, '/').slice(0, 16);
   if (['DATE', 'DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(field.type))
     return formatBusinessDate(value, field.type === 'DATE');

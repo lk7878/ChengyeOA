@@ -1318,7 +1318,7 @@ test('executeRefundRequest refunds a confirmed payment and sweeps plans back to 
     contractId: contract.id, createdBy: userId, period: 3, dueDate: '2026-11-01', amount: '1000.00',
   });
   const receivable = receivableServiceFor(userId, actor);
-  const registered = await receivable.createPayment({ contractId: contract.id, amount: '8000.00' });
+  const registered = await receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '8000.00' });
   await receivable.confirmPayment(registered.id, {});
 
   const service = refundServiceFor(userId, actor);
@@ -1390,7 +1390,7 @@ test('executeRefundRequest on a planless SIGNED contract only sweeps the contrac
     customerId: customer.id, createdBy: userId, amount: '10000.00', status: 'SIGNED',
   });
   const receivable = receivableServiceFor(userId, actor);
-  const registered = await receivable.createPayment({ contractId: contract.id, amount: '3000.00' });
+  const registered = await receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
   await receivable.confirmPayment(registered.id, {});
 
   const service = refundServiceFor(userId, actor);
@@ -1420,7 +1420,7 @@ test('executeRefundRequest replays an already-executed request with zero event, 
     contractId: contract.id, createdBy: userId, period: 1, dueDate: '2026-09-01', amount: '5000.00',
   });
   const receivable = receivableServiceFor(userId, actor);
-  const registered = await receivable.createPayment({ contractId: contract.id, amount: '4000.00' });
+  const registered = await receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '4000.00' });
   await receivable.confirmPayment(registered.id, {});
   const service = refundServiceFor(userId, actor);
   const created = await service.createRefundRequest({
@@ -1508,7 +1508,7 @@ test('executeRefundRequest rolls back with PAYMENT_STATE_INVALID 409 when the pa
     contractId: contract.id, createdBy: userId, period: 1, dueDate: '2026-09-01', amount: '5000.00',
   });
   const receivable = receivableServiceFor(userId, actor);
-  const registered = await receivable.createPayment({ contractId: contract.id, amount: '4000.00' });
+  const registered = await receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '4000.00' });
   await receivable.confirmPayment(registered.id, {});
   const service = refundServiceFor(userId, actor);
   const created = await service.createRefundRequest({
@@ -1556,9 +1556,9 @@ test('concurrent executeRefundRequest and confirmPayment serialize on the contra
     contractId: contract.id, createdBy: userId, period: 1, dueDate: '2026-09-01', amount: '10000.00',
   });
   const receivable = receivableServiceFor(userId, actor);
-  const paymentA = await receivable.createPayment({ contractId: contract.id, amount: '6000.00' });
+  const paymentA = await receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '6000.00' });
   await receivable.confirmPayment(paymentA.id, {});
-  const paymentB = await receivable.createPayment({ contractId: contract.id, amount: '3000.00' });
+  const paymentB = await receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
   const service = refundServiceFor(userId, actor);
   const created = await service.createRefundRequest({
     type: 'REFUND', contractId: contract.id, paymentId: paymentA.id,
@@ -1717,7 +1717,7 @@ test('executeRefundRequest re-verifies the waiver remainder and rolls back with 
   await service.approveRefundRequest(created.id, {});
   // 审批间隙第三方先 confirm 推高 receivedAmount（0→3000）：余额 5000−3000=2000 < 3000。
   const receivable = receivableServiceFor(userId, actor);
-  const registered = await receivable.createPayment({ contractId: contract.id, amount: '3000.00' });
+  const registered = await receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
   await receivable.confirmPayment(registered.id, {});
 
   await assert.rejects(

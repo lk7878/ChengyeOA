@@ -209,7 +209,7 @@ test.after(async () => {
 
 test('requires authentication for every payment endpoint', async () => {
   await app.httpRequest().get('/api/v1/payments').expect(401);
-  await app.httpRequest().post('/api/v1/payments').send({ contractId: randomUUID(), amount: '1' }).expect(401);
+  await app.httpRequest().post('/api/v1/payments').send({ paidAt: '2026-10-21T03:00:00.000Z', contractId: randomUUID(), amount: '1' }).expect(401);
   await app.httpRequest().get(`/api/v1/payments/${randomUUID()}`).expect(401);
   await app.httpRequest().post(`/api/v1/payments/${randomUUID()}/confirm`).send({}).expect(401);
   await app.httpRequest().post(`/api/v1/payments/${randomUUID()}/void`).send({ reason: 'x' }).expect(401);
@@ -220,7 +220,7 @@ test('rejects authenticated users without payment permissions', async () => {
   const denied = await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(ordinary.token))
-    .send({ contractId: randomUUID(), amount: '100' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId: randomUUID(), amount: '100' })
     .expect(403);
   assert.equal(denied.body.message, 'PERMISSION_DENIED');
   await app.httpRequest().get('/api/v1/payments').set(bearer(ordinary.token)).expect(403);
@@ -240,6 +240,16 @@ test('rejects authenticated users without payment permissions', async () => {
     .expect(403);
 });
 
+test('payment registration rejects a missing, blank or invalid receipt time without saving money',async()=>{
+  const session=await createContractSession({permissions:FULL_PAYMENT_PERMISSIONS});
+  const customer=await createCustomerFixture(session.userId);
+  const contractId=await createEffectiveContract(session.token,customer.id,{amount:'100'});
+  for(const paidAt of [undefined,null,'','not-a-date']) {
+    await app.httpRequest().post('/api/v1/payments').set(bearer(session.token)).send({contractId,amount:'1',paidAt}).expect(400);
+  }
+  assert.equal(await prisma.payment.count({where:{contractId}}),0);
+});
+
 test('registers, reads, and confirms payments with plan offset, audit rows, and confirm idempotency', async () => {
   const session = await createContractSession({ permissions: FULL_PAYMENT_PERMISSIONS });
   const customer = await createCustomerFixture(session.userId);
@@ -256,7 +266,7 @@ test('registers, reads, and confirms payments with plan offset, audit rows, and 
   const registered = await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId, amount: '5000', method: 'BANK', remark: '首期款' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId, amount: '5000', method: 'BANK', remark: '首期款' })
     .expect(200);
   assert.equal(registered.body.code, 200);
   assert.match(registered.body.data.paymentNo, /^PY\d{6}-[0-9A-Z]{6}$/);
@@ -342,7 +352,7 @@ test('rejects payment overflow at confirm with PAYMENT_AMOUNT_EXCEEDED 409 and r
   const first = await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId, amount: '5000' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId, amount: '5000' })
     .expect(200);
   await app.httpRequest()
     .post(`/api/v1/payments/${first.body.data.id}/confirm`)
@@ -354,7 +364,7 @@ test('rejects payment overflow at confirm with PAYMENT_AMOUNT_EXCEEDED 409 and r
   const overflow = await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId, amount: '8000' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId, amount: '8000' })
     .expect(200);
   const exceeded = await app.httpRequest()
     .post(`/api/v1/payments/${overflow.body.data.id}/confirm`)
@@ -374,7 +384,7 @@ test('rejects payment overflow at confirm with PAYMENT_AMOUNT_EXCEEDED 409 and r
   const designated = await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId, paymentPlanId: plan.id, amount: '7100' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId, paymentPlanId: plan.id, amount: '7100' })
     .expect(200);
   const designatedExceeded = await app.httpRequest()
     .post(`/api/v1/payments/${designated.body.data.id}/confirm`)
@@ -393,7 +403,7 @@ test('carries payment validation and state error codes through the API envelope'
   const forgedPlan = await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId, paymentPlanId: randomUUID(), amount: '100' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId, paymentPlanId: randomUUID(), amount: '100' })
     .expect(400);
   assert.equal(forgedPlan.body.message, 'VALIDATION_FAILED');
 
@@ -401,19 +411,19 @@ test('carries payment validation and state error codes through the API envelope'
   await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId, amount: '-5' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId, amount: '-5' })
     .expect(400);
   await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId, amount: '0' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId, amount: '0' })
     .expect(400);
 
   // 合同不存在：CONTRACT_NOT_FOUND 404。
   const noContract = await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId: randomUUID(), amount: '100' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId: randomUUID(), amount: '100' })
     .expect(404);
   assert.equal(noContract.body.message, 'CONTRACT_NOT_FOUND');
 
@@ -426,7 +436,7 @@ test('carries payment validation and state error codes through the API envelope'
   const draftRejected = await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId: draft.body.data.id, amount: '100' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId: draft.body.data.id, amount: '100' })
     .expect(409);
   assert.equal(draftRejected.body.message, 'CONTRACT_STATE_TRANSITION_INVALID');
 
@@ -452,7 +462,7 @@ test('voids a confirmed payment end to end with sweep-back, list status, and ide
   const registered = await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId, amount: '5000' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId, amount: '5000' })
     .expect(200);
   const paymentId = registered.body.data.id as string;
   await app.httpRequest()
@@ -524,7 +534,7 @@ test('rejects void without payment.void permission and voiding a non-confirmed p
   const registered = await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId, amount: '100' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId, amount: '100' })
     .expect(200);
   const paymentId = registered.body.data.id as string;
   await app.httpRequest()
@@ -537,7 +547,7 @@ test('rejects void without payment.void permission and voiding a non-confirmed p
   const pending = await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId, amount: '50' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId, amount: '50' })
     .expect(200);
   const stateInvalid = await app.httpRequest()
     .post(`/api/v1/payments/${pending.body.data.id}/void`)
@@ -653,7 +663,7 @@ test('does not expose prototype payment routes removed by the rebuild (404 locks
   const registered = await app.httpRequest()
     .post('/api/v1/payments')
     .set(bearer(session.token))
-    .send({ contractId, amount: '100' })
+    .send({ paidAt: '2026-10-21T03:00:00.000Z', contractId, amount: '100' })
     .expect(200);
   const paymentId = registered.body.data.id as string;
 

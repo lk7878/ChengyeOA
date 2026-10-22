@@ -546,7 +546,7 @@ export default function FinanceCreatePage({ kind }: { kind: FinanceKind }) {
               <Form.Item name="account" label="收款账户">
                 <Input maxLength={100} />
               </Form.Item>
-              <Form.Item name="paidAt" label="到账时间">
+              <Form.Item name="paidAt" label="到账时间" rules={[{ required: true, message: '请选择到账时间' }]}>
                 <DatePicker showTime placeholder="请选择日期和时间" />
               </Form.Item>
               <Form.Item name="remark" label="备注">

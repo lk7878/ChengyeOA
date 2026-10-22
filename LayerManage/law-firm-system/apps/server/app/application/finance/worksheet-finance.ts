@@ -12,8 +12,6 @@ export const paymentWorksheetKeys = [
   'method',
   'account',
   'remark',
-  'invoiceNo',
-  'invoiceStatus',
   'voucherFiles',
 ];
 export const refundExecutionKeys = ['actualAmount', 'paidAt', 'voucherFiles'];
@@ -70,15 +68,11 @@ export class WorksheetFinance {
       if (!paymentWorksheetKeys.includes(key)) fail('COLLAB_READONLY_FIELD', 403);
       if (key === 'amount') data.amount = financeMoney(value);
       else if (key === 'paidAt') {
-        if(value===null) { data.paidAt=null; continue; }
         const date = new Date(String(value));
         if (!value || !Number.isFinite(date.getTime())) fail('COLLAB_INVALID_VALUE', 422);
         data.paidAt = date;
       } else if (key === 'voucherFiles') data.voucherFiles = value as Prisma.InputJsonValue;
-      else if (key === 'invoiceStatus') {
-        if (!['NOT_ISSUED', 'ISSUED'].includes(String(value))) fail('COLLAB_INVALID_VALUE', 422);
-        data.invoiceStatus = String(value);
-      } else (data as Record<string, unknown>)[key] = value == null ? null : String(value).slice(0, 1000);
+      else (data as Record<string, unknown>)[key] = value == null ? null : String(value).slice(0, 1000);
     }
     const nextAmount = patch.amount === undefined ? row.amount : financeMoney(patch.amount);
     if (row.status === 'CONFIRMED') {

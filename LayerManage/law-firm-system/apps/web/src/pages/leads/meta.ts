@@ -39,8 +39,9 @@ export const SOURCE_TYPE_META: Record<LeadSourceType, string> = {
 export const FOLLOW_TYPE_META: Record<LeadFollowType, string> = {
   PHONE: '电话',
   WECHAT: '微信',
-  VISIT: '到访',
-  ONLINE: '线上',
+  VISIT: '面谈',
+  ONLINE: '线上会议',
+  SMS: '短信',
   OTHER: '其他',
 };
 

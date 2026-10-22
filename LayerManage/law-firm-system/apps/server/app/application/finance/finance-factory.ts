@@ -7,7 +7,6 @@
 
 import { Context } from 'egg';
 
-import { createAuthenticationServices } from '../auth/authentication-factory';
 import { AuthorizationContext } from '../authorization/authorization-service';
 import { auditActor } from '../master-data/master-data-factory';
 import { AnomalyService } from './anomaly-service';
@@ -20,14 +19,11 @@ export function invoiceService(ctx: Context): InvoiceService {
 }
 
 export function refundService(ctx: Context): RefundService {
-  // Task 7 接线：注入 StepUpService 作为 refund.approve 的真实 MFA 重验 consumer
-  // （可选第 5 参，仅 approve 在注入时强制消费 Step-Up 证明）。
+  // Refund approval uses the authenticated session, action scope and audit trail.
   return new RefundService(
     ctx.prisma,
     auditActor(ctx),
     ctx.state.authorization as AuthorizationContext,
-    undefined,
-    createAuthenticationServices(ctx).stepUp,
   );
 }
 

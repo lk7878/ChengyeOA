@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { authApi } from '@/api/auth';
 import { refundApi } from '@/api/refund';
@@ -82,60 +82,29 @@ beforeEach(() => {
   } as never);
 });
 
-async function openApproveDialog(): Promise<void> {
-  render(
-    <MemoryRouter initialEntries={['/refunds/rf-1']}>
-      <Routes>
-        <Route path="/refunds/:id" element={<FinanceRecordPage kind="refund" />} />
-      </Routes>
-    </MemoryRouter>,
-  );
-  fireEvent.click(await screen.findByRole('button', { name: '审批通过' }));
-  fireEvent.click(await screen.findByRole('button', { name: '确认办理' }));
-  await screen.findByLabelText('当前六位验证码');
+
+async function openApproveDialog() {
+  render(<MemoryRouter initialEntries={['/refunds/rf-1']}><Routes><Route path="/refunds/:id" element={<FinanceRecordPage kind="refund" />} /></Routes></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button',{name:'审批通过'}));
 }
-
-test('approve button opens a REFUND_APPROVE step-up challenge before any API call', async () => {
+test('refund approval confirms under the existing session without MFA, including accounts without an authenticator',async()=>{
+  vi.mocked(authApi.mfaStatus).mockResolvedValue({data:{enabled:false}} as never);
   await openApproveDialog();
-  // 挑战对话框出现：真实 StepUpDialog（再次验证身份）。
-  expect(await screen.findByText('再次验证身份')).toBeInTheDocument();
-  expect(screen.getByLabelText('当前六位验证码')).toBeInTheDocument();
-  // 未输码/未验证 → 不调用 stepUp 发证，也不调用审批 API。
+  expect(refundApi.approve).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole('button',{name:'确认办理'}));
+  await waitFor(()=>expect(refundApi.approve).toHaveBeenCalledWith('rf-1',expect.objectContaining({expectedVersion:1})));
   expect(authApi.stepUp).not.toHaveBeenCalled();
+  expect(authApi.mfaStatus).not.toHaveBeenCalled();
+  expect(screen.queryByText('再次验证身份')).not.toBeInTheDocument();
+});
+test('closing approval confirmation leaves the pending refund unchanged',async()=>{
+  await openApproveDialog();
+  fireEvent.click(screen.getByRole('button',{name:'Close'}));
   expect(refundApi.approve).not.toHaveBeenCalled();
 });
-
-test('entering a code verifies the REFUND_APPROVE target and calls approve with the grant', async () => {
-  await openApproveDialog();
-  fireEvent.change(await screen.findByLabelText('当前六位验证码'), { target: { value: '123456' } });
-  fireEvent.click(screen.getByRole('button', { name: '验证并继续' }));
-
-  await waitFor(() => expect(refundApi.approve).toHaveBeenCalledOnce());
-  expect(authApi.stepUp).toHaveBeenCalledOnce();
-  expect(authApi.stepUp).toHaveBeenCalledWith(
-    'REFUND_APPROVE',
-    { refundRequestId: 'rf-1', expectedVersion: 1 },
-    '123456',
-  );
-  expect(refundApi.approve).toHaveBeenCalledWith(
-    'rf-1',
-    expect.objectContaining({ expectedVersion: 1 }),
-    'fresh-one-time-grant',
-  );
-});
-
-test('cancelling the step-up challenge does not call approve', async () => {
-  await openApproveDialog();
-  // StepUpDialog cancelText="取消"（动作 Modal 未设 cancelText → 默认英文 Cancel，无歧义）；
-  // AntD 两字按钮自动插空格 → 实际可访问名 "取 消"。
-  fireEvent.click(
-    within(
-      (await screen.findByLabelText('当前六位验证码')).closest('[role="dialog"]') as HTMLElement,
-    ).getByRole('button', { name: /取\s*消/ }),
-  );
-
-  await waitFor(() => expect(screen.queryByLabelText('当前六位验证码')).not.toBeInTheDocument());
-  expect(authApi.stepUp).not.toHaveBeenCalled();
-  expect(refundApi.approve).not.toHaveBeenCalled();
-  expect(refundApi.reject).not.toHaveBeenCalled();
+test('a role without approval permission has no approval button',async()=>{
+  setPermissions(['refund.read']);
+  render(<MemoryRouter initialEntries={['/refunds/rf-1']}><Routes><Route path="/refunds/:id" element={<FinanceRecordPage kind="refund" />} /></Routes></MemoryRouter>);
+  await screen.findByText('RF000001-ABC123');
+  expect(screen.queryByRole('button',{name:'审批通过'})).not.toBeInTheDocument();
 });

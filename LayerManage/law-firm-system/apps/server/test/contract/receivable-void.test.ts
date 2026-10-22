@@ -293,7 +293,7 @@ test('voidPayment voids a confirmed payment, sweeps plans back to zero and emits
     contractId: contract.id, createdBy: userId, period: 3, dueDate: '2026-11-01', amount: '1000.00',
   });
   const service = receivableServiceFor(userId, actor);
-  const registered = await service.createPayment({ contractId: contract.id, amount: '8000.00' });
+  const registered = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '8000.00' });
   await service.confirmPayment(registered.id, {});
 
   const view = await service.voidPayment(registered.id, { reason: '银行退票，冲销该笔收款' });
@@ -376,7 +376,7 @@ test('voidPayment rejects a PENDING payment with PAYMENT_STATE_INVALID 409 and w
     customerId: customer.id, createdBy: userId, status: 'EFFECTIVE',
   });
   const service = receivableServiceFor(userId, actor);
-  const registered = await service.createPayment({ contractId: contract.id, amount: '3000.00' });
+  const registered = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
 
   await assert.rejects(
     () => service.voidPayment(registered.id, { reason: '未确认不可冲销' }),
@@ -448,7 +448,7 @@ test('voidPayment replays an already-voided payment with zero event, audit and r
     contractId: contract.id, createdBy: userId, period: 1, dueDate: '2026-09-01', amount: '5000.00',
   });
   const service = receivableServiceFor(userId, actor);
-  const registered = await service.createPayment({ contractId: contract.id, amount: '4000.00' });
+  const registered = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '4000.00' });
   await service.confirmPayment(registered.id, {});
 
   const first = await service.voidPayment(registered.id, { reason: '首次冲销' });
@@ -492,9 +492,9 @@ test('concurrent voidPayment and confirmPayment serialize on the contract lock w
     contractId: contract.id, createdBy: userId, period: 1, dueDate: '2026-09-01', amount: '10000.00',
   });
   const service = receivableServiceFor(userId, actor);
-  const paymentA = await service.createPayment({ contractId: contract.id, amount: '6000.00' });
+  const paymentA = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '6000.00' });
   await service.confirmPayment(paymentA.id, {});
-  const paymentB = await service.createPayment({ contractId: contract.id, amount: '3000.00' });
+  const paymentB = await service.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '3000.00' });
 
   // 确定性竞速（refund-service.test.ts execute vs confirm 同型钉法）：第三方事务持合同行
   // FOR UPDATE 1s，void 与 confirm 双双阻塞在首把锁；锁释放后按串行顺序提交——不论谁先
@@ -562,7 +562,7 @@ test('concurrent voidPayment and executeRefundRequest on the same payment produc
     contractId: contract.id, createdBy: userId, period: 1, dueDate: '2026-09-01', amount: '10000.00',
   });
   const receivable = receivableServiceFor(userId, actor);
-  const payment = await receivable.createPayment({ contractId: contract.id, amount: '6000.00' });
+  const payment = await receivable.createPayment({ paidAt: '2026-10-21T03:00:00.000Z', contractId: contract.id, amount: '6000.00' });
   await receivable.confirmPayment(payment.id, {});
   const refundService = refundServiceFor(userId, actor);
   const refund = await refundService.createRefundRequest({

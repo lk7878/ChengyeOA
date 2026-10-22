@@ -1,3 +1,5 @@
+import { followColumns, followChoices } from './follow-worksheet-fields';
+import { followTypeChoices } from './crm-worksheet-fields';
 import { CASE_FIELD_ORDER } from '../case/intake-contract';
 import { caseGridChoices } from '../collaboration/case-grid-fields';
 import { domainSources, isDomainSource, WorkspaceDomainSource } from './workspace-domain-source';
@@ -33,15 +35,7 @@ const columns = {
     ['createdAt', '创建时间', 'CREATED_AT'],
     ['updatedAt', '更新时间', 'UPDATED_AT'],
   ],
-  FOLLOWS: [
-    ['leadId', '线索 ID', 'TEXT'],
-    ['type', '跟进方式', 'TEXT'],
-    ['content', '跟进内容', 'LONG_TEXT'],
-    ['nextPlan', '下次计划', 'LONG_TEXT'],
-    ['nextTime', '下次联系', 'DATETIME'],
-    ['createdBy', '跟进人', 'CREATED_BY'],
-    ['createdAt', '创建时间', 'CREATED_AT'],
-  ],
+  FOLLOWS: followColumns,
 };
 export function businessFields(source: string) {
   if (!isDomainSource(source) && source !== 'LEADS' && source !== 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
@@ -52,7 +46,8 @@ export function businessFields(source: string) {
       name: source === 'CASES' ? ({ customerName: '客户姓名', 'intake.fixedAgencyFee': '固定代理费', createdAt: '记录创建时间', updatedAt: '最近修改时间' } as Record<string, string>)[key] ?? name : name,
       type,
       position,
-      options: { businessKey: key, businessSource: source, ...(source === 'CASES' && caseGridChoices(key) ? { choices: caseGridChoices(key) } : {}) },
+      required: source === 'PAYMENTS' && key === 'paidAt',
+      options: { businessKey: key, businessSource: source, ...(source === 'FOLLOWS' ? { ...(followChoices[key] ? { choices: followChoices[key] } : {}), ...(key === 'type' ? { choices: followTypeChoices } : {}), ...(key === 'followNo' ? { primary: true, helpText: '自动编号 KH01、KH02…，只读' } : {}) } : {}), ...(source === 'CASES' && caseGridChoices(key) ? { choices: caseGridChoices(key) } : {}) },
     }),
   );
 }
@@ -92,7 +87,7 @@ export class WorkspaceBusinessTable {
     const permissions = this.permissions();
     return fields.filter(
       (f) =>
-        source !== 'LEADS' ||
+        !['LEADS', 'FOLLOWS'].includes(source) ||
         !['phone', 'wechat'].some(
           (key) => object(f.options).businessKey === key && permissions[key as 'phone' | 'wechat'] === 'NONE',
         ),
@@ -233,9 +228,18 @@ export class WorkspaceBusinessTable {
     const leads = table.source === 'LEADS';
     const domain = this.scopeSql(await this.scope(access), leads ? 'b' : 'l');
     const core = leads ? Prisma.sql`lead b` : Prisma.sql`lead_follow b JOIN lead l ON l.id = b."leadId"`;
+    const followExpression = (key: string): Prisma.Sql => {
+      if (key === 'followNo') return Prisma.sql`'KH' || CASE WHEN b."serialNo" < 100 THEN lpad(b."serialNo"::text,2,'0') ELSE b."serialNo"::text END`;
+      if (key === 'lastFollowBy' || key === 'lastOperator') return Prisma.sql`(SELECT u."employeeId" FROM "user" u WHERE u.id=COALESCE(b."updatedBy",b."createdBy"))`;
+      if (key === 'followedBy') return Prisma.sql`CASE WHEN b.profile ? 'followedBy' THEN b.profile->>'followedBy' ELSE (SELECT u."employeeId" FROM "user" u WHERE u.id=b."createdBy") END`;
+      if (['customerName','phone','wechat'].includes(key)) return Prisma.sql`CASE WHEN b.profile ? ${key} THEN b.profile->>${key} ELSE ${Prisma.raw('l."'+(key==='customerName'?'name':key)+'"')} END`;
+      if (['leadId','type','content','nextPlan','nextTime','createdBy','createdAt','enteredAt','updatedAt'].includes(key)) return Prisma.raw('b."'+key+'"');
+      if (key === 'dropAt') return Prisma.sql`(b.profile->>'dropAt')::timestamp`;
+      return Prisma.sql`b.profile->${key}`;
+    };
     const pairs = fields.flatMap((f) => {
       const column = object(f.options).businessKey
-        ? Prisma.raw('b."' + this.key(table.source, f) + '"')
+        ? leads ? Prisma.raw('b."' + this.key(table.source, f) + '"') : followExpression(this.key(table.source, f))
         : null;
       const value = column
         ? ['DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(f.type)
@@ -252,8 +256,8 @@ export class WorkspaceBusinessTable {
     return Prisma.sql`SELECT b.id, ${table.id}::text AS "tableId", ${values} AS "values",
       b.version + COALESCE(e.version, 0) AS version,
       b."createdBy", b."createdBy" AS "ownerId", b."createdAt", false AS archived,
-      COALESCE(e."updatedBy", b."createdBy") AS "updatedBy",
-      ${leads ? Prisma.sql`b."updatedAt"` : Prisma.sql`b."createdAt"`} AS "updatedAt"
+      COALESCE(e."updatedBy", b."updatedBy", b."createdBy") AS "updatedBy",
+      ${Prisma.sql`b."updatedAt"`} AS "updatedAt"
       FROM ${core} LEFT JOIN collab_extension e ON e."tableId" = ${table.id} AND e."recordId" = b.id
       WHERE b."deletedAt" IS NULL AND ${domain} AND ${access.selfOnly ? Prisma.sql`b."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`}`;
   }
@@ -312,7 +316,7 @@ export class WorkspaceBusinessTable {
         pageSize,
         schemaVersion: table.schemaVersion,
       };
-    if (table.source === 'LEADS') {
+    if (['LEADS', 'FOLLOWS'].includes(table.source)) {
       const permissions = this.permissions();
       for (const key of ['phone', 'wechat'] as const) {
         const field = fields.find((f) => object(f.options).businessKey === key);
@@ -353,6 +357,20 @@ export class WorkspaceBusinessTable {
       });
       for (const follow of follows) labels.set(follow.id, follow.lead.leadNo + ' · ' + follow.lead.name);
     }
+    const followDisplay = new Map<string, Record<string,string>>();
+    if (table.source === 'FOLLOWS' && result.records.length) {
+      const users = await this.db.user.findMany({where:{id:{in:[...new Set(result.records.flatMap(r=>[r.createdBy,r.updatedBy].filter((v):v is string=>!!v)))]}},select:{id:true,username:true,employee:{select:{name:true}}}});
+      const names = new Map(users.map(u=>[u.id,u.employee?.name || u.username]));
+      for (const row of result.records) {
+        const display: Record<string,string>={};
+        for(const field of fields) {
+          const key=object(field.options).businessKey;
+          if(key==='lastFollowBy'||key==='lastOperator') display[field.id]=names.get(row.updatedBy || row.createdBy) ?? '';
+          if(key==='followedBy' && object(row.values)[field.id]==null) display[field.id]=names.get(row.createdBy) ?? '';
+        }
+        followDisplay.set(row.id,display);
+      }
+    }
     let editable = new Set<string>();
     if (access.level >= 2 && this.actor.permissionCodes.includes('lead.update') && result.records.length) {
       const actionScope = await buildLeadScopeWhere(this.db, this.authorization, this.actor, 'lead.update');
@@ -374,7 +392,7 @@ export class WorkspaceBusinessTable {
       records: result.records.map((r) => ({
         ...r,
         writable: editable.has(r.id),
-        ...(leadField && labels.has(r.id) ? { displayValues: { [leadField.id]: labels.get(r.id)! } } : {}),
+        ...(table.source === 'FOLLOWS' ? {displayValues: { ...followDisplay.get(r.id), ...(leadField && labels.has(r.id) ? { [leadField.id]: labels.get(r.id)! } : {}) }} : {}),
       })),
       groups: result.groups.slice(0, 200),
       groupsTruncated: result.groups.length > 200,

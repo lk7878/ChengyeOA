@@ -1426,8 +1426,8 @@ export class CollaborationService {
   async attachment(tableId: string, fileId: string, tx: Tx = this.db): Promise<import('@prisma/client').CollabAttachment> {
     const { access, fields, table } = await this.tableAccess(tableId, tx);
     const file = await tx.collabAttachment.findFirst({ where: { id: fileId, tableId } });
-    if (!file && (['CASES','PAYMENTS','REFUNDS'].includes(table.source) || table.lifecycleKind === 'CASE_REFUNDS')) {
-      const lookup = fields.find(f => table.source === 'CASES' ? object(f.options).businessKey === 'receiptFiles' : table.source !== 'CUSTOM' ? object(f.options).businessKey === 'voucherFiles' : lifecycleKey(f) === 'refundReceiptLookup');
+    if (!file && (['CASES','PAYMENTS','REFUNDS','FOLLOWS'].includes(table.source) || table.lifecycleKind === 'CASE_REFUNDS')) {
+      const lookup = fields.find(f => table.source === 'CASES' ? object(f.options).businessKey === 'receiptFiles' : table.source !== 'CUSTOM' ? object(f.options).businessKey === (table.source === 'FOLLOWS' ? 'attachments' : 'voucherFiles') : lifecycleKey(f) === 'refundReceiptLookup');
       if (!lookup) fail('COLLAB_FORBIDDEN',403);
       const source = table.source !== 'CUSTOM' ? await new WorkspaceBusinessTable(this.db,this.actor).sourceSql(table,access,fields) : await this.lifecycle().sourceSql(table,access,fields);
       const visible = await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT r.id FROM (${source}) r WHERE r.archived=false AND ${access.selfOnly ? Prisma.sql`r."createdBy"=${this.actor.userId}` : Prisma.sql`TRUE`} AND r.values->${lookup.id} @> ${JSON.stringify([fileId])}::jsonb LIMIT 1`);
@@ -1456,8 +1456,9 @@ export class CollaborationService {
               .map((f) => ({ values: { path: [f.id], array_contains: [fileId] } })),
           },
         });
+        const followReferences = await tx.leadFollow.count({where:{profile:{path:['attachments'],array_contains:[fileId]}}});
         const financialReferences = await tx.payment.count({where:{voucherFiles:{array_contains:[fileId]}}}) + await tx.refundRequest.count({where:{voucherFiles:{array_contains:[fileId]}}});
-        if (referenced || financialReferences || file.ownerId !== this.actor.userId) fail('COLLAB_FORBIDDEN', 403);
+        if (referenced || followReferences || financialReferences || file.ownerId !== this.actor.userId) fail('COLLAB_FORBIDDEN', 403);
       }
       return file;
     }
@@ -2303,7 +2304,7 @@ export class CollaborationService {
                 })
               : null;
           const changed = await tx.$queryRaw<Array<{ version: number }>>(
-            Prisma.sql`UPDATE ${Prisma.raw(sqlTable)} SET "deletedAt" = NULL, version = version + 1, "updatedBy" = ${this.actor.userId} ${table.source === 'FOLLOWS' ? Prisma.empty : Prisma.sql`, "updatedAt" = CURRENT_TIMESTAMP`} WHERE id = ${operation.recordId} AND "deletedAt" IS NOT NULL AND version = ${operation.expectedVersion - (extension?.version ?? 0)} RETURNING version`,
+            Prisma.sql`UPDATE ${Prisma.raw(sqlTable)} SET "deletedAt" = NULL, version = version + 1, "updatedBy" = ${this.actor.userId} ${Prisma.sql`, "updatedAt" = CURRENT_TIMESTAMP`} WHERE id = ${operation.recordId} AND "deletedAt" IS NOT NULL AND version = ${operation.expectedVersion - (extension?.version ?? 0)} RETURNING version`,
           );
           if (!changed.length) fail('COLLAB_RECORD_CONFLICT', 409);
           if (table.source === 'LEADS' || table.source === 'FOLLOWS')
@@ -2406,21 +2407,28 @@ export class CollaborationService {
         const core=await new WorkspaceDomainSource(this.db,this.actor).target(table.source as 'PAYMENTS'|'REFUNDS',access,recordId,tx,deleting?'delete':'update');
         const extension=await tx.collabExtension.findUnique({where:{tableId_recordId:{tableId,recordId}}});
         if(integer(input.version)!==core.version+(extension?.version??0)) fail('COLLAB_RECORD_CONFLICT',409);
-        const patch:Record<string,unknown>={};
+        const patch:Record<string,unknown>={}, extras:Record<string,unknown>={};
         for(const [id,value] of Object.entries(object(input.values??{}))) {
           const field=fields.find(f=>f.id===id);
           if(!field||access.readonly.includes(id)) fail('COLLAB_FIELD_UNAVAILABLE',403);
           const name=String(object(field.options).businessKey??'');
+          if(!name) { extras[id]=value; continue; }
           if(!(table.source==='PAYMENTS'?paymentWorksheetKeys:refundExecutionKeys).includes(name)) fail('COLLAB_READONLY_FIELD',403);
           validateValue(field,value);
           if(name==='voucherFiles') for(const fileId of value as string[]) await this.attachment(tableId,fileId,tx);
           patch[name]=value;
         }
-        if(deleting&&Object.keys(patch).length) fail('COLLAB_INVALID_VALUE');
+        if(deleting&&(Object.keys(patch).length||Object.keys(extras).length)) fail('COLLAB_INVALID_VALUE');
+        if(!deleting&&!Object.keys(patch).length&&!Object.keys(extras).length) fail('COLLAB_INVALID_VALUE');
         const finance=new WorksheetFinance(this.db,this.actor);
-        const saved=table.source==='PAYMENTS'?await finance.payment(tx,recordId,core.version,patch,deleting?'delete':'edit'):await finance.refund(tx,recordId,core.version,patch);
+        let version=core.version;
+        if(deleting||Object.keys(patch).length)
+          version=(table.source==='PAYMENTS'?await finance.payment(tx,recordId,core.version,patch,deleting?'delete':'edit'):await finance.refund(tx,recordId,core.version,patch)).version;
+        let combined=version+(extension?.version??0);
+        if(Object.keys(extras).length)
+          combined=(await this.saveExtension(tableId,recordId,{values:extras,version:combined,schemaVersion:table.schemaVersion},key,tx)).version;
         await this.event(tx,table.baseId,deleting?'record.deleted':'record.updated',recordId);
-        return {id:recordId,version:saved.version+(extension?.version??0)};
+        return {id:recordId,version:combined};
       },transaction);
     }
     if (initial.table.source === 'LEADS' || initial.table.source === 'FOLLOWS') {
@@ -2456,7 +2464,7 @@ export class CollaborationService {
             fail('COLLAB_RECORD_CONFLICT', 409);
           const patch: ObjectValue = {},
             extras: ObjectValue = {};
-          const values = object(input.values ?? {});
+          const values = source === 'FOLLOWS' ? await this.values(tx,tableId,fields.filter(f=>Object.hasOwn(object(input.values??{}),f.id)),access,input.values??{}) : object(input.values ?? {});
           if (deleting && Object.keys(values).length) fail('COLLAB_INVALID_VALUE');
           for (const [id, value] of Object.entries(values)) {
             const field = fields.find((f) => f.id === id);

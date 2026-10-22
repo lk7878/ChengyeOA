@@ -86,8 +86,7 @@ export const refundApi = {
   /** GET /api/v1/refunds/:id */
   detail: (id: string) =>
     request.get<ApiResponse<RefundView>>(`/v1/refunds/${id}`),
-  /** POST /api/v1/refunds/:id/approve（refund.approve，SPECIAL/CRITICAL + Step-Up）：
-   *  PENDING→APPROVED；Task 7 起须携带 REFUND_APPROVE 一次性 grant（x-step-up-token 头）。 */
+  /** Approval uses the current login session and the displayed record version. */
   approve: (id: string, data: RefundActionInput = {}, stepUpToken?: string) =>
     request.post<ApiResponse<RefundView>>(
       `/v1/refunds/${id}/approve`,
