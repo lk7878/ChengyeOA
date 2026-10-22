@@ -760,7 +760,7 @@ test('batch append and update are atomic, versioned and idempotent', async () =>
   const beforeHistory = await db.collabRevision.count();
   const updates = {
     schemaVersion: 1,
-    records: created.records.map((r) => ({ ...r, values: { [titleId]: 'changed' } })),
+    records: created.records.map((r) => ({ id: r.id, version: r.version, values: { [titleId]: 'changed' } })),
   };
   updates.records[1].version = 999;
   await assert.rejects(editor.saveRecords(tableId, updates, randomUUID()), (e: unknown) => {

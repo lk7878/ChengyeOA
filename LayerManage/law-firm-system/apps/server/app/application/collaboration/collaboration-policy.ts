@@ -160,7 +160,8 @@ export function optionIds(options: ObjectValue): string[] {
   return options.choices.map((v) => text(object(v).id));
 }
 export function validateOptions(type: string, raw: unknown): ObjectValue {
-  const options = exact(raw ?? {}, ['choices', 'targetTableId', 'helpText']);
+  const options = exact(raw ?? {}, ['choices', 'targetTableId', 'targetSource', 'primary', 'helpText']);
+  if (options.primary !== undefined) boolean(options.primary);
   if (options.helpText !== undefined) text(options.helpText, 2000);
   if (['SINGLE_SELECT', 'MULTI_SELECT'].includes(type)) {
     if (!Array.isArray(options.choices) || options.choices.length > 100) fail('COLLAB_INVALID_OPTIONS');
@@ -171,7 +172,12 @@ export function validateOptions(type: string, raw: unknown): ObjectValue {
     });
     if (new Set(ids).size !== ids.length) fail('COLLAB_DUPLICATE_OPTION');
   }
-  if (type === 'RELATION') text(options.targetTableId);
+  if (type === 'RELATION') {
+    if (options.targetSource !== undefined) {
+      choice(options.targetSource, ['LEADS', 'CHANNELS']);
+      if (options.targetTableId !== undefined) fail('COLLAB_INVALID_OPTIONS');
+    } else text(options.targetTableId);
+  } else if (options.targetSource !== undefined) fail('COLLAB_INVALID_OPTIONS');
   return options;
 }
 export interface Filter {

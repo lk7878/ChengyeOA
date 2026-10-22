@@ -1,3 +1,4 @@
+import { followSupportFields, followSupportKinds, FollowSupportKind } from './follow-support-templates';
 import { LifecycleWorksheet, lifecycleFields, lifecycleKinds, lifecycleKey, syncedLifecycleKeys, LifecycleKind } from './lifecycle-worksheet';
 import { CASE_FIELD_ORDER } from '../case/intake-contract';
 import { WorksheetFinance, paymentWorksheetKeys, refundExecutionKeys } from '../finance/worksheet-finance';
@@ -971,8 +972,10 @@ export class CollaborationService {
           data: businessFields(source).map((f) => ({ ...f, tableId: table.id })),
         });
       } else {
-        const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS', ...lifecycleKinds]);
-        if (lifecycleKinds.includes(template as LifecycleKind)) {
+        const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS', ...lifecycleKinds, ...followSupportKinds]);
+        if (followSupportKinds.includes(template as FollowSupportKind)) {
+          await tx.collabField.createMany({ data: followSupportFields(template as FollowSupportKind).map(f => ({...f, tableId: table.id})) });
+        } else if (lifecycleKinds.includes(template as LifecycleKind)) {
           this.lifecycle().authorize(template);
           await tx.collabTable.update({ where: { id: table.id }, data: { lifecycleKind: template } });
           await tx.collabField.createMany({
@@ -1312,11 +1315,11 @@ export class CollaborationService {
       }
       if (
         previous?.type === 'RELATION' &&
-        options.targetTableId !== object(previous.options).targetTableId &&
+        (options.targetTableId !== object(previous.options).targetTableId || options.targetSource !== object(previous.options).targetSource) &&
         (await countValues({ path: [previous.id], not: Prisma.DbNull }))
       )
         fail('COLLAB_FIELD_MIGRATION_REQUIRED', 409);
-      if (type === 'RELATION') {
+      if (type === 'RELATION' && !options.targetSource) {
         const target = await this.tableAccess(text(options.targetTableId), tx);
         if (target.table.source !== 'CUSTOM' || target.table.lifecycleKind) fail('COLLAB_CORE_RELATION_UNSUPPORTED');
         if (target.access.workspaceId !== initial.access.workspaceId) fail('COLLAB_CROSS_WORKSPACE_RELATION');
@@ -1509,10 +1512,37 @@ export class CollaborationService {
         : {}),
     };
   }
+  private async businessReferences(table: CollabTable, access: Access, field: CollabField, tx: Tx,
+    ids?: string[], keyword = '', limit?: number) {
+    if (ids && !ids.length) return [];
+    const source = choice(object(field.options).targetSource, ['LEADS', 'CHANNELS']);
+    const labelKeys = source === 'LEADS' ? ['leadNo', 'name'] : ['code', 'name'];
+    const columns = businessFields(source).filter(f => labelKeys.includes(String(f.options.businessKey)))
+      .map((f): CollabField => ({...f, id: String(f.options.businessKey), tableId: table.id, archived: false, defaultValue: null}));
+    const adapter = new WorkspaceBusinessTable(this.db, this.actor);
+    adapter.authorize(source);
+    const sql = await adapter.sourceSql({...table, source}, access, columns);
+    return tx.$queryRaw<Array<{id:string;label:string}>>(Prisma.sql`
+      SELECT r.id, concat_ws(' · ', r.values->>${labelKeys[0]}, r.values->>'name') AS label
+      FROM (${sql}) r WHERE ${ids ? Prisma.sql`r.id IN (${Prisma.join(ids)})` : Prisma.sql`TRUE`}
+      AND ${keyword ? Prisma.sql`concat_ws(' ', r.values->>${labelKeys[0]}, r.values->>'name') ILIKE ${'%'+keyword+'%'}` : Prisma.sql`TRUE`}
+      ORDER BY r."createdAt" DESC, r.id ${limit ? Prisma.sql`LIMIT ${limit}` : Prisma.empty}`);
+  }
+  async businessRelationOptions(tableId: string, fieldId: string, raw: unknown) {
+    const input = exact(raw, ['keyword', 'selectedIds']);
+    const {table, access, fields} = await this.tableAccess(tableId);
+    const field = fieldOf(fields, fieldId);
+    if (field.type !== 'RELATION' || !object(field.options).targetSource) fail('COLLAB_INVALID_VALUE');
+    const keyword = input.keyword ? text(input.keyword,100) : '';
+    const rows = await this.businessReferences(table,access,field,this.db,undefined,keyword,101);
+    const selected = await this.businessReferences(table,access,field,this.db,strings(input.selectedIds ?? [],100));
+    return {options: [...new Map([...selected,...rows.slice(0,100)].map(r=>[r.id,r])).values()],hasMore:rows.length>100};
+  }
   private async projectReferences(records: CollabRecord[], fields: CollabField[]) {
     const projected = records.map((record) => this.project(record, fields));
     for (const field of fields.filter((f) => f.type === 'RELATION')) {
-      const targetId = text(object(field.options).targetTableId);
+      const business = Boolean(object(field.options).targetSource);
+      const targetId = business ? field.tableId : text(object(field.options).targetTableId);
       const ids = [
         ...new Set(
           projected.flatMap((r) =>
@@ -1522,8 +1552,17 @@ export class CollaborationService {
       ];
       let permitted = new Set<string>();
       try {
-        const { access } = await this.tableAccess(targetId);
-        permitted = new Set(
+        const { table, access } = await this.tableAccess(targetId);
+        if (business) {
+          const targets = await this.businessReferences(table, access, field, this.db, ids);
+          permitted = new Set(targets.map(r=>r.id));
+          const labels = new Map(targets.map(r=>[r.id,r.label]));
+          for (const record of projected) {
+            const value = Array.isArray(record.values[field.id]) ? record.values[field.id] as string[] : [];
+            Object.assign(record, {displayValues: {...(record as {displayValues?:Record<string,string>}).displayValues,
+              [field.id]: value.filter(id=>permitted.has(id)).map(id=>labels.get(id)).join('、')}});
+          }
+        } else permitted = new Set(
           (
             await this.db.collabRecord.findMany({
               where: { ...this.rowWhere(targetId, access), id: { in: ids } },
@@ -1962,6 +2001,12 @@ export class CollaborationService {
           for (const id of value) await this.attachment(tableId, String(id), tx);
       }
       if (field.type === 'RELATION' && Array.isArray(value)) {
+        if (object(field.options).targetSource) {
+          const table = await tx.collabTable.findUniqueOrThrow({where:{id:tableId}});
+          const targets = await this.businessReferences(table,access,field,tx,value as string[]);
+          if (targets.length !== value.length) fail('COLLAB_RELATION_UNAVAILABLE',422,{fieldId:field.id});
+          continue;
+        }
         const target = text(object(field.options).targetTableId);
         const a = await this.tableAccess(target, tx);
         const count = await tx.collabRecord.count({
@@ -2810,6 +2855,8 @@ export class CollaborationService {
         });
         for (const field of fields.filter((f) => f.type === 'RELATION')) {
           await tx.collabRelation.deleteMany({ where: { fieldId: field.id, sourceRecordId: record.id } });
+          // Canonical business IDs are validated against domain scopes; they are not collab_record IDs.
+          if (object(field.options).targetSource) continue;
           const targets = next[field.id];
           if (Array.isArray(targets) && targets.length)
             await tx.collabRelation.createMany({

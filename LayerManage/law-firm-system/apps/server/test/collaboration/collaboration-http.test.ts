@@ -4,7 +4,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { decodeBase32 } from '../../app/domain/security/base32';
 import { MfaSecretCrypto } from '../../app/domain/security/mfa-factor-crypto';
 import { createServer, Server } from 'node:http';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PrismaClient } from '@prisma/client';
@@ -99,6 +99,30 @@ test('recycle-bin purge HTTP command removes uploaded files and cannot be invoke
   await app.httpRequest().post(endpoint).set('Authorization', 'Bearer ' + token).set('Idempotency-Key', receipt).send(body).expect(200);
   assert.equal(await db.collabAttachment.count({ where: { id: file.body.data.id } }), 0);
   assert.equal(await db.collabBase.count({ where: { id: baseId } }), 0);
+});
+
+test('follow support templates accept valid recordings and enforce upload and relation authorization', async () => {
+  const created=await app.httpRequest().post('/api/v1/bases/'+baseId+'/tables').set('Authorization','Bearer '+token).set('Idempotency-Key',randomUUID()).send({name:'签约转化表',template:'SIGNING_CONVERSION'}).expect(200);
+  const conversion=created.body.data.id;
+  const relation=await db.collabField.findFirstOrThrow({where:{tableId:conversion,name:'线索ID'}});
+  const endpoint='/api/v1/tables/'+conversion+'/fields/'+relation.id+'/relation-options';
+  await app.httpRequest().post(endpoint).send({}).expect(401);
+  await app.httpRequest().post(endpoint).set('Authorization','Bearer '+editorToken).send({}).expect(403);
+  for(const [name,bytes] of [['录音.mp3',Buffer.from('ID3\u0004\u0000\u0000\u0000\u0000\u0000\u0000')],['录音.wav',Buffer.from('RIFF0000WAVEfmt ')],['录音.m4a',Buffer.from('\u0000\u0000\u0000\u0018ftypM4A ')]] as const) {
+    const body={name,content:bytes.toString('base64')};
+    const uploaded=await app.httpRequest().post('/api/v1/tables/'+tableId+'/files').set('Authorization','Bearer '+token).send(body).expect(200);
+    const file=await db.collabAttachment.findUniqueOrThrow({where:{id:uploaded.body.data.id}});
+    try {
+      assert.ok(file.mimeType.startsWith('audio/'));
+      await app.httpRequest().get('/api/v1/tables/'+tableId+'/files/'+file.id).set('Authorization','Bearer '+token).expect(200);
+    } finally {
+      await db.collabAttachment.delete({where:{id:file.id}});
+      await unlink(path.join(process.cwd(),'var','storage','collaboration',file.storageKey));
+    }
+  }
+  await app.httpRequest().post('/api/v1/tables/'+tableId+'/files').set('Authorization','Bearer '+token).send({name:'伪装.mp3',content:Buffer.from('not audio').toString('base64')}).expect(422);
+  await db.collabMember.updateMany({where:{workspaceId,principalId:editor},data:{role:'READER'}});
+  await app.httpRequest().post('/api/v1/tables/'+tableId+'/files').set('Authorization','Bearer '+editorToken).send({name:'录音.mp3',content:Buffer.from('ID3test').toString('base64')}).expect(403);
 });
 
 test('authenticated HTTP writes persist; invalid input and unauthorized access are denied', async () => {

@@ -28,8 +28,19 @@ export default function FieldInput({
   onPreview?(values: Record<string, unknown>): void;
 }) {
   const [relations, setRelations] = useState<{ value: string; label: string }[]>([]);
+  const [relationKeyword, setRelationKeyword] = useState('');
+  const selectedIds = JSON.stringify(Array.isArray(value) ? value : []);
   useEffect(() => {
     let alive = true;
+    if (field.type === 'RELATION' && field.options.targetSource) {
+      const timer = setTimeout(() => {
+        void post<{options:{id:string;label:string}[]}>('/tables/'+tableId+'/fields/'+field.id+'/relation-options',
+          {keyword:relationKeyword, selectedIds:JSON.parse(selectedIds)})
+          .then(result => { if(alive) setRelations(result.options.map(row=>({value:row.id,label:row.label}))); })
+          .catch(() => {if(alive) setRelations([]);});
+      }, 200);
+      return () => {alive=false;clearTimeout(timer);};
+    }
     if (field.type === 'RELATION' && field.options.targetTableId)
       void post<QueryResult>('/tables/' + field.options.targetTableId + '/records/query', { pageSize: 200 })
         .then((r) => {
@@ -47,7 +58,7 @@ export default function FieldInput({
     return () => {
       alive = false;
     };
-  }, [field.type, field.options.targetTableId]);
+  }, [field.id, field.type, field.options.targetTableId, field.options.targetSource, tableId, relationKeyword, selectedIds]);
   if (field.options.businessKey === 'receiptDetails') return <ReceiptDetails value={value} tableId={tableId}/>;
   if (field.options.lifecycleKey === 'upstreamId')
     return (
@@ -63,7 +74,7 @@ export default function FieldInput({
   if (disabled && field.type === 'FILE')
     return <Space orientation="vertical">{(Array.isArray(value) ? value : []).map(id =>
       <AttachmentItem key={String(id)} tableId={tableId} id={String(id)} />)}</Space>;
-  if (disabled && (field.options.businessKey || field.options.lifecycleKey))
+  if (['CREATED_BY', 'UPDATED_BY', 'CREATED_AT', 'UPDATED_AT'].includes(field.type) || disabled && (field.options.businessKey || field.options.lifecycleKey))
     return <Input disabled value={displayText ?? displayValue(field, value, directory)} />;
   if (field.type === 'BOOLEAN')
     return (
@@ -113,6 +124,8 @@ export default function FieldInput({
         allowClear
         showSearch
         optionFilterProp="label"
+        filterOption={field.options.targetSource ? false : undefined}
+        onSearch={field.options.targetSource ? setRelationKeyword : undefined}
         mode={['MULTI_SELECT', 'RELATION'].includes(field.type) ? 'multiple' : undefined}
         value={value as string | string[] | undefined}
         onChange={(v) => onChange(v ?? null)}
@@ -127,7 +140,7 @@ export default function FieldInput({
         <Upload
           disabled={disabled}
           showUploadList={false}
-          accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.xlsx"
+          accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.xlsx,.mp3,.wav,.m4a"
           beforeUpload={async (file) => {
             if (file.size > 10 * 1024 * 1024) {
               message.error('附件最大 10 MB');

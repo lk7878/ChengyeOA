@@ -540,7 +540,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       }
       if (dialog?.kind === 'field' && detail) {
         const previous = dialog.field;
-        const options: Field['options'] = values.helpText ? { helpText: values.helpText } : {};
+        const options: Field['options'] = {...(previous?.options.primary ? {primary:true} : {}), ...(values.helpText ? { helpText: values.helpText } : {})};
         if (['SINGLE_SELECT', 'MULTI_SELECT'].includes(values.type))
           options.choices = String(values.choices || '')
             .split('\n')
@@ -550,7 +550,10 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               id: previous?.options.choices?.find((o) => o.name === name)?.id || name,
               name,
             }));
-        if (values.type === 'RELATION') options.targetTableId = values.targetTableId;
+        if (values.type === 'RELATION') {
+          if (previous?.options.targetSource) options.targetSource=previous.options.targetSource;
+          else options.targetTableId = values.targetTableId;
+        }
         const url = '/tables/' + tableId + '/fields' + (previous ? '/' + previous.id : '');
         await (previous ? patch : post)(
           url,
@@ -2052,6 +2055,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   { value: 'BLANK', label: '空白数据表' },
                   { value: 'TASKS', label: '任务管理模板' },
                   { value: 'CONTACTS', label: '客户跟进模板' },
+                  { value: 'MEDICAL_ASSESSMENT', label: '跟进 · 病例评估表（21个字段）' },
+                  { value: 'SIGNING_CONVERSION', label: '跟进 · 签约转化表（36个字段）' },
                 ]}
               />
             </Form.Item>
@@ -2077,9 +2082,11 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               <Form.Item noStyle shouldUpdate>
                 {() =>
                   ['SINGLE_SELECT', 'MULTI_SELECT'].includes(form.getFieldValue('type')) ? (
-                    <Form.Item name="choices" label="选项（每行一个）" rules={[{ required: true }]}>
+                    <Form.Item name="choices" label="选项（每行一个，可留空后续配置）">
                       <Input.TextArea rows={4} />
                     </Form.Item>
+                  ) : form.getFieldValue('type') === 'RELATION' && dialog.field?.options.targetSource ? (
+                    <Form.Item label="关联业务"><Input disabled value={dialog.field.options.targetSource === 'LEADS' ? '线索表' : '渠道表'} /></Form.Item>
                   ) : form.getFieldValue('type') === 'RELATION' ? (
                     <Form.Item name="targetTableId" label="关联数据表" rules={[{ required: true }]}>
                       <Select

@@ -13,6 +13,8 @@ export interface Field extends Option {
   options: {
     choices?: Option[];
     targetTableId?: string;
+    targetSource?: 'LEADS' | 'CHANNELS';
+    primary?: boolean;
     helpText?: string;
     businessKey?: string;
     lifecycleKey?: string;
