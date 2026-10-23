@@ -531,6 +531,7 @@ export class DriveService extends CollaborationService {
     return this.write(key, ['drive.base.create', workspaceId, name, parentId, moduleSource, connectBusiness], async (tx) => {
       await this.lock(tx, workspaceId);
       const parent = this.parent(await this.catalog(workspaceId, tx), parentId, true);
+      await this.assertModuleWorkspace(workspaceId, moduleSource, tx);
       if (connectBusiness && parent.access.level < 4) fail('COLLAB_FORBIDDEN', 403);
       const base = await tx.collabBase.create({
         data: {

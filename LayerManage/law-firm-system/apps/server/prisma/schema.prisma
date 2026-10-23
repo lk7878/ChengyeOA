@@ -1698,6 +1698,9 @@ model InventoryStocktake {
 
 // SPEC-COLLAB-20260914: independent collaboration data, never copies core business truth.
 model CollabWorkspace {
+  moduleGroup String?
+  moduleParentId String?
+  @@unique([moduleParentId, moduleGroup])
   driveShortcuts DriveShortcut[]
   driveNodes     DriveNode[]
   organization   Organization    @relation("CollabOrganization", fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "collab_workspace_org_fk")
@@ -1814,6 +1817,7 @@ model DriveVisit {
 }
 
 model CollabTable {
+  inventoryKind String?
   lifecycleKind String?
   accessPolicy  Json?
   accessVersion Int               @default(1)

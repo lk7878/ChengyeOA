@@ -52,6 +52,7 @@ export default (app: Application) => {
   router.post('/api/v1/drive/nodes/:nodeId/lifecycle', controller.drive.applyLifecycle);
   router.get('/api/v1/drive/folders/:folderId/access', controller.drive.access);
   router.post('/api/v1/drive/folders/:folderId/access', controller.drive.saveAccess);
+  router.post('/api/v1/workspaces/:workspaceId/module', controller.collaboration.provisionModuleWorkspace);
   router.post('/api/v1/workspaces', controller.collaboration.createWorkspace);
   router.get('/api/v1/collaboration/options', controller.collaboration.options);
   router.post('/api/v1/workspaces/:workspaceId/bases', controller.collaboration.createBase);

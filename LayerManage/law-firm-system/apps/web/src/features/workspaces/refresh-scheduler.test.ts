@@ -3,6 +3,33 @@ import { createRefreshScheduler } from './refresh-scheduler';
 
 afterEach(() => vi.useRealTimers());
 
+test('read-only summaries refresh promptly on notifications, while editable grids retain draft protection', () => {
+  vi.useFakeTimers();
+  const refresh = vi.fn();
+  let summary = true;
+  let editing = false;
+  const scheduler = createRefreshScheduler(
+    refresh,
+    () => editing,
+    () => (summary ? 1000 : 30_000),
+  );
+  scheduler.queue();
+  scheduler.queue();
+  vi.advanceTimersByTime(1000);
+  expect(refresh).toHaveBeenCalledTimes(1);
+  vi.advanceTimersByTime(60_000);
+  expect(refresh).toHaveBeenCalledTimes(1);
+  summary = false;
+  editing = true;
+  scheduler.queue();
+  vi.advanceTimersByTime(60_000);
+  expect(refresh).toHaveBeenCalledTimes(1);
+  editing = false;
+  vi.advanceTimersByTime(30_000);
+  expect(refresh).toHaveBeenCalledTimes(2);
+  scheduler.dispose();
+});
+
 test('bursts coalesce, editing defers updates, and disposal cancels queued work', () => {
   vi.useFakeTimers();
   const refresh = vi.fn();

@@ -1,3 +1,5 @@
+import { moduleGroup, moduleGroups, ensureModuleWorkspace } from './module-workspaces';
+import { inventoryFields, inventoryKinds, InventoryKind, seedInventorySummary, inventorySummarySql, assignInventoryNumber } from './inventory-worksheets';
 import { followSupportFields, followSupportKinds, FollowSupportKind } from './follow-support-templates';
 import { LifecycleWorksheet, lifecycleFields, lifecycleKinds, lifecycleKey, syncedLifecycleKeys, LifecycleKind } from './lifecycle-worksheet';
 import { CASE_FIELD_ORDER } from '../case/intake-contract';
@@ -144,6 +146,7 @@ export class CollaborationService {
   async access(workspaceId: string, tx: Tx = this.db, level = 1): Promise<Access> {
     const w = await tx.collabWorkspace.findUnique({ where: { id: workspaceId } });
     if (!w) fail('COLLAB_NOT_FOUND', 404);
+    this.authorizeModuleGroup(w.moduleGroup);
     const members = await tx.collabMember.findMany({ where: { workspaceId, OR: await this.principals(tx) } });
     return this.memberAccess(workspaceId, w.organizationId, members, level);
   }
@@ -189,6 +192,8 @@ export class CollaborationService {
     const { driveNode, ...base } = stored;
     if (driveNode?.deletedAt) fail('COLLAB_FORBIDDEN', 403);
     const parent = await this.access(base.workspaceId, tx);
+    const workspace = await tx.collabWorkspace.findUniqueOrThrow({where:{id:base.workspaceId}});
+    if (workspace.moduleGroup && base.moduleSource) this.moduleSource(base.moduleSource);
     const principals = await this.principals(tx);
     const [path] = await tx.$queryRaw<Array<{ chain: FolderAncestor[] }>>(
       Prisma.sql`SELECT ${folderChainSql(Prisma.sql`${baseId}`)} AS chain`,
@@ -215,6 +220,8 @@ export class CollaborationService {
     const rows = await tx.$queryRaw<
       Array<
         CollabTable & {
+          _moduleGroup: string | null;
+          _moduleSource: string | null;
           _workspaceId: string;
           _organizationId: string;
           _basePolicy: Prisma.JsonValue;
@@ -225,7 +232,7 @@ export class CollaborationService {
         }
       >
     >(Prisma.sql`
-      SELECT t.*, b."workspaceId" AS "_workspaceId", b."accessPolicy" AS "_basePolicy", w."organizationId" AS "_organizationId",
+      SELECT t.*, w."moduleGroup" AS "_moduleGroup", b."moduleSource" AS "_moduleSource", b."workspaceId" AS "_workspaceId", b."accessPolicy" AS "_basePolicy", w."organizationId" AS "_organizationId",
         (SELECT COALESCE(jsonb_agg(jsonb_build_object(
           'role', m.role, 'canCreate', m."canCreate", 'rowScope', m."rowScope", 'canManageAccess', m."canManageAccess",
           'hiddenFields', m."hiddenFields", 'readonlyFields', m."readonlyFields")), '[]'::jsonb)
@@ -243,7 +250,14 @@ export class CollaborationService {
     const row = rows[0];
     if (!row || (row.archived && !allowArchived)) fail('COLLAB_NOT_FOUND', 404);
     if (row._driveDeletedAt) fail('COLLAB_FORBIDDEN', 403);
+    this.authorizeModuleGroup(row._moduleGroup);
+    if (row.inventoryKind) new WorkspaceBusinessTable(this.db, this.actor).authorize('INVENTORY_ITEMS');
+    if (row._moduleGroup && row._moduleSource && row.source === 'CUSTOM') this.moduleSource(row._moduleSource);
+    // Record mutations request level 2; directory administration requests level 3.
+    if (row.inventoryKind === 'INVENTORY_SUMMARY' && level === 2) fail('COLLAB_READONLY_FIELD', 403);
     const {
+      _moduleGroup: _ignoredGroup,
+      _moduleSource: _ignoredSource,
       _workspaceId,
       _organizationId,
       _basePolicy,
@@ -253,7 +267,7 @@ export class CollaborationService {
       _driveDeletedAt: _ignoredDeletion,
       ...definition
     } = row;
-    void _ignoredDeletion;
+    void _ignoredDeletion; void _ignoredGroup; void _ignoredSource;
     const parent = await this.restrict(
       inheritFolders(this.memberAccess(_workspaceId, _organizationId, _members), _folderChain, principals),
       _basePolicy,
@@ -276,6 +290,10 @@ export class CollaborationService {
       ...definition,
       fields: _fields,
     };
+    if (table.inventoryKind === 'INVENTORY_SUMMARY') {
+      access.canCreate = false;
+      access.readonly = [...new Set([...access.readonly, ...table.fields.map(f => f.id)])];
+    }
     const visible = table.fields.filter((f) => !f.archived && !access.hidden.includes(f.id));
     return {
       table,
@@ -430,7 +448,32 @@ export class CollaborationService {
     await appendCollaborationChange(tx, this.actor.userId, baseId, kind, targetId);
   }
 
-  async listWorkspaces() {
+  protected authorizeModuleGroup(group: string | null) {
+    if (!group) return;
+    if (!moduleGroups[group]?.sources.some(source => {
+      try { new WorkspaceBusinessTable(this.db, this.actor).authorize(source); return true; } catch { return false; }
+    })) fail('COLLAB_FORBIDDEN', 403);
+  }
+  protected async assertModuleWorkspace(workspaceId: string, source: string | null, tx: Tx = this.db) {
+    const workspace = await tx.collabWorkspace.findUniqueOrThrow({ where: { id: workspaceId } });
+    if (workspace.moduleGroup && source && moduleGroup(source) !== workspace.moduleGroup)
+      fail('COLLAB_MODULE_WORKSPACE_MISMATCH');
+  }
+  async provisionModuleWorkspace(parentId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['source']);
+    const source = this.moduleSource(input.source);
+    if (!source) fail('COLLAB_INVALID_SOURCE');
+    await this.access(parentId, this.db, 3);
+    return this.write(key, ['workspace.module', parentId, source], async tx => {
+      await this.access(parentId, tx, 3);
+      const workspace = await ensureModuleWorkspace(tx, parentId, moduleGroup(source), this.actor.userId);
+      return { id: workspace.id };
+    });
+  }
+  async listWorkspaces(raw: unknown = {}) {
+    const input = exact(raw, ['source']);
+    const source = this.moduleSource(input.source);
+    const group = source ? moduleGroup(source) : null;
     const members = await this.db.collabMember.findMany({
       where: { OR: await this.principals(this.db) },
       select: { workspaceId: true },
@@ -440,7 +483,15 @@ export class CollaborationService {
       include: { bases: { orderBy: { name: 'asc' } } },
       orderBy: { name: 'asc' },
     });
+    const available: typeof workspaces = [];
+    const provisionParents: { id: string; name: string }[] = [];
     for (const workspace of workspaces) {
+      try {
+        const access = await this.access(workspace.id);
+        if (group && !workspace.moduleGroup && access.level >= 3) provisionParents.push({ id: workspace.id, name: workspace.name });
+        if (group && (workspace.moduleGroup !== group || access.level < 3)) continue;
+      } catch (e) { if ((e as {code:string}).code === 'COLLAB_FORBIDDEN') continue; throw e; }
+      available.push(workspace);
       const permitted = [] as typeof workspace.bases;
       for (const base of workspace.bases) {
         try {
@@ -453,7 +504,8 @@ export class CollaborationService {
       workspace.bases = permitted;
     }
     return {
-      workspaces,
+      workspaces: available,
+      provisionParents,
       canCreate:
         this.actor.isSystemSuperAdmin ||
         this.actor.permissionCodes.some((p) => String(p) === 'workspace.create'),
@@ -480,7 +532,7 @@ export class CollaborationService {
       for (const base of workspace.bases) {
         try {
           const directory = await this.listTables(base.id);
-          if (!recordId && directory.access.level === 4 && directory.access.canCreate && targets.length < 200)
+          if (!recordId && (!workspace.moduleGroup || workspace.moduleGroup === moduleGroup(source)) && directory.access.level === 4 && directory.access.canCreate && targets.length < 200)
             targets.push({ id: base.id, name: base.name, workspaceName: workspace.name });
           for (const table of directory.tables) {
             const associatedCustomTable =
@@ -773,6 +825,7 @@ export class CollaborationService {
     return this.write(key, ['base.module', baseId, input], async (tx) => {
       await this.lock(tx, initial.access.workspaceId);
       const { base } = await this.baseAccess(baseId, tx, 3);
+      await this.assertModuleWorkspace(base.workspaceId, moduleSource, tx);
       if (base.version !== integer(input.version)) fail('COLLAB_DIRECTORY_CONFLICT', 409);
       await tx.collabBase.update({
         where: { id: baseId },
@@ -956,7 +1009,8 @@ export class CollaborationService {
       fail('COLLAB_FORBIDDEN', 403);
     return this.write(key, ['table.create', baseId, input], async (tx) => {
       await this.lock(tx, initial.access.workspaceId);
-      const { access } = await this.baseAccess(baseId, tx);
+      const { access, base } = await this.baseAccess(baseId, tx);
+      if (source !== 'CUSTOM') await this.assertModuleWorkspace(base.workspaceId, source, tx);
       if (!access.canCreate || (source !== 'CUSTOM' && access.level < 4)) fail('COLLAB_FORBIDDEN', 403);
       const table = await tx.collabTable.create({
         data: {
@@ -972,8 +1026,14 @@ export class CollaborationService {
           data: businessFields(source).map((f) => ({ ...f, tableId: table.id })),
         });
       } else {
-        const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS', ...lifecycleKinds, ...followSupportKinds]);
-        if (followSupportKinds.includes(template as FollowSupportKind)) {
+        const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS', ...lifecycleKinds, ...followSupportKinds, ...inventoryKinds]);
+        if (inventoryKinds.includes(template as InventoryKind)) {
+          new WorkspaceBusinessTable(this.db, this.actor).authorize('INVENTORY_ITEMS');
+          await this.assertModuleWorkspace(base.workspaceId, 'INVENTORY_ITEMS', tx);
+          await tx.collabTable.update({ where: { id: table.id }, data: { inventoryKind: template } });
+          await tx.collabField.createMany({ data: inventoryFields(template as InventoryKind).map(f => ({...f, tableId: table.id})) });
+          if (template === 'INVENTORY_SUMMARY') await seedInventorySummary(tx, table.id, this.actor.userId);
+        } else if (followSupportKinds.includes(template as FollowSupportKind)) {
           await tx.collabField.createMany({ data: followSupportFields(template as FollowSupportKind).map(f => ({...f, tableId: table.id})) });
         } else if (lifecycleKinds.includes(template as LifecycleKind)) {
           this.lifecycle().authorize(template);
@@ -1039,6 +1099,7 @@ export class CollaborationService {
     return {
       table: { ...table, accessPolicy: null as null, fields: [] as CollabField[] },
       canDeleteRecords:
+        table.inventoryKind !== 'INVENTORY_SUMMARY' &&
         access.level >= 2 &&
         ((table.source === 'CUSTOM' && (!table.lifecycleKind || this.actor.permissionCodes.includes(table.lifecycleKind === 'AFTER_SALES' ? 'case.delete' : 'refund.create'))) ||
           (table.source === 'CASES' && this.actor.permissionCodes.includes('case.delete')) ||
@@ -1147,6 +1208,7 @@ export class CollaborationService {
           data: {
             baseId: table.baseId,
             lifecycleKind: table.lifecycleKind,
+            inventoryKind: table.inventoryKind,
             name: text(input.name),
             createdBy: this.actor.userId,
             position: table.position + 1,
@@ -1180,6 +1242,7 @@ export class CollaborationService {
             },
           });
         }
+        if (copy.inventoryKind === 'INVENTORY_SUMMARY') await seedInventorySummary(tx, copy.id, this.actor.userId);
         await this.event(tx, table.baseId, 'table.created', copy.id);
         return { id: copy.id };
       }
@@ -1270,6 +1333,7 @@ export class CollaborationService {
       'version',
     ]);
     const initial = await this.tableAccess(tableId, this.db, 3);
+    if (initial.table.inventoryKind) fail('COLLAB_READONLY_FIELD', 403);
     return this.write(key, ['field.save', tableId, fieldId, input], async (tx) => {
       await this.lock(tx, initial.access.workspaceId);
       const { table, fields } = await this.tableAccess(tableId, tx, 3);
@@ -1279,6 +1343,7 @@ export class CollaborationService {
       if (fieldId && !fields.some((f) => f.id === fieldId)) fail('COLLAB_FORBIDDEN', 403);
       if (previous && (object(previous.options).businessKey || lifecycleKey(previous))) fail('COLLAB_USE_BUSINESS_ACTION', 409);
       const type = choice(input.type ?? previous?.type, FIELD_TYPES);
+      if (type === 'FORMULA') fail('COLLAB_READONLY_FIELD', 403);
       if (table.source !== 'CUSTOM' && isSystemField({ type })) fail('COLLAB_USE_BUSINESS_ACTION', 409);
       const countValues = (values: Prisma.JsonFilter) =>
         table.source === 'CUSTOM'
@@ -1493,7 +1558,7 @@ export class CollaborationService {
       UPDATED_AT: record.updatedAt.toISOString(),
     };
     for (const f of fields) {
-      values[f.id] = isSystemField(f) ? system[f.type] : (original[f.id] ?? null);
+      values[f.id] = Object.hasOwn(system, f.type) ? system[f.type] : (original[f.id] ?? null);
     }
     const link = fields.find((f) => lifecycleKey(f) === 'upstreamId');
     return {
@@ -1604,7 +1669,8 @@ export class CollaborationService {
       return { ...result, records: await this.projectReferences(result.records, fields) };
     }
     const where = Prisma.sql`r."tableId" = ${tableId} AND r.archived = false AND ${access.selfOnly ? Prisma.sql`r."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`} AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}`;
-    const result = await queryCustomRecords(this.db, where, config, fields, page, pageSize, table.lifecycleKind ? await this.lifecycle().sourceSql(table, access, fields) : undefined);
+    const projection = table.inventoryKind === 'INVENTORY_SUMMARY' ? await inventorySummarySql(this.db, table, fields, this.actor.userId, id => this.tableAccess(id)) : table.lifecycleKind ? await this.lifecycle().sourceSql(table, access, fields) : undefined;
+    const result = await queryCustomRecords(this.db, table.inventoryKind === 'INVENTORY_SUMMARY' ? Prisma.sql`r."tableId"=${tableId} AND r.archived=false AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}` : where, config, fields, page, pageSize, projection);
     if (table.lifecycleKind) await this.lifecycle().auditPhone(fields,result.records.length);
     return {
       ...result,
@@ -1647,9 +1713,14 @@ export class CollaborationService {
       };
     }
     const record = await this.db.collabRecord.findFirst({
-      where: { ...this.rowWhere(tableId, access), id: recordId },
+      where: { ...this.rowWhere(tableId, table.inventoryKind === 'INVENTORY_SUMMARY' ? {...access,selfOnly:false} : access), id: recordId },
     });
     if (!record) fail('COLLAB_NOT_FOUND', 404);
+    if (table.inventoryKind === 'INVENTORY_SUMMARY') {
+      const source = await inventorySummarySql(this.db, table, fields, this.actor.userId, id => this.tableAccess(id));
+      const [projected] = await this.db.$queryRaw<CollabRecord[]>(Prisma.sql`SELECT r.* FROM (${source}) r WHERE r.id=${recordId}`);
+      record.values = projected.values;
+    }
     if (table.lifecycleKind) {
       const projected = await this.db.$queryRaw<CollabRecord[]>(Prisma.sql`SELECT r.* FROM (${await this.lifecycle().sourceSql(table, access, fields)}) r WHERE r.id = ${recordId}`);
       if (!projected.length) fail('COLLAB_NOT_FOUND', 404);
@@ -2820,6 +2891,7 @@ export class CollaborationService {
           )
         )
           fail('COLLAB_REQUIRED_FIELD_FORBIDDEN', 403);
+        if (!previous) await assignInventoryNumber(tx, tableId, fields, next);
         const lifecycleData = table.lifecycleKind ? await this.lifecycle().validate(tx, table, table.fields.filter(f => !f.archived), access, next, previous, input.archived === true) : null;
         const data = {
           values: json(next),

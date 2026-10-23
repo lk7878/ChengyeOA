@@ -99,6 +99,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   const [base, setBase] = useState<Base>();
   const [baseAccess, setBaseAccess] = useState<Access>();
   const [detail, setDetail] = useState<TableDetail>();
+  const summaryModeRef = useRef(false);
+  useEffect(() => { summaryModeRef.current = detail?.table.inventoryKind === 'INVENTORY_SUMMARY'; }, [detail?.table.inventoryKind]);
   const creation = domainCreate(detail?.table.source);
   const canCreateDomain = useAuthStore((s) => !!creation && s.hasPermission(creation.permission));
   const [directory, setDirectory] = useState<Directory>(emptyDirectory);
@@ -319,6 +321,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       connecting = false;
     const updates = createRefreshScheduler(refresh, () =>
       refreshPausedRef.current || inlineDirtyRef.current || document.visibilityState === 'hidden',
+      () => summaryModeRef.current ? 1000 : 30_000,
     );
     let connectedOnce = false;
     let reconnectDelay = 10_000;
@@ -1076,6 +1079,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               </Button>
               <span>{detail?.table.name || '选择或新建数据表'}</span>
               <LifecycleTableControl detail={detail} onChanged={refresh} />
+              {detail?.table.inventoryKind === 'INVENTORY_SUMMARY' && <Tag>按物品自动汇总 · 只读</Tag>}
               <Button type="text" icon={<ReloadOutlined />} aria-label="刷新数据" onClick={refresh} />
             </div>
             {detail && (
@@ -1184,7 +1188,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                       else void openRecord();
                     }}
                   >
-                    {creation?.label || (detail.table.source === 'LEADS' ? '新建线索' : detail.table.source === 'FOLLOWS' ? '新增跟进' : '添加记录')}
+                    {detail.table.inventoryKind === 'INVENTORY_REGISTER' ? '新增领用登记' : creation?.label || (detail.table.source === 'LEADS' ? '新建线索' : detail.table.source === 'FOLLOWS' ? '新增跟进' : '添加记录')}
                   </Button>
                   <Button
                     disabled={
@@ -2055,6 +2059,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   { value: 'BLANK', label: '空白数据表' },
                   { value: 'TASKS', label: '任务管理模板' },
                   { value: 'CONTACTS', label: '客户跟进模板' },
+                  { value: 'INVENTORY_REGISTER', label: '物品 · 定制物品领用登记表（14个字段）' },
+                  { value: 'INVENTORY_SUMMARY', label: '物品 · 定制物品领用统计（自动汇总）' },
                   { value: 'MEDICAL_ASSESSMENT', label: '跟进 · 病例评估表（21个字段）' },
                   { value: 'SIGNING_CONVERSION', label: '跟进 · 签约转化表（36个字段）' },
                 ]}
@@ -2066,10 +2072,11 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               <Form.Item name="type" label="字段类型" rules={[{ required: true }]}>
                 <Select
                   options={Object.entries(fieldNames)
+                    .filter(([type]) => type !== 'FORMULA')
                     .filter(
                       ([type]) =>
                         detail?.table.source === 'CUSTOM' ||
-                        !['CREATED_BY', 'UPDATED_BY', 'CREATED_AT', 'UPDATED_AT'].includes(type),
+                        !['AUTONUMBER', 'CREATED_BY', 'UPDATED_BY', 'CREATED_AT', 'UPDATED_AT'].includes(type),
                     )
                     .map(([value, label]) => ({ value, label }))}
                 />

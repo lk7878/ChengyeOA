@@ -7,11 +7,11 @@ import { moduleRecords } from './module-records';
 import { businessSources } from './business-sources';
 import request from '@/api/request';
 import { useAuthStore } from '@/stores/authStore';
-import { post } from '@/features/workspaces/api';
+import { get, post } from '@/features/workspaces/api';
 
 vi.mock('@/api/request', () => ({ default: { get: vi.fn(), delete: vi.fn() } }));
 vi.mock('@/features/workspaces/api', () => ({
-  get: async () => ({ workspaces: [{ id: 'w', name: '律所工作区' }] }),
+  get: vi.fn(async () => ({ workspaces: [{ id: 'w', name: '律所工作区' }] })),
   post: vi.fn(),
   errorMessage: () => '有关联业务，无法删除',
 }));
@@ -94,6 +94,7 @@ test('new module workbooks request a canonical business connection by default', 
   render(<CreateModuleBase source="CUSTOMERS" onCreated={onCreated} />);
   fireEvent.click(screen.getByRole('button', { name: '新建多维表格' }));
   await screen.findByText('律所工作区');
+  expect(get).toHaveBeenCalledWith('/workspaces?source=CUSTOMERS');
   const modal = await screen.findByRole('dialog');
   fireEvent.click(within(modal).getByRole('button', { name: '创建工作表' }));
   await waitFor(() =>

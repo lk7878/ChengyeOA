@@ -74,7 +74,7 @@ export default function FieldInput({
   if (disabled && field.type === 'FILE')
     return <Space orientation="vertical">{(Array.isArray(value) ? value : []).map(id =>
       <AttachmentItem key={String(id)} tableId={tableId} id={String(id)} />)}</Space>;
-  if (['CREATED_BY', 'UPDATED_BY', 'CREATED_AT', 'UPDATED_AT'].includes(field.type) || disabled && (field.options.businessKey || field.options.lifecycleKey))
+  if (['AUTONUMBER', 'FORMULA', 'CREATED_BY', 'UPDATED_BY', 'CREATED_AT', 'UPDATED_AT'].includes(field.type) || disabled && (field.options.businessKey || field.options.lifecycleKey))
     return <Input disabled value={displayText ?? displayValue(field, value, directory)} />;
   if (field.type === 'BOOLEAN')
     return (

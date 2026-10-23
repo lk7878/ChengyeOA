@@ -16,6 +16,8 @@ export interface Field extends Option {
     targetSource?: 'LEADS' | 'CHANNELS';
     primary?: boolean;
     helpText?: string;
+    formula?: string;
+    inventoryKey?: string;
     businessKey?: string;
     lifecycleKey?: string;
     businessSource?: string;
@@ -50,6 +52,7 @@ export interface View extends Option {
   config: ViewConfig;
 }
 export interface DataTable extends Option {
+  inventoryKind?: string | null;
   lifecycleKind?: string | null;
   canManage?: boolean;
   canDelete?: boolean;
@@ -143,6 +146,8 @@ export interface Member {
   version: number;
 }
 export const fieldNames: Record<string, string> = {
+  AUTONUMBER: '自动编号',
+  FORMULA: '公式（自动汇总）',
   TEXT: '文本',
   LONG_TEXT: '多行文本',
   NUMBER: '数字',

@@ -56,7 +56,7 @@ export default class CollaborationController extends Controller {
     this.respond(await this.collaborationService().businessRelationOptions(this.ctx.params.tableId, this.ctx.params.fieldId, this.ctx.request.body));
   }
   async index() {
-    this.respond(await this.collaborationService().listWorkspaces());
+    this.respond(await this.collaborationService().listWorkspaces(this.ctx.query));
   }
   async businessTables() {
     this.respond(await this.collaborationService().businessTables(this.ctx.query));
@@ -75,6 +75,9 @@ export default class CollaborationController extends Controller {
   }
   async followLeadOptions() {
     this.respond(await this.collaborationService().followLeadOptions(this.ctx.params.tableId, this.ctx.query));
+  }
+  async provisionModuleWorkspace() {
+    this.respond(await this.collaborationService().provisionModuleWorkspace(this.ctx.params.workspaceId, this.ctx.request.body, this.key()));
   }
   async createWorkspace() {
     this.respond(await this.collaborationService().createWorkspace(this.ctx.request.body, this.key()));

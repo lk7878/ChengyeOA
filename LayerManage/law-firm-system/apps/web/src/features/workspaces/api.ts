@@ -44,8 +44,10 @@ const messages: Record<string, string> = {
 
   LEAD_IN_USE: '线索已转为客户，或存在邀约、SOP任务等关联，请先处理关联后再删除。',
   LEAD_PHONE_INVALID: '联系电话格式不正确，请填写有效的电话号码。',
-  CONTRACT_GRID_STATE_INVALID: '仅草稿合同可直接修改；仅草稿或已作废合同可删除。审批、签署或生效中的合同请通过详情办理。',
-  CONTRACT_GRID_IN_USE: '合同已有签署、收款计划、收款、开票、退款、案件、分析委托或补充协议关联，不能直接修改或删除。',
+  CONTRACT_GRID_STATE_INVALID:
+    '仅草稿合同可直接修改；仅草稿或已作废合同可删除。审批、签署或生效中的合同请通过详情办理。',
+  CONTRACT_GRID_IN_USE:
+    '合同已有签署、收款计划、收款、开票、退款、案件、分析委托或补充协议关联，不能直接修改或删除。',
   RECEIVABLE_PLAN_MISMATCH: '合同金额与约定的收款计划不一致，请先核对收款约定。',
   VALIDATION_FAILED: '输入内容不符合要求，请检查必填字段及金额格式。',
   VERSION_CONFLICT: '记录已被其他人修改，请刷新后重试。',
@@ -91,6 +93,8 @@ const messages: Record<string, string> = {
   COLLAB_REFERENCED_FIELD: '字段仍被视图引用，请先调整引用。',
   COLLAB_REFERENCED_TABLE: '其他数据表仍在关联此表，请先处理关联。',
   COLLAB_NOT_FOUND: '数据不存在、已归档或不在你的权限范围内。',
+  COLLAB_MODULE_WORKSPACE_MISMATCH: '工作区与业务模块不匹配，请选择本模块工作区。',
+  COLLAB_INVENTORY_REGISTER_REQUIRED: '请先在同一工作表中创建“定制物品领用登记表”，统计表将自动汇总其数据。',
   COLLAB_READONLY_FIELD: '此字段只读。',
   COLLAB_IDEMPOTENCY_CONFLICT: '重试内容发生变化，请重新发起操作。',
   COLLAB_DEFAULT_VIEW_REQUIRED: '必须保留默认总表。',

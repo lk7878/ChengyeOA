@@ -39,6 +39,8 @@ export function integer(value: unknown, min = 1, max = 2147483647): number {
   return Number(value);
 }
 export const FIELD_TYPES = [
+  'AUTONUMBER',
+  'FORMULA',
   'TEXT',
   'LONG_TEXT',
   'NUMBER',
@@ -81,7 +83,7 @@ export function json(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 export function isSystemField(field: Pick<CollabField, 'type'>): boolean {
-  return ['CREATED_BY', 'CREATED_AT', 'UPDATED_BY', 'UPDATED_AT'].includes(field.type);
+  return ['AUTONUMBER', 'FORMULA', 'CREATED_BY', 'CREATED_AT', 'UPDATED_BY', 'UPDATED_AT'].includes(field.type);
 }
 export function validateValue(field: CollabField, value: unknown): unknown {
   if (value === null || value === undefined || value === '') {
@@ -210,7 +212,7 @@ export function fieldExpression(field: CollabField): Prisma.Sql {
   const value = Prisma.sql`r."values" ->> ${field.id}`;
   if (field.type === 'DATETIME') return Prisma.sql`(${value})::timestamptz`;
   if (field.type === 'DATE') return Prisma.sql`(${value})::date`;
-  return ['NUMBER', 'CURRENCY'].includes(field.type) ? Prisma.sql`(${value})::numeric` : value;
+  return ['NUMBER', 'CURRENCY', 'AUTONUMBER', 'FORMULA'].includes(field.type) ? Prisma.sql`(${value})::numeric` : value;
 }
 /** Keep currency group keys exact across PostgreSQL JSON and JavaScript. */
 export function groupExpression(field: CollabField): Prisma.Sql {
@@ -266,7 +268,7 @@ export function filterSql(
   if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')
     fail('COLLAB_INVALID_FILTER');
   if (String(value).length > 1000) fail('COLLAB_INVALID_FILTER');
-  if (['NUMBER', 'CURRENCY'].includes(field.type) && !/^-?\d+(\.\d+)?$/.test(String(value)))
+  if (['NUMBER', 'CURRENCY', 'AUTONUMBER', 'FORMULA'].includes(field.type) && !/^-?\d+(\.\d+)?$/.test(String(value)))
     fail('COLLAB_INVALID_FILTER');
   if (operator === 'contains') return Prisma.sql`strpos(lower((${expr})::text), lower(${String(value)})) > 0`;
   if (
@@ -280,7 +282,7 @@ export function filterSql(
     ['TEXT', 'LONG_TEXT', 'PHONE', 'URL', 'SINGLE_SELECT', 'USER', 'ORGANIZATION'].includes(field.type)
   )
     return Prisma.sql`r."values" @> ${JSON.stringify({ [field.id]: String(value) })}::jsonb`;
-  const comparison = ['NUMBER', 'CURRENCY'].includes(field.type)
+  const comparison = ['NUMBER', 'CURRENCY', 'AUTONUMBER', 'FORMULA'].includes(field.type)
     ? Prisma.sql`${String(value)}::numeric`
     : field.type === 'DATE'
       ? Prisma.sql`${String(value)}::date`

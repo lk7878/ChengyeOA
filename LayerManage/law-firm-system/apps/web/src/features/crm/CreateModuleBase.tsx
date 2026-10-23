@@ -14,6 +14,7 @@ export default function CreateModuleBase({
 }) {
   const [open, setOpen] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [parents, setParents] = useState<{ id: string; name: string }[]>([]);
   const [workspace, setWorkspace] = useState<string>();
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -31,10 +32,15 @@ export default function CreateModuleBase({
           setWorkspace(undefined);
           setConnectBusiness(true);
           setWorkspaces([]);
+          setParents([]);
           attempt.current = undefined;
           try {
-            const data = await get<{ workspaces: Workspace[] }>('/workspaces');
+            const data = await get<{
+              workspaces: Workspace[];
+              provisionParents?: { id: string; name: string }[];
+            }>('/workspaces?source=' + source);
             setWorkspaces(data.workspaces);
+            setParents(data.provisionParents ?? []);
             setWorkspace(data.workspaces[0]?.id);
           } catch (e) {
             setError(errorMessage(e));
@@ -106,6 +112,29 @@ export default function CreateModuleBase({
             onChange={(e) => setName(e.target.value)}
           />
         </label>
+        {!workspaces.length &&
+          parents.map((parent) => (
+            <Button
+              key={parent.id}
+              loading={busy}
+              onClick={async () => {
+                setBusy(true);
+                setError('');
+                try {
+                  await post('/workspaces/' + parent.id + '/module', { source }, crypto.randomUUID());
+                  const data = await get<{ workspaces: Workspace[] }>('/workspaces?source=' + source);
+                  setWorkspaces(data.workspaces);
+                  setWorkspace(data.workspaces[0]?.id);
+                } catch (e) {
+                  setError(errorMessage(e));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              创建本模块工作区（{parent.name}）
+            </Button>
+          ))}
         {!workspaces.length && <p>暂无可访问的工作区，请先从云盘创建工作区或联系负责人授权。</p>}
       </Modal>
     </>

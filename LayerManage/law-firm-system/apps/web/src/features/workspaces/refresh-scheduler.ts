@@ -1,5 +1,5 @@
 /** Coalesce notifications without replacing active drafts. Security events bypass this queue. */
-export function createRefreshScheduler(refresh: () => void, paused: () => boolean, delay = 30_000) {
+export function createRefreshScheduler(refresh: () => void, paused: () => boolean, delay: number | (() => number) = 30_000) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   const queue = () => {
@@ -9,7 +9,7 @@ export function createRefreshScheduler(refresh: () => void, paused: () => boolea
       if (disposed) return;
       if (paused()) queue();
       else refresh();
-    }, delay);
+    }, typeof delay === 'function' ? delay() : delay);
   };
   return {
     queue,

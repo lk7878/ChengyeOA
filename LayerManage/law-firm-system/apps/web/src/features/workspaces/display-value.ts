@@ -24,6 +24,8 @@ export const fieldLabel = (field: Field) =>
       : field.name + '（元）'
     : field.name;
 export function fieldHint(field: Field) {
+  if (field.options.helpText) return field.options.helpText;
+  if (field.type === 'AUTONUMBER') return '创建时自动递增编号，删除后不复用；不可手动修改。';
   if (field.options.businessSource === 'PAYMENTS' && ['invoiceNo','invoiceStatus'].includes(field.options.businessKey || '')) return '按关联合同的已完成开票申请同步；请在发票业务表办理开票。';
   if (['receiptDetails','receiptTotal','receiptFiles'].includes(field.options.businessKey || '') || ['actualRefundAmount','refundPaidAt','refundStatus','refundReceiptLookup'].includes(field.options.lifecycleKey || '')) return '财务数据仅限财务部录入，此处为自动同步。';
   if (field.options.lifecycleKey === 'status' && field.options.choices?.some(choice => choice.id === 'REFUND_REQUIRED'))
@@ -49,6 +51,7 @@ export function fieldHint(field: Field) {
 export function displayValue(field: Field, value: unknown, directory: Directory): string {
   if(field.options.businessKey==='receiptDetails') return (Array.isArray(value)?value.length:0)+' 笔收款';
   if (value === null || value === undefined || value === '') return '';
+  if (field.options.inventoryKey === '领取日期') return formatBusinessDate(value, true).replace(/-/g, '/');
   if (field.type === 'CURRENCY') return formatMoney(value);
   if (isCasePercent(field)) return `${Number(value)}%`;
   if (['DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(field.type) && (['CASES','FOLLOWS'].includes(field.options.businessSource || '') || field.options.lifecycleKey))
