@@ -4,7 +4,7 @@ export const businessSources = {
   QUALITY_ISSUES:{title:'质检问题工作表',path:'/quality/issues',personal:'我创建的问题'},
   SOP_TASKS: { title:'SOP任务工作表', path:'/sop/tasks', personal:'分派给我的任务' },
   CHANNELS: { title: '渠道工作表', path: '/channels', personal: '我登记的渠道' },
-  INVENTORY_ITEMS: { title: '物品库存工作表', path: '/inventory/items', personal: '我登记的物品' },
+  INVENTORY_ITEMS: { title: '低值易耗品工作表', path: '/inventory/items', personal: '我登记的物品' },
   INVENTORY_MOVEMENTS: { title: '出入库工作表', path: '/inventory/movements', personal: '我登记的出入库' },
   INVENTORY_STOCKTAKES: { title: '盘点工作表', path: '/inventory/stocktakes', personal: '我登记的盘点' },
   PERFORMANCES: { title: '绩效工作表', path: '/performances', personal: '我登记的绩效' },

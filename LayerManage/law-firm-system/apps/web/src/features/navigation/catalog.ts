@@ -283,8 +283,8 @@ export const entries: NavigationEntry[] = [
     ],
   },
   ...[
-    ['items', '物品档案与库存'],
-    ['customized-records', '定制物品领用登记'],
+    ['items', '低值易耗品'],
+    ['customized-records', '行政事务'],
     ['office-records', '办公用品领用明细'],
     ['inbound', '入库明细'],
     ['outbound', '出库明细'],

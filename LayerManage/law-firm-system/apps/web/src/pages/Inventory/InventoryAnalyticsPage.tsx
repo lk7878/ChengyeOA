@@ -14,8 +14,8 @@ import { downloadBlob } from '@/api/approval-materials';
 import { showRequestError } from '@/api/errors';
 
 const titles: Record<string, string> = {
-  items: '物品档案与库存',
-  'customized-records': '定制物品领用登记',
+  items: '低值易耗品',
+  'customized-records': '行政事务',
   'customized-statistics': '定制物品领用统计',
   'office-records': '办公用品领用明细',
   'office-statistics': '办公用品领用统计',

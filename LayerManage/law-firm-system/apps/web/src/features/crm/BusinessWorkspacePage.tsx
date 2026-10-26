@@ -13,8 +13,8 @@ import { Link, useSearchParams } from 'react-router';
 import { get, post, errorMessage } from '../workspaces/api';
 import { WorkspaceEditor } from '@/pages/Workspaces';
 
-interface BusinessDirectory {
-  tables: { id: string; name: string; source?: string; lifecycleKind?: string | null; baseId: string; baseName: string; workspaceName: string }[];
+export interface BusinessDirectory {
+  tables: { id: string; name: string; source?: string; lifecycleKind?: string | null; inventoryKind?: string | null; baseId: string; baseName: string; workspaceName: string }[];
   targets: { id: string; name: string; workspaceName: string }[];
 }
 export function BusinessTableLinks({

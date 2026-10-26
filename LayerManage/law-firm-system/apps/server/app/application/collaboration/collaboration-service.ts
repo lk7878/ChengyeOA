@@ -512,8 +512,10 @@ export class CollaborationService {
     };
   }
   async businessTables(raw: unknown = {}) {
-    const input = exact(raw, ['source', 'recordId']);
+    const input = exact(raw, ['source', 'recordId', 'inventoryKind']);
     const source = choice(input.source ?? 'LEADS', ['LEADS', 'FOLLOWS', ...Object.keys(domainSources)]);
+    const inventoryKind = input.inventoryKind === undefined ? undefined : choice(input.inventoryKind, inventoryKinds);
+    if (inventoryKind && source !== 'INVENTORY_ITEMS') fail('COLLAB_INVALID_SOURCE');
     const recordId = input.recordId === undefined ? undefined : text(input.recordId);
     if (recordId && source === 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
     new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
@@ -523,6 +525,7 @@ export class CollaborationService {
       source: string;
       baseId: string;
       lifecycleKind: string | null;
+      inventoryKind: string | null;
       baseName: string;
       workspaceName: string;
     }[] = [];
@@ -535,6 +538,7 @@ export class CollaborationService {
           if (!recordId && (!workspace.moduleGroup || workspace.moduleGroup === moduleGroup(source)) && directory.access.level === 4 && directory.access.canCreate && targets.length < 200)
             targets.push({ id: base.id, name: base.name, workspaceName: workspace.name });
           for (const table of directory.tables) {
+            if (inventoryKind && table.inventoryKind !== inventoryKind) continue;
             const associatedCustomTable =
               table.source === 'CUSTOM' && directory.base.moduleSource === source && !recordId;
             if ((table.source !== source && !associatedCustomTable) || table.archived || tables.length >= 200)
@@ -562,6 +566,7 @@ export class CollaborationService {
               name: table.name,
               source: table.source,
               lifecycleKind: table.lifecycleKind,
+              inventoryKind: table.inventoryKind,
               baseId: base.id,
               baseName: base.name,
               workspaceName: workspace.name,
@@ -871,7 +876,7 @@ export class CollaborationService {
     const tables = await tx.collabTable.findMany({
       where: { baseId },
       orderBy: [{ position: 'asc' }, { id: 'asc' }],
-      select: { id: true, name: true, source: true, lifecycleKind: true, position: true, schemaVersion: true, archived: true },
+      select: { id: true, name: true, source: true, lifecycleKind: true, inventoryKind: true, position: true, schemaVersion: true, archived: true },
     });
     const visible: Array<(typeof tables)[number] & { canManage: boolean; canDelete: boolean }> = [];
     for (const table of tables) {

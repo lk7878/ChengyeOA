@@ -47,6 +47,25 @@ async function peer(role: string, self = false) {
   await admin.saveMember(workspace, { principalType: 'ROLE', principalId: businessRole.id, role, rowScope: self ? 'SELF' : 'ALL', canCreate: role === 'EDITOR', baseId: base }, key());
   return new DriveService(db, context(user.id, false, ['inventory.read']));
 }
+test('inventory menu discovery matches stable kinds after renaming and excludes archived or unauthorized tables', async () => {
+  const register = await sheet('INVENTORY_REGISTER');
+  const office = await sheet('OFFICE_REGISTER');
+  const inbound = await sheet('OFFICE_INBOUND');
+  const outbound = await sheet('OFFICE_OUTBOUND');
+  const reader = await peer('READER');
+  await admin.mutateTable(inbound.id, { name: '已自定义名称', version: 1 }, key());
+  for (const [kind, id] of [['INVENTORY_REGISTER', register.id], ['OFFICE_REGISTER', office.id], ['OFFICE_INBOUND', inbound.id], ['OFFICE_OUTBOUND', outbound.id]]) {
+    const result = await reader.businessTables({ source: 'INVENTORY_ITEMS', inventoryKind: kind });
+    assert.deepEqual(result.tables.map(t => [t.id, t.baseId, t.inventoryKind]), [[id, base, kind]]);
+  }
+  await admin.mutateTable(outbound.id, { archived: true, version: 1 }, key());
+  assert.equal((await reader.businessTables({ source: 'INVENTORY_ITEMS', inventoryKind: 'OFFICE_OUTBOUND' })).tables.length, 0);
+  await db.collabTable.update({ where: { id: office.id }, data: { accessPolicy: { restricted: true, grants: [] } } });
+  assert.equal((await reader.businessTables({ source: 'INVENTORY_ITEMS', inventoryKind: 'OFFICE_REGISTER' })).tables.length, 0);
+  const denied = new DriveService(db, context(reader.actor.userId, false, []));
+  await assert.rejects(denied.businessTables({ source: 'INVENTORY_ITEMS', inventoryKind: 'OFFICE_INBOUND' }), /COLLAB_FORBIDDEN/);
+  await assert.rejects(admin.businessTables({ source: 'CASES', inventoryKind: 'OFFICE_INBOUND' }), /COLLAB_INVALID_SOURCE/);
+});
 test('office register requires intake fields, supports 35 quantities and recomputes read-only statistics through edit/delete/undo', async () => {
   const register = await sheet('OFFICE_REGISTER'), summary = await sheet('OFFICE_SUMMARY');
   assert.equal(register.detail.fields.length, 39);
