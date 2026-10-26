@@ -7,17 +7,19 @@ import {
   ensureModuleWorkspace,
 } from '../../app/application/collaboration/module-workspaces';
 import {
-  inventoryKinds,
+  inventoryAliases,
   inventoryNames,
   inventoryFields,
   seedInventorySummary,
   InventoryKind,
+  isInventorySummary,
 } from '../../app/application/collaboration/inventory-worksheets';
 import { object } from '../../app/application/collaboration/collaboration-policy';
 import { appendCollaborationChange } from '../../app/application/collaboration/collaboration-change';
 
 /** Preserve identities, sharing, records and history. Preview is the default. */
-export async function standardizeModuleInventory(db: PrismaClient, actorId: string, apply = false) {
+export async function standardizeModuleInventory(db: PrismaClient, actorId: string, apply = false,
+  kinds: readonly InventoryKind[] = ['INVENTORY_REGISTER', 'INVENTORY_SUMMARY'], inventoryOnly = false) {
   const report: unknown[] = [];
   const roots = await db.collabWorkspace.findMany({
     where: { moduleGroup: null },
@@ -26,13 +28,14 @@ export async function standardizeModuleInventory(db: PrismaClient, actorId: stri
     },
   });
   for (const root of roots) {
-    for (const group of Object.keys(moduleGroups)) {
+    for (const group of inventoryOnly ? ['INVENTORY'] : Object.keys(moduleGroups)) {
       report.push({ workspace: root.name, module: moduleGroups[group].name });
       if (apply) await db.$transaction((tx) => ensureModuleWorkspace(tx, root.id, group, actorId));
     }
     for (const base of root.bases) {
       if (!base.moduleSource || base.driveNode?.deletedAt || !base.tables.length) continue;
       const group = moduleGroup(base.moduleSource);
+      if (inventoryOnly && group !== 'INVENTORY') continue;
       // Nested folders carry ACL inheritance; do not silently detach or weaken their policy.
       if (base.driveNode?.parentId) {
         report.push({ baseId: base.id, skipped: 'nested-folder-inheritance' });
@@ -80,18 +83,14 @@ export async function standardizeModuleInventory(db: PrismaClient, actorId: stri
     },
   });
   for (const base of bases) {
-    for (const kind of inventoryKinds) {
-      const aliases =
-        kind === 'INVENTORY_REGISTER'
-          ? ['定制物品领用登记表']
-          : ['定制物品领用统计', '定制物品领用统计表', '领定制物品领用统计'];
+    for (const kind of kinds) {
+      const aliases = inventoryAliases(kind);
       const matches = base.tables.filter((t) => t.inventoryKind === kind || aliases.includes(t.name));
       // Only standardize the requested inventory workbook, not unrelated stock directories.
       if (
         !base.tables.some(
           (t) =>
-            t.inventoryKind ||
-            ['定制物品领用登记表', '领定制物品领用统计', '定制物品领用统计'].includes(t.name),
+            kinds.some(k => t.inventoryKind === k || inventoryAliases(k).includes(t.name)),
         )
       )
         continue;
@@ -192,7 +191,7 @@ export async function standardizeModuleInventory(db: PrismaClient, actorId: stri
               },
             });
           }
-          if (kind === 'INVENTORY_SUMMARY') await seedInventorySummary(tx, table.id, actorId);
+          if (isInventorySummary(kind)) await seedInventorySummary(tx, table.id, actorId);
           await tx.operationLog.create({
             data: {
               userId: actorId,

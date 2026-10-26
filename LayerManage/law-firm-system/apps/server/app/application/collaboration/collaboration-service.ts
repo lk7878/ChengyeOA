@@ -1,5 +1,5 @@
 import { moduleGroup, moduleGroups, ensureModuleWorkspace } from './module-workspaces';
-import { inventoryFields, inventoryKinds, InventoryKind, seedInventorySummary, inventorySummarySql, assignInventoryNumber } from './inventory-worksheets';
+import { inventoryFields, inventoryKinds, InventoryKind, seedInventorySummary, inventorySummarySql, assignInventoryNumber, isInventorySummary, hasInventoryProjection, validateOfficeStock } from './inventory-worksheets';
 import { followSupportFields, followSupportKinds, FollowSupportKind } from './follow-support-templates';
 import { LifecycleWorksheet, lifecycleFields, lifecycleKinds, lifecycleKey, syncedLifecycleKeys, LifecycleKind } from './lifecycle-worksheet';
 import { CASE_FIELD_ORDER } from '../case/intake-contract';
@@ -254,7 +254,7 @@ export class CollaborationService {
     if (row.inventoryKind) new WorkspaceBusinessTable(this.db, this.actor).authorize('INVENTORY_ITEMS');
     if (row._moduleGroup && row._moduleSource && row.source === 'CUSTOM') this.moduleSource(row._moduleSource);
     // Record mutations request level 2; directory administration requests level 3.
-    if (row.inventoryKind === 'INVENTORY_SUMMARY' && level === 2) fail('COLLAB_READONLY_FIELD', 403);
+    if (isInventorySummary(row.inventoryKind) && level === 2) fail('COLLAB_READONLY_FIELD', 403);
     const {
       _moduleGroup: _ignoredGroup,
       _moduleSource: _ignoredSource,
@@ -290,7 +290,7 @@ export class CollaborationService {
       ...definition,
       fields: _fields,
     };
-    if (table.inventoryKind === 'INVENTORY_SUMMARY') {
+    if (isInventorySummary(table.inventoryKind)) {
       access.canCreate = false;
       access.readonly = [...new Set([...access.readonly, ...table.fields.map(f => f.id)])];
     }
@@ -945,6 +945,7 @@ export class CollaborationService {
       if (access.selfOnly || access.hidden.length || access.readonly.length) fail('COLLAB_FORBIDDEN', 403);
       if (
         table.source !== 'CUSTOM' ||
+        !!table.inventoryKind ||
         (table.lifecycleKind === 'CASE_REFUNDS' && kind !== table.lifecycleKind) ||
         table.schemaVersion !== integer(input.schemaVersion)
       )
@@ -1032,7 +1033,7 @@ export class CollaborationService {
           await this.assertModuleWorkspace(base.workspaceId, 'INVENTORY_ITEMS', tx);
           await tx.collabTable.update({ where: { id: table.id }, data: { inventoryKind: template } });
           await tx.collabField.createMany({ data: inventoryFields(template as InventoryKind).map(f => ({...f, tableId: table.id})) });
-          if (template === 'INVENTORY_SUMMARY') await seedInventorySummary(tx, table.id, this.actor.userId);
+          if (isInventorySummary(template)) await seedInventorySummary(tx, table.id, this.actor.userId);
         } else if (followSupportKinds.includes(template as FollowSupportKind)) {
           await tx.collabField.createMany({ data: followSupportFields(template as FollowSupportKind).map(f => ({...f, tableId: table.id})) });
         } else if (lifecycleKinds.includes(template as LifecycleKind)) {
@@ -1099,7 +1100,7 @@ export class CollaborationService {
     return {
       table: { ...table, accessPolicy: null as null, fields: [] as CollabField[] },
       canDeleteRecords:
-        table.inventoryKind !== 'INVENTORY_SUMMARY' &&
+        !isInventorySummary(table.inventoryKind) &&
         access.level >= 2 &&
         ((table.source === 'CUSTOM' && (!table.lifecycleKind || this.actor.permissionCodes.includes(table.lifecycleKind === 'AFTER_SALES' ? 'case.delete' : 'refund.create'))) ||
           (table.source === 'CASES' && this.actor.permissionCodes.includes('case.delete')) ||
@@ -1242,7 +1243,7 @@ export class CollaborationService {
             },
           });
         }
-        if (copy.inventoryKind === 'INVENTORY_SUMMARY') await seedInventorySummary(tx, copy.id, this.actor.userId);
+        if (isInventorySummary(copy.inventoryKind)) await seedInventorySummary(tx, copy.id, this.actor.userId);
         await this.event(tx, table.baseId, 'table.created', copy.id);
         return { id: copy.id };
       }
@@ -1669,8 +1670,8 @@ export class CollaborationService {
       return { ...result, records: await this.projectReferences(result.records, fields) };
     }
     const where = Prisma.sql`r."tableId" = ${tableId} AND r.archived = false AND ${access.selfOnly ? Prisma.sql`r."createdBy" = ${this.actor.userId}` : Prisma.sql`TRUE`} AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}`;
-    const projection = table.inventoryKind === 'INVENTORY_SUMMARY' ? await inventorySummarySql(this.db, table, fields, this.actor.userId, id => this.tableAccess(id)) : table.lifecycleKind ? await this.lifecycle().sourceSql(table, access, fields) : undefined;
-    const result = await queryCustomRecords(this.db, table.inventoryKind === 'INVENTORY_SUMMARY' ? Prisma.sql`r."tableId"=${tableId} AND r.archived=false AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}` : where, config, fields, page, pageSize, projection);
+    const projection = hasInventoryProjection(table.inventoryKind) ? await inventorySummarySql(this.db, table, fields, this.actor.userId, id => this.tableAccess(id)) : table.lifecycleKind ? await this.lifecycle().sourceSql(table, access, fields) : undefined;
+    const result = await queryCustomRecords(this.db, isInventorySummary(table.inventoryKind) ? Prisma.sql`r."tableId"=${tableId} AND r.archived=false AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}` : where, config, fields, page, pageSize, projection);
     if (table.lifecycleKind) await this.lifecycle().auditPhone(fields,result.records.length);
     return {
       ...result,
@@ -1713,10 +1714,10 @@ export class CollaborationService {
       };
     }
     const record = await this.db.collabRecord.findFirst({
-      where: { ...this.rowWhere(tableId, table.inventoryKind === 'INVENTORY_SUMMARY' ? {...access,selfOnly:false} : access), id: recordId },
+      where: { ...this.rowWhere(tableId, isInventorySummary(table.inventoryKind) ? {...access,selfOnly:false} : access), id: recordId },
     });
     if (!record) fail('COLLAB_NOT_FOUND', 404);
-    if (table.inventoryKind === 'INVENTORY_SUMMARY') {
+    if (hasInventoryProjection(table.inventoryKind)) {
       const source = await inventorySummarySql(this.db, table, fields, this.actor.userId, id => this.tableAccess(id));
       const [projected] = await this.db.$queryRaw<CollabRecord[]>(Prisma.sql`SELECT r.* FROM (${source}) r WHERE r.id=${recordId}`);
       record.values = projected.values;
@@ -2329,6 +2330,7 @@ export class CollaborationService {
     const initial = await this.tableAccess(tableId, this.db, 2);
     return this.write(key, ['record.reverse', tableId, operationId, direction], async (tx) => {
       await this.lock(tx, initial.access.workspaceId, true);
+      if (initial.table.inventoryKind === 'OFFICE_STOCK') await tx.$queryRaw`SELECT id FROM collab_table WHERE id=${tableId} FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM collab_record_operation WHERE id = ${operationId} FOR UPDATE`;
       const operation = await tx.collabRecordOperation.findFirst({
         where: { id: operationId, tableId, actorId: this.actor.userId },
@@ -2360,6 +2362,7 @@ export class CollaborationService {
           });
           if (!row || row.version !== operation.expectedVersion) fail('COLLAB_RECORD_CONFLICT', 409);
           const restoredValues = object(row.values);
+          await validateOfficeStock(tx, table, table.fields, restoredValues, row.id);
           for (const field of table.fields.filter((f) => !f.archived && !isSystemField(f))) {
             if (restoredValues[field.id] === undefined && field.defaultValue !== null)
               restoredValues[field.id] = field.defaultValue;
@@ -2864,6 +2867,7 @@ export class CollaborationService {
         await this.lock(tx, initial.access.workspaceId, true);
         const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
         if (table.source !== 'CUSTOM') fail('COLLAB_USE_BUSINESS_ACTION', 409);
+        if (table.inventoryKind === 'OFFICE_STOCK') await tx.$queryRaw`SELECT id FROM collab_table WHERE id=${tableId} FOR UPDATE`;
         if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
         const previous = recordId
           ? (
@@ -2892,6 +2896,7 @@ export class CollaborationService {
         )
           fail('COLLAB_REQUIRED_FIELD_FORBIDDEN', 403);
         if (!previous) await assignInventoryNumber(tx, tableId, fields, next);
+        if (input.archived !== true) await validateOfficeStock(tx, table, table.fields, next, recordId);
         const lifecycleData = table.lifecycleKind ? await this.lifecycle().validate(tx, table, table.fields.filter(f => !f.archived), access, next, previous, input.archived === true) : null;
         const data = {
           values: json(next),

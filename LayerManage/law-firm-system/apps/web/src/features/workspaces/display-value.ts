@@ -51,7 +51,7 @@ export function fieldHint(field: Field) {
 export function displayValue(field: Field, value: unknown, directory: Directory): string {
   if(field.options.businessKey==='receiptDetails') return (Array.isArray(value)?value.length:0)+' 笔收款';
   if (value === null || value === undefined || value === '') return '';
-  if (field.options.inventoryKey === '领取日期') return formatBusinessDate(value, true).replace(/-/g, '/');
+  if (['领取日期', '日期'].includes(field.options.inventoryKey || '')) return formatBusinessDate(value).slice(0, 10).replace(/-/g, '/');
   if (field.type === 'CURRENCY') return formatMoney(value);
   if (isCasePercent(field)) return `${Number(value)}%`;
   if (['DATETIME', 'CREATED_AT', 'UPDATED_AT'].includes(field.type) && (['CASES','FOLLOWS'].includes(field.options.businessSource || '') || field.options.lifecycleKey))

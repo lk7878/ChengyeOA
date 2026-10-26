@@ -9,7 +9,7 @@ export default function LifecycleTableControl({
   detail?: TableDetail;
   onChanged(): void;
 }) {
-  if (!detail || detail.table.source !== 'CUSTOM') return null;
+  if (!detail || detail.table.source !== 'CUSTOM' || detail.table.inventoryKind) return null;
   if (detail.table.lifecycleKind && (detail.access.level < 3 || detail.table.lifecycleKind === 'CASE_REFUNDS'))
     return (
       <Tag color="blue">

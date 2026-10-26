@@ -100,7 +100,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   const [baseAccess, setBaseAccess] = useState<Access>();
   const [detail, setDetail] = useState<TableDetail>();
   const summaryModeRef = useRef(false);
-  useEffect(() => { summaryModeRef.current = detail?.table.inventoryKind === 'INVENTORY_SUMMARY'; }, [detail?.table.inventoryKind]);
+  useEffect(() => { summaryModeRef.current = ['INVENTORY_SUMMARY', 'OFFICE_SUMMARY', 'OFFICE_STOCK'].includes(detail?.table.inventoryKind || ''); }, [detail?.table.inventoryKind]);
   const creation = domainCreate(detail?.table.source);
   const canCreateDomain = useAuthStore((s) => !!creation && s.hasPermission(creation.permission));
   const [directory, setDirectory] = useState<Directory>(emptyDirectory);
@@ -1079,7 +1079,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               </Button>
               <span>{detail?.table.name || '选择或新建数据表'}</span>
               <LifecycleTableControl detail={detail} onChanged={refresh} />
-              {detail?.table.inventoryKind === 'INVENTORY_SUMMARY' && <Tag>按物品自动汇总 · 只读</Tag>}
+              {['INVENTORY_SUMMARY', 'OFFICE_SUMMARY'].includes(detail?.table.inventoryKind || '') && <Tag>按物品自动汇总 · 只读</Tag>}
               <Button type="text" icon={<ReloadOutlined />} aria-label="刷新数据" onClick={refresh} />
             </div>
             {detail && (
@@ -1188,7 +1188,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                       else void openRecord();
                     }}
                   >
-                    {detail.table.inventoryKind === 'INVENTORY_REGISTER' ? '新增领用登记' : creation?.label || (detail.table.source === 'LEADS' ? '新建线索' : detail.table.source === 'FOLLOWS' ? '新增跟进' : '添加记录')}
+                    {['INVENTORY_REGISTER', 'OFFICE_REGISTER'].includes(detail.table.inventoryKind || '') ? '新增领用登记' : creation?.label || (detail.table.source === 'LEADS' ? '新建线索' : detail.table.source === 'FOLLOWS' ? '新增跟进' : '添加记录')}
                   </Button>
                   <Button
                     disabled={
@@ -2061,6 +2061,12 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   { value: 'CONTACTS', label: '客户跟进模板' },
                   { value: 'INVENTORY_REGISTER', label: '物品 · 定制物品领用登记表（14个字段）' },
                   { value: 'INVENTORY_SUMMARY', label: '物品 · 定制物品领用统计（自动汇总）' },
+                  { value: 'OFFICE_REGISTER', label: '物品 · 办公用品领用明细表（39个字段）' },
+                  { value: 'OFFICE_SUMMARY', label: '物品 · 办公用品领用统计（自动汇总）' },
+                  { value: 'OFFICE_INBOUND', label: '物品 · 入库明细表（9个字段）' },
+                  { value: 'OFFICE_OUTBOUND', label: '物品 · 出库明细表（9个字段）' },
+                  { value: 'OFFICE_STOCK', label: '物品 · 办公用品库存表（自动计算库存）' },
+                  { value: 'OFFICE_STOCKTAKE', label: '物品 · 定期办公用品盘存记录（8个字段）' },
                   { value: 'MEDICAL_ASSESSMENT', label: '跟进 · 病例评估表（21个字段）' },
                   { value: 'SIGNING_CONVERSION', label: '跟进 · 签约转化表（36个字段）' },
                 ]}

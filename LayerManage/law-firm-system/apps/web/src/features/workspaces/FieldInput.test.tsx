@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import FieldInput from './FieldInput';
 import { post } from './api';
 import type { Field } from './types';
+import { displayValue } from './display-value';
 vi.mock('./api', () => ({ post: vi.fn(), get: vi.fn(), errorMessage: () => '错误' }));
 const field: Field = {
   id: 'lead',
@@ -19,6 +20,25 @@ const field: Field = {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+test('office inventory formula fields stay read-only while multiline notes and quantities remain editable', () => {
+  const directory = { employees: [], organizations: [], users: [], teams: [] };
+  const change = vi.fn();
+  const { rerender } = render(<FieldInput field={{ ...field, type: 'FORMULA', name: '库存数量', writable: false, options: { inventoryKey: '库存数量' } }} value={12.5} onChange={change} directory={directory} tableId="stock" />);
+  expect(screen.getByRole('textbox')).toBeDisabled();
+  expect(screen.getByRole('textbox')).toHaveValue('12.5');
+  rerender(<FieldInput field={{ ...field, type: 'LONG_TEXT', name: '备注', options: { inventoryKey: '备注' } }} value="" onChange={change} directory={directory} tableId="stock" />);
+  fireEvent.change(screen.getByLabelText('备注'), { target: { value: '第一行\n第二行' } });
+  expect(change).toHaveBeenCalledWith('第一行\n第二行');
+  rerender(<FieldInput field={{ ...field, type: 'NUMBER', name: '盘存时数量', options: { inventoryKey: '盘存时数量' } }} value={0} onChange={change} directory={directory} tableId="take" />);
+  fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '25.5' } });
+  expect(change).toHaveBeenCalledWith(25.5);
+});
+test('office movement and receipt dates display YYYY/MM/DD in Beijing time', () => {
+  for (const name of ['日期', '领取日期']) {
+    const f = { ...field, type: 'DATETIME', name, options: { inventoryKey: name } };
+    expect(displayValue(f, '2026-10-25T16:30:00Z', { employees: [], organizations: [], users: [], teams: [] })).toBe('2026/10/26');
+  }
 });
 test('business link editor loads selected labels and searches canonical records on the server', async () => {
   vi.mocked(post).mockResolvedValue({ options: [{ id: 'lead-1', label: 'L001 · 客户甲' }], hasMore: false });
