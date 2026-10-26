@@ -21,7 +21,7 @@ const titles: Record<string, string> = {
   'office-statistics': '办公用品领用统计',
   inbound: '入库明细',
   outbound: '出库明细',
-  stocktakes: '定期物品盘点记录',
+  stocktakes: '人力资源',
   dashboard: '物品领用仪表盘',
 };
 const kindOptions = [
@@ -144,7 +144,7 @@ export default function InventoryAnalyticsPage() {
   ];
   return (
     <div>
-      <h2>{titles[section] || '物品管理'}</h2>
+      <h2>{titles[section] || '综合行政管理'}</h2>
       <p>实际领用与出库共用同一单据。库存调整需通过入库、领用或盘点登记，历史记录保留。</p>
       <Space wrap style={{ marginBottom: 16 }}>
         <Input

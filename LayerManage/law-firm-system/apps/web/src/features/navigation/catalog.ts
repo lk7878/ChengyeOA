@@ -284,13 +284,13 @@ export const entries: NavigationEntry[] = [
   },
   ...[
     ['items', '低值易耗品'],
-    ['stocktakes', '定期物品盘点记录'],
+    ['stocktakes', '人力资源'],
   ].map(
     ([path, title]): NavigationEntry => ({
       path: '/inventory/' + path,
       title,
       area: 'apps',
-      group: '物品管理',
+      group: '综合行政管理',
       required: stock,
     }),
   ),
@@ -332,13 +332,13 @@ export const entries: NavigationEntry[] = [
     required: ['case.read'],
     hidden: true,
   },
-  { path: '/inventory/movements', title: '出入库工作表', area: 'apps', group: '物品管理', required: stock },
+  { path: '/inventory/movements', title: '行政事务', area: 'apps', group: '综合行政管理', required: stock },
   ...(['items', 'movements', 'stocktakes'] as const).flatMap((source): NavigationEntry[] => [
     {
       path: '/inventory/' + source + '/new',
       title: '登记物品业务',
       area: 'apps',
-      group: '物品管理',
+      group: '综合行政管理',
       required: stock,
       hidden: true,
       parent: '/inventory/' + source,
@@ -347,7 +347,7 @@ export const entries: NavigationEntry[] = [
       path: '/inventory/' + source + '/:id',
       title: '物品业务详情',
       area: 'apps',
-      group: '物品管理',
+      group: '综合行政管理',
       required: stock,
       hidden: true,
       parent: '/inventory/' + source,

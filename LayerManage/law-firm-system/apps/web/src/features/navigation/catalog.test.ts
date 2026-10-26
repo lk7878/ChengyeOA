@@ -18,7 +18,9 @@ const summary: AuthorizationSummary = {
 test('removed inventory entries return to low-value supplies while its authorization is retained', () => {
   const items = findEntry('/inventory/items')!;
   expect(items.title).toBe('低值易耗品');
-  expect(items.group).toBe('物品管理');
+  expect(items.group).toBe('综合行政管理');
+  expect(findEntry('/inventory/stocktakes')?.title).toBe('人力资源');
+  expect(findEntry('/inventory/movements')?.title).toBe('行政事务');
   expect(canOpen(items, summary)).toBe(false);
   for (const section of ['customized-records', 'office-records', 'inbound', 'outbound']) {
     expect(findEntry('/inventory/' + section)).toBeUndefined();
