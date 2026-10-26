@@ -118,7 +118,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
       {source === 'CHANNELS' && <ChannelIdentityGaps />}
       {source === 'INVOICES' && <ReceiptLedgerLinks />}
       {source === 'NEGOTIATIONS' && <NegotiationList />}
-      {source !== 'NEGOTIATIONS' && <ModuleRecordList key={source} source={source} />}
+      {source !== 'NEGOTIATIONS' && source !== 'INVENTORY_MOVEMENTS' && <ModuleRecordList key={source} source={source} />}
       {error && (
         <Alert
           type="error"
@@ -150,13 +150,13 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
               </Link>
             ))}
           </div>
-          <p>业务工作表同步展示正式记录；普通数据表用于独立录入。打开工作表可通过“分享”和“权限”按人员或角色授权，业务操作仍需对应的角色权限。</p>
-          {data.targets.length > 0 && (
+          <p>{source === 'INVENTORY_MOVEMENTS' ? '行政费用在独立工作表中录入，支持双击编辑、删除及撤销/重做。费用金额由数量和单价自动计算，可通过“分享”和“权限”授权协作。' : '业务工作表同步展示正式记录；普通数据表用于独立录入。打开工作表可通过“分享”和“权限”按人员或角色授权，业务操作仍需对应的角色权限。'}</p>
+          {source !== 'INVENTORY_MOVEMENTS' && data.targets.length > 0 && (
             <Button type="primary" onClick={() => setConnecting(true)}>
               连接业务数据
             </Button>
           )}
-          {creation && canCreate && (
+          {source !== 'INVENTORY_MOVEMENTS' && creation && canCreate && (
             <Link
               style={{ marginLeft: 16 }}
               to={creation.path + (params.size ? '?' + params.toString() : '')}

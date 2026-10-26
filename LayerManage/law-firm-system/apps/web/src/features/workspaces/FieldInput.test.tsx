@@ -21,6 +21,26 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
+test('administrative expense dates and money use the same formats in the table and editor', () => {
+  const directory = { employees: [], organizations: [], users: [], teams: [] };
+  const change = vi.fn();
+  const total = { ...field, type: 'FORMULA', name: '费用金额', writable: false, options: { numberFormat: 'CNY' as const } };
+  expect(displayValue(total, '3703.68', directory)).toBe('3,703.68');
+  const { rerender } = render(<FieldInput field={total} value="3703.68" onChange={change} directory={directory} tableId="expense" />);
+  expect(screen.getByRole('textbox')).toBeDisabled();
+  expect(screen.getByRole('textbox')).toHaveValue('3,703.68');
+  rerender(<FieldInput field={{ ...field, type: 'CURRENCY', name: '单价', options: { numberFormat: 'CNY' } }} value="1234.56" onChange={change} directory={directory} tableId="expense" />);
+  expect(screen.getByRole('spinbutton')).toHaveValue('1,234.56');
+  fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '2,345.67' } });
+  fireEvent.blur(screen.getByRole('spinbutton'));
+  expect(change).toHaveBeenCalledWith('2345.67');
+  const date = { ...field, type: 'DATETIME', name: '采购日期', options: { dateOnly: true } };
+  expect(displayValue(date, '2026-10-25T16:00:00.000Z', directory)).toBe('2026/10/26');
+  rerender(<FieldInput field={date} value="2026-10-25T16:00:00.000Z" onChange={change} directory={directory} tableId="expense" />);
+  expect(screen.getByLabelText('采购日期')).toHaveValue('2026-10-26');
+  fireEvent.change(screen.getByLabelText('采购日期'), { target: { value: '2026-10-27' } });
+  expect(change).toHaveBeenCalledWith('2026-10-26T16:00:00.000Z');
+});
 test('office inventory formula fields stay read-only while multiline notes and quantities remain editable', () => {
   const directory = { employees: [], organizations: [], users: [], teams: [] };
   const change = vi.fn();

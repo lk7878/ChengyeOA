@@ -6,6 +6,7 @@ import { Access, CollaborationService } from './collaboration-service';
 import { choice, exact, fail, integer, json, text } from './collaboration-policy';
 import { accessInput, resourcePolicy, restrictResourceAccess } from './resource-access';
 import { businessFields, WorkspaceBusinessTable } from '../crm/workspace-business-table';
+import { expenseFields, expenseKind, expenseName } from './administrative-expenses';
 
 type Tx = Prisma.TransactionClient;
 export function optionalParent(value: unknown): string | null {
@@ -520,7 +521,8 @@ export class DriveService extends CollaborationService {
     const input = exact(raw, ['name', 'parentId', 'moduleSource', 'connectBusiness']);
     const moduleSource = this.moduleSource(input.moduleSource);
     if (input.connectBusiness !== undefined && typeof input.connectBusiness !== 'boolean') fail('COLLAB_INVALID_INPUT');
-    const connectBusiness = input.connectBusiness === true;
+    const expenses = moduleSource === 'INVENTORY_MOVEMENTS';
+    const connectBusiness = !expenses && input.connectBusiness === true;
     if (connectBusiness) {
       if (!moduleSource) fail('COLLAB_INVALID_SOURCE');
       new WorkspaceBusinessTable(this.db, this.actor).authorize(moduleSource);
@@ -553,9 +555,11 @@ export class DriveService extends CollaborationService {
         },
       });
       const table = await tx.collabTable.create({
-        data: { baseId: base.id, name: connectBusiness ? '业务记录' : '数据表', source: connectBusiness ? moduleSource! : 'CUSTOM', createdBy: this.actor.userId },
+        data: { baseId: base.id, name: expenses ? expenseName : connectBusiness ? '业务记录' : '数据表', inventoryKind: expenses ? expenseKind : null, source: connectBusiness ? moduleSource! : 'CUSTOM', createdBy: this.actor.userId },
       });
-      if (connectBusiness) {
+      if (expenses) {
+        await tx.collabField.createMany({ data: expenseFields().map(field => ({ ...field, tableId: table.id })) });
+      } else if (connectBusiness) {
         await tx.collabField.createMany({ data: businessFields(moduleSource!).map((field) => ({ ...field, tableId: table.id })) });
       } else {
         await tx.collabField.create({ data: { tableId: table.id, name: '标题', type: 'TEXT', required: true } });

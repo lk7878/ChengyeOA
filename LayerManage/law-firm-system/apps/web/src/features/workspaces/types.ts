@@ -18,6 +18,8 @@ export interface Field extends Option {
     helpText?: string;
     formula?: string;
     inventoryKey?: string;
+    numberFormat?: 'CNY';
+    dateOnly?: boolean;
     businessKey?: string;
     lifecycleKey?: string;
     businessSource?: string;

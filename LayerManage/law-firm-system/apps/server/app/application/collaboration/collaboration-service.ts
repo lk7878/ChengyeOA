@@ -456,6 +456,8 @@ export class CollaborationService {
   }
   protected async assertModuleWorkspace(workspaceId: string, source: string | null, tx: Tx = this.db) {
     const workspace = await tx.collabWorkspace.findUniqueOrThrow({ where: { id: workspaceId } });
+    if (source === 'INVENTORY_MOVEMENTS' && workspace.moduleGroup !== 'ADMINISTRATION')
+      fail('COLLAB_MODULE_WORKSPACE_MISMATCH');
     if (workspace.moduleGroup && source && moduleGroup(source) !== workspace.moduleGroup)
       fail('COLLAB_MODULE_WORKSPACE_MISMATCH');
   }
@@ -515,7 +517,7 @@ export class CollaborationService {
     const input = exact(raw, ['source', 'recordId', 'inventoryKind']);
     const source = choice(input.source ?? 'LEADS', ['LEADS', 'FOLLOWS', ...Object.keys(domainSources)]);
     const inventoryKind = input.inventoryKind === undefined ? undefined : choice(input.inventoryKind, inventoryKinds);
-    if (inventoryKind && source !== 'INVENTORY_ITEMS') fail('COLLAB_INVALID_SOURCE');
+    if (inventoryKind && source !== (inventoryKind === 'ADMIN_EXPENSES' ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS')) fail('COLLAB_INVALID_SOURCE');
     const recordId = input.recordId === undefined ? undefined : text(input.recordId);
     if (recordId && source === 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
     new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
@@ -1009,6 +1011,8 @@ export class CollaborationService {
       'FOLLOWS',
       ...Object.keys(domainSources),
     ]);
+    // The administrative module now stores expenses in its own editable worksheet.
+    if (source === 'INVENTORY_MOVEMENTS') fail('COLLAB_INVALID_SOURCE');
     if (source !== 'CUSTOM') new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
     const initial = await this.baseAccess(baseId);
     if (!initial.access.canCreate || (source !== 'CUSTOM' && initial.access.level < 4))
@@ -1035,7 +1039,7 @@ export class CollaborationService {
         const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS', ...lifecycleKinds, ...followSupportKinds, ...inventoryKinds]);
         if (inventoryKinds.includes(template as InventoryKind)) {
           new WorkspaceBusinessTable(this.db, this.actor).authorize('INVENTORY_ITEMS');
-          await this.assertModuleWorkspace(base.workspaceId, 'INVENTORY_ITEMS', tx);
+          await this.assertModuleWorkspace(base.workspaceId, template === 'ADMIN_EXPENSES' ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS', tx);
           await tx.collabTable.update({ where: { id: table.id }, data: { inventoryKind: template } });
           await tx.collabField.createMany({ data: inventoryFields(template as InventoryKind).map(f => ({...f, tableId: table.id})) });
           if (isInventorySummary(template)) await seedInventorySummary(tx, table.id, this.actor.userId);

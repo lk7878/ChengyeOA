@@ -105,6 +105,8 @@ export default function FieldInput({
         min={isCasePercent(field) ? 0 : undefined}
         max={isCasePercent(field) ? 100 : undefined}
         suffix={isCasePercent(field) ? '%' : field.type === 'CURRENCY' ? '元' : undefined}
+        formatter={field.options.numberFormat === 'CNY' ? (value, info) => info.userTyping ? info.input : String(value ?? '').replace(/\B(?=(\d{3})+(?!\d))/g, ',') : undefined}
+        parser={field.options.numberFormat === 'CNY' ? value => (value ?? '').replace(/,/g, '') : undefined}
         value={value as string | number | null}
         onChange={onChange}
       />
@@ -194,10 +196,10 @@ export default function FieldInput({
       <Input
         aria-label={field.name}
         disabled={disabled}
-        type={field.type === 'DATE' ? 'date' : 'datetime-local'}
+        type={field.type === 'DATE' || field.options.dateOnly ? 'date' : 'datetime-local'}
         value={
           typeof value === 'string'
-            ? field.type === 'DATE'
+            ? field.options.dateOnly ? displayValue(field, value, directory).replace(/\//g, '-') : field.type === 'DATE'
               ? value.slice(0, 10)
               : new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000)
                   .toISOString()
@@ -206,7 +208,9 @@ export default function FieldInput({
         }
         onChange={(e) =>
           onChange(
-            field.type === 'DATE'
+            field.options.dateOnly
+              ? (e.target.value ? new Date(e.target.value + 'T00:00:00+08:00').toISOString() : null)
+              : field.type === 'DATE'
               ? e.target.value
               : e.target.value
                 ? new Date(e.target.value).toISOString()

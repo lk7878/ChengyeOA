@@ -2044,7 +2044,6 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                       'REFUNDS',
                       'COSTS',
                       'INVENTORY_ITEMS',
-                      'INVENTORY_MOVEMENTS',
                       'INVENTORY_STOCKTAKES',
                       'PERFORMANCES',
                       'CHANNELS',
@@ -2067,6 +2066,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   { value: 'OFFICE_OUTBOUND', label: '物品 · 出库明细表（9个字段）' },
                   { value: 'OFFICE_STOCK', label: '物品 · 办公用品库存表（自动计算库存）' },
                   { value: 'OFFICE_STOCKTAKE', label: '物品 · 定期办公用品盘存记录（8个字段）' },
+                  ...(base?.moduleSource === 'INVENTORY_MOVEMENTS' ? [{ value: 'ADMIN_EXPENSES', label: '行政 · 行政费用支出表（12个字段）' }] : []),
                   { value: 'MEDICAL_ASSESSMENT', label: '跟进 · 病例评估表（21个字段）' },
                   { value: 'SIGNING_CONVERSION', label: '跟进 · 签约转化表（36个字段）' },
                 ]}

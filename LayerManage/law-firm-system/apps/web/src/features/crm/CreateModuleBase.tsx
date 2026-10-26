@@ -61,7 +61,7 @@ export default function CreateModuleBase({
           setBusy(true);
           setError('');
           try {
-            const body = { name: name.trim(), moduleSource: source, connectBusiness };
+            const body = { name: name.trim(), moduleSource: source, connectBusiness: source === 'INVENTORY_MOVEMENTS' ? false : connectBusiness };
             const fingerprint = JSON.stringify([workspace, body]);
             if (attempt.current?.body !== fingerprint)
               attempt.current = { body: fingerprint, key: crypto.randomUUID() };
@@ -81,9 +81,9 @@ export default function CreateModuleBase({
       >
         {error && <Alert type="error" title={error} />}
         <p>
-          业务工作表直接展示本模块已保存的记录。工作区所有者可创建业务连接；其他账号通过“分享”获得文档访问权限。
+          {source === 'INVENTORY_MOVEMENTS' ? '在行政事务工作区创建标准的行政费用支出表，包含自动编号、采购日期、申请人、费用金额等12个字段。通过“分享”授权其他人员协作。' : '业务工作表直接展示本模块已保存的记录。工作区所有者可创建业务连接；其他账号通过“分享”获得文档访问权限。'}
         </p>
-        <Select
+        {source !== 'INVENTORY_MOVEMENTS' && <Select
           aria-label="表格用途"
           style={{ width: '100%' }}
           value={connectBusiness ? 'BUSINESS' : 'CUSTOM'}
@@ -92,7 +92,7 @@ export default function CreateModuleBase({
             { value: 'BUSINESS', label: '业务工作表：同步展示正式业务记录' },
             { value: 'CUSTOM', label: '普通数据表：独立录入自定义数据' },
           ]}
-        />
+        />}
         <label>
           工作区
           <Select
