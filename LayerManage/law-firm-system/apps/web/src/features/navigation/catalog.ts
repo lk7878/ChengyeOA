@@ -284,10 +284,6 @@ export const entries: NavigationEntry[] = [
   },
   ...[
     ['items', '低值易耗品'],
-    ['customized-records', '行政事务'],
-    ['office-records', '办公用品领用明细'],
-    ['inbound', '入库明细'],
-    ['outbound', '出库明细'],
     ['stocktakes', '定期物品盘点记录'],
   ].map(
     ([path, title]): NavigationEntry => ({
@@ -480,6 +476,10 @@ export const entries: NavigationEntry[] = [
   },
 ];
 export const legacyRedirects: Record<string, string> = {
+  '/inventory/customized-records': '/inventory/items',
+  '/inventory/office-records': '/inventory/items',
+  '/inventory/inbound': '/inventory/items',
+  '/inventory/outbound': '/inventory/items',
   '/organizations': '/org/tree',
   '/employees': '/org/employees',
   '/roles': '/security/roles',

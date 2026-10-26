@@ -15,14 +15,15 @@ const summary: AuthorizationSummary = {
   evaluatedAt: new Date().toISOString(),
   fieldCapabilities: {},
 };
-test('inventory display names retain existing destinations and authorization', () => {
+test('removed inventory entries return to low-value supplies while its authorization is retained', () => {
   const items = findEntry('/inventory/items')!;
-  const admin = findEntry('/inventory/customized-records')!;
   expect(items.title).toBe('低值易耗品');
-  expect(admin.title).toBe('行政事务');
-  expect(admin.required).toEqual(items.required);
-  expect(admin.group).toBe('物品管理');
-  expect(canOpen(admin, summary)).toBe(false);
+  expect(items.group).toBe('物品管理');
+  expect(canOpen(items, summary)).toBe(false);
+  for (const section of ['customized-records', 'office-records', 'inbound', 'outbound']) {
+    expect(findEntry('/inventory/' + section)).toBeUndefined();
+    expect(legacyRedirects['/inventory/' + section]).toBe('/inventory/items');
+  }
 });
 test('every live App route is catalogued or an explicit authentication/legacy/fallback route', () => {
   const app = readFileSync(resolve('src/App.tsx'), 'utf8');
