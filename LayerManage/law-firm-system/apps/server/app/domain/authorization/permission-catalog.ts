@@ -80,6 +80,7 @@ export const PERMISSION_CATALOG = Object.freeze([
   permission('menu.smart_case', '智慧办案', 'MENU', 'menu', 'view', 'LOW', '/smart-case'),
   permission('menu.inventory', '物品管理', 'MENU', 'menu', 'view', 'LOW', '/inventory'),
   permission('inventory.read', '查看物品及库存台账', 'ACTION', 'inventory', 'read', 'LOW'),
+  permission('inventory.seal.review', '用印审核', 'ACTION', 'inventory', 'seal.review', 'HIGH'),
   permission('inventory.manage', '管理物品资料', 'ACTION', 'inventory', 'manage', 'MEDIUM'),
   permission('inventory.inbound', '登记物品入库', 'ACTION', 'inventory', 'inbound', 'MEDIUM'),
   permission('inventory.outbound', '登记领用出库', 'ACTION', 'inventory', 'outbound', 'MEDIUM'),

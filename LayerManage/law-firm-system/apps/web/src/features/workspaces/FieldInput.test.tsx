@@ -41,6 +41,29 @@ test('administrative expense dates and money use the same formats in the table a
   fireEvent.change(screen.getByLabelText('采购日期'), { target: { value: '2026-10-27' } });
   expect(change).toHaveBeenCalledWith('2026-10-26T16:00:00.000Z');
 });
+test('seal review shows decision and reason together and respects read-only permission',()=>{
+  const directory={employees:[],organizations:[],users:[],teams:[]},change=vi.fn();
+  const review={...field,type:'LONG_TEXT',name:'审核意见',options:{adminReview:true}};
+  const value=JSON.stringify({decision:'驳回',reason:'请补充附件'});
+  expect(displayValue(review,value,directory)).toBe('驳回：请补充附件');
+  const {rerender}=render(<FieldInput field={{...review,writable:false}} value={value} onChange={change} directory={directory} tableId="seal"/>);
+  expect(screen.getByRole('combobox',{name:'审核结果'})).toBeDisabled();
+  expect(screen.getByRole('textbox',{name:'审核原因'})).toBeDisabled();
+  rerender(<FieldInput field={review} value={value} onChange={change} directory={directory} tableId="seal"/>);
+  fireEvent.change(screen.getByRole('textbox',{name:'审核原因'}),{target:{value:'已核对补充附件'}});
+  expect(change).toHaveBeenCalledWith(JSON.stringify({decision:'驳回',reason:'已核对补充附件'}));
+});
+test('administrative timestamps use Beijing minutes and meeting attachments accept PowerPoint',()=>{
+  const directory={employees:[],organizations:[],users:[],teams:[]},change=vi.fn();
+  const date={...field,type:'DATETIME',name:'会议时间',options:{dateMinute:true}};
+  expect(displayValue(date,'2026-10-27T00:30:00.000Z',directory)).toBe('2026/10/27 08:30');
+  const {rerender,container}=render(<FieldInput field={date} value="2026-10-27T00:30:00.000Z" onChange={change} directory={directory} tableId="meeting"/>);
+  expect(screen.getByLabelText('会议时间')).toHaveValue('2026-10-27T08:30');
+  fireEvent.change(screen.getByLabelText('会议时间'),{target:{value:'2026-10-28T09:00'}});
+  expect(change).toHaveBeenCalledWith('2026-10-28T01:00:00.000Z');
+  rerender(<FieldInput field={{...field,type:'FILE',name:'会议所有资料',options:{}}} value={[]} onChange={change} directory={directory} tableId="meeting"/>);
+  expect(container.querySelector('input[type=file]')?.getAttribute('accept')).toContain('.pptx');
+});
 test('office inventory formula fields stay read-only while multiline notes and quantities remain editable', () => {
   const directory = { employees: [], organizations: [], users: [], teams: [] };
   const change = vi.fn();

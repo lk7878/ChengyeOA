@@ -2,9 +2,10 @@ import { CollabField, CollabTable, Prisma } from '@prisma/client';
 import { Access } from './collaboration-service';
 import { fail, object } from './collaboration-policy';
 import { expenseFields, expenseKind, expenseName, expenseProjection } from './administrative-expenses';
+import { administrativeFields, administrativeKinds, administrativeNames, AdministrativeKind } from './administrative-registers';
 
 export const officeInventoryKinds = ['OFFICE_REGISTER', 'OFFICE_SUMMARY', 'OFFICE_INBOUND', 'OFFICE_OUTBOUND', 'OFFICE_STOCK', 'OFFICE_STOCKTAKE'] as const;
-export const inventoryKinds = ['INVENTORY_REGISTER', 'INVENTORY_SUMMARY', ...officeInventoryKinds, expenseKind] as const;
+export const inventoryKinds = ['INVENTORY_REGISTER', 'INVENTORY_SUMMARY', ...officeInventoryKinds, expenseKind, ...administrativeKinds] as const;
 export type InventoryKind = (typeof inventoryKinds)[number];
 export const inventoryItems = [
   '档案袋',
@@ -27,6 +28,7 @@ export const officeItems = [
 export const isInventorySummary = (kind: string | null | undefined) => kind === 'INVENTORY_SUMMARY' || kind === 'OFFICE_SUMMARY';
 export const hasInventoryProjection = (kind: string | null | undefined) => isInventorySummary(kind) || kind === 'OFFICE_STOCK' || kind === expenseKind;
 export const inventoryNames: Record<InventoryKind, string> = {
+  ...administrativeNames,
   ADMIN_EXPENSES: expenseName,
   INVENTORY_REGISTER: '定制物品领用登记表',
   INVENTORY_SUMMARY: '定制物品领用统计',
@@ -42,6 +44,7 @@ export const inventoryAliases = (kind: InventoryKind): string[] => [inventoryNam
   ...(kind === 'OFFICE_STOCKTAKE' ? ['定期办公用品盘库存记录', '定期办公用品盘库存记录表'] : []),
 ];
 export function inventoryFields(kind: InventoryKind) {
+  if (administrativeKinds.includes(kind as AdministrativeKind)) return administrativeFields(kind as AdministrativeKind);
   if (kind === expenseKind) return expenseFields();
   const items = kind === 'OFFICE_REGISTER' || kind === 'OFFICE_SUMMARY' ? officeItems : inventoryItems;
   const register = kind === 'OFFICE_SUMMARY' ? '办公用品领用明细表' : '定制物品领用登记表';

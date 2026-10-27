@@ -23,7 +23,7 @@ export function validateApprovalFile(fileName: string, bytes: Buffer): string {
   fileError();
 }
 
-function validateOfficeZip(bytes: Buffer, ext: string): void {
+export function validateOfficeZip(bytes: Buffer, ext: string): void {
   try {
     let end = bytes.length - 22;
     const minimum = Math.max(0, bytes.length - 65557);
@@ -59,7 +59,7 @@ function validateOfficeZip(bytes: Buffer, ext: string): void {
       }
       offset += 46 + nameLength + bytes.readUInt16LE(offset + 30) + bytes.readUInt16LE(offset + 32);
     }
-    if (!names.has('[Content_Types].xml') || !names.has(ext === '.xlsx' ? 'xl/workbook.xml' : 'word/document.xml')) fileError();
+    if (!names.has('[Content_Types].xml') || !names.has(ext === '.xlsx' ? 'xl/workbook.xml' : ext === '.pptx' ? 'ppt/presentation.xml' : 'word/document.xml')) fileError();
   } catch (error) {
     if (error instanceof MasterDataError) throw error;
     fileError();

@@ -91,6 +91,17 @@ export function validateValue(field: CollabField, value: unknown): unknown {
     return null;
   }
   const options = object(field.options);
+  if (options.adminReview) {
+    let review: ObjectValue;
+    try { review = exact(JSON.parse(text(value, 6000)), ['decision', 'reason']); }
+    catch { fail('COLLAB_INVALID_REVIEW'); }
+    const decision = choice(review.decision, ['待审核', '同意', '驳回']);
+    const reason = review.reason == null || review.reason === '' ? '' : text(review.reason, 2000);
+    if (decision === '驳回' && !reason) fail('COLLAB_REVIEW_REASON_REQUIRED');
+    return JSON.stringify({ decision, reason });
+  }
+  if (options.nonnegativeInteger && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0))
+    fail('COLLAB_NONNEGATIVE_INTEGER_REQUIRED');
   switch (field.type) {
     case 'TEXT':
     case 'LONG_TEXT':

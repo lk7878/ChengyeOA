@@ -111,6 +111,7 @@ export const PERMISSION_CODES = [
   'menu.smart_case',
   'menu.inventory',
   'inventory.read',
+  'inventory.seal.review',
   'inventory.manage',
   'inventory.inbound',
   'inventory.outbound',

@@ -1,6 +1,7 @@
 export interface Option {
   id: string;
   name: string;
+  color?: string;
 }
 export interface Field extends Option {
   type: string;
@@ -20,6 +21,10 @@ export interface Field extends Option {
     inventoryKey?: string;
     numberFormat?: 'CNY';
     dateOnly?: boolean;
+    dateMinute?: boolean;
+    defaultNow?: boolean;
+    nonnegativeInteger?: boolean;
+    adminReview?: boolean;
     businessKey?: string;
     lifecycleKey?: string;
     businessSource?: string;

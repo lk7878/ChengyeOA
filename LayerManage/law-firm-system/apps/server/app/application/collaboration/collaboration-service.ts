@@ -1,5 +1,6 @@
 import { moduleGroup, moduleGroups, ensureModuleWorkspace } from './module-workspaces';
 import { inventoryFields, inventoryKinds, InventoryKind, seedInventorySummary, inventorySummarySql, assignInventoryNumber, isInventorySummary, hasInventoryProjection, validateOfficeStock } from './inventory-worksheets';
+import { isAdministrativeKind, validateAdministrativeRecord } from './administrative-registers';
 import { followSupportFields, followSupportKinds, FollowSupportKind } from './follow-support-templates';
 import { LifecycleWorksheet, lifecycleFields, lifecycleKinds, lifecycleKey, syncedLifecycleKeys, LifecycleKind } from './lifecycle-worksheet';
 import { CASE_FIELD_ORDER } from '../case/intake-contract';
@@ -295,6 +296,8 @@ export class CollaborationService {
       access.readonly = [...new Set([...access.readonly, ...table.fields.map(f => f.id)])];
     }
     const visible = table.fields.filter((f) => !f.archived && !access.hidden.includes(f.id));
+    if (table.inventoryKind === 'ADMIN_SEAL' && !this.actor.isSystemSuperAdmin && !this.actor.permissionCodes.includes('inventory.seal.review'))
+      access.readonly = [...new Set([...access.readonly, ...visible.filter(f => object(f.options).adminReview).map(f => f.id)])];
     return {
       table,
       access,
@@ -517,7 +520,7 @@ export class CollaborationService {
     const input = exact(raw, ['source', 'recordId', 'inventoryKind']);
     const source = choice(input.source ?? 'LEADS', ['LEADS', 'FOLLOWS', ...Object.keys(domainSources)]);
     const inventoryKind = input.inventoryKind === undefined ? undefined : choice(input.inventoryKind, inventoryKinds);
-    if (inventoryKind && source !== (inventoryKind === 'ADMIN_EXPENSES' ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS')) fail('COLLAB_INVALID_SOURCE');
+    if (inventoryKind && source !== (isAdministrativeKind(inventoryKind) ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS')) fail('COLLAB_INVALID_SOURCE');
     const recordId = input.recordId === undefined ? undefined : text(input.recordId);
     if (recordId && source === 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
     new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
@@ -1039,7 +1042,7 @@ export class CollaborationService {
         const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS', ...lifecycleKinds, ...followSupportKinds, ...inventoryKinds]);
         if (inventoryKinds.includes(template as InventoryKind)) {
           new WorkspaceBusinessTable(this.db, this.actor).authorize('INVENTORY_ITEMS');
-          await this.assertModuleWorkspace(base.workspaceId, template === 'ADMIN_EXPENSES' ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS', tx);
+          await this.assertModuleWorkspace(base.workspaceId, isAdministrativeKind(template) ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS', tx);
           await tx.collabTable.update({ where: { id: table.id }, data: { inventoryKind: template } });
           await tx.collabField.createMany({ data: inventoryFields(template as InventoryKind).map(f => ({...f, tableId: table.id})) });
           if (isInventorySummary(template)) await seedInventorySummary(tx, table.id, this.actor.userId);
@@ -2040,6 +2043,8 @@ export class CollaborationService {
     }
     for (const field of fields.filter((f) => !isSystemField(f))) {
       try {
+        if (creating && result[field.id] === undefined && object(field.options).defaultNow)
+          result[field.id] = new Date().toISOString();
         if (creating && result[field.id] === undefined && field.defaultValue !== null)
           result[field.id] = validateValue(field, field.defaultValue);
         if (field.required) validateValue(field, result[field.id]);
@@ -2339,7 +2344,7 @@ export class CollaborationService {
     const initial = await this.tableAccess(tableId, this.db, 2);
     return this.write(key, ['record.reverse', tableId, operationId, direction], async (tx) => {
       await this.lock(tx, initial.access.workspaceId, true);
-      if (initial.table.inventoryKind === 'OFFICE_STOCK') await tx.$queryRaw`SELECT id FROM collab_table WHERE id=${tableId} FOR UPDATE`;
+      if (['OFFICE_STOCK', 'ADMIN_MEETINGS'].includes(initial.table.inventoryKind || '')) await tx.$queryRaw`SELECT id FROM collab_table WHERE id=${tableId} FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM collab_record_operation WHERE id = ${operationId} FOR UPDATE`;
       const operation = await tx.collabRecordOperation.findFirst({
         where: { id: operationId, tableId, actorId: this.actor.userId },
@@ -2372,6 +2377,7 @@ export class CollaborationService {
           if (!row || row.version !== operation.expectedVersion) fail('COLLAB_RECORD_CONFLICT', 409);
           const restoredValues = object(row.values);
           await validateOfficeStock(tx, table, table.fields, restoredValues, row.id);
+          await validateAdministrativeRecord(tx, table, table.fields, restoredValues, row.id);
           for (const field of table.fields.filter((f) => !f.archived && !isSystemField(f))) {
             if (restoredValues[field.id] === undefined && field.defaultValue !== null)
               restoredValues[field.id] = field.defaultValue;
@@ -2876,7 +2882,7 @@ export class CollaborationService {
         await this.lock(tx, initial.access.workspaceId, true);
         const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
         if (table.source !== 'CUSTOM') fail('COLLAB_USE_BUSINESS_ACTION', 409);
-        if (table.inventoryKind === 'OFFICE_STOCK') await tx.$queryRaw`SELECT id FROM collab_table WHERE id=${tableId} FOR UPDATE`;
+        if (['OFFICE_STOCK', 'ADMIN_MEETINGS'].includes(table.inventoryKind || '')) await tx.$queryRaw`SELECT id FROM collab_table WHERE id=${tableId} FOR UPDATE`;
         if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
         const previous = recordId
           ? (
@@ -2906,6 +2912,7 @@ export class CollaborationService {
           fail('COLLAB_REQUIRED_FIELD_FORBIDDEN', 403);
         if (!previous) await assignInventoryNumber(tx, tableId, fields, next);
         if (input.archived !== true) await validateOfficeStock(tx, table, table.fields, next, recordId);
+        if (input.archived !== true) await validateAdministrativeRecord(tx, table, table.fields, next, recordId);
         const lifecycleData = table.lifecycleKind ? await this.lifecycle().validate(tx, table, table.fields.filter(f => !f.archived), access, next, previous, input.archived === true) : null;
         const data = {
           values: json(next),

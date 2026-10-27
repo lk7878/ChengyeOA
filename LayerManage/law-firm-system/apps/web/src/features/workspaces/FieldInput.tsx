@@ -1,4 +1,5 @@
 import LifecycleSelect from './LifecycleSelect';
+import SealReviewInput from './SealReviewInput';
 import ReceiptDetails from './ReceiptDetails';
 import { isInventoryDecimal } from './inventory-decimal';
 import { displayValue, isCasePercent } from './display-value';
@@ -60,6 +61,7 @@ export default function FieldInput({
     };
   }, [field.id, field.type, field.options.targetTableId, field.options.targetSource, tableId, relationKeyword, selectedIds]);
   if (field.options.businessKey === 'receiptDetails') return <ReceiptDetails value={value} tableId={tableId}/>;
+  if (field.options.adminReview) return <SealReviewInput value={value} onChange={onChange} disabled={disabled || !field.writable}/>;
   if (field.options.lifecycleKey === 'upstreamId')
     return (
       <LifecycleSelect
@@ -94,7 +96,7 @@ export default function FieldInput({
           field.options.businessKey?.startsWith('intake.')
         }
         precision={
-          field.options.businessKey === 'intake.managementFeeRatio'
+          field.options.nonnegativeInteger || field.options.businessKey === 'intake.managementFeeRatio'
             ? 0
             : field.type === 'CURRENCY' || isCasePercent(field)
               ? 2
@@ -102,7 +104,7 @@ export default function FieldInput({
                 ? 3
                 : undefined
         }
-        min={isCasePercent(field) ? 0 : undefined}
+        min={isCasePercent(field) || field.options.nonnegativeInteger ? 0 : undefined}
         max={isCasePercent(field) ? 100 : undefined}
         suffix={isCasePercent(field) ? '%' : field.type === 'CURRENCY' ? '元' : undefined}
         formatter={field.options.numberFormat === 'CNY' ? (value, info) => info.userTyping ? info.input : String(value ?? '').replace(/\B(?=(\d{3})+(?!\d))/g, ',') : undefined}
@@ -142,7 +144,7 @@ export default function FieldInput({
         <Upload
           disabled={disabled}
           showUploadList={false}
-          accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.xlsx,.mp3,.wav,.m4a"
+          accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.xlsx,.pptx,.mp3,.wav,.m4a"
           beforeUpload={async (file) => {
             if (file.size > 10 * 1024 * 1024) {
               message.error('附件最大 10 MB');
@@ -199,7 +201,7 @@ export default function FieldInput({
         type={field.type === 'DATE' || field.options.dateOnly ? 'date' : 'datetime-local'}
         value={
           typeof value === 'string'
-            ? field.options.dateOnly ? displayValue(field, value, directory).replace(/\//g, '-') : field.type === 'DATE'
+            ? field.options.dateOnly || field.options.dateMinute ? displayValue(field, value, directory).replace(/\//g, '-').replace(' ', 'T') : field.type === 'DATE'
               ? value.slice(0, 10)
               : new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000)
                   .toISOString()
@@ -210,6 +212,8 @@ export default function FieldInput({
           onChange(
             field.options.dateOnly
               ? (e.target.value ? new Date(e.target.value + 'T00:00:00+08:00').toISOString() : null)
+              : field.options.dateMinute
+              ? (e.target.value ? new Date(e.target.value + '+08:00').toISOString() : null)
               : field.type === 'DATE'
               ? e.target.value
               : e.target.value

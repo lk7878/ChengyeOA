@@ -1,4 +1,5 @@
 import { Controller } from 'egg';
+import { validateOfficeZip } from '../domain/approval/approval-file-validation';
 import { randomUUID } from 'node:crypto';
 import { PassThrough } from 'node:stream';
 import fs from 'node:fs/promises';
@@ -352,6 +353,7 @@ export default class CollaborationController extends Controller {
       '.pdf': 'application/pdf',
       '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       '.mp3': 'audio/mpeg',
       '.wav': 'audio/wav',
       '.m4a': 'audio/mp4',
@@ -366,11 +368,16 @@ export default class CollaborationController extends Controller {
       '.webp': bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP',
       '.docx': bytes[0] === 80 && bytes[1] === 75,
       '.xlsx': bytes[0] === 80 && bytes[1] === 75,
+      '.pptx': bytes[0] === 80 && bytes[1] === 75,
       '.mp3': bytes.subarray(0,3).toString() === 'ID3' || (bytes[0] === 255 && (bytes[1] & 224) === 224),
       '.wav': bytes.subarray(0,4).toString() === 'RIFF' && bytes.subarray(8,12).toString() === 'WAVE',
       '.m4a': bytes.subarray(4,8).toString() === 'ftyp' && ['M4A ', 'M4B ', 'isom', 'mp42'].includes(bytes.subarray(8,12).toString()),
     };
     if (!signatures[ext]) fail('COLLAB_FILE_SIGNATURE_INVALID');
+    if (ext === '.pptx') {
+      try { validateOfficeZip(bytes, ext); }
+      catch { fail('COLLAB_FILE_SIGNATURE_INVALID'); }
+    }
     const id = randomUUID();
     const root = path.join(process.cwd(), 'var', 'storage', 'collaboration');
     await fs.mkdir(root, { recursive: true });

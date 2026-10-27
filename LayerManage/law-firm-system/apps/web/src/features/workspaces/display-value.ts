@@ -17,6 +17,7 @@ import {
 } from '@/pages/leads/meta';
 import type { Directory, Field } from './types';
 import { formatMoney, formatBusinessDate, refundStatusLabels } from '@/utils/business-format';
+import { sealReview } from './seal-review';
 export const fieldLabel = (field: Field) =>
   field.type === 'CURRENCY' && !/[元¥￥]/.test(field.name)
     ? field.name.endsWith('（同步）')
@@ -49,9 +50,11 @@ export function fieldHint(field: Field) {
 }
 
 export function displayValue(field: Field, value: unknown, directory: Directory): string {
+  if (field.options.adminReview) { const review=sealReview(value); return review.decision + (review.reason ? '：'+review.reason : ''); }
   if(field.options.businessKey==='receiptDetails') return (Array.isArray(value)?value.length:0)+' 笔收款';
   if (value === null || value === undefined || value === '') return '';
   if (field.options.dateOnly || ['领取日期', '日期'].includes(field.options.inventoryKey || '')) return formatBusinessDate(value).slice(0, 10).replace(/-/g, '/');
+  if (field.options.dateMinute) return formatBusinessDate(value).slice(0,16).replace(/-/g,'/');
   if (field.options.numberFormat === 'CNY') return formatMoney(value);
   if (field.type === 'CURRENCY') return formatMoney(value);
   if (isCasePercent(field)) return `${Number(value)}%`;

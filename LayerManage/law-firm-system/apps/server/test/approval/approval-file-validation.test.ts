@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { deflateRawSync } from 'node:zlib';
-import { validateApprovalFile } from '../../app/domain/approval/approval-file-validation';
+import { validateApprovalFile, validateOfficeZip } from '../../app/domain/approval/approval-file-validation';
 
 function zip(files: Record<string, string>): Buffer {
   const locals: Buffer[] = [], centrals: Buffer[] = []; let offset = 0;
@@ -18,6 +18,13 @@ function zip(files: Record<string, string>): Buffer {
   return Buffer.concat([...locals, ...centrals, end]);
 }
 const base = { '[Content_Types].xml': '<Types/>', 'word/document.xml': '<document/>' };
+test('meeting PPTX attachments require presentation content and reject macros or external relationships',()=>{
+  const ppt={'[Content_Types].xml':'<Types/>','ppt/presentation.xml':'<presentation/>'};
+  assert.doesNotThrow(()=>validateOfficeZip(zip(ppt),'.pptx'));
+  assert.throws(()=>validateOfficeZip(zip(base),'.pptx'));
+  for(const extra of [{'ppt/vbaProject.bin':'macro'},{'ppt/_rels/presentation.xml.rels':'<Relationship TargetMode="External" Target="https://example.com/"/>'}])
+    assert.throws(()=>validateOfficeZip(zip({...ppt,...extra}),'.pptx'));
+});
 test('accepts bounded OOXML and rejects a renamed package of the wrong kind', () => {
   const bytes = zip(base);
   assert.match(validateApprovalFile('申请.docx', bytes), /wordprocessingml/);

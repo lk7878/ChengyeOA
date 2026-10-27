@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import ReceiptDetails from './ReceiptDetails';
-import { Button, Space, message } from 'antd';
+import { Button, Space, Tag, message } from 'antd';
 import AttachmentItem from './AttachmentItem';
 import FieldInput from './FieldInput';
 import { displayValue, fieldHint } from './display-value';
@@ -198,7 +198,7 @@ export default function GridCell({
       {!editable && workflow && onBusinessAction && (
         <span style={{ color: '#1677ff', marginRight: 6 }}>办理</span>
       )}
-      {(row.displayValues?.[field.id] ?? displayValue(field, row.values[field.id], directory)) || (
+      {field.options.choices?.find(c=>c.id===row.values[field.id]&&c.color) ? <Tag color={field.options.choices.find(c=>c.id===row.values[field.id])?.color}>{displayValue(field,row.values[field.id],directory)}</Tag> : (row.displayValues?.[field.id] ?? displayValue(field, row.values[field.id], directory)) || (
         <span className="workspace-muted">—</span>
       )}
     </button>

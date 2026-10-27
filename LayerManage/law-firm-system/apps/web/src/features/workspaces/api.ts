@@ -20,6 +20,10 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  COLLAB_MEETING_NUMBER_DUPLICATE: '本表已有相同的会议编号，请修改编号或使用已有记录。',
+  COLLAB_NONNEGATIVE_INTEGER_REQUIRED: '份数或人数必须为大于等于0的整数。',
+  COLLAB_INVALID_REVIEW: '请选择审核结果并填写审核原因。',
+  COLLAB_REVIEW_REASON_REQUIRED: '驳回申请时必须填写审核原因。',
   FINANCE_RECEIPT_HAS_REFUND: '此收款已有退款申请或执行记录，不能修改或删除，请先核对关联退费。',
   LIFECYCLE_FINANCE_LOCKED: '关联退费已进入财务审批或执行流程，不能修改申请或删除来源记录。',
   REFUND_EXECUTION_DETAILS_REQUIRED: '请先填写实际退费金额、退费时间并上传凭证，再执行退款。',

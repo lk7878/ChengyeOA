@@ -51,6 +51,12 @@ const props = {
   onSaved: vi.fn(),
   onConflict: vi.fn(),
 };
+test('administrative status is highlighted while remaining editable',()=>{
+  render(<GridCell {...props} field={{...field,type:'SINGLE_SELECT',options:{choices:[{id:'办理中',name:'办理中',color:'blue'}]}}} row={{...row,values:{f:'办理中'}}}/>);
+  expect(screen.getByText('办理中')).toHaveClass('ant-tag-blue');
+  fireEvent.doubleClick(screen.getByRole('button',{name:'标题：办理中'}));
+  expect(screen.getByLabelText('单元格编辑')).toHaveValue('办理中');
+});
 
 test('contract status provides a workflow action instead of an unvalidated status write', () => {
   const action = vi.fn();

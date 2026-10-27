@@ -51,7 +51,7 @@ import type { PasteSnapshot } from '@/features/workspaces/clipboard';
 import { groupedRows, type GridRow } from '@/features/workspaces/grouping';
 import RecordOperations from '@/features/workspaces/RecordOperations';
 import GridCell from '@/features/workspaces/GridCell';
-import { changedValues, rebaseDraft } from '@/features/workspaces/editing';
+import { changedValues, rebaseDraft, initialValues } from '@/features/workspaces/editing';
 import FilterEditor from '@/features/workspaces/FilterEditor';
 import './workspace.css';
 
@@ -646,7 +646,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       schemaVersion: detail?.table.schemaVersion || 1,
       row,
       field,
-      values: row ? { ...row.values } : Object.fromEntries((detail?.fields ?? []).filter(f=>f.writable && f.options.lifecycleKey && f.defaultValue != null).map(f=>[f.id,f.defaultValue])),
+      values: row ? { ...row.values } : initialValues(detail?.fields ?? []),
       key: crypto.randomUUID(),
     });
     const next = new URLSearchParams(params);
@@ -2067,6 +2067,12 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   { value: 'OFFICE_STOCK', label: '物品 · 办公用品库存表（自动计算库存）' },
                   { value: 'OFFICE_STOCKTAKE', label: '物品 · 定期办公用品盘存记录（8个字段）' },
                   ...(base?.moduleSource === 'INVENTORY_MOVEMENTS' ? [{ value: 'ADMIN_EXPENSES', label: '行政 · 行政费用支出表（12个字段）' }] : []),
+                  ...(base?.moduleSource === 'INVENTORY_MOVEMENTS' ? [
+                    {value:'ADMIN_SEAL',label:'行政 · 用印登记（6个字段）'},
+                    {value:'ADMIN_SENT',label:'行政 · 发文登记（15个字段）'},
+                    {value:'ADMIN_RECEIVED',label:'行政 · 收文登记（17个字段）'},
+                    {value:'ADMIN_MEETINGS',label:'行政 · 会议登记（15个字段）'},
+                  ] : []),
                   { value: 'MEDICAL_ASSESSMENT', label: '跟进 · 病例评估表（21个字段）' },
                   { value: 'SIGNING_CONVERSION', label: '跟进 · 签约转化表（36个字段）' },
                 ]}
