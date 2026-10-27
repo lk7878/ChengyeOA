@@ -112,6 +112,7 @@ export const PERMISSION_CODES = [
   'menu.inventory',
   'inventory.read',
   'inventory.seal.review',
+  'hr.worksheet.read', 'hr.worksheet.manage', 'hr.worksheet.sensitive',
   'inventory.manage',
   'inventory.inbound',
   'inventory.outbound',

@@ -470,6 +470,7 @@ function SessionBootstrap() {
           <Route path="/inventory/office-records" element={<LegacyRedirect />} />
           <Route path="/inventory/inbound" element={<LegacyRedirect />} />
           <Route path="/inventory/outbound" element={<LegacyRedirect />} />
+          <Route path="/inventory/stocktakes" element={<AuthorizedPage permission="hr.worksheet.read"><InventoryPage /></AuthorizedPage>} />
           <Route
             path="/inventory/*"
             element={

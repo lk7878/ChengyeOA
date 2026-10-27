@@ -8,8 +8,9 @@ export const moduleGroups: Record<string, { name: string; sources: string[] }> =
   FINANCE: { name: '财务运营', sources: ['PAYMENTS', 'INVOICES', 'REFUNDS', 'COSTS'] },
   INVENTORY: {
     name: '物品管理',
-    sources: ['INVENTORY_ITEMS', 'INVENTORY_STOCKTAKES'],
+    sources: ['INVENTORY_ITEMS'],
   },
+  HUMAN_RESOURCES: { name: '人力资源', sources: ['INVENTORY_STOCKTAKES'] },
   ADMINISTRATION: { name: '行政事务', sources: ['INVENTORY_MOVEMENTS'] },
   QUALITY: { name: '质量管理', sources: ['QUALITY_ANALYSES', 'QUALITY_REVIEWS', 'QUALITY_ISSUES'] },
   DELIVERY: { name: '案件交付', sources: ['SOP_TASKS'] },

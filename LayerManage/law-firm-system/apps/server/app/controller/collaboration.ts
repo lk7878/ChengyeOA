@@ -1,3 +1,5 @@
+import { isHrKind } from '../application/collaboration/hr-worksheets';
+import { canReadHrPrivate } from '../application/collaboration/hr-privacy';
 import { Controller } from 'egg';
 import { validateOfficeZip } from '../domain/approval/approval-file-validation';
 import { randomUUID } from 'node:crypto';
@@ -337,7 +339,8 @@ export default class CollaborationController extends Controller {
 
   async upload() {
     const tableId = this.ctx.params.tableId;
-    await this.collaborationService().tableAccess(tableId, this.ctx.prisma, 2);
+    const uploadAccess=await this.collaborationService().tableAccess(tableId, this.ctx.prisma, 2);
+    if(isHrKind(uploadAccess.table.inventoryKind)&&!canReadHrPrivate(this.ctx.state.authorization as AuthorizationContext)) fail('COLLAB_FORBIDDEN',403);
     const input = exact(this.ctx.request.body, ['name', 'content']);
     const name = text(input.name, 240);
     const content = text(input.content, 14_000_000);
@@ -388,7 +391,8 @@ export default class CollaborationController extends Controller {
         const table = await tx.collabTable.findUnique({ where: { id: tableId }, select: { base: { select: { workspaceId: true } } } });
         if (!table) fail('COLLAB_NOT_FOUND', 404);
         await tx.$queryRaw`SELECT "id" FROM "collab_workspace" WHERE "id" = ${table.base.workspaceId} FOR SHARE`;
-        await this.collaborationService().tableAccess(tableId, tx, 2);
+        const uploadAccess=await this.collaborationService().tableAccess(tableId, tx, 2);
+        if(isHrKind(uploadAccess.table.inventoryKind)&&!canReadHrPrivate(this.ctx.state.authorization as AuthorizationContext)) fail('COLLAB_FORBIDDEN',403);
         return tx.collabAttachment.create({
           data: {
             id,

@@ -2044,7 +2044,6 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                       'REFUNDS',
                       'COSTS',
                       'INVENTORY_ITEMS',
-                      'INVENTORY_STOCKTAKES',
                       'PERFORMANCES',
                       'CHANNELS',
                     ] as const
@@ -2066,6 +2065,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   { value: 'OFFICE_OUTBOUND', label: '物品 · 出库明细表（9个字段）' },
                   { value: 'OFFICE_STOCK', label: '物品 · 办公用品库存表（自动计算库存）' },
                   { value: 'OFFICE_STOCKTAKE', label: '物品 · 定期办公用品盘存记录（8个字段）' },
+                  ...(base?.moduleSource === 'INVENTORY_STOCKTAKES' ? [{value:'HR_ROSTER',label:'人事 · 律所员工名册（25个字段）'},{value:'HR_INTERNS',label:'人事 · 实习律师名单（12个字段）'},{value:'HR_CONTACTS',label:'人事 · 重庆承业律师事务所员工名单及通讯录（6个字段）'},{value:'HR_HQ_LAWYERS',label:'人事 · 总所在册律师名单（11个字段）'},{value:'HR_BRANCH_LAWYERS',label:'人事 · 派驻分所律师明细（11个字段）'},{value:'HR_LEAVERS',label:'人事 · 离职人员名单（9个字段）'},{value:'HR_NEW_HIRES',label:'人事 · 新入职人员名单（56个字段）'},{value:'HR_RECRUITMENT',label:'人事 · 招聘面试（10个字段）'}] : []),
                   ...(base?.moduleSource === 'INVENTORY_MOVEMENTS' ? [{ value: 'ADMIN_EXPENSES', label: '行政 · 行政费用支出表（12个字段）' }] : []),
                   ...(base?.moduleSource === 'INVENTORY_MOVEMENTS' ? [
                     {value:'ADMIN_SEAL',label:'行政 · 用印登记（6个字段）'},

@@ -40,6 +40,7 @@ export const PERMISSION_CODES = [
   'inventory.inbound',
   'inventory.outbound',
   'inventory.stocktake',
+  'hr.worksheet.read', 'hr.worksheet.manage', 'hr.worksheet.sensitive',
   'inventory.export',
   'menu.organization_personnel',
   'menu.organization',

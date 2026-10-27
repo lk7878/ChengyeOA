@@ -91,6 +91,11 @@ export function validateValue(field: CollabField, value: unknown): unknown {
     return null;
   }
   const options = object(field.options);
+  if (options.hrPartialDate && typeof value === 'string') {
+    const normalized=value.trim().replace(/\./g,'-');
+    if (/^\d{4}-(0[1-9]|1[0-2])$/.test(normalized)) return normalized;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized) && Number.isFinite(Date.parse(normalized)) && new Date(normalized).toISOString().slice(0,10)===normalized) return normalized+'T00:00:00+08:00';
+  }
   if (options.adminReview) {
     let review: ObjectValue;
     try { review = exact(JSON.parse(text(value, 6000)), ['decision', 'reason']); }
@@ -100,6 +105,7 @@ export function validateValue(field: CollabField, value: unknown): unknown {
     if (decision === '驳回' && !reason) fail('COLLAB_REVIEW_REASON_REQUIRED');
     return JSON.stringify({ decision, reason });
   }
+  if (options.hrField && field.type === 'NUMBER' && typeof value === 'number' && value < 0) fail('COLLAB_INVALID_NUMBER');
   if (options.nonnegativeInteger && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0))
     fail('COLLAB_NONNEGATIVE_INTEGER_REQUIRED');
   switch (field.type) {
@@ -213,6 +219,7 @@ export interface ViewConfig {
   colorFieldId?: string;
 }
 export function fieldExpression(field: CollabField): Prisma.Sql {
+  if (object(field.options).hrSensitive || object(field.options).hrAge) fail('COLLAB_PRIVATE_FIELD_QUERY',403);
   const system: Record<string, Prisma.Sql> = {
     CREATED_AT: Prisma.sql`r."createdAt"`,
     UPDATED_AT: Prisma.sql`r."updatedAt"`,
@@ -221,6 +228,7 @@ export function fieldExpression(field: CollabField): Prisma.Sql {
   };
   if (system[field.type]) return system[field.type];
   const value = Prisma.sql`r."values" ->> ${field.id}`;
+  if (object(field.options).hrPartialDate) return Prisma.sql`(CASE WHEN ${value} ~ '^[0-9]{4}-[0-9]{2}$' THEN ${value} || '-01T00:00:00+08:00' ELSE ${value} END)::timestamptz`;
   if (field.type === 'DATETIME') return Prisma.sql`(${value})::timestamptz`;
   if (field.type === 'DATE') return Prisma.sql`(${value})::date`;
   return ['NUMBER', 'CURRENCY', 'AUTONUMBER', 'FORMULA'].includes(field.type) ? Prisma.sql`(${value})::numeric` : value;

@@ -1,5 +1,7 @@
 import { moduleGroup, moduleGroups, ensureModuleWorkspace } from './module-workspaces';
 import { inventoryFields, inventoryKinds, InventoryKind, seedInventorySummary, inventorySummarySql, assignInventoryNumber, isInventorySummary, hasInventoryProjection, validateOfficeStock } from './inventory-worksheets';
+import { isHrKind, hrPrivate, validateHrRecord } from './hr-worksheets';
+import { canManageHr, canReadHrPrivate, hrValues, presentHrValue, hrAge } from './hr-privacy';
 import { isAdministrativeKind, validateAdministrativeRecord } from './administrative-registers';
 import { followSupportFields, followSupportKinds, FollowSupportKind } from './follow-support-templates';
 import { LifecycleWorksheet, lifecycleFields, lifecycleKinds, lifecycleKey, syncedLifecycleKeys, LifecycleKind } from './lifecycle-worksheet';
@@ -204,6 +206,7 @@ export class CollaborationService {
       base.accessPolicy,
       principals,
     );
+    if (base.moduleSource==='INVENTORY_STOCKTAKES' && !canManageHr(this.actor)) { access.canCreate=false; access.level=Math.min(access.level,1); }
     if (access.level < level) fail('COLLAB_FORBIDDEN', 403);
     return { base, access };
   }
@@ -252,7 +255,8 @@ export class CollaborationService {
     if (!row || (row.archived && !allowArchived)) fail('COLLAB_NOT_FOUND', 404);
     if (row._driveDeletedAt) fail('COLLAB_FORBIDDEN', 403);
     this.authorizeModuleGroup(row._moduleGroup);
-    if (row.inventoryKind) new WorkspaceBusinessTable(this.db, this.actor).authorize('INVENTORY_ITEMS');
+    if (row.inventoryKind) new WorkspaceBusinessTable(this.db, this.actor).authorize(isHrKind(row.inventoryKind) ? 'INVENTORY_STOCKTAKES' : 'INVENTORY_ITEMS');
+    if (isHrKind(row.inventoryKind) && level >= 2 && !canManageHr(this.actor)) fail('COLLAB_FORBIDDEN',403);
     if (row._moduleGroup && row._moduleSource && row.source === 'CUSTOM') this.moduleSource(row._moduleSource);
     // Record mutations request level 2; directory administration requests level 3.
     if (isInventorySummary(row.inventoryKind) && level === 2) fail('COLLAB_READONLY_FIELD', 403);
@@ -294,6 +298,10 @@ export class CollaborationService {
     if (isInventorySummary(table.inventoryKind)) {
       access.canCreate = false;
       access.readonly = [...new Set([...access.readonly, ...table.fields.map(f => f.id)])];
+    }
+    if (isHrKind(table.inventoryKind)) {
+      if (!canManageHr(this.actor)) { access.canCreate=false; access.readonly=[...new Set([...access.readonly,...table.fields.map(f=>f.id)])]; }
+      if (!canReadHrPrivate(this.actor)) access.readonly=[...new Set([...access.readonly,...table.fields.filter(hrPrivate).map(f=>f.id)])];
     }
     const visible = table.fields.filter((f) => !f.archived && !access.hidden.includes(f.id));
     if (table.inventoryKind === 'ADMIN_SEAL' && !this.actor.isSystemSuperAdmin && !this.actor.permissionCodes.includes('inventory.seal.review'))
@@ -459,6 +467,7 @@ export class CollaborationService {
   }
   protected async assertModuleWorkspace(workspaceId: string, source: string | null, tx: Tx = this.db) {
     const workspace = await tx.collabWorkspace.findUniqueOrThrow({ where: { id: workspaceId } });
+    if (source === 'INVENTORY_STOCKTAKES' && workspace.moduleGroup !== 'HUMAN_RESOURCES') fail('COLLAB_MODULE_WORKSPACE_MISMATCH');
     if (source === 'INVENTORY_MOVEMENTS' && workspace.moduleGroup !== 'ADMINISTRATION')
       fail('COLLAB_MODULE_WORKSPACE_MISMATCH');
     if (workspace.moduleGroup && source && moduleGroup(source) !== workspace.moduleGroup)
@@ -520,7 +529,7 @@ export class CollaborationService {
     const input = exact(raw, ['source', 'recordId', 'inventoryKind']);
     const source = choice(input.source ?? 'LEADS', ['LEADS', 'FOLLOWS', ...Object.keys(domainSources)]);
     const inventoryKind = input.inventoryKind === undefined ? undefined : choice(input.inventoryKind, inventoryKinds);
-    if (inventoryKind && source !== (isAdministrativeKind(inventoryKind) ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS')) fail('COLLAB_INVALID_SOURCE');
+    if (inventoryKind && source !== (isHrKind(inventoryKind) ? 'INVENTORY_STOCKTAKES' : isAdministrativeKind(inventoryKind) ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS')) fail('COLLAB_INVALID_SOURCE');
     const recordId = input.recordId === undefined ? undefined : text(input.recordId);
     if (recordId && source === 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
     new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
@@ -1015,7 +1024,7 @@ export class CollaborationService {
       ...Object.keys(domainSources),
     ]);
     // The administrative module now stores expenses in its own editable worksheet.
-    if (source === 'INVENTORY_MOVEMENTS') fail('COLLAB_INVALID_SOURCE');
+    if (source === 'INVENTORY_MOVEMENTS' || source === 'INVENTORY_STOCKTAKES') fail('COLLAB_INVALID_SOURCE');
     if (source !== 'CUSTOM') new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
     const initial = await this.baseAccess(baseId);
     if (!initial.access.canCreate || (source !== 'CUSTOM' && initial.access.level < 4))
@@ -1023,6 +1032,7 @@ export class CollaborationService {
     return this.write(key, ['table.create', baseId, input], async (tx) => {
       await this.lock(tx, initial.access.workspaceId);
       const { access, base } = await this.baseAccess(baseId, tx);
+      if (base.moduleSource === 'INVENTORY_STOCKTAKES' && !canManageHr(this.actor)) fail('COLLAB_FORBIDDEN',403);
       if (source !== 'CUSTOM') await this.assertModuleWorkspace(base.workspaceId, source, tx);
       if (!access.canCreate || (source !== 'CUSTOM' && access.level < 4)) fail('COLLAB_FORBIDDEN', 403);
       const table = await tx.collabTable.create({
@@ -1041,8 +1051,9 @@ export class CollaborationService {
       } else {
         const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS', ...lifecycleKinds, ...followSupportKinds, ...inventoryKinds]);
         if (inventoryKinds.includes(template as InventoryKind)) {
-          new WorkspaceBusinessTable(this.db, this.actor).authorize('INVENTORY_ITEMS');
-          await this.assertModuleWorkspace(base.workspaceId, isAdministrativeKind(template) ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS', tx);
+          if (isHrKind(template) && !canManageHr(this.actor)) fail('COLLAB_FORBIDDEN',403);
+          new WorkspaceBusinessTable(this.db, this.actor).authorize(isHrKind(template) ? 'INVENTORY_STOCKTAKES' : 'INVENTORY_ITEMS');
+          await this.assertModuleWorkspace(base.workspaceId, isHrKind(template) ? 'INVENTORY_STOCKTAKES' : isAdministrativeKind(template) ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS', tx);
           await tx.collabTable.update({ where: { id: table.id }, data: { inventoryKind: template } });
           await tx.collabField.createMany({ data: inventoryFields(template as InventoryKind).map(f => ({...f, tableId: table.id})) });
           if (isInventorySummary(template)) await seedInventorySummary(tx, table.id, this.actor.userId);
@@ -1112,6 +1123,7 @@ export class CollaborationService {
     return {
       table: { ...table, accessPolicy: null as null, fields: [] as CollabField[] },
       canDeleteRecords:
+        (!isHrKind(table.inventoryKind) || canManageHr(this.actor)) &&
         !isInventorySummary(table.inventoryKind) &&
         access.level >= 2 &&
         ((table.source === 'CUSTOM' && (!table.lifecycleKind || this.actor.permissionCodes.includes(table.lifecycleKind === 'AFTER_SALES' ? 'case.delete' : 'refund.create'))) ||
@@ -1153,7 +1165,7 @@ export class CollaborationService {
             ? '关联线索'
             : f.name,
         queryable:
-          table.source === 'CUSTOM' || !['phone', 'wechat'].includes(String(object(f.options).businessKey)),
+          !hrPrivate(f) && !object(f.options).hrAge && (table.source === 'CUSTOM' || !['phone', 'wechat'].includes(String(object(f.options).businessKey))),
         writable:
           (table.source === 'CUSTOM' ||
             (table.source === 'PAYMENTS' && paymentWorksheetKeys.includes(String(object(f.options).businessKey)) && this.actor.permissionCodes.includes('payment.confirm')) ||
@@ -1506,6 +1518,7 @@ export class CollaborationService {
   }
   async attachment(tableId: string, fileId: string, tx: Tx = this.db): Promise<import('@prisma/client').CollabAttachment> {
     const { access, fields, table } = await this.tableAccess(tableId, tx);
+    if (isHrKind(table.inventoryKind) && !canReadHrPrivate(this.actor)) fail('COLLAB_FORBIDDEN',403);
     const file = await tx.collabAttachment.findFirst({ where: { id: fileId, tableId } });
     if (!file && (['CASES','PAYMENTS','REFUNDS','FOLLOWS'].includes(table.source) || table.lifecycleKind === 'CASE_REFUNDS')) {
       const lookup = fields.find(f => table.source === 'CASES' ? object(f.options).businessKey === 'receiptFiles' : table.source !== 'CUSTOM' ? object(f.options).businessKey === (table.source === 'FOLLOWS' ? 'attachments' : 'voucherFiles') : lifecycleKey(f) === 'refundReceiptLookup');
@@ -1571,7 +1584,7 @@ export class CollaborationService {
       UPDATED_AT: record.updatedAt.toISOString(),
     };
     for (const f of fields) {
-      values[f.id] = Object.hasOwn(system, f.type) ? system[f.type] : (original[f.id] ?? null);
+      values[f.id] = Object.hasOwn(system, f.type) ? system[f.type] : (object(f.options).hrAge ? (canReadHrPrivate(this.actor) ? hrAge(fields,original) : null) : presentHrValue(this.actor,f,original[f.id] ?? null));
     }
     const link = fields.find((f) => lifecycleKey(f) === 'upstreamId');
     return {
@@ -1685,6 +1698,7 @@ export class CollaborationService {
     const projection = hasInventoryProjection(table.inventoryKind) ? await inventorySummarySql(this.db, table, fields, this.actor.userId, id => this.tableAccess(id)) : table.lifecycleKind ? await this.lifecycle().sourceSql(table, access, fields) : undefined;
     const result = await queryCustomRecords(this.db, isInventorySummary(table.inventoryKind) ? Prisma.sql`r."tableId"=${tableId} AND r.archived=false AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}` : where, config, fields, page, pageSize, projection);
     if (table.lifecycleKind) await this.lifecycle().auditPhone(fields,result.records.length);
+    if (isHrKind(table.inventoryKind) && canReadHrPrivate(this.actor) && result.records.length && fields.some(hrPrivate)) await this.db.operationLog.create({data:{userId:this.actor.userId,action:'HR_SENSITIVE_READ',targetType:'COLLAB_TABLE',targetId:tableId,newValues:JSON.stringify({count:result.records.length,fields:fields.filter(hrPrivate).map(f=>f.id)})}});
     return {
       ...result,
       records: await this.projectReferences(result.records, fields),
@@ -1740,6 +1754,7 @@ export class CollaborationService {
       record.values = projected[0].values;
       await this.lifecycle().auditPhone(fields,1);
     }
+    if (isHrKind(table.inventoryKind) && canReadHrPrivate(this.actor) && fields.some(hrPrivate)) await this.db.operationLog.create({data:{userId:this.actor.userId,action:'HR_SENSITIVE_READ',targetType:'COLLAB_RECORD',targetId:recordId}});
     const revisions = await this.db.collabRevision.findMany({
       where: { recordId },
       orderBy: { version: 'desc' },
@@ -1757,7 +1772,7 @@ export class CollaborationService {
         changes: Object.fromEntries(
           Object.entries(object(r.changes)).filter(([id]) =>
             fields.some((f) => f.id === id && !['FILE', 'RELATION'].includes(f.type)),
-          ),
+          ).map(([id,change])=>{ const f=fields.find(f=>f.id===id)!; const c=object(change); return [id,{before:presentHrValue(this.actor,f,c.before),after:presentHrValue(this.actor,f,c.after)}]; }),
         ),
       })),
       comments,
@@ -2179,7 +2194,7 @@ export class CollaborationService {
           extensions,
           access,
           input.values,
-          previous ? object(previous.values) : {},
+          previous ? hrValues(table.fields,previous.values,false) : {},
           !previous,
         );
         if (
@@ -2273,7 +2288,7 @@ export class CollaborationService {
             actorId: this.actor.userId,
             kind: input.archived === true ? 'DELETE' : recordId ? 'UPDATE' : 'CREATE',
             before: json(before),
-            after: json({ values: object(input.values ?? {}), predecessorId: predecessor?.id ?? null }),
+            after: json({ values: hrValues(fields,input.values ?? {},true), predecessorId: predecessor?.id ?? null }),
             expectedVersion: saved.version,
             schemaVersion: table.schemaVersion,
           },
@@ -2375,7 +2390,8 @@ export class CollaborationService {
             },
           });
           if (!row || row.version !== operation.expectedVersion) fail('COLLAB_RECORD_CONFLICT', 409);
-          const restoredValues = object(row.values);
+          const restoredValues = hrValues(table.fields,row.values,false);
+          validateHrRecord(table.inventoryKind,table.fields,restoredValues);
           await validateOfficeStock(tx, table, table.fields, restoredValues, row.id);
           await validateAdministrativeRecord(tx, table, table.fields, restoredValues, row.id);
           for (const field of table.fields.filter((f) => !f.archived && !isSystemField(f))) {
@@ -2397,7 +2413,7 @@ export class CollaborationService {
               where: { id: row.id },
               data: {
                 archived: false,
-                values: json(restoredValues),
+                values: json(hrValues(table.fields,restoredValues,true)),
                 version: { increment: 1 },
                 updatedBy: this.actor.userId,
               },
@@ -2472,7 +2488,7 @@ export class CollaborationService {
           {
             ...(deleting
               ? { archived: true }
-              : { values: direction === 'undo' ? operation.before : object(operation.after).values }),
+              : { values: hrValues(table.fields,direction === 'undo' ? operation.before : object(operation.after).values,false) }),
             version: operation.expectedVersion,
             schemaVersion: operation.schemaVersion,
           },
@@ -2900,7 +2916,7 @@ export class CollaborationService {
           fields,
           access,
           input.values ?? {},
-          previous ? object(previous.values) : {},
+          previous ? hrValues(table.fields,previous.values,false) : {},
           !previous,
         );
         if (
@@ -2913,9 +2929,11 @@ export class CollaborationService {
         if (!previous) await assignInventoryNumber(tx, tableId, fields, next);
         if (input.archived !== true) await validateOfficeStock(tx, table, table.fields, next, recordId);
         if (input.archived !== true) await validateAdministrativeRecord(tx, table, table.fields, next, recordId);
+        if (input.archived !== true) validateHrRecord(table.inventoryKind,table.fields,next);
+        const encrypted = hrValues(table.fields,next,true);
         const lifecycleData = table.lifecycleKind ? await this.lifecycle().validate(tx, table, table.fields.filter(f => !f.archived), access, next, previous, input.archived === true) : null;
         const data = {
-          values: json(next),
+          values: json(encrypted),
           updatedBy: this.actor.userId,
           archived: input.archived === undefined ? false : boolean(input.archived),
         };
@@ -2927,6 +2945,7 @@ export class CollaborationService {
           : await tx.collabRecord.create({
               data: { ...data, tableId, createdBy: this.actor.userId, ownerId: this.actor.userId },
             });
+        if (isHrKind(table.inventoryKind)) await tx.operationLog.create({data:{userId:this.actor.userId,action:input.archived?'HR_RECORD_DELETE':previous?'HR_RECORD_UPDATE':'HR_RECORD_CREATE',targetType:'COLLAB_RECORD',targetId:record.id,newValues:JSON.stringify({tableId,fields:Object.keys(object(input.values??{})),version:record.version})}});
         if (lifecycleData) {
           await tx.collabLifecycleLink.upsert({ where: { recordId: record.id }, create: { ...lifecycleData, recordId: record.id }, update: lifecycleData });
           await this.lifecycle().syncFinancialApplication(tx,table,record,table.fields,lifecycleData.caseId);
@@ -2935,7 +2954,7 @@ export class CollaborationService {
         const changes = Object.fromEntries(
           Object.keys(object(input.values ?? {})).map((id) => [
             id,
-            { before: previous ? (object(previous.values)[id] ?? null) : null, after: next[id] },
+            { before: previous ? (object(previous.values)[id] ?? null) : null, after: encrypted[id] },
           ]),
         );
         await tx.collabRevision.create({

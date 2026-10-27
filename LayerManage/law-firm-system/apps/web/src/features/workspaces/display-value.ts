@@ -50,6 +50,8 @@ export function fieldHint(field: Field) {
 }
 
 export function displayValue(field: Field, value: unknown, directory: Directory): string {
+  if (value === '******') return '******';
+  if (field.options.hrPartialDate && /^\d{4}-\d{2}$/.test(String(value))) return String(value).replace('-', '/');
   if (field.options.adminReview) { const review=sealReview(value); return review.decision + (review.reason ? '：'+review.reason : ''); }
   if(field.options.businessKey==='receiptDetails') return (Array.isArray(value)?value.length:0)+' 笔收款';
   if (value === null || value === undefined || value === '') return '';

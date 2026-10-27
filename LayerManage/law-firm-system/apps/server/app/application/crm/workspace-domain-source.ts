@@ -341,6 +341,7 @@ export class WorkspaceDomainSource {
   }
   authorize(source: DomainSource, action = 'read') {
     const permission =
+      source === 'INVENTORY_STOCKTAKES' ? (action === 'read' ? 'hr.worksheet.read' : 'hr.worksheet.manage') :
       source === 'PAYMENTS' && action === 'delete' ? 'payment.void' : action === 'update'
         ? domainSources[source].edit
         : (source === 'QUALITY_ANALYSES' ? 'quality.analysis.read' : source === 'QUALITY_REVIEWS' ? 'quality.inspection.read' : source === 'QUALITY_ISSUES' ? 'quality.issue.read' : source === 'SOP_TASKS' ? 'sop.task.read' : `${domainSources[source].resource}.${action}` as PermissionCode);

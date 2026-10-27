@@ -291,7 +291,7 @@ export const entries: NavigationEntry[] = [
       title,
       area: 'apps',
       group: '综合行政管理',
-      required: stock,
+      required: path === 'stocktakes' ? ['hr.worksheet.read'] : stock,
     }),
   ),
   ...[

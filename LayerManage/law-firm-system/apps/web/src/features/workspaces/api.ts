@@ -105,6 +105,7 @@ const messages: Record<string, string> = {
   COLLAB_IDEMPOTENCY_CONFLICT: '重试内容发生变化，请重新发起操作。',
   COLLAB_DEFAULT_VIEW_REQUIRED: '必须保留默认总表。',
   COLLAB_MEMBER_UNAVAILABLE: '该成员不在可选范围内。',
+  COLLAB_PRIVATE_FIELD_QUERY: '敏感信息和派生年龄不支持筛选、分组或排序，请使用姓名、部门等字段查询。',
   COLLAB_INVALID_DATE: '日期格式不正确。',
   COLLAB_INVALID_CURRENCY: '金额最多保留两位小数。',
 };

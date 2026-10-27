@@ -118,7 +118,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
       {source === 'CHANNELS' && <ChannelIdentityGaps />}
       {source === 'INVOICES' && <ReceiptLedgerLinks />}
       {source === 'NEGOTIATIONS' && <NegotiationList />}
-      {source !== 'NEGOTIATIONS' && source !== 'INVENTORY_MOVEMENTS' && <ModuleRecordList key={source} source={source} />}
+      {source !== 'NEGOTIATIONS' && !['INVENTORY_MOVEMENTS','INVENTORY_STOCKTAKES'].includes(source) && <ModuleRecordList key={source} source={source} />}
       {error && (
         <Alert
           type="error"
@@ -150,13 +150,13 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
               </Link>
             ))}
           </div>
-          <p>{source === 'INVENTORY_MOVEMENTS' ? '行政事务在对应工作表中录入，支持双击编辑、删除及撤销/重做。用印审核需单独授权；行政费用金额自动计算。可通过“分享”和“权限”授权协作。' : '业务工作表同步展示正式记录；普通数据表用于独立录入。打开工作表可通过“分享”和“权限”按人员或角色授权，业务操作仍需对应的角色权限。'}</p>
-          {source !== 'INVENTORY_MOVEMENTS' && data.targets.length > 0 && (
+          <p>{source === 'INVENTORY_STOCKTAKES' ? '在工作表中新增、双击编辑和删除人员记录，支持撤销及重做。人事维护、敏感信息权限由管理员单独分配；普通查看者仅可读取脱敏数据。' : source === 'INVENTORY_MOVEMENTS' ? '行政事务在对应工作表中录入，支持双击编辑、删除及撤销/重做。用印审核需单独授权；行政费用金额自动计算。可通过“分享”和“权限”授权协作。' : '业务工作表同步展示正式记录；普通数据表用于独立录入。打开工作表可通过“分享”和“权限”按人员或角色授权，业务操作仍需对应的角色权限。'}</p>
+          {!['INVENTORY_MOVEMENTS','INVENTORY_STOCKTAKES'].includes(source) && data.targets.length > 0 && (
             <Button type="primary" onClick={() => setConnecting(true)}>
               连接业务数据
             </Button>
           )}
-          {source !== 'INVENTORY_MOVEMENTS' && creation && canCreate && (
+          {!['INVENTORY_MOVEMENTS','INVENTORY_STOCKTAKES'].includes(source) && creation && canCreate && (
             <Link
               style={{ marginLeft: 16 }}
               to={creation.path + (params.size ? '?' + params.toString() : '')}

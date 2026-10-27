@@ -61,6 +61,8 @@ export default function FieldInput({
     };
   }, [field.id, field.type, field.options.targetTableId, field.options.targetSource, tableId, relationKeyword, selectedIds]);
   if (field.options.businessKey === 'receiptDetails') return <ReceiptDetails value={value} tableId={tableId}/>;
+  if (field.options.hrPartialDate) return <Input aria-label={field.name} disabled={disabled || !field.writable} placeholder="YYYY-MM 或 YYYY-MM-DD" value={value==null?'':String(value).includes('T')?displayValue(field,value,directory).replace(/\//g,'-'):String(value)} onChange={e=>onChange(e.target.value||null)}/>;
+  if (field.options.hrSensitive && !field.writable) return <Input disabled value={Array.isArray(value)?'':String(value??'')}/>;
   if (field.options.adminReview) return <SealReviewInput value={value} onChange={onChange} disabled={disabled || !field.writable}/>;
   if (field.options.lifecycleKey === 'upstreamId')
     return (

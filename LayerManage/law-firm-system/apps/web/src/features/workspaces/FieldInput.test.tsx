@@ -125,3 +125,14 @@ test('recording upload selector accepts supported audio types', () => {
   expect(accept).toContain('.wav');
   expect(accept).toContain('.m4a');
 });
+
+test('HR month-only dates retain their precision in grid and input; masked dates remain masked',()=>{
+ const directory={employees:[],organizations:[],users:[],teams:[]},change=vi.fn();
+ const date={...field,type:'DATETIME',name:'入职时间',options:{dateOnly:true,hrPartialDate:true}};
+ expect(displayValue(date,'2024-06',directory)).toBe('2024/06');
+ render(<FieldInput field={date} value="2024-06" onChange={change} directory={directory} tableId="hr"/>);
+ expect(screen.getByLabelText('入职时间')).toHaveValue('2024-06');
+ fireEvent.change(screen.getByLabelText('入职时间'),{target:{value:'2024.07'}});
+ expect(change).toHaveBeenCalledWith('2024.07');
+ expect(displayValue({...date,options:{dateOnly:true,hrSensitive:true}},'******',directory)).toBe('******');
+});

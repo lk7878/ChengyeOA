@@ -25,6 +25,7 @@ export interface Field extends Option {
     defaultNow?: boolean;
     nonnegativeInteger?: boolean;
     adminReview?: boolean;
+    hrField?: boolean; hrSensitive?: boolean; hrPartialDate?: boolean; hrAge?: boolean;
     businessKey?: string;
     lifecycleKey?: string;
     businessSource?: string;

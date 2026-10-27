@@ -32,6 +32,9 @@ function permission(
 }
 
 export const PERMISSION_CATALOG = Object.freeze([
+  permission('hr.worksheet.read','查看人力资源表','ACTION','workspace','read','HIGH'),
+  permission('hr.worksheet.manage','维护人力资源表','ACTION','workspace','manage','HIGH'),
+  permission('hr.worksheet.sensitive','查看及填写人事敏感信息','ACTION','workspace','sensitive','HIGH'),
   permission('quality.assessment.read','查看百分制评估','ACTION','case','read','MEDIUM'),
   permission('quality.assessment.record','记录百分制评估','ACTION','case','record','MEDIUM'),
   permission('quality.analysis.read','查看专项分析','ACTION','case','read','MEDIUM'),

@@ -89,3 +89,9 @@ test('finance compatibility requires a complete authorized pair', () => {
   expect(canOpen(finance, { ...summary, menus: ['menu.payment'], permissions: ['refund.read'] })).toBe(false);
   expect(canOpen(finance, { ...summary, menus: ['menu.refund'], permissions: ['refund.read'] })).toBe(true);
 });
+
+test('HR navigation requires its own permission rather than inventory access',()=>{
+ const hr=findEntry('/inventory/stocktakes')!;
+ expect(canOpen(hr,{...summary,permissions:['inventory.read','menu.inventory']})).toBe(false);
+ expect(canOpen(hr,{...summary,permissions:['hr.worksheet.read']})).toBe(true);
+});
