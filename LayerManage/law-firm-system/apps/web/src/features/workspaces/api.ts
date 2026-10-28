@@ -20,6 +20,7 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  COLLAB_ARCHIVE_NUMBER_DUPLICATE: '该档号已存在，请使用其他档号；恢复记录前也需先解决档号重复。',
   COLLAB_MEETING_NUMBER_DUPLICATE: '本表已有相同的会议编号，请修改编号或使用已有记录。',
   COLLAB_NONNEGATIVE_INTEGER_REQUIRED: '份数或人数必须为大于等于0的整数。',
   COLLAB_INVALID_REVIEW: '请选择审核结果并填写审核原因。',

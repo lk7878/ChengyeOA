@@ -2,6 +2,7 @@ import { moduleGroup, moduleGroups, ensureModuleWorkspace } from './module-works
 import { inventoryFields, inventoryKinds, InventoryKind, seedInventorySummary, inventorySummarySql, assignInventoryNumber, isInventorySummary, hasInventoryProjection, validateOfficeStock } from './inventory-worksheets';
 import { isHrKind, hrPrivate, validateHrRecord } from './hr-worksheets';
 import { canManageHr, canReadHrPrivate, hrValues, presentHrValue, hrAge } from './hr-privacy';
+import { caseArchiveKinds, isCaseArchiveKind, validateCaseArchiveRecord } from './case-archive-worksheets';
 import { isAdministrativeKind, validateAdministrativeRecord } from './administrative-registers';
 import { followSupportFields, followSupportKinds, FollowSupportKind } from './follow-support-templates';
 import { LifecycleWorksheet, lifecycleFields, lifecycleKinds, lifecycleKey, syncedLifecycleKeys, LifecycleKind } from './lifecycle-worksheet';
@@ -255,7 +256,8 @@ export class CollaborationService {
     if (!row || (row.archived && !allowArchived)) fail('COLLAB_NOT_FOUND', 404);
     if (row._driveDeletedAt) fail('COLLAB_FORBIDDEN', 403);
     this.authorizeModuleGroup(row._moduleGroup);
-    if (row.inventoryKind) new WorkspaceBusinessTable(this.db, this.actor).authorize(isHrKind(row.inventoryKind) ? 'INVENTORY_STOCKTAKES' : 'INVENTORY_ITEMS');
+    if (row.inventoryKind) new WorkspaceBusinessTable(this.db, this.actor).authorize(isCaseArchiveKind(row.inventoryKind) ? 'CASES' : isHrKind(row.inventoryKind) ? 'INVENTORY_STOCKTAKES' : 'INVENTORY_ITEMS');
+    if (isCaseArchiveKind(row.inventoryKind) && (row._moduleGroup !== 'CASES' || row._moduleSource !== 'CASES')) fail('COLLAB_MODULE_WORKSPACE_MISMATCH');
     if (isHrKind(row.inventoryKind) && level >= 2 && !canManageHr(this.actor)) fail('COLLAB_FORBIDDEN',403);
     if (row._moduleGroup && row._moduleSource && row.source === 'CUSTOM') this.moduleSource(row._moduleSource);
     // Record mutations request level 2; directory administration requests level 3.
@@ -529,7 +531,7 @@ export class CollaborationService {
     const input = exact(raw, ['source', 'recordId', 'inventoryKind']);
     const source = choice(input.source ?? 'LEADS', ['LEADS', 'FOLLOWS', ...Object.keys(domainSources)]);
     const inventoryKind = input.inventoryKind === undefined ? undefined : choice(input.inventoryKind, inventoryKinds);
-    if (inventoryKind && source !== (isHrKind(inventoryKind) ? 'INVENTORY_STOCKTAKES' : isAdministrativeKind(inventoryKind) ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS')) fail('COLLAB_INVALID_SOURCE');
+    if (inventoryKind && source !== (isCaseArchiveKind(inventoryKind) ? 'CASES' : isHrKind(inventoryKind) ? 'INVENTORY_STOCKTAKES' : isAdministrativeKind(inventoryKind) ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS')) fail('COLLAB_INVALID_SOURCE');
     const recordId = input.recordId === undefined ? undefined : text(input.recordId);
     if (recordId && source === 'FOLLOWS') fail('COLLAB_INVALID_SOURCE');
     new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
@@ -1051,9 +1053,13 @@ export class CollaborationService {
       } else {
         const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS', ...lifecycleKinds, ...followSupportKinds, ...inventoryKinds]);
         if (inventoryKinds.includes(template as InventoryKind)) {
+          if (isCaseArchiveKind(template)) {
+            const workspace = await tx.collabWorkspace.findUniqueOrThrow({where:{id:base.workspaceId}});
+            if (workspace.moduleGroup !== 'CASES' || base.moduleSource !== 'CASES') fail('COLLAB_MODULE_WORKSPACE_MISMATCH');
+          }
           if (isHrKind(template) && !canManageHr(this.actor)) fail('COLLAB_FORBIDDEN',403);
-          new WorkspaceBusinessTable(this.db, this.actor).authorize(isHrKind(template) ? 'INVENTORY_STOCKTAKES' : 'INVENTORY_ITEMS');
-          await this.assertModuleWorkspace(base.workspaceId, isHrKind(template) ? 'INVENTORY_STOCKTAKES' : isAdministrativeKind(template) ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS', tx);
+          new WorkspaceBusinessTable(this.db, this.actor).authorize(isCaseArchiveKind(template) ? 'CASES' : isHrKind(template) ? 'INVENTORY_STOCKTAKES' : 'INVENTORY_ITEMS');
+          await this.assertModuleWorkspace(base.workspaceId, isCaseArchiveKind(template) ? 'CASES' : isHrKind(template) ? 'INVENTORY_STOCKTAKES' : isAdministrativeKind(template) ? 'INVENTORY_MOVEMENTS' : 'INVENTORY_ITEMS', tx);
           await tx.collabTable.update({ where: { id: table.id }, data: { inventoryKind: template } });
           await tx.collabField.createMany({ data: inventoryFields(template as InventoryKind).map(f => ({...f, tableId: table.id})) });
           if (isInventorySummary(template)) await seedInventorySummary(tx, table.id, this.actor.userId);
@@ -2359,7 +2365,7 @@ export class CollaborationService {
     const initial = await this.tableAccess(tableId, this.db, 2);
     return this.write(key, ['record.reverse', tableId, operationId, direction], async (tx) => {
       await this.lock(tx, initial.access.workspaceId, true);
-      if (['OFFICE_STOCK', 'ADMIN_MEETINGS'].includes(initial.table.inventoryKind || '')) await tx.$queryRaw`SELECT id FROM collab_table WHERE id=${tableId} FOR UPDATE`;
+      if (['OFFICE_STOCK', 'ADMIN_MEETINGS', ...caseArchiveKinds].includes(initial.table.inventoryKind || '')) await tx.$queryRaw`SELECT id FROM collab_table WHERE id=${tableId} FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM collab_record_operation WHERE id = ${operationId} FOR UPDATE`;
       const operation = await tx.collabRecordOperation.findFirst({
         where: { id: operationId, tableId, actorId: this.actor.userId },
@@ -2394,6 +2400,7 @@ export class CollaborationService {
           validateHrRecord(table.inventoryKind,table.fields,restoredValues);
           await validateOfficeStock(tx, table, table.fields, restoredValues, row.id);
           await validateAdministrativeRecord(tx, table, table.fields, restoredValues, row.id);
+          await validateCaseArchiveRecord(tx, table, table.fields, restoredValues, row.id);
           for (const field of table.fields.filter((f) => !f.archived && !isSystemField(f))) {
             if (restoredValues[field.id] === undefined && field.defaultValue !== null)
               restoredValues[field.id] = field.defaultValue;
@@ -2898,7 +2905,7 @@ export class CollaborationService {
         await this.lock(tx, initial.access.workspaceId, true);
         const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
         if (table.source !== 'CUSTOM') fail('COLLAB_USE_BUSINESS_ACTION', 409);
-        if (['OFFICE_STOCK', 'ADMIN_MEETINGS'].includes(table.inventoryKind || '')) await tx.$queryRaw`SELECT id FROM collab_table WHERE id=${tableId} FOR UPDATE`;
+        if (['OFFICE_STOCK', 'ADMIN_MEETINGS', ...caseArchiveKinds].includes(table.inventoryKind || '')) await tx.$queryRaw`SELECT id FROM collab_table WHERE id=${tableId} FOR UPDATE`;
         if (table.schemaVersion !== integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT', 409);
         const previous = recordId
           ? (
@@ -2929,6 +2936,7 @@ export class CollaborationService {
         if (!previous) await assignInventoryNumber(tx, tableId, fields, next);
         if (input.archived !== true) await validateOfficeStock(tx, table, table.fields, next, recordId);
         if (input.archived !== true) await validateAdministrativeRecord(tx, table, table.fields, next, recordId);
+        if (input.archived !== true) await validateCaseArchiveRecord(tx,table,table.fields,next,recordId);
         if (input.archived !== true) validateHrRecord(table.inventoryKind,table.fields,next);
         const encrypted = hrValues(table.fields,next,true);
         const lifecycleData = table.lifecycleKind ? await this.lifecycle().validate(tx, table, table.fields.filter(f => !f.archived), access, next, previous, input.archived === true) : null;
@@ -2945,6 +2953,7 @@ export class CollaborationService {
           : await tx.collabRecord.create({
               data: { ...data, tableId, createdBy: this.actor.userId, ownerId: this.actor.userId },
             });
+        if (isCaseArchiveKind(table.inventoryKind)) await tx.operationLog.create({data:{userId:this.actor.userId,action:input.archived?'CASE_ARCHIVE_DELETE':previous?'CASE_ARCHIVE_UPDATE':'CASE_ARCHIVE_CREATE',targetType:'COLLAB_RECORD',targetId:record.id,newValues:JSON.stringify({tableId,fields:Object.keys(object(input.values??{})),version:record.version})}});
         if (isHrKind(table.inventoryKind)) await tx.operationLog.create({data:{userId:this.actor.userId,action:input.archived?'HR_RECORD_DELETE':previous?'HR_RECORD_UPDATE':'HR_RECORD_CREATE',targetType:'COLLAB_RECORD',targetId:record.id,newValues:JSON.stringify({tableId,fields:Object.keys(object(input.values??{})),version:record.version})}});
         if (lifecycleData) {
           await tx.collabLifecycleLink.upsert({ where: { recordId: record.id }, create: { ...lifecycleData, recordId: record.id }, update: lifecycleData });

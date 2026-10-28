@@ -2052,6 +2052,11 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     label: '连接业务 · ' + businessSources[source].title,
                     disabled: (baseAccess?.level || 0) < 4,
                   })),
+                  ...(base?.moduleSource === 'CASES' ? [
+                    { value: 'CASE_ARCHIVE_REVIEW', label: '案件 · 案件归档审核（9个字段）' },
+                    { value: 'CASE_ARCHIVE_REGISTER', label: '案件 · 案卷档案登记表（12个字段）' },
+                    { value: 'CASE_ARCHIVE_OFFLINE', label: '案件 · 案卷档案登记表(不上传法网)（12个字段）' },
+                  ] : []),
                   { value: 'AFTER_SALES', label: '案件关联 · 售后管理表' },
                   { value: 'CASE_REFUNDS', label: '售后关联 · 退费管理表' },
                   { value: 'BLANK', label: '空白数据表' },
