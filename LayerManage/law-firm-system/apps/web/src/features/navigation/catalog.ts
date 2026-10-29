@@ -54,6 +54,15 @@ export const entries: NavigationEntry[] = [
   { path: '/admin', title: '管理中心', area: 'admin', group: '全部管理' },
   { path: '/approvals', title: '审批中心', area: 'home', group: '待办与通知', required: ['approval.read'] },
   {
+    path: '/approvals/visual',
+    title: '可视化审批',
+    area: 'home',
+    group: '待办与通知',
+    required: ['approval.read'],
+    hidden: true,
+    parent: '/approvals',
+  },
+  {
     path: '/approval-ledger',
     title: '审批台账',
     area: 'home',
