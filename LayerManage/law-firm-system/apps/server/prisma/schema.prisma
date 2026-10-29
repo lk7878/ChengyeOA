@@ -2511,3 +2511,104 @@ model CollabLifecycleLink {
   @@index([parentRecordId])
   @@map("collab_lifecycle_link")
 }
+
+// Visual approvals use immutable per-instance snapshots, independent from regulated business approvals.
+model WorkflowDefinition {
+  id String @id @default(uuid())
+  name String
+  draft Json
+  published Json?
+  version Int @default(0)
+  revision Int @default(1)
+  enabled Boolean @default(false)
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  instances WorkflowInstance[]
+  @@map("workflow_definition")
+}
+model WorkflowInstance {
+  id String @id @default(uuid())
+  definitionId String
+  definitionVersion Int
+  title String
+  snapshot Json
+  content Json
+  selections Json
+  applicantId String
+  currentNode String
+  status String @default("PENDING")
+  version Int @default(1)
+  visit Int @default(1)
+  targetRecordId String?
+  syncStatus String @default("NONE")
+  syncError String?
+  requestKey String @unique
+  requestHash String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  finishedAt DateTime?
+  definition WorkflowDefinition @relation(fields:[definitionId],references:[id],onDelete:Restrict)
+  tasks WorkflowTask[]
+  logs WorkflowLog[]
+  deliveries WorkflowDelivery[]
+  @@index([applicantId,createdAt])
+  @@index([status,updatedAt])
+  @@map("workflow_instance")
+}
+model WorkflowTask {
+  id String @id @default(uuid())
+  instanceId String
+  nodeId String
+  visit Int
+  assigneeId String
+  status String @default("PENDING")
+  position Int @default(0)
+  remark String?
+  dueAt DateTime?
+  processedAt DateTime?
+  createdAt DateTime @default(now())
+  instance WorkflowInstance @relation(fields:[instanceId],references:[id],onDelete:Cascade)
+  @@index([assigneeId,status])
+  @@index([status,dueAt])
+  @@index([instanceId,nodeId,visit])
+  @@map("workflow_task")
+}
+model WorkflowLog {
+  id String @id @default(uuid())
+  instanceId String
+  nodeId String
+  actorId String?
+  action String
+  remark String?
+  changes Json?
+  requestKey String? @unique
+  createdAt DateTime @default(now())
+  instance WorkflowInstance @relation(fields:[instanceId],references:[id],onDelete:Cascade)
+  @@index([instanceId,createdAt])
+  @@map("workflow_log")
+}
+model WorkflowDelivery {
+  id String @id @default(uuid())
+  instanceId String
+  hook String
+  status String @default("PENDING")
+  attempts Int @default(0)
+  nextAt DateTime @default(now())
+  error String?
+  createdAt DateTime @default(now())
+  instance WorkflowInstance @relation(fields:[instanceId],references:[id],onDelete:Cascade)
+  @@unique([instanceId,hook])
+  @@index([status,nextAt])
+  @@map("workflow_delivery")
+}
+model WorkflowFile {
+  id String @id @default(uuid())
+  ownerId String
+  name String
+  mime String
+  bytes Bytes
+  createdAt DateTime @default(now())
+  @@index([ownerId,createdAt])
+  @@map("workflow_file")
+}

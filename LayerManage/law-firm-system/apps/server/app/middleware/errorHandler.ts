@@ -1,4 +1,5 @@
 import { Context } from 'egg';
+import { WorkflowError } from '../domain/workflow/schema';
 import { CollaborationError } from '../application/collaboration/collaboration-policy';
 import { ApprovalError } from '../domain/approval/approval-errors';
 import { CaseError } from '../domain/case/case-errors';
@@ -16,6 +17,11 @@ export default () => async (ctx: Context, next: () => Promise<unknown>) => {
     await next();
   } catch (err: unknown) {
     const error: RequestError = err instanceof Error ? err : new Error(String(err));
+    if (error instanceof WorkflowError) {
+      ctx.status = error.status;
+      ctx.body = { code: error.status, message: error.message, errors: null };
+      return;
+    }
     if (error instanceof CollaborationError) {
       ctx.status = error.status;
       ctx.body = {

@@ -1282,7 +1282,7 @@ const ApprovalCenterPage: React.FC<{ initialInstanceId?: string; initialRole?: A
         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}
       >
         <div style={{ fontWeight: 600, fontSize: 16 }}>
-          审批中心 <Link to="/approval-ledger">业务台账 / 同步状态</Link>
+          审批中心 <Link to="/approval-ledger">业务台账 / 同步状态</Link> · <Link to="/approvals/visual">可视化审批</Link>
         </div>
         {canApply && (
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>

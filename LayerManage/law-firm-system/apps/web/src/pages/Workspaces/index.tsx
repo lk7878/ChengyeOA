@@ -80,6 +80,7 @@ export default function WorkspacesPage() {
 }
 
 export function WorkspaceEditor({ businessMode = false }: { businessMode?: boolean }) {
+  const canStartWorkflow = useAuthStore(s => s.hasPermission('approval.apply') && s.hasPermission('approval.read'));
   const canRequestRefund = useAuthStore(s => s.hasPermission('refund.create'));
   const [creatingLead, setCreatingLead] = useState(false);
   const unifiedShell = useUnifiedShell();
@@ -1234,6 +1235,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     </Button>
                   )}
                   {detail.access.level >= 2 && <RecordOperations key={tableId} tableId={tableId} schemaVersion={detail.table.schemaVersion} selected={records.filter(r => selectedRecords.includes(r.id))} canDelete={Boolean(detail.canDeleteRecords)} disabled={inlineDirty || busy} revision={revision} onChanged={refresh} />}
+                  {canStartWorkflow && <Button disabled={inlineDirty || busy} onClick={() => navigate('/approvals/visual?table=' + tableId + (selectedRecords.length === 1 ? '&record=' + selectedRecords[0] : ''))}>发起审批</Button>}
                   <Button onClick={() => setSettings('fields')}>字段配置</Button>
                   <Button onClick={() => setSettings('view')}>视图配置</Button>
                   <Button icon={<FilterOutlined />} onClick={() => setSettings('filter')}>

@@ -66,6 +66,7 @@ import ProfessionalTeamPage from './pages/ProfessionalTeam';
 import ChannelCreatePage from './pages/Channel/ChannelCreatePage';
 import ChannelRecordPage from './pages/Channel/ChannelRecordPage';
 import ApprovalCenterPage from './pages/approvals/ApprovalCenterPage';
+import VisualApprovals from './pages/approvals/visual/VisualApprovals';
 import NotificationPage from './pages/Notification';
 import PerformanceRecordPage from './pages/Performance/PerformanceRecordPage';
 import PerformanceCreatePage from './pages/Performance/PerformanceCreatePage';
@@ -509,6 +510,7 @@ function SessionBootstrap() {
               </AuthorizedPage>
             }
           />
+          <Route path="/approvals/visual" element={<AuthorizedPage permission="approval.read"><VisualApprovals /></AuthorizedPage>} />
           <Route path="/notifications" element={<NotificationPage />} />
           <Route path="/performances" element={<BusinessWorkspacePage source="PERFORMANCES" />} />
           <Route path="/performances/new" element={<PerformanceCreatePage />} />

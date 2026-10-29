@@ -3,6 +3,7 @@
 /* eslint-disable */
 
 import 'egg';
+import ExportWorkflow from '../../../app/controller/workflow';
 import ExportAdminGovernance from '../../../app/controller/adminGovernance';
 import ExportAnomaly from '../../../app/controller/anomaly';
 import ExportAppointment from '../../../app/controller/appointment';
@@ -37,6 +38,7 @@ import ExportUser from '../../../app/controller/user';
 
 declare module 'egg' {
   interface IController {
+    workflow: ExportWorkflow;
     adminGovernance: ExportAdminGovernance;
     anomaly: ExportAnomaly;
     appointment: ExportAppointment;

@@ -5,6 +5,18 @@ import { requireAnyPermission } from './middleware/requireAnyPermission';
 
 export default (app: Application) => {
   const { router, controller } = app;
+  router.get('/api/v1/workflows/definitions', controller.workflow.definitions);
+  router.post('/api/v1/workflows/definitions', controller.workflow.save);
+  router.post('/api/v1/workflows/definitions/:id', controller.workflow.save);
+  router.get('/api/v1/workflows/options', controller.workflow.options);
+  router.get('/api/v1/workflows/tables', controller.workflow.tables);
+  router.get('/api/v1/workflows/stats', controller.workflow.stats);
+  router.post('/api/v1/workflows/files', controller.workflow.upload);
+  router.get('/api/v1/workflows/files/:id', controller.workflow.download);
+  router.get('/api/v1/workflows/instances', controller.workflow.list);
+  router.post('/api/v1/workflows/instances', controller.workflow.start);
+  router.get('/api/v1/workflows/instances/:id', controller.workflow.detail);
+  router.post('/api/v1/workflows/instances/:id/actions', controller.workflow.act);
   router.get('/api/v1/cases/:id/quality-assessments',controller.quality.assessments);
   router.post('/api/v1/cases/:id/quality-assessments',controller.quality.assess);
   router.get('/api/v1/quality/special-analyses',controller.quality.analyses);
