@@ -65,6 +65,8 @@ export async function tickWorkflows(db: PrismaClient, now = new Date(), send = s
           true,
         );
       } else {
+        const actor = await new AuthorizationContextLoader(db).load(task.assigneeId);
+        await new WorkflowService(db, actor).detail(i.id);
         await db.$transaction(async (tx) => {
           await tx.$queryRaw`SELECT id FROM workflow_instance WHERE id=${i.id} FOR UPDATE`;
           if (
@@ -85,7 +87,7 @@ export async function tickWorkflows(db: PrismaClient, now = new Date(), send = s
               content: i.title,
               relatedId: i.id,
               relatedType: 'WORKFLOW',
-              routeUrl: `/approvals/visual?instance=${i.id}`,
+              routeUrl: `/approvals?instance=${i.id}`,
             },
             update: {},
           });
@@ -111,7 +113,7 @@ export async function tickWorkflows(db: PrismaClient, now = new Date(), send = s
           type: 'APPROVAL',
           title: '审批自动处理未完成，请核对人员权限和必填字段',
           content: i.title,
-          routeUrl: `/approvals/visual?instance=${i.id}`,
+          routeUrl: `/approvals?instance=${i.id}`,
         },
         update: {},
       });

@@ -1,6 +1,6 @@
 import { AssessmentHandler } from '../quality/assessment-handler';
-import { SopReminderHandler,SopReminderScanner } from '../sop/sop-reminder';
-import { SopChangeNotification,QualityChangeNotification } from '../sop/change-notification';
+import { SopReminderHandler, SopReminderScanner } from '../sop/sop-reminder';
+import { SopChangeNotification, QualityChangeNotification } from '../sop/change-notification';
 import { randomUUID } from 'node:crypto';
 
 import { PrismaClient } from '@prisma/client';
@@ -13,7 +13,6 @@ import type {
 } from '../../../config/env';
 import { parseEventPayload } from '../../domain/events/event-registry';
 import { AdminOperationReviewedV1, LeadAssignedV1 } from '../../domain/events/event-types';
-import { ApprovalTimeoutScanner } from '../approval/approval-timeout-scanner';
 import { LeadRecycleScanner } from '../crm/lead-recycle-scanner';
 import { EventDeliveryStore } from './event-delivery-store';
 import { EventDispatcher } from './event-dispatcher';
@@ -59,11 +58,8 @@ export interface EventServicesFactoryOptions {
    */
   readonly leadRecycle?: LeadRecycleEnvironment;
   /**
-   * SPEC-021 Task 1：审批超时升级扫描配置。存在时构造 ApprovalTimeoutScanner 并将其
-   * scanOnce（绑定后丢弃计数）作为 worker tick 的旁挂 listener（沿 SPEC-009
-   * LeadRecycleScanner 注入点）；缺省时本 worker 不带审批超时扫描器。签名归一化：
-   * 缺省按默认值 { timeoutHours: 72 } 参与比较（与 leadRecycle 同型语义），
-   * 显式非默认值与缺省调用混用时签名不一致 fail-fast（配置冲突宁可响爆也不静默分叉）。
+   * 保留旧启动配置的签名兼容性，不再启动旧审批扫描器。
+   * 可视化审批的超时规则由 workflow-worker 按已发布流程处理。
    */
   readonly approvalTimeout?: ApprovalTimeoutEnvironment;
 }
@@ -115,8 +111,12 @@ export function createEventServices(
     eventType: 'admin.operation.reviewed',
     eventVersion: 1,
     handler: new AdminOperationReviewedNotificationHandler(),
-    safeSummary: payload => {
-      const parsed = parseEventPayload<AdminOperationReviewedV1>('admin.operation.reviewed', 1, payload).payload;
+    safeSummary: (payload) => {
+      const parsed = parseEventPayload<AdminOperationReviewedV1>(
+        'admin.operation.reviewed',
+        1,
+        payload,
+      ).payload;
       return {
         operationId: parsed.operationId,
         operationType: parsed.operationType,
@@ -130,7 +130,7 @@ export function createEventServices(
     eventType: 'lead.assigned',
     eventVersion: 1,
     handler: new LeadFirstResponseHandler(),
-    safeSummary: payload => {
+    safeSummary: (payload) => {
       const parsed = parseEventPayload<LeadAssignedV1>('lead.assigned', 1, payload).payload;
       return {
         leadId: parsed.leadId,
@@ -138,10 +138,46 @@ export function createEventServices(
       };
     },
   });
-  registry.register({handlerCode:'QUALITY_ASSESSMENT_ANALYSIS',eventType:'quality.assessment.recorded',eventVersion:1,handler:new AssessmentHandler(),safeSummary:payload=>{const parsed=parseEventPayload<{id:string}>('quality.assessment.recorded',1,payload).payload;return {id:parsed.id};}});
-  registry.register({handlerCode:'SOP_REMINDER_NOTIFICATION',eventType:'sop.reminder.due',eventVersion:1,handler:new SopReminderHandler(),safeSummary:payload=>{const parsed=parseEventPayload<{id:string}>('sop.reminder.due',1,payload).payload;return {id:parsed.id};}});
-  registry.register({handlerCode:'SOP_CHANGE_NOTIFICATION',eventType:'sop.task.changed',eventVersion:1,handler:new SopChangeNotification(),safeSummary:payload=>{const parsed=parseEventPayload<{id:string}>('sop.task.changed',1,payload).payload;return {id:parsed.id};}});
-  registry.register({handlerCode:'QUALITY_CHANGE_NOTIFICATION',eventType:'quality.changed',eventVersion:1,handler:new QualityChangeNotification(),safeSummary:payload=>{const parsed=parseEventPayload<{id:string}>('quality.changed',1,payload).payload;return {id:parsed.id};}});
+  registry.register({
+    handlerCode: 'QUALITY_ASSESSMENT_ANALYSIS',
+    eventType: 'quality.assessment.recorded',
+    eventVersion: 1,
+    handler: new AssessmentHandler(),
+    safeSummary: (payload) => {
+      const parsed = parseEventPayload<{ id: string }>('quality.assessment.recorded', 1, payload).payload;
+      return { id: parsed.id };
+    },
+  });
+  registry.register({
+    handlerCode: 'SOP_REMINDER_NOTIFICATION',
+    eventType: 'sop.reminder.due',
+    eventVersion: 1,
+    handler: new SopReminderHandler(),
+    safeSummary: (payload) => {
+      const parsed = parseEventPayload<{ id: string }>('sop.reminder.due', 1, payload).payload;
+      return { id: parsed.id };
+    },
+  });
+  registry.register({
+    handlerCode: 'SOP_CHANGE_NOTIFICATION',
+    eventType: 'sop.task.changed',
+    eventVersion: 1,
+    handler: new SopChangeNotification(),
+    safeSummary: (payload) => {
+      const parsed = parseEventPayload<{ id: string }>('sop.task.changed', 1, payload).payload;
+      return { id: parsed.id };
+    },
+  });
+  registry.register({
+    handlerCode: 'QUALITY_CHANGE_NOTIFICATION',
+    eventType: 'quality.changed',
+    eventVersion: 1,
+    handler: new QualityChangeNotification(),
+    safeSummary: (payload) => {
+      const parsed = parseEventPayload<{ id: string }>('quality.changed', 1, payload).payload;
+      return { id: parsed.id };
+    },
+  });
   registry.validate();
   const health = new EventHealthService(config.enabled);
   const dispatcher = new EventDispatcher(prisma, registry, health);
@@ -157,23 +193,24 @@ export function createEventServices(
   const leadRecycleScanner = options.leadRecycle
     ? new LeadRecycleScanner(prisma, options.leadRecycle, outboxWriter)
     : undefined;
-  const approvalTimeoutScanner = options.approvalTimeout
-    ? new ApprovalTimeoutScanner(prisma, {
-        timeoutHours: options.approvalTimeout.timeoutHours,
-        dedupPrefix: 'approval-timeout',
-        batchSize: 100,
-      })
-    : undefined;
   const tickListeners: Array<{ label: string; run: (now: Date) => Promise<void> }> = [];
-  const sopReminderScanner=new SopReminderScanner(prisma);
-  tickListeners.push({label:'sop-reminder-scanner',run:async now=>{await sopReminderScanner.scanOnce(now);}});
+  const sopReminderScanner = new SopReminderScanner(prisma);
+  tickListeners.push({
+    label: 'sop-reminder-scanner',
+    run: async (now) => {
+      await sopReminderScanner.scanOnce(now);
+    },
+  });
   if (leadRecycleScanner) {
     // scanOnce 返回回收条数；worker 的 listener 契约只关心完成/抛错，包一层丢弃计数。
-    tickListeners.push({ label: 'lead-recycle-scanner', run: async now => { await leadRecycleScanner.scanOnce(now); } });
+    tickListeners.push({
+      label: 'lead-recycle-scanner',
+      run: async (now) => {
+        await leadRecycleScanner.scanOnce(now);
+      },
+    });
   }
-  if (approvalTimeoutScanner) {
-    tickListeners.push({ label: 'approval-timeout-scanner', run: async now => { await approvalTimeoutScanner.scanOnce(now); } });
-  }
+
   const worker = new EventWorker({
     prisma,
     dispatcher,
@@ -188,21 +225,22 @@ export function createEventServices(
     },
     runtimeStatus,
     // 多扫描器各自 try/catch 隔离：单个扫描器抛错仅记日志，不影响其余扫描器与投递循环。
-    tickListener: tickListeners.length > 0
-      ? async (now: Date): Promise<void> => {
-          for (const listener of tickListeners) {
-            try {
-              await listener.run(now);
-            } catch (error) {
-              console.error(
-                '[%s] tick listener failed: %s',
-                listener.label,
-                error instanceof Error ? error.message : String(error),
-              );
+    tickListener:
+      tickListeners.length > 0
+        ? async (now: Date): Promise<void> => {
+            for (const listener of tickListeners) {
+              try {
+                await listener.run(now);
+              } catch (error) {
+                console.error(
+                  '[%s] tick listener failed: %s',
+                  listener.label,
+                  error instanceof Error ? error.message : String(error),
+                );
+              }
             }
           }
-        }
-      : undefined,
+        : undefined,
   });
   const services = Object.freeze({
     registry,
@@ -236,9 +274,9 @@ function configurationSignature(
     observability.leaseLostDegradedCount,
     observability.leaseLostBlockedCount,
     observability.canaryWindowMinutes,
-    JSON.stringify(options.workerId === undefined
-      ? { kind: 'generated' }
-      : { kind: 'explicit', value: options.workerId }),
+    JSON.stringify(
+      options.workerId === undefined ? { kind: 'generated' } : { kind: 'explicit', value: options.workerId },
+    ),
     // 缺省按默认值归一化（DEFAULT_OBSERVABILITY 先例）：默认环境下不传 leadRecycle 的
     // 调用方与启动钩子共享缓存图；显式非默认值与缺省混用则签名不一致 fail-fast。
     JSON.stringify(options.leadRecycle ?? DEFAULT_LEAD_RECYCLE),

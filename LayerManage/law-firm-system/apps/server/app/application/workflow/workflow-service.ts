@@ -5,6 +5,15 @@ import { Prisma, PrismaClient, WorkflowInstance } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { AuthorizationContextLoader } from '../authorization/authorization-context-loader';
 import { CollaborationService } from '../collaboration/collaboration-service';
+import {
+  guardManagedReview,
+  isManagedReview,
+  lockManagedReview,
+  managedScope,
+  syncManagedReview,
+} from './managed-reviews';
+import { freezeSopReviewChecklist } from '../sop/review-policy';
+import { attachPayroll, preparePayroll } from './payroll-workflow';
 import { validateApprovalFile } from '../../domain/approval/approval-file-validation';
 import {
   check,
@@ -61,7 +70,7 @@ export class WorkflowService {
   async definitions(manage = false) {
     this.require(manage ? 'approval.manage' : 'approval.apply');
     const rows = await this.db.workflowDefinition.findMany({
-      where: manage ? {} : { enabled: true, version: { gt: 0 } },
+      where: { managedType: null, ...(manage ? {} : { enabled: true, version: { gt: 0 } }) },
       orderBy: { updatedAt: 'desc' },
     });
     const roles = await this.roles();
@@ -82,6 +91,7 @@ export class WorkflowService {
     }
     return this.db.$transaction(async (tx) => {
       let old = id ? await tx.workflowDefinition.findUnique({ where: { id } }) : null;
+      check(!old?.managedType, '业务审核流程由原业务规则生成，不允许修改', 403);
       if (id) check(old && old.revision === input.revision, '流程已被修改，请刷新后重试', 409);
       const data = {
         name,
@@ -186,6 +196,8 @@ export class WorkflowService {
       selections?: Record<string, string[]>;
       targetRecordId?: string;
       correctionOf?: string;
+      payrollBatchId?: string;
+      payrollVersion?: number;
     },
     key: string,
   ) {
@@ -207,6 +219,7 @@ export class WorkflowService {
             where: { id: input.definitionId, enabled: true, version: { gt: 0 } },
           });
           check(d, '流程不存在或已停用', 404);
+          check(!d.managedType, '请从对应业务记录发起审核', 403);
           let original: WorkflowInstance | null = null;
           if (input.correctionOf) {
             await tx.$queryRaw`SELECT id FROM workflow_instance WHERE id=${input.correctionOf} FOR UPDATE`;
@@ -234,6 +247,10 @@ export class WorkflowService {
           }
           const s = validateSchema(original ? original.snapshot : d.published),
             start = s.nodes.find((n) => n.type === 'START')!;
+          check(!original || !input.payrollBatchId, '工资表请复制新草稿后提交');
+          const payroll = input.payrollBatchId
+            ? await preparePayroll(tx, this.actor, str(input.payrollBatchId), input.payrollVersion, s)
+            : null;
           check(
             canSubmit(validateSchema(d.published), this.actor.userId, await this.roles(tx)),
             '你不在此流程的提交范围内',
@@ -253,6 +270,7 @@ export class WorkflowService {
             input.content,
           );
           const selections: Values = {};
+          if (payroll) Object.assign(content, await attachPayroll(tx, payroll, s));
           if (original) selections._corrects = original.id;
           for (const [node, ids] of Object.entries(input.selections ?? {})) {
             check(
@@ -278,6 +296,7 @@ export class WorkflowService {
           const i = await tx.workflowInstance.create({
             data: {
               definitionId: d.id,
+              businessType: payroll ? 'PAYROLL' : 'CUSTOM',
               definitionVersion: original?.definitionVersion ?? d.version,
               title: str(input.title, 200),
               snapshot: json(s),
@@ -290,6 +309,11 @@ export class WorkflowService {
               requestHash,
             },
           });
+          if (payroll)
+            await tx.payrollBatch.update({
+              where: { id: payroll.id },
+              data: { workflowInstanceId: i.id, version: { increment: 1 } },
+            });
           await this.log(tx, i, 'APPLY');
           if (original) {
             await this.log(tx, i, 'CORRECTION', `更正原申请：${original.id}`);
@@ -301,6 +325,96 @@ export class WorkflowService {
         { timeout: 30000 },
       )
       .then((id) => this.detail(id));
+  }
+  /** Called only by domain adapters inside their existing business transaction. */
+  async startManaged(
+    tx: Tx,
+    input: {
+      businessType: 'SOP_REVIEW' | 'QUALITY_ANALYSIS';
+      sourceId: string;
+      title: string;
+      reviewerId: string;
+      content: Values;
+      fields: FormField[];
+    },
+  ) {
+    this.require('approval.apply');
+    this.require('approval.read');
+    check(this.actor.userId !== input.reviewerId, '不能审核本人提交的业务', 403);
+    const fields = Object.fromEntries(input.fields.map((f) => [f.key, 'READ' as const]));
+    const schema: WorkflowSchema = {
+      description: '由业务记录发起，保留业务权限、材料版本及审核校验。',
+      fields: input.fields,
+      settings: { audience: { mode: 'NONE' }, allowWithdraw: true, allowCorrection: false },
+      nodes: [
+        { id: 'start', name: '提交业务审核', type: 'START', x: 0, y: 0, fields },
+        {
+          id: 'review',
+          name: input.title,
+          type: 'APPROVAL',
+          x: 0,
+          y: 160,
+          rule: { type: 'USER', ids: [input.reviewerId] },
+          mode: 'ALL',
+          fields,
+          actions: { forward: false, add: false, return: false },
+          timeoutHours: 72,
+          timeoutAction: 'REMIND',
+        },
+        { id: 'end', name: '更新业务状态', type: 'END', x: 0, y: 320 },
+      ],
+      edges: [
+        { id: 'start-review', from: 'start', to: 'review' },
+        { id: 'review-end', from: 'review', to: 'end' },
+      ],
+    };
+    validateSchema(schema);
+    validateValues(schema.fields, input.content);
+    const requestKey = `managed:${input.businessType}:${input.sourceId}`;
+    const definition = await tx.workflowDefinition.create({
+      data: {
+        name: input.title,
+        managedType: input.businessType,
+        draft: json(schema),
+        published: json(schema),
+        version: 1,
+        createdBy: this.actor.userId,
+      },
+    });
+    const instance = await tx.workflowInstance.create({
+      data: {
+        definitionId: definition.id,
+        definitionVersion: 1,
+        businessType: input.businessType,
+        title: input.title,
+        snapshot: json(schema),
+        content: json(input.content),
+        selections: {},
+        applicantId: this.actor.userId,
+        currentNode: 'start',
+        requestKey,
+        requestHash: digest(input),
+      },
+    });
+    if (input.businessType === 'SOP_REVIEW')
+      await tx.qualityReview.update({
+        where: { submissionId: input.sourceId },
+        data: {
+          workflowInstanceId: instance.id,
+          reviewerUserId: input.reviewerId,
+          status: 'PENDING',
+          version: { increment: 1 },
+        },
+      });
+    else
+      await tx.analysisCloseRequest.update({
+        where: { id: input.sourceId },
+        data: { workflowInstanceId: instance.id },
+      });
+    await guardManagedReview(tx, this.actor, instance.id, 'READ');
+    await this.log(tx, instance, 'APPLY');
+    await this.advance(tx, instance, 'review');
+    return instance.id;
   }
   private next(s: WorkflowSchema, id: string, values: Values) {
     const edges = s.edges
@@ -386,6 +500,8 @@ export class WorkflowService {
         }
     }
     ids = [...new Set(ids)];
+    if (i.businessType === 'PAYROLL' && n.type === 'APPROVAL')
+      check(!ids.includes(i.applicantId), '工资表不能由提交人本人审批', 403);
     check(ids.length > 0 && ids.length <= 100, `${n.name}没有可用处理人`);
     const users = await tx.user.findMany({
       where: {
@@ -436,7 +552,7 @@ export class WorkflowService {
         content: i.title,
         relatedId: i.id,
         relatedType: 'WORKFLOW',
-        routeUrl: `/approvals/visual?instance=${i.id}`,
+        routeUrl: `/approvals?instance=${i.id}`,
         deduplicationKey: `workflow:${i.id}:${tag}:${userId}`,
       },
       update: {},
@@ -452,11 +568,23 @@ export class WorkflowService {
       i.visit++;
       await tx.workflowInstance.update({ where: { id: i.id }, data: { currentNode: id, visit: i.visit } });
       if (n.type === 'END') {
+        if (i.businessType === 'PAYROLL')
+          check(
+            await tx.workflowTask.count({
+              where: { instanceId: i.id, status: 'APPROVED', assigneeId: { not: i.applicantId } },
+            }),
+            '工资表必须经过人工审核',
+            409,
+          );
         validateValues(s.fields, i.content as Values);
         i.status = 'APPROVED';
         await tx.workflowInstance.update({
           where: { id: i.id },
-          data: { status: 'APPROVED', finishedAt: new Date() },
+          data: {
+            status: 'APPROVED',
+            finishedAt: new Date(),
+            ...(i.businessType === 'PAYROLL' ? { syncStatus: 'SYNCED' } : {}),
+          },
         });
         await this.log(tx, i, 'COMPLETED');
         await this.sync(tx, i);
@@ -627,9 +755,11 @@ export class WorkflowService {
       hash = digest({ id, ...input });
     await this.db.$transaction(
       async (tx) => {
+        await lockManagedReview(tx, id);
         await tx.$queryRaw`SELECT id FROM workflow_instance WHERE id=${id} FOR UPDATE`;
         const i = await tx.workflowInstance.findUnique({ where: { id } });
         check(i, '审批不存在', 404);
+        await guardManagedReview(tx, this.actor, id, 'READ');
         const replay = await tx.workflowLog.findUnique({ where: { requestKey } });
         if (replay) {
           check(
@@ -640,6 +770,13 @@ export class WorkflowService {
           return;
         }
         check(i.version === input.version, '审批已发生变化，请刷新后重试', 409);
+        await guardManagedReview(tx, this.actor, id, input.action, input.remark);
+        if (i.businessType === 'PAYROLL') {
+          check(!automatic, '工资审批必须人工处理', 403);
+          if (input.action === 'APPROVE')
+            check(i.applicantId !== this.actor.userId, '不能审核本人工资表', 403);
+        }
+        if (isManagedReview(i.businessType)) check(!automatic, '业务审核必须由指定审核人处理', 403);
         const s = snapshot(i),
           n = s.nodes.find((n) => n.id === i.currentNode)!;
         if (input.action === 'RETRY_SYNC') {
@@ -703,8 +840,9 @@ export class WorkflowService {
             i.content = json(values) as Prisma.JsonValue;
             await tx.workflowInstance.update({
               where: { id },
-              data: { content: i.content as Prisma.InputJsonValue },
+              data: { content: i.content as Prisma.InputJsonValue, decidedBy: this.actor.userId },
             });
+            if (i.businessType === 'SOP_REVIEW') await freezeSopReviewChecklist(tx, id, 'workflow');
             await tx.workflowTask.update({
               where: { id: task!.id },
               data: {
@@ -769,6 +907,7 @@ export class WorkflowService {
                 where: { id },
                 data: {
                   status: input.action === 'REJECT' ? 'REJECTED' : 'WITHDRAWN',
+                  decidedBy: this.actor.userId,
                   finishedAt: new Date(),
                 },
               });
@@ -819,6 +958,7 @@ export class WorkflowService {
             }
           }
         }
+        await syncManagedReview(tx, id, { actorUserId: this.actor.userId });
         // Log the node that was acted upon, even when advance changed currentNode.
         await this.log(
           tx,
@@ -942,6 +1082,7 @@ export class WorkflowService {
       '审批不存在或不可访问',
       404,
     );
+    await guardManagedReview(this.db, this.actor, id, 'READ');
     const s = snapshot(i),
       roles = await this.roles();
     const own = i.tasks.filter((t) => t.assigneeId === this.actor.userId).at(-1);
@@ -968,6 +1109,12 @@ export class WorkflowService {
     void _selections;
     return {
       ...view,
+      businessLink:
+        i.businessType === 'SOP_REVIEW'
+          ? '/sop/submissions/' + encodeURIComponent(String((i.content as Values).submissionId))
+          : i.businessType === 'QUALITY_ANALYSIS'
+            ? '/quality/special-analyses/' + encodeURIComponent(String((i.content as Values).analysisId))
+            : undefined,
       snapshot: { ...s, fields },
       content,
       editable,
@@ -994,6 +1141,7 @@ export class WorkflowService {
     this.require(role === 'ALL' ? 'approval.manage' : 'approval.read');
     check(['APPLIED', 'TODO', 'DONE', 'CC', 'ALL'].includes(role), '任务分类无效');
     const where: Prisma.WorkflowInstanceWhereInput = {
+      AND: [await managedScope(this.db, this.actor)],
       ...(keyword ? { title: { contains: keyword.slice(0, 100) } } : {}),
       ...(role === 'APPLIED'
         ? { applicantId: this.actor.userId }
@@ -1037,15 +1185,21 @@ export class WorkflowService {
   }
   async stats() {
     this.require('approval.manage');
-    const counts = await this.db.workflowInstance.groupBy({ by: ['status'], _count: true });
+    const scope = await managedScope(this.db, this.actor);
+    const ids = (await this.db.workflowInstance.findMany({ where: scope, select: { id: true } })).map(
+      (i) => i.id,
+    );
+    const counts = await this.db.workflowInstance.groupBy({ where: scope, by: ['status'], _count: true });
     const nodes = await this.db.$queryRaw<
       Array<{ nodeName: string; count: bigint; hours: number }>
-    >`SELECT i.snapshot->'nodes'->(SELECT ordinality::int-1 FROM jsonb_array_elements(i.snapshot->'nodes') WITH ORDINALITY n WHERE n.value->>'id'=t."nodeId" LIMIT 1)->>'name' AS "nodeName", count(*) AS count, AVG(EXTRACT(EPOCH FROM (t."processedAt"-t."createdAt"))/3600)::float8 AS hours FROM workflow_task t JOIN workflow_instance i ON i.id=t."instanceId" WHERE t."processedAt" IS NOT NULL GROUP BY 1`;
+    >`SELECT i.snapshot->'nodes'->(SELECT ordinality::int-1 FROM jsonb_array_elements(i.snapshot->'nodes') WITH ORDINALITY n WHERE n.value->>'id'=t."nodeId" LIMIT 1)->>'name' AS "nodeName", count(*) AS count, AVG(EXTRACT(EPOCH FROM (t."processedAt"-t."createdAt"))/3600)::float8 AS hours FROM workflow_task t JOIN workflow_instance i ON i.id=t."instanceId" WHERE t."processedAt" IS NOT NULL AND i.id = ANY(${ids}::text[]) GROUP BY 1`;
     return {
       counts,
       nodes: nodes.map((n) => ({ ...n, count: Number(n.count) })),
-      overdue: await this.db.workflowTask.count({ where: { status: 'PENDING', dueAt: { lt: new Date() } } }),
-      syncFailures: await this.db.workflowInstance.count({ where: { syncStatus: 'FAILED' } }),
+      overdue: await this.db.workflowTask.count({
+        where: { status: 'PENDING', dueAt: { lt: new Date() }, instance: scope },
+      }),
+      syncFailures: await this.db.workflowInstance.count({ where: { AND: [scope], syncStatus: 'FAILED' } }),
     };
   }
   async upload(name: string, bytes: Buffer) {

@@ -1,3 +1,9 @@
+import {
+  ReviewEngine,
+  reviewReference,
+  reviewApproval,
+  reviewVisible,
+} from '../approval/review-approval-store';
 import { lockSopSource, sopSourceActive, bumpSopCase } from './source-context';
 import { requireSourceMaterials, sourceMaterialBytes } from './source-file-service';
 import { SopExecutionService } from './execution-service';
@@ -105,9 +111,13 @@ export async function sopApprovalScope(
     ],
   };
 }
-export async function lockSopApproval(db: Prisma.TransactionClient, approvalId: string) {
+export async function lockSopApproval(
+  db: Prisma.TransactionClient,
+  approvalId: string,
+  engine: ReviewEngine = 'legacy',
+) {
   const review = await db.qualityReview.findUnique({
-    where: { approvalInstanceId: approvalId },
+    where: reviewReference(approvalId, engine),
     include: { submission: { include: { task: true } } },
   });
   if (!review) return;
@@ -122,24 +132,17 @@ export async function guardSopApproval(
   approvalId: string,
   action: 'READ' | 'APPROVE' | 'REJECT' | 'WITHDRAW' | 'FORWARD',
   remark?: string | null,
+  engine: ReviewEngine = 'legacy',
 ) {
-  const approval = await db.approvalInstance.findUnique({
-    where: { id: approvalId },
-    select: { businessType: true, status: true },
-  });
+  const approval = await reviewApproval(db, approvalId, engine);
   if (approval?.businessType !== 'SOP_REVIEW') return;
   const current = await new AuthorizationContextLoader(db).load(ctx.userId);
-  if (
-    !(await db.approvalInstance.findFirst({
-      where: { AND: [{ id: approvalId }, await sopApprovalScope(db, current)] },
-      select: { id: true },
-    }))
-  )
+  if (!(await reviewVisible(db, approvalId, await sopApprovalScope(db, current), engine)))
     sopFail('SOP_REVIEW_NOT_FOUND', 404);
   if (action === 'READ') return;
   if (action === 'FORWARD') sopFail('SOP_REVIEW_ROUTING_FIXED', 409);
   const review = await db.qualityReview.findUniqueOrThrow({
-    where: { approvalInstanceId: approvalId },
+    where: reviewReference(approvalId, engine),
     include: { submission: true },
   });
   if (action === 'WITHDRAW') {
@@ -171,31 +174,46 @@ export async function guardSopApproval(
       sopFail('SOP_CHECKLIST_INCOMPLETE', 409);
   }
 }
-export async function freezeSopReviewChecklist(tx: Prisma.TransactionClient, approvalId: string) {
+export async function freezeSopReviewChecklist(
+  tx: Prisma.TransactionClient,
+  approvalId: string,
+  engine: ReviewEngine = 'legacy',
+) {
   const review = await tx.qualityReview.findUniqueOrThrow({
-    where: { approvalInstanceId: approvalId },
+    where: reviewReference(approvalId, engine),
   });
-  const approval = await tx.approvalInstance.findUniqueOrThrow({
-    where: { id: approvalId },
-  });
-  await tx.approvalInstance.update({
-    where: { id: approvalId },
-    data: {
-      content: {
-        ...(approval.content as Prisma.InputJsonObject),
-        reviewChecklist: review.checklist,
-        reviewChecklistHash: hashPayload(review.checklist),
-      } as Prisma.InputJsonValue,
-    },
-  });
+  const approval = await reviewApproval(tx, approvalId, engine);
+  const data = {
+    content: {
+      ...(approval.content as Prisma.InputJsonObject),
+      reviewChecklist: review.checklist,
+      reviewChecklistHash: hashPayload(review.checklist),
+    } as Prisma.InputJsonValue,
+  };
+  if (engine === 'workflow') {
+    const workflow = await tx.workflowInstance.findUniqueOrThrow({ where: { id: approvalId } });
+    await tx.workflowInstance.update({
+      where: { id: approvalId },
+      data: {
+        selections: {
+          ...(workflow.selections as Prisma.InputJsonObject),
+          reviewChecklist: review.checklist,
+          reviewChecklistHash: hashPayload(review.checklist),
+        } as Prisma.InputJsonValue,
+      },
+    });
+  } else await tx.approvalInstance.update({ where: { id: approvalId }, data });
 }
-export async function syncSopReview(tx: Prisma.TransactionClient, approvalId: string, actor: AuditActor) {
-  const approval = await tx.approvalInstance.findUniqueOrThrow({
-    where: { id: approvalId },
-  });
+export async function syncSopReview(
+  tx: Prisma.TransactionClient,
+  approvalId: string,
+  actor: AuditActor,
+  engine: ReviewEngine = 'legacy',
+) {
+  const approval = await reviewApproval(tx, approvalId, engine);
   if (approval.businessType !== 'SOP_REVIEW') return null;
   const review = await tx.qualityReview.findUniqueOrThrow({
-    where: { approvalInstanceId: approvalId },
+    where: reviewReference(approvalId, engine),
     include: {
       submission: {
         include: {
@@ -249,7 +267,11 @@ export async function syncSopReview(tx: Prisma.TransactionClient, approvalId: st
   )
     sopFail('SOP_REVIEW_STALE', 409);
   if (approval.status === 'APPROVED') {
-    if ((approval.content as Record<string, unknown>).reviewChecklistHash !== hashPayload(review.checklist))
+    const frozenChecklist =
+      engine === 'workflow'
+        ? (await tx.workflowInstance.findUniqueOrThrow({ where: { id: approvalId } })).selections
+        : approval.content;
+    if ((frozenChecklist as Record<string, unknown>).reviewChecklistHash !== hashPayload(review.checklist))
       sopFail('SOP_REVIEW_STALE', 409);
     const frozen = sub.materialChecklist as Array<{
       code: string;
@@ -269,7 +291,7 @@ export async function syncSopReview(tx: Prisma.TransactionClient, approvalId: st
 
     if (!approval.decidedBy) sopFail('SOP_REVIEWER_INVALID', 409);
     const ctx = await checkReviewer(tx, approval.decidedBy!, task.id, sub.submittedBy, sub.executorUserId);
-    await guardSopApproval(tx, ctx, approval.id, 'APPROVE');
+    await guardSopApproval(tx, ctx, approval.id, 'APPROVE', undefined, engine);
     if (sub.attachments.length) {
       if (task.caseId) await requireCaseAccess(tx as PrismaClient, ctx, task.caseId, 'case.file.read', tx);
       else await requireSourceMaterials(tx, ctx, task.id);

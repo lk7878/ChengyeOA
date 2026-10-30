@@ -39,6 +39,8 @@ export interface Definition {
   enabled: boolean;
 }
 export interface Instance {
+  businessType?: string;
+  businessLink?: string;
   id: string;
   definitionId: string;
   correctionOf?: string;

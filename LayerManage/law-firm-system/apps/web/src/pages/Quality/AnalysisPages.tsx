@@ -304,7 +304,7 @@ function AnalysisContent({ data, refresh }: { data: Analysis; refresh: () => voi
           {c.sync?.status === 'FAILED' && (
             <Alert type="error" title="审批已决定，业务同步失败" description={c.sync.reason} />
           )}{' '}
-          {c.approvalId && <Link to={'/approvals?role=TODO&instance=' + c.approvalId}>进入原审批中心</Link>}
+          {c.approvalId && <Link to={'/approvals?role=TODO&instance=' + c.approvalId}>进入审批中心</Link>}
         </Card>
       ))}
       <details>

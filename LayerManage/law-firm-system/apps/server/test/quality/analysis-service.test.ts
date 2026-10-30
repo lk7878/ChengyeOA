@@ -6,8 +6,7 @@ import { clearTestApplicationData, createTestPrisma } from '../helpers/test-data
 import { AuthorizationContextLoader } from '../../app/application/authorization/authorization-context-loader';
 import { AnalysisService } from '../../app/application/quality/analysis-service';
 import { AssessmentHandler } from '../../app/application/quality/assessment-handler';
-import { ApprovalInstanceService } from '../../app/application/approval/approval-instance-service';
-import { ApprovalSyncService } from '../../app/application/approval/approval-sync-service';
+import { WorkflowReviewClient } from '../helpers/workflow-review-client';
 import { createEventServices } from '../../app/application/events/event-services-factory';
 let db: PrismaClient, admin: string, reviewer: string, caseId: string, svc: AnalysisService;
 const rejects = (code: string) => (error: unknown) => (error as { code: string }).code === code;
@@ -23,11 +22,7 @@ async function service(id: string) {
   return new AnalysisService(db, { actorUserId: id }, await new AuthorizationContextLoader(db).load(id));
 }
 async function approval(id = reviewer) {
-  return new ApprovalInstanceService(
-    db,
-    { actorUserId: id },
-    await new AuthorizationContextLoader(db).load(id),
-  );
+  return new WorkflowReviewClient(db, { actorUserId: id }, await new AuthorizationContextLoader(db).load(id));
 }
 async function deliver(id: string) {
   await db.$transaction((tx) =>
@@ -67,7 +62,7 @@ async function close(id: string, version = 2) {
     where: { analysisId: id },
     orderBy: { createdAt: 'desc' },
   });
-  return db.approvalTask.findFirstOrThrow({ where: { instanceId: row.approvalInstanceId! } });
+  return db.workflowTask.findFirstOrThrow({ where: { instanceId: row.workflowInstanceId! } });
 }
 test.before(() => {
   db = createTestPrisma();
@@ -209,27 +204,26 @@ test('SQ5 original approval rejects then closes a new frozen analysis revision',
   assert.equal(await db.analysisRevision.count({ where: { analysisId: id } }), 2);
   assert.equal(await db.analysisCloseRequest.count({ where: { analysisId: id } }), 2);
   assert.equal(
-    (await db.approvalSyncRecord.findUniqueOrThrow({ where: { instanceId: second.instanceId } })).status,
+    (await db.workflowInstance.findUniqueOrThrow({ where: { id: second.instanceId } })).syncStatus,
     'SYNCED',
   );
 });
-test('SQ5 failed business sync preserves pending state and original retry completes after repair', async () => {
+test('SQ5 changed frozen content rolls back approval and completes after repair', async () => {
   const id = await ready(),
     task = await close(id),
     approver = await approval();
   await db.specialAnalysis.update({ where: { id }, data: { content: '变更冻结内容' } });
-  await approver.processTask(task.id, { action: 'APPROVE' });
+  await assert.rejects(
+    approver.processTask(task.id, { action: 'APPROVE' }),
+    rejects('QUALITY_APPROVAL_STALE'),
+  );
   assert.equal((await svc.get(id)).status, 'PENDING_CLOSE');
   assert.equal(
-    (await db.approvalSyncRecord.findUniqueOrThrow({ where: { instanceId: task.instanceId } })).status,
-    'FAILED',
+    (await db.workflowInstance.findUniqueOrThrow({ where: { id: task.instanceId } })).status,
+    'PENDING',
   );
   await db.specialAnalysis.update({ where: { id }, data: { content: '分析原因及沟通经过' } });
-  await new ApprovalSyncService(
-    db,
-    { actorUserId: reviewer },
-    await new AuthorizationContextLoader(db).load(reviewer),
-  ).retry(task.instanceId);
+  await approver.processTask(task.id, { action: 'APPROVE' });
   assert.equal((await svc.get(id)).status, 'CLOSED');
 });
 test('SQ5 analysis authors cannot review and concurrent close cannot create duplicate approvals', async () => {
@@ -245,7 +239,7 @@ test('SQ5 analysis authors cannot review and concurrent close cannot create dupl
     svc.requestClose(id, { expectedVersion: 3, requestKey: randomUUID(), reviewerUserId: reviewer }),
     rejects('QUALITY_SELF_REVIEW'),
   );
-  assert.equal(await db.approvalInstance.count(), 0);
+  assert.equal(await db.workflowInstance.count(), 0);
   const otherId = await ready(),
     values = { expectedVersion: 2, requestKey: randomUUID(), reviewerUserId: reviewer },
     results = await Promise.allSettled([
@@ -253,19 +247,22 @@ test('SQ5 analysis authors cannot review and concurrent close cannot create dupl
       svc.requestClose(otherId, { ...values, requestKey: randomUUID() }),
     ]);
   assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
-  assert.equal(await db.approvalInstance.count(), 1);
+  assert.equal(await db.workflowInstance.count(), 1);
 });
 test('SQ5 current read scope, revoked reviewer and generic apply cannot bypass managed close', async () => {
   const id = await ready(),
     task = await close(id),
     approver = await approval(),
-    def = await db.approvalDefinition.findFirstOrThrow({ where: { businessType: 'QUALITY_ANALYSIS' } });
+    def = await db.workflowDefinition.findFirstOrThrow({ where: { managedType: 'QUALITY_ANALYSIS' } });
   await assert.rejects(
-    (await approval(admin)).applyForApproval({
-      definitionCode: def.code,
-      title: '伪造关闭',
-      content: { analysisId: id, closeRequestId: 'fake', contentHash: 'fake' },
-    }),
+    (await approval(admin)).start(
+      {
+        definitionId: def.id,
+        title: '伪造关闭',
+        content: { analysisId: id, closeRequestId: 'fake', contentHash: 'fake' },
+      },
+      randomUUID(),
+    ),
   );
   await db.userRole.deleteMany({ where: { userId: reviewer } });
   await assert.rejects(approver.processTask(task.id, { action: 'APPROVE' }));
@@ -339,62 +336,40 @@ test('SQ5 assessment handler rollback retries without orphan analysis or duplica
   assert.equal(await db.operationLog.count({ where: { action: 'QUALITY_ANALYSIS_TRIGGERED' } }), 1);
 });
 
-test('SQ5 timeout pagination advances past revoked analysis reviewers and revisits restored grants', async () => {
-  const { ApprovalTimeoutScanner } = await import('../../app/application/approval/approval-timeout-scanner');
+test('managed visual timeout reminders do not auto-approve and respect revoked access', async () => {
+  const { tickWorkflows } = await import('../../app/application/workflow/workflow-worker');
   const id = await ready(),
     task = await close(id);
-  await db.approvalTask.update({
-    where: { id: task.id },
-    data: { createdAt: new Date('2026-09-01T00:00:00Z') },
-  });
+  await db.workflowTask.update({ where: { id: task.id }, data: { dueAt: new Date(0) } });
   const roles = await db.userRole.findMany({ where: { userId: reviewer } });
   await db.userRole.deleteMany({ where: { userId: reviewer } });
-  const definition = await db.approvalDefinition.create({
-    data: {
-      code: 'GENERIC_TEST',
-      name: '普通审批',
-      businessType: 'EXPENSE',
-      formSchema: { fields: [] },
-      approverRule: { type: 'USER', userIds: [admin] },
-      createdBy: admin,
-    },
-  });
-  const second = await db.approvalInstance.create({
-    data: {
-      definitionId: definition.id,
-      definitionVersion: 1,
-      businessType: 'EXPENSE',
-      title: '普通审批',
-      applicantId: admin,
-      createdBy: admin,
-      content: {},
-      status: 'PENDING',
-    },
-  });
-  const other = await db.approvalTask.create({
-    data: {
-      instanceId: second.id,
-      assigneeId: admin,
-      nodeName: '审核',
-      status: 'PENDING',
-      createdAt: new Date('2026-09-02T00:00:00Z'),
-    },
-  });
-  const scanner = new ApprovalTimeoutScanner(db, {
-      timeoutHours: 1,
-      dedupPrefix: 'approval-timeout',
-      batchSize: 1,
-    }),
-    now = new Date('2026-09-17T00:00:00Z');
-  assert.equal(await scanner.scanOnce(now), 0);
-  assert.equal(await scanner.scanOnce(now), 1);
-  assert.equal(await db.notification.count({ where: { userId: reviewer } }), 0);
-  assert.ok(await db.notification.findFirst({ where: { deduplicationKey: { contains: other.id } } }));
+  const before = await db.notification.count({ where: { userId: reviewer } });
+  await tickWorkflows(db);
+  assert.equal(await db.notification.count({ where: { userId: reviewer } }), before);
+  assert.equal(
+    (await db.workflowInstance.findUniqueOrThrow({ where: { id: task.instanceId } })).status,
+    'PENDING',
+  );
   await db.userRole.createMany({ data: roles });
-  await scanner.scanOnce(now);
-  assert.equal(await scanner.scanOnce(now), 1);
+  await db.workflowTask.update({ where: { id: task.id }, data: { dueAt: new Date(0) } });
+  await tickWorkflows(db);
+  assert.equal(await db.notification.count({ where: { userId: reviewer } }), before + 1);
 });
 
-test('SQ5 quality metrics intersect current case scope and omit unauthorized businesses',async()=>{
- await ready();const role=await db.role.findUniqueOrThrow({where:{code:'QA_REVIEWER'}});await db.rolePermission.create({data:{roleId:role.id,permissionId:(await db.permission.findUniqueOrThrow({where:{code:'quality.metric.read'}})).id}});let metrics=await (await service(reviewer)).metrics();assert.equal((metrics.analyses as {status:string;_count:{_all:number}}[])[0]._count._all,1);assert.equal(metrics.issues,undefined);assert.equal(metrics.tasks,undefined);await db.dataScope.updateMany({where:{name:'获权分析范围'},data:{scopeType:'SELF'}});metrics=await (await service(reviewer)).metrics();assert.deepEqual(metrics.analyses,[]);
+test('SQ5 quality metrics intersect current case scope and omit unauthorized businesses', async () => {
+  await ready();
+  const role = await db.role.findUniqueOrThrow({ where: { code: 'QA_REVIEWER' } });
+  await db.rolePermission.create({
+    data: {
+      roleId: role.id,
+      permissionId: (await db.permission.findUniqueOrThrow({ where: { code: 'quality.metric.read' } })).id,
+    },
+  });
+  let metrics = await (await service(reviewer)).metrics();
+  assert.equal((metrics.analyses as { status: string; _count: { _all: number } }[])[0]._count._all, 1);
+  assert.equal(metrics.issues, undefined);
+  assert.equal(metrics.tasks, undefined);
+  await db.dataScope.updateMany({ where: { name: '获权分析范围' }, data: { scopeType: 'SELF' } });
+  metrics = await (await service(reviewer)).metrics();
+  assert.deepEqual(metrics.analyses, []);
 });

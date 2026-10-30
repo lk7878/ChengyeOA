@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
+import { integrationApi, type PayrollBatch } from '@/api/business-integration';
 import { Alert, Button, Input, Modal, Select, Space, Statistic, Table, Tabs, Tag, message } from 'antd';
 import DraggableModal from '@/components/DraggableModal';
 import { useAuthStore } from '@/stores/authStore';
@@ -31,6 +32,10 @@ interface Stat {
   syncFailures: number;
 }
 const initOptions: Options = { users: [], roles: [], hooks: [] };
+function approvalTab(value: string | null, manage: boolean): string {
+  const allowed = ['TODO', 'DONE', 'APPLIED', 'CC', ...(manage ? ['ALL', 'DESIGN', 'MONITOR'] : [])];
+  return value && allowed.includes(value) ? value : 'TODO';
+}
 export default function VisualApprovals() {
   const auth = useAuthStore(),
     manage = auth.hasPermission('approval.manage'),
@@ -38,8 +43,10 @@ export default function VisualApprovals() {
     process = auth.hasPermission('approval.process');
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const [tab, setTab] = useState('TODO'),
-    [options, setOptions] = useState<Options>(initOptions),
+  const payrollId = params.get('payroll');
+  const [payroll, setPayroll] = useState<PayrollBatch>();
+  const tab = approvalTab(params.get('role'), manage);
+  const [options, setOptions] = useState<Options>(initOptions),
     [ownRoles, setOwnRoles] = useState<string[]>([]),
     [definitions, setDefinitions] = useState<Definition[]>([]),
     [allDefinitions, setAllDefinitions] = useState<Definition[]>([]),
@@ -69,6 +76,28 @@ export default function VisualApprovals() {
   const startKey = useRef(crypto.randomUUID()),
     actionKey = useRef(crypto.randomUUID());
   const bump = () => setRefresh((x) => x + 1);
+  useEffect(() => {
+    if (!payrollId || !apply) return;
+    let active = true;
+    integrationApi
+      .payrollDetail(payrollId)
+      .then(({ data }) => {
+        if (!active) return;
+        if (data.instance) {
+          setError('该工资表已提交审批，请从工资表页面打开已有审批。');
+          return;
+        }
+        setPayroll(data);
+        setTitle(data.title);
+        setStartOpen(true);
+      })
+      .catch((e) => {
+        if (active) setError(errorText(e));
+      });
+    return () => {
+      active = false;
+    };
+  }, [payrollId, apply]);
   useEffect(() => {
     get<Options & { ownRoles: string[] }>('/workflows/options')
       .then((o) => {
@@ -188,6 +217,7 @@ export default function VisualApprovals() {
         selections,
         ...(correction ? { correctionOf: correction.id } : {}),
         ...(target ? { targetRecordId: target } : {}),
+        ...(payroll && !correction ? { payrollBatchId: payroll.id, payrollVersion: payroll.version } : {}),
       };
       const fingerprint = JSON.stringify(payload);
       if (startPayload.current !== fingerprint) {
@@ -196,6 +226,15 @@ export default function VisualApprovals() {
       }
       const r = await post<Instance>('/workflows/instances', payload, startKey.current);
       setStartOpen(false);
+      setPayroll(undefined);
+      setParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          next.delete('payroll');
+          return next;
+        },
+        { replace: true },
+      );
       setDetail(r);
       setDraft(r.content);
       bump();
@@ -312,8 +351,7 @@ export default function VisualApprovals() {
     <div className="wf-page">
       <header>
         <div>
-          <Link to="/approvals">返回审批中心</Link>
-          <h1>可视化审批</h1>
+          <h1>审批中心</h1>
           <p>设计表单与流程，将审批结果同步到业务工作表。</p>
         </div>
         <Space>
@@ -324,6 +362,7 @@ export default function VisualApprovals() {
               onClick={() => {
                 setDefinitionId('');
                 setCorrection(undefined);
+                setPayroll(undefined);
                 setValues({});
                 setTitle('');
                 setSelections({});
@@ -332,7 +371,7 @@ export default function VisualApprovals() {
                 setStartOpen(true);
               }}
             >
-              发起审批
+              新建申请
             </Button>
           )}
         </Space>
@@ -341,7 +380,11 @@ export default function VisualApprovals() {
       <Tabs
         activeKey={tab}
         onChange={(t) => {
-          setTab(t);
+          setParams((current) => {
+            const next = new URLSearchParams(current);
+            next.set('role', t);
+            return next;
+          });
           setPage(1);
         }}
         items={[
@@ -459,15 +502,34 @@ export default function VisualApprovals() {
         ]}
       />
       <DraggableModal
-        title={correction ? '提交更正申请' : '发起可视化审批'}
+        title={correction ? '提交更正申请' : '新建申请'}
         open={startOpen}
         width={850}
-        onCancel={() => setStartOpen(false)}
+        onCancel={() => {
+          setStartOpen(false);
+          setPayroll(undefined);
+          setParams(
+            (current) => {
+              const next = new URLSearchParams(current);
+              next.delete('payroll');
+              return next;
+            },
+            { replace: true },
+          );
+        }}
         onOk={start}
         confirmLoading={busy}
         okText="提交申请"
         destroyOnHidden
       >
+        {payroll && !correction && (
+          <Alert
+            type="info"
+            showIcon
+            title={'工资审批：' + payroll.title}
+            description={`月份：${payroll.period}；提交后冻结文件：${payroll.attachment.fileName}。审批通过表示待发放，不代表已经支付。`}
+          />
+        )}
         {correction && (
           <Alert
             type="info"
@@ -560,6 +622,21 @@ export default function VisualApprovals() {
       >
         {detail && (
           <>
+            {detail.businessLink && (
+              <Alert
+                type="info"
+                showIcon
+                title="业务审核保留原材料及审核规则"
+                description={
+                  <span>
+                    请核对业务材料{detail.businessType === 'SOP_REVIEW' ? '并完成审核清单' : ''}后处理。
+                    <a href={detail.businessLink} target="_blank" rel="noreferrer">
+                      打开业务记录与材料
+                    </a>
+                  </span>
+                }
+              />
+            )}
             <Space wrap>
               {status(detail.status)}
               <Tag>V{detail.definitionVersion}</Tag>

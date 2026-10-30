@@ -448,8 +448,7 @@ export default function EmployeePage() {
           <h1>员工与任职</h1>
           {canReadApproval && (
             <Space>
-              <Link to="/approval-ledger?target=LEAVE">请假台账</Link>
-              <Link to="/approval-ledger?target=TRANSFER">调动台账</Link>
+              <Link to="/approvals?role=APPLIED">审批申请记录</Link>
             </Space>
           )}
           <p>员工档案与任职关系分离管理，所有组织归属以生效任职为准。</p>

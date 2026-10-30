@@ -12,7 +12,7 @@ import { SopSubmissionService } from '../../app/application/sop/submission-servi
 import { SopSourceFileService } from '../../app/application/sop/source-file-service';
 import { SopContinuationService } from '../../app/application/sop/continuation-service';
 import { SOP_PRESETS, parseSopContent } from '../../app/domain/sop/template-content';
-import { ApprovalInstanceService } from '../../app/application/approval/approval-instance-service';
+import { WorkflowReviewClient } from '../helpers/workflow-review-client';
 import { LeadService } from '../../app/application/crm/lead-service';
 import { ContractService } from '../../app/application/contract/contract-service';
 import { CaseService } from '../../app/application/case/case-service';
@@ -127,8 +127,8 @@ async function business(leadId: string, caseType: string) {
 }
 async function approve(subId: string, reject = false) {
   const sub = await (await submissions(reviewer)).get(subId),
-    approvals = new ApprovalInstanceService(db, actor(reviewer), await ctx(reviewer)),
-    task = await db.approvalTask.findFirstOrThrow({
+    approvals = new WorkflowReviewClient(db, actor(reviewer), await ctx(reviewer)),
+    task = await db.workflowTask.findFirstOrThrow({
       where: { instanceId: sub.review!.approvalId!, status: 'PENDING' },
     });
   if (!reject)
@@ -334,13 +334,12 @@ test('SQ6 frozen pre-case materials use real SourceFile references and tampering
   await assert.rejects(db.sopSourceFile.delete({ where: { id: file.id } }));
   const stored = await db.sopSourceFile.findUniqueOrThrow({ where: { id: file.id } });
   fs.writeFileSync(path.resolve('var/storage/sop-source-files', stored.filePath), '变更材料');
-  await approve(sub.id);
+  await assert.rejects(approve(sub.id), rejects('SOP_MATERIAL_CHANGED'));
   assert.equal((await svc.task(task.id)).status, 'IN_REVIEW');
   const review = await db.qualityReview.findUniqueOrThrow({ where: { submissionId: sub.id } });
   assert.equal(
-    (await db.approvalSyncRecord.findUniqueOrThrow({ where: { instanceId: review.approvalInstanceId! } }))
-      .status,
-    'FAILED',
+    (await db.workflowInstance.findUniqueOrThrow({ where: { id: review.workflowInstanceId! } })).status,
+    'PENDING',
   );
 });
 
@@ -379,7 +378,7 @@ for (const preset of SOP_PRESETS)
       });
       await approve(sub.id);
       await assert.rejects(
-        new ApprovalInstanceService(db, actor(reviewer), await ctx(reviewer)).processTask(old.id, {
+        new WorkflowReviewClient(db, actor(reviewer), await ctx(reviewer)).processTask(old.id, {
           action: 'APPROVE',
         }),
       );
@@ -591,32 +590,65 @@ test('SQ6 pre-case reminder uses source state and does not require a fabricated 
   );
 });
 
-
 test('SQ6 selected nodes include dependency closure and freeze the published graph', async () => {
-  const t=await template('MEDICAL',false,true), l=await lead();
-  await assert.rejects(start({leadId:l.id},t.versionId,[t.content.nodes[1].code]),rejects('SOP_NODE_SELECTION_INVALID'));
-  assert.equal(await db.sopInstance.count(),0);
-  const row=await start({leadId:l.id},t.versionId,t.content.nodes.slice(0,2).map(n=>n.code));
-  const tasks=await db.caseTask.findMany({where:{sopInstanceId:row.id}});
-  assert.equal(tasks.length,2);
-  assert.deepEqual((tasks.find(tk=>tk.nodeCode===t.content.nodes[1].code)!.nodeSnapshot as {dependsOn:string[]}).dependsOn,[t.content.nodes[0].code]);
+  const t = await template('MEDICAL', false, true),
+    l = await lead();
+  await assert.rejects(
+    start({ leadId: l.id }, t.versionId, [t.content.nodes[1].code]),
+    rejects('SOP_NODE_SELECTION_INVALID'),
+  );
+  assert.equal(await db.sopInstance.count(), 0);
+  const row = await start(
+    { leadId: l.id },
+    t.versionId,
+    t.content.nodes.slice(0, 2).map((n) => n.code),
+  );
+  const tasks = await db.caseTask.findMany({ where: { sopInstanceId: row.id } });
+  assert.equal(tasks.length, 2);
+  assert.deepEqual(
+    (tasks.find((tk) => tk.nodeCode === t.content.nodes[1].code)!.nodeSnapshot as { dependsOn: string[] })
+      .dependsOn,
+    [t.content.nodes[0].code],
+  );
 });
 
 test('SQ6 concurrent continuation is unique, preserves task truth and rechecks revoked authority on replay', async () => {
-  const t=await template(), l=await lead(), first=await start({leadId:l.id},t.versionId,[t.content.nodes[0].code]), b=await business(l.id,t.preset.name), next=await start({analysisEngagementId:b.engagement.id},t.versionId,[t.content.nodes[1].code]);
-  const service=new SopContinuationService(db,actor(admin),await ctx()), original=await db.caseTask.findMany({orderBy:{id:'asc'}}), input={targetInstanceId:next.id,expectedVersion:first.version,targetVersion:next.version,reason:'真实前后关联',requestKey:randomUUID()};
-  await assert.rejects(service.create(first.id,{...input,targetVersion:99}),rejects('SOP_VERSION_CONFLICT'));
-  const results=await Promise.all([service.create(first.id,input),service.create(first.id,{...input,requestKey:randomUUID()})]);
-  assert.equal(results[0].id,results[1].id);assert.equal(await db.sopContinuation.count(),1);
-  assert.deepEqual(await db.caseTask.findMany({orderBy:{id:'asc'}}),original);
-  await db.userRole.deleteMany({where:{userId:admin}});
-  await assert.rejects(service.create(first.id,input));
-  assert.equal(await db.sopContinuation.count(),1);
+  const t = await template(),
+    l = await lead(),
+    first = await start({ leadId: l.id }, t.versionId, [t.content.nodes[0].code]),
+    b = await business(l.id, t.preset.name),
+    next = await start({ analysisEngagementId: b.engagement.id }, t.versionId, [t.content.nodes[1].code]);
+  const service = new SopContinuationService(db, actor(admin), await ctx()),
+    original = await db.caseTask.findMany({ orderBy: { id: 'asc' } }),
+    input = {
+      targetInstanceId: next.id,
+      expectedVersion: first.version,
+      targetVersion: next.version,
+      reason: '真实前后关联',
+      requestKey: randomUUID(),
+    };
+  await assert.rejects(
+    service.create(first.id, { ...input, targetVersion: 99 }),
+    rejects('SOP_VERSION_CONFLICT'),
+  );
+  const results = await Promise.all([
+    service.create(first.id, input),
+    service.create(first.id, { ...input, requestKey: randomUUID() }),
+  ]);
+  assert.equal(results[0].id, results[1].id);
+  assert.equal(await db.sopContinuation.count(), 1);
+  assert.deepEqual(await db.caseTask.findMany({ orderBy: { id: 'asc' } }), original);
+  await db.userRole.deleteMany({ where: { userId: admin } });
+  await assert.rejects(service.create(first.id, input));
+  assert.equal(await db.sopContinuation.count(), 1);
 });
 
 test('SQ6 task and instance idempotency replays reload authority inside the transaction', async () => {
-  const t = await template(), l = await lead(), instance = await start({ leadId: l.id }, t.versionId, [t.content.nodes[1].code]);
-  const svc = await execution(), task = await db.caseTask.findFirstOrThrow({ where: { sopInstanceId: instance.id } });
+  const t = await template(),
+    l = await lead(),
+    instance = await start({ leadId: l.id }, t.versionId, [t.content.nodes[1].code]);
+  const svc = await execution(),
+    task = await db.caseTask.findFirstOrThrow({ where: { sopInstanceId: instance.id } });
   const taskInput = command('START', task.version);
   await svc.taskAction(task.id, taskInput);
   const instanceInput = command('PAUSE', (await svc.instance(instance.id)).version);

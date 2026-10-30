@@ -64,10 +64,12 @@ export const entries: NavigationEntry[] = [
   },
   {
     path: '/approval-ledger',
-    title: '审批台账',
+    title: '审批运行监控',
     area: 'home',
     group: '待办与通知',
     required: ['approval.read'],
+    hidden: true,
+    parent: '/approvals',
   },
   { path: '/notifications', title: '通知中心', area: 'home', group: '待办与通知' },
   {

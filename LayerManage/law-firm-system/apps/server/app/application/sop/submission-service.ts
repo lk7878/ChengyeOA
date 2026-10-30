@@ -19,12 +19,12 @@ import { requireCaseAccess } from '../case/case-scope';
 import { createOnce } from '../finance/domain-mutation';
 import { hashPayload } from '../../domain/admin-governance/canonical-json';
 import { checkReviewer, materialBytes } from './review-policy';
-import { ApprovalInstanceService } from '../approval/approval-instance-service';
+import { WorkflowService } from '../workflow/workflow-service';
 import { SopExecutionService } from './execution-service';
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const includeSubmission = {
   attachments: { include: { file: true, sourceFile: true } },
-  review: { include: { approval: { include: { syncRecord: true } } } },
+  review: { include: { workflow: true, approval: { include: { syncRecord: true } } } },
 } as const;
 export class SopSubmissionService {
   constructor(
@@ -134,8 +134,14 @@ export class SopSubmissionService {
             status: row.review.status,
             version: row.review.version,
             checklist: canReadReview ? row.review.checklist : [],
-            approvalId: canReadReview ? row.review.approvalInstanceId : null,
-            businessSync: canReadReview ? (row.review.approval?.syncRecord ?? null) : null,
+            approvalId: canReadReview
+              ? (row.review.workflowInstanceId ?? row.review.approvalInstanceId)
+              : null,
+            businessSync: canReadReview
+              ? row.review.workflow
+                ? { status: row.review.workflow.syncStatus, reason: row.review.workflow.syncError }
+                : (row.review.approval?.syncRecord ?? null)
+              : null,
             reviewerIsMe: canDecide,
             canAssign,
           }
@@ -338,48 +344,18 @@ export class SopSubmissionService {
     await checkReviewer(tx, reviewer, sub.taskId, sub.submittedBy, sub.executorUserId);
     const applicant = await new AuthorizationContextLoader(tx).load(sub.submittedBy);
     await requireSopTask(tx, applicant, sub.taskId, 'sop.report.submit');
-    const code = 'SOP_' + sub.id.replaceAll('-', '_').toUpperCase();
-    await tx.approvalDefinition.create({
-      data: {
-        code,
-        name: 'SOP节点成果审核',
-        businessType: 'SOP_REVIEW',
-        ownerUserId: sub.submittedBy,
-        createdBy: assigner.userId,
-        formSchema: {
-          fields: [
-            {
-              key: 'submissionId',
-              label: '提交版本',
-              type: 'text',
-              required: true,
-            },
-            {
-              key: 'contentHash',
-              label: '内容摘要',
-              type: 'text',
-              required: true,
-            },
-          ],
-        },
-        approverRule: { type: 'USER', userIds: [reviewer] },
-        status: 'ACTIVE',
-      },
+    await new WorkflowService(this.db, applicant).startManaged(tx, {
+      businessType: 'SOP_REVIEW',
+      sourceId: sub.id,
+      title: 'SOP成果审核 · 修订 ' + sub.number,
+      reviewerId: reviewer,
+      content: { submissionId: sub.id, contentHash: sub.contentHash, report: sub.report },
+      fields: [
+        { key: 'submissionId', label: '提交版本', type: 'text', required: true },
+        { key: 'contentHash', label: '内容摘要', type: 'text', required: true },
+        { key: 'report', label: '成果报告', type: 'textarea', required: true, maxLength: 20000 },
+      ],
     });
-    await new ApprovalInstanceService(
-      this.db,
-      { ...this.actor, actorUserId: sub.submittedBy },
-      applicant,
-    ).applySopReview(
-      tx,
-      {
-        definitionCode: code,
-        title: 'SOP成果审核 · 修订 ' + sub.number,
-        content: { submissionId: sub.id, contentHash: sub.contentHash },
-        idempotencyKey: 'sop-review-' + sub.id,
-      },
-      sub.id,
-    );
   }
   async assign(reviewId: string, raw: unknown) {
     assertExactKeys(raw, ['reviewerUserId', 'expectedVersion', 'requestKey']);
@@ -465,8 +441,14 @@ export class SopSubmissionService {
     return this.db.$transaction(async (tx) => {
       const review = await tx.qualityReview.findUniqueOrThrow({
         where: { id: reviewId },
-        include: { submission: true, approval: { select: { status: true } } },
+        include: {
+          submission: true,
+          workflow: { select: { status: true } },
+          approval: { select: { status: true } },
+        },
       });
+      if (review.workflowInstanceId)
+        await tx.$queryRaw`SELECT id FROM workflow_instance WHERE id=${review.workflowInstanceId} FOR UPDATE`;
       if (review.reviewerUserId !== this.ctx.userId) sopFail('SOP_REVIEW_NOT_FOUND', 404);
       await checkReviewer(
         tx,
@@ -475,7 +457,7 @@ export class SopSubmissionService {
         review.submission.submittedBy,
         review.submission.executorUserId,
       );
-      if (review.status !== 'PENDING' || review.approval?.status !== 'PENDING')
+      if (review.status !== 'PENDING' || (review.workflow ?? review.approval)?.status !== 'PENDING')
         sopFail('SOP_STATE_INVALID', 409);
       const changed = await tx.qualityReview.updateMany({
         where: { id: reviewId, version, status: 'PENDING' },

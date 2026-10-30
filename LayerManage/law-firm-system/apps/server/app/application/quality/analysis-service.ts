@@ -15,7 +15,7 @@ import { hashPayload } from '../../domain/admin-governance/canonical-json';
 import { materialBytes } from '../sop/review-policy';
 import { requireCaseAccess } from '../case/case-scope';
 import { analysisReviewer } from './analysis-review-policy';
-import { ApprovalInstanceService } from '../approval/approval-instance-service';
+import { WorkflowService } from '../workflow/workflow-service';
 import { PrismaEventOutboxWriter } from '../events/event-outbox-writer';
 import { sopTaskScope } from '../sop/execution-scope';
 import { analysisChanged } from './analysis-change';
@@ -216,7 +216,7 @@ export class AnalysisService {
       this.db.analysisCloseRequest.findMany({
         where: { analysisId: id },
         orderBy: { createdAt: 'desc' },
-        include: { approval: { include: { syncRecord: true } } },
+        include: { workflow: true, approval: { include: { syncRecord: true } } },
       }),
     ]);
     return {
@@ -235,8 +235,10 @@ export class AnalysisService {
         id: c.id,
         status: c.status,
         createdAt: c.createdAt,
-        approvalId: c.approvalInstanceId,
-        sync: c.approval?.syncRecord ?? null,
+        approvalId: c.workflowInstanceId ?? c.approvalInstanceId,
+        sync: c.workflow
+          ? { status: c.workflow.syncStatus, reason: c.workflow.syncError }
+          : (c.approval?.syncRecord ?? null),
       })),
     };
   }
@@ -368,35 +370,26 @@ export class AnalysisService {
             updatedBy: ctx.userId,
           },
         });
-        const code = 'QUALITY_' + close.id.replaceAll('-', '_').toUpperCase();
-        await tx.approvalDefinition.create({
-          data: {
-            code,
-            name: '专项分析关闭审核',
-            businessType: 'QUALITY_ANALYSIS',
-            ownerUserId: ctx.userId,
-            createdBy: ctx.userId,
-            status: 'ACTIVE',
-            formSchema: {
-              fields: [
-                { key: 'analysisId', label: '分析记录', type: 'text', required: true },
-                { key: 'closeRequestId', label: '关闭申请', type: 'text', required: true },
-                { key: 'contentHash', label: '版本摘要', type: 'text', required: true },
-              ],
-            },
-            approverRule: { type: 'USER', userIds: [reviewer] },
+        await new WorkflowService(this.db, ctx).startManaged(tx, {
+          businessType: 'QUALITY_ANALYSIS',
+          sourceId: close.id,
+          title: '专项分析关闭审核',
+          reviewerId: reviewer,
+          content: {
+            analysisId: id,
+            closeRequestId: close.id,
+            contentHash,
+            content: row.content,
+            conclusion: row.conclusion,
           },
+          fields: [
+            { key: 'analysisId', label: '分析记录', type: 'text', required: true },
+            { key: 'closeRequestId', label: '关闭申请', type: 'text', required: true },
+            { key: 'contentHash', label: '版本摘要', type: 'text', required: true },
+            { key: 'content', label: '分析内容', type: 'textarea', required: true, maxLength: 20000 },
+            { key: 'conclusion', label: '分析结论', type: 'textarea', required: true, maxLength: 20000 },
+          ],
         });
-        await new ApprovalInstanceService(this.db, this.actor, ctx).applyAnalysisClose(
-          tx,
-          {
-            definitionCode: code,
-            title: '专项分析关闭审核',
-            content: { analysisId: id, closeRequestId: close.id, contentHash },
-            idempotencyKey: 'quality-close-' + close.id,
-          },
-          close.id,
-        );
         await this.audit(tx, 'ANALYSIS_CLOSE_REQUESTED', id, {
           closeRequestId: close.id,
           version: version + 1,

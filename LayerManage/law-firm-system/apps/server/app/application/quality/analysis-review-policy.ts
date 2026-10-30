@@ -1,3 +1,9 @@
+import {
+  ReviewEngine,
+  reviewReference,
+  reviewApproval,
+  reviewVisible,
+} from '../approval/review-approval-store';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { analysisChanged } from './analysis-change';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
@@ -51,8 +57,12 @@ export async function analysisReviewer(
       sopFail('QUALITY_NOT_FOUND', 404);
   return ctx;
 }
-export async function lockAnalysisApproval(db: Prisma.TransactionClient, id: string) {
-  const request = await db.analysisCloseRequest.findUnique({ where: { approvalInstanceId: id } });
+export async function lockAnalysisApproval(
+  db: Prisma.TransactionClient,
+  id: string,
+  engine: ReviewEngine = 'legacy',
+) {
+  const request = await db.analysisCloseRequest.findUnique({ where: reviewReference(id, engine) });
   if (!request) return;
   await db.$queryRaw`SELECT id FROM special_analysis WHERE id=${request.analysisId} FOR UPDATE`;
 }
@@ -62,18 +72,17 @@ export async function guardAnalysisApproval(
   id: string,
   action: 'READ' | 'APPROVE' | 'REJECT' | 'WITHDRAW' | 'FORWARD',
   remark?: string | null,
+  engine: ReviewEngine = 'legacy',
 ) {
-  const instance = await db.approvalInstance.findUnique({ where: { id } });
+  const instance = await reviewApproval(db, id, engine);
   if (instance?.businessType !== 'QUALITY_ANALYSIS') return;
   const fresh = await qualityActor(db, ctx.userId);
-  if (
-    !(await db.approvalInstance.count({ where: { AND: [{ id }, await analysisApprovalScope(db, fresh)] } }))
-  )
+  if (!(await reviewVisible(db, id, await analysisApprovalScope(db, fresh), engine)))
     sopFail('QUALITY_NOT_FOUND', 404);
   if (action === 'READ') return;
   if (action === 'FORWARD') sopFail('QUALITY_APPROVAL_FIXED', 409);
   const request = await db.analysisCloseRequest.findUniqueOrThrow({
-    where: { approvalInstanceId: id },
+    where: reviewReference(id, engine),
     include: { analysis: true },
   });
   if (action === 'WITHDRAW') {
@@ -99,11 +108,16 @@ export async function guardAnalysisApproval(
     sopFail('QUALITY_APPROVAL_STALE', 409);
   if (action === 'REJECT' && !remark?.trim()) sopFail('QUALITY_REASON_REQUIRED');
 }
-export async function syncAnalysisApproval(tx: Prisma.TransactionClient, id: string, actor: AuditActor) {
-  const approval = await tx.approvalInstance.findUniqueOrThrow({ where: { id } });
+export async function syncAnalysisApproval(
+  tx: Prisma.TransactionClient,
+  id: string,
+  actor: AuditActor,
+  engine: ReviewEngine = 'legacy',
+) {
+  const approval = await reviewApproval(tx, id, engine);
   if (approval.businessType !== 'QUALITY_ANALYSIS') return null;
   const request = await tx.analysisCloseRequest.findUniqueOrThrow({
-      where: { approvalInstanceId: id },
+      where: reviewReference(id, engine),
       include: { analysis: true },
     }),
     row = request.analysis;

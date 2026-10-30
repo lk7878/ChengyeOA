@@ -400,30 +400,30 @@ export default (app: Application) => {
   // SPEC-025 Task 2：+2 定义配置迁移路由（approval.manage）——/definitions/export 与
   // /definitions/import 字面量同样先于 PATCH /definitions/:code（沿 manage 字面量优先先例）。
   // approval 域路由 11→13。）
-  router.post('/api/v1/approvals/personal-definitions', requirePermission('approval.apply'), controller.approval.createPersonalDefinition);
+  router.post('/api/v1/approvals/personal-definitions', requirePermission('approval.apply'), controller.approval.retired);
   router.post('/api/v1/approval-files', requirePermission('approval.apply'), controller.approvalAttachment.upload);
   router.get('/api/v1/approval-files/:id', controller.approvalAttachment.download);
   router.delete('/api/v1/approval-files/:id', requirePermission('approval.apply'), controller.approvalAttachment.remove);
   router.post('/api/v1/approval-files/:id/clone', requirePermission('approval.apply'), controller.approvalAttachment.clone);
   router.get('/api/v1/approvals/:id/files', controller.approvalAttachment.list);
   router.get('/api/v1/approvals/:id/material', controller.approvalAttachment.material);
-  router.get('/api/v1/approvals/definitions', requirePermission('approval.apply'), controller.approval.definitions);
-  router.post('/api/v1/approvals/definitions', requirePermission('approval.manage'), controller.approval.createDefinition);
-  router.get('/api/v1/approvals/definitions/manage', requirePermission('approval.manage'), controller.approval.listDefinitionsManage);
-  router.get('/api/v1/approvals/definitions/export', requirePermission('approval.manage'), controller.approval.exportDefinitions);
-  router.post('/api/v1/approvals/definitions/import', requirePermission('approval.manage'), controller.approval.importDefinitions);
-  router.patch('/api/v1/approvals/definitions/:code', requirePermission('approval.manage'), controller.approval.updateDefinition);
-  router.get('/api/v1/approvals', requirePermission('approval.read'), controller.approval.index);
+  router.get('/api/v1/approvals/definitions', requirePermission('approval.apply'), controller.approval.retired);
+  router.post('/api/v1/approvals/definitions', requirePermission('approval.manage'), controller.approval.retired);
+  router.get('/api/v1/approvals/definitions/manage', requirePermission('approval.manage'), controller.approval.retired);
+  router.get('/api/v1/approvals/definitions/export', requirePermission('approval.manage'), controller.approval.retired);
+  router.post('/api/v1/approvals/definitions/import', requirePermission('approval.manage'), controller.approval.retired);
+  router.patch('/api/v1/approvals/definitions/:code', requirePermission('approval.manage'), controller.approval.retired);
+  router.get('/api/v1/approvals', requirePermission('approval.read'), controller.approval.retired);
   // SPEC-028：/approvals/export 字面量必须先于 /approvals/:id 注册，防 export 被 :id 吞并（approval 域路由 13→14）。
-  router.get('/api/v1/approvals/export', requirePermission('approval.manage'), controller.approval.exportInstances);
+  router.get('/api/v1/approvals/export', requirePermission('approval.manage'), controller.approval.retired);
   // SPEC-030：/approvals/stats 字面量先于 :id（approval 域路由 14→15）。
-  router.get('/api/v1/approvals/stats', requirePermission('approval.manage'), controller.approval.stats);
-  router.get('/api/v1/approvals/:id', requirePermission('approval.read'), controller.approval.show);
-  router.post('/api/v1/approvals', requirePermission('approval.apply'), controller.approval.create);
-  router.post('/api/v1/approvals/:id/withdraw', requirePermission('approval.apply'), controller.approval.withdraw);
-  router.post('/api/v1/approvals/:id/process', requirePermission('approval.process'), controller.approval.process);
-  router.post('/api/v1/approvals/:id/forward', requirePermission('approval.process'), controller.approval.forward);
-  router.post('/api/v1/approvals/:id/add-signers', requirePermission('approval.process'), controller.approval.addSigners);
+  router.get('/api/v1/approvals/stats', requirePermission('approval.manage'), controller.approval.retired);
+  router.get('/api/v1/approvals/:id', requirePermission('approval.read'), controller.approval.retired);
+  router.post('/api/v1/approvals', requirePermission('approval.apply'), controller.approval.retired);
+  router.post('/api/v1/approvals/:id/withdraw', requirePermission('approval.apply'), controller.approval.retired);
+  router.post('/api/v1/approvals/:id/process', requirePermission('approval.process'), controller.approval.retired);
+  router.post('/api/v1/approvals/:id/forward', requirePermission('approval.process'), controller.approval.retired);
+  router.post('/api/v1/approvals/:id/add-signers', requirePermission('approval.process'), controller.approval.retired);
 
   // 通知模块
   router.get('/api/v1/notifications', controller.notification.index);
@@ -452,11 +452,12 @@ export default (app: Application) => {
   router.get('/api/v1/dashboard/alerts', controller.dashboard.alerts);
 
   router.post('/api/v1/cases/:id/finance-contract', requirePermission('case.update'), controller.businessIntegration.bindCase);
-  router.get('/api/v1/approval-ledger', requirePermission('approval.read'), controller.businessIntegration.ledger);
-  router.post('/api/v1/approval-ledger/:id/retry', requirePermission('approval.manage'), controller.businessIntegration.retry);
-  router.get('/api/v1/approval-sync-rules', requirePermission('approval.manage'), controller.businessIntegration.rules);
-  router.put('/api/v1/approval-sync-rules/:id', requirePermission('approval.manage'), controller.businessIntegration.setRule);
+  router.get('/api/v1/approval-ledger', requirePermission('approval.read'), controller.approval.retired);
+  router.post('/api/v1/approval-ledger/:id/retry', requirePermission('approval.manage'), controller.approval.retired);
+  router.get('/api/v1/approval-sync-rules', requirePermission('approval.manage'), controller.approval.retired);
+  router.put('/api/v1/approval-sync-rules/:id', requirePermission('approval.manage'), controller.approval.retired);
   router.get('/api/v1/payroll-batches', requirePermission('performance.read'), controller.businessIntegration.payrollList);
+  router.get('/api/v1/payroll-batches/:id', requirePermission('performance.read'), controller.businessIntegration.payrollGet);
   router.post('/api/v1/payroll-batches', requirePermission('performance.create'), controller.businessIntegration.payrollSave);
   router.put('/api/v1/payroll-batches/:id', requirePermission('performance.update'), controller.businessIntegration.payrollSave);
 

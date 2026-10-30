@@ -1,4 +1,3 @@
-import { ApprovalDefinitionService } from '../../app/application/approval/approval-definition-service';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
@@ -10,8 +9,8 @@ import { SopTemplateService } from '../../app/application/sop/template-service';
 import { SopExecutionService } from '../../app/application/sop/execution-service';
 import { CaseService } from '../../app/application/case/case-service';
 import { SopSubmissionService } from '../../app/application/sop/submission-service';
-import { ApprovalInstanceService } from '../../app/application/approval/approval-instance-service';
-import { ApprovalSyncService } from '../../app/application/approval/approval-sync-service';
+import { WorkflowReviewClient } from '../helpers/workflow-review-client';
+import { WorkflowService } from '../../app/application/workflow/workflow-service';
 import { CaseFileService } from '../../app/application/case/case-file-service';
 import { parseSopContent } from '../../app/domain/sop/template-content';
 let db: PrismaClient,
@@ -172,7 +171,7 @@ async function prepare() {
     });
   const reviewerCtx = await new AuthorizationContextLoader(db).load(other);
   const reviewSvc = new SopSubmissionService(db, { actorUserId: other }, reviewerCtx);
-  const approvalSvc = new ApprovalInstanceService(db, { actorUserId: other }, reviewerCtx);
+  const approvalSvc = new WorkflowReviewClient(db, { actorUserId: other }, reviewerCtx);
   const input = {
     expectedVersion: begun.version,
     requestKey: randomUUID(),
@@ -191,7 +190,7 @@ async function passChecklist(svc: SopSubmissionService, submissionId: string) {
       { code: 'REPORT', result: 'PASS', reason: '' },
     ],
   });
-  return db.approvalTask.findFirstOrThrow({
+  return db.workflowTask.findFirstOrThrow({
     where: { instanceId: row.review!.approvalId!, status: 'PENDING' },
   });
 }
@@ -209,7 +208,7 @@ test('submission freezes material and report; original approval return then new 
     new CaseService(db, { actorUserId: admin }, ctx).closeCase(caseId, {}),
     rejects('SOP_CLOSE_GATE_BLOCKED'),
   );
-  const approvalTask = await db.approvalTask.findFirstOrThrow({
+  const approvalTask = await db.workflowTask.findFirstOrThrow({
     where: { instanceId: review.review!.approvalId! },
   });
   await approvalSvc.processTask(approvalTask.id, { action: 'REJECT', remark: '请补充风险分析' });
@@ -248,7 +247,7 @@ test('self review, missing material and incomplete checklist cannot be bypassed'
   );
   const sub = await submissions().submit(task.id, input);
   const review = await submissions().get(sub.id);
-  const at = await db.approvalTask.findFirstOrThrow({ where: { instanceId: review.review!.approvalId! } });
+  const at = await db.workflowTask.findFirstOrThrow({ where: { instanceId: review.review!.approvalId! } });
   await assert.rejects(
     approvalSvc.processTask(at.id, { action: 'APPROVE' }),
     rejects('SOP_CHECKLIST_INCOMPLETE'),
@@ -258,18 +257,21 @@ test('self review, missing material and incomplete checklist cannot be bypassed'
     rejects('SOP_REVIEW_ROUTING_FIXED'),
   );
 });
-test('paused or stale business targets keep approval sync failed and retry checks current facts', async () => {
+test('paused business targets roll back the decision; a new decision after resume completes', async () => {
   const { task, input, reviewSvc, approvalSvc } = await prepare();
   const sub = await submissions().submit(task.id, input),
     at = await passChecklist(reviewSvc, sub.id);
   const instance = await db.sopInstance.findUniqueOrThrow({ where: { id: task.sopInstanceId! } });
   await svc.instanceAction(instance.id, action('PAUSE', instance.version));
-  const decision = await approvalSvc.processTask(at.id, { action: 'APPROVE' });
-  assert.equal(decision.businessSync?.status, 'FAILED');
+  await assert.rejects(approvalSvc.processTask(at.id, { action: 'APPROVE' }), rejects('SOP_REVIEW_STALE'));
+  assert.equal(
+    (await db.workflowInstance.findUniqueOrThrow({ where: { id: at.instanceId } })).status,
+    'PENDING',
+  );
   assert.equal((await svc.task(task.id)).status, 'IN_REVIEW');
   const paused = await db.sopInstance.findUniqueOrThrow({ where: { id: instance.id } });
   await svc.instanceAction(instance.id, action('RESUME', paused.version));
-  await new ApprovalSyncService(db, { actorUserId: admin }, ctx).retry(at.instanceId);
+  await approvalSvc.processTask(at.id, { action: 'APPROVE' });
   assert.equal((await svc.task(task.id)).status, 'COMPLETED');
 });
 
@@ -292,24 +294,30 @@ test('waiting review assignment, withdrawal and expert guidance preserve distinc
   });
   assert.ok(guidance.id);
   assert.equal((await svc.task(task.id)).status, 'IN_REVIEW');
-  await new ApprovalInstanceService(db, { actorUserId: admin }, ctx).withdrawInstance(review.approvalId!, {
+  await new WorkflowReviewClient(db, { actorUserId: admin }, ctx).withdrawInstance(review.approvalId!, {
     reason: '补充成果',
   });
   assert.equal((await svc.task(task.id)).status, 'CHANGES_REQUESTED');
   assert.equal((await submissions().get(sub.id)).review?.status, 'CANCELLED');
   assert.equal((await submissions().guidance(task.id)).length, 1);
 });
-test('material drift causes business sync failure without falsely completing the node', async () => {
+test('material drift rolls back approval and does not complete the node', async () => {
   const { task, input, file, reviewSvc, approvalSvc } = await prepare();
   const sub = await submissions().submit(task.id, input);
   const approvalTask = await passChecklist(reviewSvc, sub.id);
   const original = await db.caseFile.findUniqueOrThrow({ where: { id: file.id } });
   await db.caseFile.update({ where: { id: file.id }, data: { fileSize: original.fileSize + 1 } });
-  const result = await approvalSvc.processTask(approvalTask.id, { action: 'APPROVE' });
-  assert.equal(result.businessSync?.status, 'FAILED');
+  await assert.rejects(
+    approvalSvc.processTask(approvalTask.id, { action: 'APPROVE' }),
+    rejects('SOP_MATERIAL_CHANGED'),
+  );
+  assert.equal(
+    (await db.workflowInstance.findUniqueOrThrow({ where: { id: approvalTask.instanceId } })).status,
+    'PENDING',
+  );
   assert.equal((await svc.task(task.id)).status, 'IN_REVIEW');
   await db.caseFile.update({ where: { id: file.id }, data: { fileSize: original.fileSize } });
-  await new ApprovalSyncService(db, { actorUserId: admin }, ctx).retry(approvalTask.instanceId);
+  await approvalSvc.processTask(approvalTask.id, { action: 'APPROVE' });
   assert.equal((await svc.task(task.id)).status, 'COMPLETED');
 });
 test('revoking the reviewer permission blocks a decision even with an old service context', async () => {
@@ -323,7 +331,7 @@ test('revoking the reviewer permission blocks a decision even with an old servic
   await assert.rejects(approvalSvc.processTask(at.id, { action: 'APPROVE' }), rejects('PERMISSION_DENIED'));
   assert.equal((await svc.task(task.id)).status, 'IN_REVIEW');
   assert.equal(
-    (await db.approvalInstance.findUniqueOrThrow({ where: { id: at.instanceId } })).status,
+    (await db.workflowInstance.findUniqueOrThrow({ where: { id: at.instanceId } })).status,
     'PENDING',
   );
 });
@@ -348,23 +356,29 @@ test('generic approval application and definition editing cannot forge an SOP re
   const { task, input } = await prepare();
   const sub = await submissions().submit(task.id, input);
   const review = (await submissions().get(sub.id)).review!;
-  const approval = await db.approvalInstance.findUniqueOrThrow({
+  const approval = await db.workflowInstance.findUniqueOrThrow({
     where: { id: review.approvalId! },
     include: { definition: true },
   });
+  const engine = new WorkflowService(db, ctx);
   await assert.rejects(
-    new ApprovalInstanceService(db, { actorUserId: admin }, ctx).applyForApproval({
-      definitionCode: approval.definition.code,
-      title: '伪造复审',
-      content: { submissionId: sub.id, contentHash: 'changed' },
+    engine.start(
+      {
+        definitionId: approval.definitionId,
+        title: '伪造复审',
+        content: { submissionId: sub.id, contentHash: 'changed' },
+      },
+      randomUUID(),
+    ),
+  );
+  await assert.rejects(
+    engine.saveDefinition(approval.definitionId, {
+      name: '篡改审核',
+      schema: approval.snapshot as never,
+      revision: 1,
     }),
   );
-  await assert.rejects(
-    new ApprovalDefinitionService(db, { actorUserId: admin }, ctx).updateDefinition(
-      approval.definition.code,
-      { approverRule: { type: 'USER', userIds: [admin] } },
-    ),
-    rejects('SOP_REVIEW_ROUTING_FIXED'),
-  );
-  assert.equal(await db.approvalInstance.count(), 1);
+  assert.equal(await db.workflowInstance.count(), 1);
+  assert.equal(await db.approvalInstance.count(), 0);
+  assert.equal((await engine.list('ALL')).rows.length, 1);
 });

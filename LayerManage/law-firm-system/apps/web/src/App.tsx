@@ -46,7 +46,7 @@ import ContractDetailPage from './pages/contracts/ContractDetailPage';
 import ContractCreatePage from './pages/contracts/ContractCreatePage';
 import FinanceWorkspace, { FinanceTablePage } from './pages/finance/FinanceWorkspace';
 import FinanceRecordPage from './pages/finance/FinanceRecordPage';
-import ApprovalLedger from './pages/approvals/ApprovalLedger';
+import { ApprovalRedirect } from './pages/approvals/ApprovalEntry';
 
 import AnomalyListPage from './pages/anomalies/AnomalyListPage';
 import CaseWorkspacePage from './pages/Case/CaseWorkspacePage';
@@ -65,7 +65,6 @@ import PositionPage from './pages/Position';
 import ProfessionalTeamPage from './pages/ProfessionalTeam';
 import ChannelCreatePage from './pages/Channel/ChannelCreatePage';
 import ChannelRecordPage from './pages/Channel/ChannelRecordPage';
-import ApprovalCenterPage from './pages/approvals/ApprovalCenterPage';
 import VisualApprovals from './pages/approvals/visual/VisualApprovals';
 import NotificationPage from './pages/Notification';
 import PerformanceRecordPage from './pages/Performance/PerformanceRecordPage';
@@ -447,7 +446,7 @@ function SessionBootstrap() {
             path="/approval-ledger"
             element={
               <AuthorizedPage permission="approval.read">
-                <ApprovalLedger />
+                <ApprovalRedirect monitor />
               </AuthorizedPage>
             }
           />
@@ -506,11 +505,11 @@ function SessionBootstrap() {
             path="/approvals"
             element={
               <AuthorizedPage permission="approval.read">
-                <ApprovalRoute />
+                <VisualApprovals />
               </AuthorizedPage>
             }
           />
-          <Route path="/approvals/visual" element={<AuthorizedPage permission="approval.read"><VisualApprovals /></AuthorizedPage>} />
+          <Route path="/approvals/visual" element={<AuthorizedPage permission="approval.read"><ApprovalRedirect /></AuthorizedPage>} />
           <Route path="/notifications" element={<NotificationPage />} />
           <Route path="/performances" element={<BusinessWorkspacePage source="PERFORMANCES" />} />
           <Route path="/performances/new" element={<PerformanceCreatePage />} />
@@ -537,12 +536,4 @@ function GovernanceRoute() {
   const [params] = useSearchParams();
   const operationId = params.get('operationId') || undefined;
   return <AdminGovernancePage key={operationId || 'list'} initialOperationId={operationId} />;
-}
-function ApprovalRoute() {
-  const [params] = useSearchParams();
-  const instanceId = params.get('instance') || undefined;
-  const value = params.get('role');
-  const role =
-    value === 'TODO' || value === 'DONE' || value === 'ALL' || value === 'APPLIED' ? value : undefined;
-  return <ApprovalCenterPage key={instanceId || 'list'} initialInstanceId={instanceId} initialRole={role} />;
 }

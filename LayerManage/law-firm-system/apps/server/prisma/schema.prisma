@@ -1604,6 +1604,8 @@ model ApprovalSyncRecord {
 }
 
 model PayrollBatch {
+  workflowInstanceId String? @unique
+  workflow WorkflowInstance? @relation(fields:[workflowInstanceId],references:[id],onDelete:Restrict)
   id           String             @id @default(uuid())
   ownerUserId  String
   title        String
@@ -2211,6 +2213,8 @@ model SubmissionAttachment {
 }
 
 model QualityReview {
+  workflowInstanceId String? @unique
+  workflow WorkflowInstance? @relation(fields:[workflowInstanceId],references:[id],onDelete:Restrict)
   id String @id @default(uuid())
   submissionId String @unique
   approvalInstanceId String? @unique
@@ -2417,6 +2421,8 @@ model AnalysisRevision {
   @@map("analysis_revision")
 }
 model AnalysisCloseRequest {
+  workflowInstanceId String? @unique
+  workflow WorkflowInstance? @relation(fields:[workflowInstanceId],references:[id],onDelete:Restrict)
   id String @id @default(uuid())
   analysisId String
   analysisVersion Int
@@ -2512,8 +2518,9 @@ model CollabLifecycleLink {
   @@map("collab_lifecycle_link")
 }
 
-// Visual approvals use immutable per-instance snapshots, independent from regulated business approvals.
+// One visual engine; managed business reviews retain their domain validation and immutable snapshots.
 model WorkflowDefinition {
+  managedType String?
   id String @id @default(uuid())
   name String
   draft Json
@@ -2528,6 +2535,11 @@ model WorkflowDefinition {
   @@map("workflow_definition")
 }
 model WorkflowInstance {
+  businessType String @default("CUSTOM")
+  decidedBy String?
+  qualityReview QualityReview?
+  analysisClose AnalysisCloseRequest?
+  payrollBatch PayrollBatch?
   id String @id @default(uuid())
   definitionId String
   definitionVersion Int

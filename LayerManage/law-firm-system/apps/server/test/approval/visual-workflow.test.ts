@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID as key } from 'node:crypto';
+import { randomUUID as key, createHash } from 'node:crypto';
+import { PayrollService } from '../../app/application/performance/payroll-service';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
@@ -49,6 +50,73 @@ async function person(name: string, permissions: string[], superAdmin = false) {
   return new WorkflowService(db, await new AuthorizationContextLoader(db).load(u.id));
 }
 const permissions = ['approval.read', 'approval.apply', 'approval.process'];
+
+test('payroll uses the visual engine, freezes source files, prevents self approval and never creates a legacy approval', async () => {
+  const owner = await person('payroll-owner', [
+    ...permissions,
+    'performance.create',
+    'performance.update',
+    'performance.read',
+  ]);
+  const payroll = new PayrollService(db, { actorUserId: owner.actor.userId }, owner.actor);
+  const bytes = Buffer.from('isolated payroll snapshot');
+  const attachment = await db.approvalAttachment.create({
+    data: {
+      ownerUserId: owner.actor.userId,
+      fileName: '回归工资.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      fileSize: bytes.length,
+      bytes,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    },
+  });
+  const batch = await payroll.save({ title: '工资回归', period: '2026-10', attachmentId: attachment.id });
+  const self = schema();
+  self.nodes[1].rule = { type: 'SELF' };
+  self.settings = { allowCorrection: false };
+  const invalid = await publish(self);
+  const values = {
+    title: '工资',
+    content: { title: '工资' },
+    payrollBatchId: batch.id,
+    payrollVersion: batch.version,
+  };
+  await assert.rejects(owner.start({ ...values, definitionId: invalid.id }, key()), /本人|提交人/);
+  assert.equal(await db.workflowInstance.count(), 0);
+  const definition = await publish({ ...schema(), settings: { allowCorrection: false } });
+  const results = await Promise.allSettled([
+    owner.start({ ...values, definitionId: definition.id }, key()),
+    owner.start({ ...values, definitionId: definition.id }, key()),
+  ]);
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  const instance = (
+    results.find((r) => r.status === 'fulfilled') as PromiseFulfilledResult<
+      Awaited<ReturnType<WorkflowService['start']>>
+    >
+  ).value;
+  assert.equal(instance.businessType, 'PAYROLL');
+  assert.equal(instance.content.oaPayrollPeriod, '2026-10');
+  const file = (instance.content.oaPayrollFile as string[])[0];
+  assert.deepEqual((await reviewer.download(file, instance.id)).bytes, bytes);
+  await assert.rejects(other.download(file, instance.id));
+  await assert.rejects(
+    payroll.save(
+      { title: '改写', period: '2026-10', attachmentId: attachment.id, version: batch.version + 1 },
+      batch.id,
+    ),
+  );
+  await assert.rejects(
+    reviewer.act(
+      instance.id,
+      { action: 'APPROVE', version: instance.version, values: { oaPayrollPeriod: '2026-11' } },
+      key(),
+    ),
+    /只读/,
+  );
+  await reviewer.act(instance.id, { action: 'APPROVE', version: instance.version }, key());
+  assert.equal((await payroll.list()).list[0].instance?.status, 'APPROVED');
+  assert.equal(await db.approvalInstance.count(), 0);
+});
 test.before(() => {
   db = createTestPrisma();
 });

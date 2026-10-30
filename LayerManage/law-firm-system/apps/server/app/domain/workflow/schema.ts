@@ -227,8 +227,9 @@ export function validateSchema(raw: unknown): WorkflowSchema {
         );
         for (const n of [f.minLength, f.maxLength])
           check(
-            n === undefined || (Number.isSafeInteger(n) && n >= 0 && n <= 2000),
-            '字段长度限制必须介于0至2000',
+            n === undefined ||
+              (Number.isSafeInteger(n) && n >= 0 && n <= (f.type === 'textarea' ? 20000 : 2000)),
+            '字段长度限制超出上限（多行文本20000，其他文本2000）',
           );
         check(
           f.minLength === undefined || f.maxLength === undefined || f.minLength <= f.maxLength,
@@ -626,7 +627,10 @@ export function validateValues(fields: FormField[], values: Values, requiredKeys
       check(!empty(v), `请填写${f.label}`);
     if (empty(v)) continue;
     if (['text', 'textarea', 'date', 'select', 'user', 'moneyUpper'].includes(f.type))
-      check(typeof v === 'string' && v.length <= 2000, `${f.label}：文本格式无效`);
+      check(
+        typeof v === 'string' && v.length <= (f.type === 'textarea' ? 20000 : 2000),
+        `${f.label}：文本格式无效`,
+      );
     if (typeof v === 'string') {
       check(
         v.length >= (f.minLength ?? 0) && v.length <= (f.maxLength ?? 2000),
