@@ -11,6 +11,7 @@ import {
   calculate,
   fieldMode,
   matches,
+  matchesEdge,
   moneyUpper,
   validateSchema,
   validateValues,
@@ -136,6 +137,190 @@ async function action(svc: WorkflowService, id: string, action = 'APPROVE', extr
   const i = await svc.detail(id);
   return svc.act(id, { action, version: i.version, ...extra }, key());
 }
+
+test('submission audience filters the catalog and rejects direct starts, including newly assigned roles', async () => {
+  const s = schema();
+  const role = await db.userRole.findFirstOrThrow({ where: { userId: applicant.actor.userId } });
+  s.settings = { audience: { mode: 'SELECTED', roles: [role.roleId] } };
+  const d = await publish(s);
+  assert.equal((await applicant.definitions()).length, 1);
+  assert.equal((await other.definitions()).length, 0);
+  await assert.rejects(
+    other.start({ definitionId: d.id, title: '越权', content: { title: '不能提交' } }, key()),
+    /提交范围/,
+  );
+  await start(d);
+  await db.userRole.update({
+    where: { id: role.id },
+    data: {
+      revokedAt: new Date(),
+      revokedByUserId: admin.actor.userId,
+      revokeReason: '验证审批提交范围撤销之后立即生效',
+    },
+  });
+  await assert.rejects(start(d), /提交范围/);
+  assert.equal((await admin.definitions(true)).length, 1);
+  s.settings.audience = { mode: 'NONE' };
+  const closed = await publish(s);
+  await assert.rejects(
+    admin.start({ definitionId: closed.id, title: '关闭', content: { title: '关闭' } }, key()),
+    /提交范围/,
+  );
+});
+
+test('node actions, mandatory approval comments and withdrawal policy are enforced in the service', async () => {
+  const s = schema();
+  s.nodes[1].actions = { forward: false, add: false, return: false, remarkRequired: true };
+  s.settings = { allowWithdraw: false };
+  const i = await start(await publish(s));
+  for (const op of ['FORWARD', 'ADD', 'RETURN'])
+    await assert.rejects(
+      action(reviewer, i.id, op, { userIds: [other.actor.userId], returnNode: 'start', remark: '测试' }),
+      /未开放/,
+    );
+  await assert.rejects(action(reviewer, i.id), /审批意见/);
+  await assert.rejects(action(applicant, i.id, 'WITHDRAW'), /不允许撤回/);
+  assert.equal((await action(reviewer, i.id, 'APPROVE', { remark: '审核无误' })).status, 'APPROVED');
+  s.nodes[1].timeoutHours = 1;
+  s.nodes[1].timeoutAction = 'APPROVE';
+  assert.throws(() => validateSchema(s), /必填审批意见/);
+});
+
+test('condition groups support AND, OR, detail totals and explicit priority before the default path', async () => {
+  const s = schema();
+  s.fields.push({
+    key: 'items',
+    label: '费用明细',
+    type: 'detail',
+    children: [{ key: 'amount', label: '费用', type: 'number' }],
+  });
+  s.nodes.splice(1, 0, { id: 'branch', name: '金额分支', type: 'BRANCH', x: 100, y: 0 });
+  s.edges = [
+    { id: 'a', from: 'start', to: 'branch' },
+    {
+      id: 'low',
+      from: 'branch',
+      to: 'end',
+      priority: 2,
+      groups: [[{ field: 'amount', op: 'gte', value: 0 }]],
+    },
+    {
+      id: 'high',
+      from: 'branch',
+      to: 'review',
+      priority: 1,
+      groups: [
+        [
+          { field: 'items.amount', aggregate: 'sum', op: 'gte', value: 5000 },
+          { field: 'title', op: 'eq', value: '报销' },
+        ],
+        [{ field: 'amount', op: 'gt', value: 10000 }],
+      ],
+    },
+    { id: 'default', from: 'branch', to: 'end' },
+    { id: 'end', from: 'review', to: 'end' },
+  ];
+  validateSchema(s);
+  const d = await publish(s);
+  const i = await start(d, { title: '报销', amount: 20, items: [{ amount: 3000 }, { amount: 2500 }] });
+  assert.equal(i.currentNode, 'review');
+  assert.equal((await start(d, { title: '其他', amount: 20, items: [{ amount: 6000 }] })).status, 'APPROVED');
+  assert.equal(matchesEdge(s.edges[2], { title: '其他', amount: 20000 }), true);
+  s.edges[2].groups = [[]];
+  assert.throws(() => validateSchema(s), /条件组/);
+});
+
+test('explicit automatic approval/rejection and applicant-self nodes are audited', async () => {
+  for (const approvalType of ['APPROVE', 'REJECT'] as const) {
+    const s = schema();
+    s.nodes[1].approvalType = approvalType;
+    delete s.nodes[1].rule;
+    const i = await start(await publish(s));
+    assert.equal(i.status, approvalType === 'APPROVE' ? 'APPROVED' : 'REJECTED');
+    assert.ok(i.logs.some((l) => l.action === `RULE_${approvalType}`));
+    assert.equal(i.tasks.length, 0);
+  }
+  const s = schema();
+  s.nodes[1].rule = { type: 'SELF' };
+  const i = await start(await publish(s));
+  assert.equal(i.tasks[0].assigneeId, applicant.actor.userId);
+  assert.equal((await action(applicant, i.id)).status, 'APPROVED');
+});
+
+test('corrections reapprove, preserve originals and update the same record without duplicate creates', async () => {
+  const s = schema();
+  s.binding = { tableId: table, mode: 'CREATE', mappings: [{ field: 'title', target: titleField }] };
+  const d = await publish(s),
+    i = await start(d, { title: '原始内容', amount: 20 });
+  await action(reviewer, i.id);
+  const original = await applicant.detail(i.id);
+  assert.equal(original.canCorrect, true);
+  await assert.rejects(
+    other.start({ definitionId: d.id, title: '篡改', content: { title: '恶意' }, correctionOf: i.id }, key()),
+    /本人已通过/,
+  );
+  const request = {
+    definitionId: d.id,
+    title: '更正申请',
+    content: { title: '批准更正' },
+    correctionOf: i.id,
+  };
+  const requestKey = key();
+  const corrected = await applicant.start(request, requestKey);
+  assert.equal((await applicant.start(request, requestKey)).id, corrected.id);
+  assert.equal(corrected.status, 'PENDING');
+  assert.equal(corrected.correctionOf, i.id);
+  assert.equal((await drive.record(table, original.targetRecordId!)).record.values[titleField], '原始内容');
+  await assert.rejects(applicant.start(request, key()), /已有处理中/);
+  const approved = await action(reviewer, corrected.id);
+  assert.equal(approved.syncStatus, 'SYNCED');
+  assert.equal(approved.targetRecordId, original.targetRecordId);
+  assert.equal(await db.collabRecord.count({ where: { tableId: table } }), 1);
+  assert.equal((await drive.record(table, original.targetRecordId!)).record.values[titleField], '批准更正');
+  assert.equal((await applicant.detail(i.id)).content.title, '原始内容');
+  assert.equal((await applicant.detail(i.id)).canCorrect, false);
+  assert.equal((await applicant.detail(corrected.id)).canCorrect, true);
+});
+
+test('correction chains enforce concurrency, reject completed source reuse and keep writeback conflict protection', async () => {
+  const s = schema();
+  s.binding = { tableId: table, mode: 'CREATE', mappings: [{ field: 'title', target: titleField }] };
+  const d = await publish(s),
+    original = await start(d);
+  await action(reviewer, original.id);
+  const starts = await Promise.allSettled([
+    start(d, { title: '更正一' }, { correctionOf: original.id }),
+    start(d, { title: '更正二' }, { correctionOf: original.id }),
+  ]);
+  assert.equal(starts.filter((x) => x.status === 'fulfilled').length, 1);
+  const corrected = starts.find((x) => x.status === 'fulfilled')! as PromiseFulfilledResult<
+    Awaited<ReturnType<typeof start>>
+  >;
+  const row = await drive.record(table, corrected.value.targetRecordId!);
+  await drive.saveRecord(
+    table,
+    row.record.id,
+    { schemaVersion: 1, version: row.record.version, values: { [titleField]: '人工修改' } },
+    key(),
+  );
+  assert.equal((await action(reviewer, corrected.value.id)).syncStatus, 'FAILED');
+  assert.equal((await drive.record(table, row.record.id)).record.values[titleField], '人工修改');
+  await assert.rejects(start(d, { title: '又更正' }, { correctionOf: corrected.value.id }), /回写异常/);
+});
+
+test('returning or editing an approval invalidates repeat-review skipping', async () => {
+  const s = schema();
+  s.nodes.splice(2, 0, { ...s.nodes[1], id: 'second', name: '二次复核', skipRepeated: true });
+  s.edges[1].to = 'second';
+  s.edges.push({ id: 'c', from: 'second', to: 'end' });
+  const i = await start(await publish(s));
+  await action(reviewer, i.id, 'RETURN', { returnNode: 'start', remark: '补充材料' });
+  await action(applicant, i.id, 'RESUBMIT', { values: { title: '补充后' } });
+  const r = await action(reviewer, i.id);
+  assert.equal(r.currentNode, 'second');
+  assert.equal(r.status, 'PENDING');
+  assert.equal((await action(reviewer, i.id)).status, 'APPROVED');
+});
 
 test('forms validate conditions, lengths, safe regex, detail totals and uppercase currency without executing code', () => {
   const s = schema();

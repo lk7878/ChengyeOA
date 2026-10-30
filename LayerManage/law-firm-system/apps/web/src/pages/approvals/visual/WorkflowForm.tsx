@@ -82,6 +82,7 @@ export default function WorkflowForm({
   editable,
   users,
   instanceId,
+  preview = false,
 }: {
   fields: FormField[];
   values: Values;
@@ -89,6 +90,7 @@ export default function WorkflowForm({
   editable: string[];
   users: Option[];
   instanceId?: string;
+  preview?: boolean;
 }) {
   let display = values;
   try {
@@ -109,6 +111,7 @@ export default function WorkflowForm({
             case 'number':
               control = (
                 <InputNumber
+                  placeholder={f.placeholder}
                   style={{ width: '100%' }}
                   disabled={disabled}
                   value={value as number}
@@ -119,6 +122,7 @@ export default function WorkflowForm({
             case 'date':
               control = (
                 <DatePicker
+                  placeholder={f.placeholder}
                   style={{ width: '100%' }}
                   disabled={disabled}
                   value={value ? dayjs(String(value)) : null}
@@ -130,6 +134,7 @@ export default function WorkflowForm({
             case 'multi':
               control = (
                 <Select
+                  placeholder={f.placeholder}
                   style={{ width: '100%' }}
                   disabled={disabled}
                   allowClear
@@ -154,17 +159,18 @@ export default function WorkflowForm({
               );
               break;
             case 'relation':
-              control = f.tableId ? (
-                <RecordPicker
-                  key={f.tableId}
-                  tableId={f.tableId}
-                  disabled={disabled}
-                  value={value as string}
-                  onChange={(v) => change(f.key, v)}
-                />
-              ) : (
-                <Input disabled placeholder="先配置关联表" />
-              );
+              control =
+                !preview && f.tableId ? (
+                  <RecordPicker
+                    key={f.tableId}
+                    tableId={f.tableId}
+                    disabled={disabled}
+                    value={value as string}
+                    onChange={(v) => change(f.key, v)}
+                  />
+                ) : (
+                  <Input disabled placeholder={preview ? '选择有权访问的业务记录' : '先配置关联表'} />
+                );
               break;
             case 'file':
               control = (
@@ -191,7 +197,7 @@ export default function WorkflowForm({
                       )}
                     </Space>
                   ))}
-                  {!disabled && (
+                  {!disabled && !preview && (
                     <Upload
                       accept=".pdf,.png,.jpg,.jpeg,.webp,.docx,.xlsx"
                       showUploadList={false}
@@ -209,12 +215,13 @@ export default function WorkflowForm({
                       <Button>上传附件（≤10MB）</Button>
                     </Upload>
                   )}
+                  {preview && <Button disabled>上传附件（预览不上传）</Button>}
                 </Space>
               );
               break;
             case 'detail':
               control = (
-                <div>
+                <div className={'wf-details ' + (f.layout === 'horizontal' ? 'horizontal' : 'vertical')}>
                   {(Array.isArray(value) ? (value as Values[]) : []).map((row, index) => (
                     <div className="wf-detail-row" key={index}>
                       <strong>明细 {index + 1}</strong>
@@ -222,6 +229,7 @@ export default function WorkflowForm({
                         fields={f.children ?? []}
                         values={row}
                         users={users}
+                        preview={preview}
                         editable={disabled ? [] : (f.children ?? []).map((c) => c.key)}
                         onChange={(v) =>
                           change(
@@ -246,7 +254,10 @@ export default function WorkflowForm({
                     </div>
                   ))}
                   {!disabled && (
-                    <Button onClick={() => change(f.key, [...(Array.isArray(value) ? value : []), {}])}>
+                    <Button
+                      disabled={Array.isArray(value) && value.length >= 200}
+                      onClick={() => change(f.key, [...(Array.isArray(value) ? value : []), {}])}
+                    >
                       增加明细行
                     </Button>
                   )}
@@ -256,6 +267,7 @@ export default function WorkflowForm({
             case 'textarea':
               control = (
                 <Input.TextArea
+                  placeholder={f.placeholder}
                   rows={3}
                   disabled={disabled}
                   maxLength={f.maxLength ?? 2000}
@@ -267,6 +279,7 @@ export default function WorkflowForm({
             default:
               control = (
                 <Input
+                  placeholder={f.placeholder}
                   disabled={disabled}
                   maxLength={f.maxLength ?? 2000}
                   value={value == null ? '' : String(value)}
@@ -284,6 +297,7 @@ export default function WorkflowForm({
                 {disabled && <small> · 只读</small>}
               </label>
               {control}
+              {f.description && <p className="wf-field-help">{f.description}</p>}
             </div>
           );
         })}

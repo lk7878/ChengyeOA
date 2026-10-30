@@ -10,6 +10,9 @@ import {
   check,
   fieldMode,
   matches,
+  matchesEdge,
+  conditionalEdge,
+  canSubmit,
   validateSchema,
   validateValues,
   WorkflowError,
@@ -58,7 +61,10 @@ export class WorkflowService {
       where: manage ? {} : { enabled: true, version: { gt: 0 } },
       orderBy: { updatedAt: 'desc' },
     });
-    return rows.map(({ draft, published, ...d }) => ({ ...d, schema: manage ? draft : published }));
+    const roles = await this.roles();
+    return rows
+      .filter((d) => manage || canSubmit(d.published as unknown as WorkflowSchema, this.actor.userId, roles))
+      .map(({ draft, published, ...d }) => ({ ...d, schema: manage ? draft : published }));
   }
   async saveDefinition(
     id: string | undefined,
@@ -161,6 +167,7 @@ export class WorkflowService {
       content: Values;
       selections?: Record<string, string[]>;
       targetRecordId?: string;
+      correctionOf?: string;
     },
     key: string,
   ) {
@@ -182,10 +189,53 @@ export class WorkflowService {
             where: { id: input.definitionId, enabled: true, version: { gt: 0 } },
           });
           check(d, '流程不存在或已停用', 404);
-          const s = validateSchema(d.published),
+          let original: WorkflowInstance | null = null;
+          if (input.correctionOf) {
+            await tx.$queryRaw`SELECT id FROM workflow_instance WHERE id=${input.correctionOf} FOR UPDATE`;
+            original = await tx.workflowInstance.findUnique({ where: { id: input.correctionOf } });
+            check(
+              original &&
+                original.applicantId === this.actor.userId &&
+                original.definitionId === d.id &&
+                original.status === 'APPROVED',
+              '只能更正本人已通过的申请',
+              403,
+            );
+            check(snapshot(original).settings?.allowCorrection !== false, '该流程未开放更正申请', 403);
+            check(
+              !snapshot(original).binding || original.syncStatus === 'SYNCED',
+              '请先处理原申请的回写异常',
+            );
+            const child = await tx.workflowInstance.findFirst({
+              where: {
+                selections: { path: ['_corrects'], equals: original.id },
+                status: { in: ['PENDING', 'APPROVED'] },
+              },
+            });
+            check(!child, '该申请已有处理中或已通过的更正，请打开最新更正单', 409);
+          }
+          const s = validateSchema(original ? original.snapshot : d.published),
             start = s.nodes.find((n) => n.type === 'START')!;
-          const content = await this.merge(tx, s, start, {}, input.content);
+          check(
+            canSubmit(validateSchema(d.published), this.actor.userId, await this.roles(tx)),
+            '你不在此流程的提交范围内',
+            403,
+          );
+          check(canSubmit(s, this.actor.userId, await this.roles(tx)), '你不在原流程的提交范围内', 403);
+          if (original && s.binding) {
+            check(original.targetRecordId, '原申请缺少关联业务记录');
+            s.binding.mode = 'UPDATE';
+          }
+          const targetRecordId = original?.targetRecordId ?? input.targetRecordId;
+          const content = await this.merge(
+            tx,
+            s,
+            start,
+            original ? (original.content as Values) : {},
+            input.content,
+          );
           const selections: Values = {};
+          if (original) selections._corrects = original.id;
           for (const [node, ids] of Object.entries(input.selections ?? {})) {
             check(
               s.nodes.some((n) => n.id === node && n.rule?.type === 'SELECT') &&
@@ -200,8 +250,8 @@ export class WorkflowService {
             const c = new CollaborationService(this.db, this.actor);
             await c.tableAccess(s.binding.tableId, tx, 2);
             if (s.binding.mode === 'UPDATE') {
-              check(input.targetRecordId, '请选择回写业务记录');
-              const r = await c.record(s.binding.tableId, input.targetRecordId);
+              check(targetRecordId, '请选择回写业务记录');
+              const r = await c.record(s.binding.tableId, targetRecordId);
               selections._targetVersion = r.record.version;
             }
             // Capture the schema version too; a later schema change needs explicit reconciliation.
@@ -210,19 +260,23 @@ export class WorkflowService {
           const i = await tx.workflowInstance.create({
             data: {
               definitionId: d.id,
-              definitionVersion: d.version,
+              definitionVersion: original?.definitionVersion ?? d.version,
               title: str(input.title, 200),
               snapshot: json(s),
               content: json(content),
               selections: json(selections),
               applicantId: this.actor.userId,
               currentNode: start.id,
-              targetRecordId: input.targetRecordId ?? null,
+              targetRecordId: targetRecordId ?? null,
               requestKey,
               requestHash,
             },
           });
           await this.log(tx, i, 'APPLY');
+          if (original) {
+            await this.log(tx, i, 'CORRECTION', `更正原申请：${original.id}`);
+            await this.log(tx, original, 'CORRECTION_STARTED', `更正申请：${i.id}`);
+          }
           await this.advance(tx, i, this.next(s, start.id, content));
           return i.id;
         },
@@ -231,9 +285,12 @@ export class WorkflowService {
       .then((id) => this.detail(id));
   }
   private next(s: WorkflowSchema, id: string, values: Values) {
-    const edges = s.edges.filter((e) => e.from === id);
+    const edges = s.edges
+      .filter((e) => e.from === id)
+      .sort((a, b) => (a.priority ?? 160) - (b.priority ?? 160));
     const e =
-      edges.find((e) => e.condition && matches(e.condition, values)) ?? edges.find((e) => !e.condition);
+      edges.find((e) => conditionalEdge(e) && matchesEdge(e, values)) ??
+      edges.find((e) => !conditionalEdge(e));
     check(e, '没有可用的后续节点');
     return e.to;
   }
@@ -241,6 +298,7 @@ export class WorkflowService {
     const rule = n.rule!;
     const now = new Date();
     let ids: string[] = [];
+    if (rule.type === 'SELF') ids = [i.applicantId];
     if (rule.type === 'USER') ids = rule.ids!;
     if (rule.type === 'ROLE')
       ids = (
@@ -385,6 +443,25 @@ export class WorkflowService {
         id = this.next(s, id, i.content as Values);
         continue;
       }
+      if (n.type === 'APPROVAL' && n.approvalType && n.approvalType !== 'MANUAL') {
+        await this.log(
+          tx,
+          i,
+          n.approvalType === 'APPROVE' ? 'RULE_APPROVE' : 'RULE_REJECT',
+          '按发布时配置的自动审批规则执行',
+        );
+        if (n.approvalType === 'REJECT') {
+          await tx.workflowInstance.update({
+            where: { id: i.id },
+            data: { status: 'REJECTED', finishedAt: new Date() },
+          });
+          if (s.webhook) await tx.workflowDelivery.create({ data: { instanceId: i.id, hook: s.webhook } });
+          await this.notify(tx, i, i.applicantId, 'rule-rejected', '审批按配置自动驳回');
+          return;
+        }
+        id = this.next(s, id, i.content as Values);
+        continue;
+      }
       const ids = await this.recipients(tx, n, i);
       if (n.type === 'CC') {
         await tx.workflowTask.createMany({
@@ -401,13 +478,14 @@ export class WorkflowService {
         id = this.next(s, id, i.content as Values);
         continue;
       }
-      const done = n.skipRepeated
-        ? (
-            await tx.workflowTask.findMany({
-              where: { instanceId: i.id, status: { in: ['APPROVED', 'AUTO_APPROVED'] } },
-            })
-          ).map((t) => t.assigneeId)
-        : [];
+      const done =
+        n.skipRepeated && !(i.selections as Values)._repeatInvalidated
+          ? (
+              await tx.workflowTask.findMany({
+                where: { instanceId: i.id, status: { in: ['APPROVED', 'AUTO_APPROVED'] } },
+              })
+            ).map((t) => t.assigneeId)
+          : [];
       let active = 0;
       for (const [position, assigneeId] of ids.entries()) {
         const skipped = done.includes(assigneeId);
@@ -562,6 +640,31 @@ export class WorkflowService {
           if (input.action === 'RESUBMIT')
             check(n.type === 'START' && i.applicantId === this.actor.userId, '当前不是重新提交节点', 403);
           else if (input.action !== 'WITHDRAW') check(n.type === 'APPROVAL', '当前节点不可审批');
+          const actionKey = { FORWARD: 'forward', ADD: 'add', RETURN: 'return' }[input.action] as
+            | 'forward'
+            | 'add'
+            | 'return'
+            | undefined;
+          if (actionKey) check(n.actions?.[actionKey] !== false, '当前节点未开放此操作', 403);
+          if (input.action === 'WITHDRAW')
+            check(s.settings?.allowWithdraw !== false, '该流程不允许撤回', 403);
+          if (input.action === 'APPROVE' && n.actions?.remarkRequired)
+            check(input.remark?.trim(), '请填写审批意见');
+          if (
+            input.action === 'RETURN' ||
+            Object.entries(input.values ?? {}).some(
+              ([k, v]) => digest(v) !== digest((i.content as Values)[k] ?? null),
+            )
+          ) {
+            i.selections = json({
+              ...(i.selections as Values),
+              _repeatInvalidated: true,
+            }) as Prisma.JsonValue;
+            await tx.workflowInstance.update({
+              where: { id },
+              data: { selections: i.selections as Prisma.InputJsonValue },
+            });
+          }
           if (['APPROVE', 'RESUBMIT'].includes(input.action)) {
             const values = await this.merge(tx, s, n, i.content as Values, input.values ?? {});
             i.content = json(values) as Prisma.JsonValue;
@@ -835,6 +938,18 @@ export class WorkflowService {
       snapshot: { ...s, fields },
       content,
       editable,
+      correctionOf: (i.selections as Values)._corrects ?? null,
+      canCorrect:
+        i.applicantId === this.actor.userId &&
+        i.status === 'APPROVED' &&
+        s.settings?.allowCorrection !== false &&
+        (!s.binding || i.syncStatus === 'SYNCED') &&
+        !(await this.db.workflowInstance.count({
+          where: {
+            selections: { path: ['_corrects'], equals: i.id },
+            status: { in: ['PENDING', 'APPROVED'] },
+          },
+        })),
       logs: i.logs.map(({ changes: _changes, requestKey: _request, ...log }) => {
         void _changes;
         void _request;

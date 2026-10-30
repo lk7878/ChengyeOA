@@ -35,6 +35,7 @@ test('component library adds and reorders fields; saved drafts preserve schema a
       onClose={vi.fn()}
     />,
   );
+  fireEvent.click(screen.getByRole('tab', { name: '2 · 表单设计' }));
   fireEvent.click(screen.getByRole('button', { name: '单行文本' }));
   fireEvent.click(screen.getByRole('button', { name: '数字 / 金额' }));
   const up = screen.getAllByRole('button', { name: '上移字段' });

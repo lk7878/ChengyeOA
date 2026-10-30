@@ -3,6 +3,7 @@ export type FieldMode = 'EDIT' | 'READ' | 'HIDDEN';
 export type Values = Record<string, unknown>;
 export interface Condition {
   field: string;
+  aggregate?: 'sum';
   op: 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'present';
   value?: string | number | boolean;
 }
@@ -23,6 +24,10 @@ export interface FormField {
     | 'moneyUpper'
     | 'formula';
   required?: boolean;
+  placeholder?: string;
+  description?: string;
+  layout?: 'vertical' | 'horizontal';
+  printable?: boolean;
   minLength?: number;
   maxLength?: number;
   pattern?: string;
@@ -35,7 +40,7 @@ export interface FormField {
   tableId?: string;
 }
 export interface AssigneeRule {
-  type: 'USER' | 'ROLE' | 'MANAGER' | 'SUPERVISOR' | 'SELECT' | 'FIELD';
+  type: 'USER' | 'ROLE' | 'MANAGER' | 'SUPERVISOR' | 'SELECT' | 'FIELD' | 'SELF';
   ids?: string[];
   field?: string;
   levels?: number;
@@ -49,6 +54,8 @@ export interface FlowNode {
   rule?: AssigneeRule;
   mode?: 'ALL' | 'ANY' | 'SEQUENTIAL';
   skipRepeated?: boolean;
+  approvalType?: 'MANUAL' | 'APPROVE' | 'REJECT';
+  actions?: { forward?: boolean; add?: boolean; return?: boolean; remarkRequired?: boolean };
   timeoutHours?: number;
   timeoutAction?: 'REMIND' | 'APPROVE';
   fields?: Record<string, FieldMode>;
@@ -59,8 +66,20 @@ export interface FlowEdge {
   from: string;
   to: string;
   condition?: Condition;
+  /** OR between groups, AND within a group. Legacy single conditions remain supported. */
+  groups?: Condition[][];
+  priority?: number;
 }
 export interface WorkflowSchema {
+  description?: string;
+  category?: string;
+  settings?: {
+    audience?: { mode: 'ALL' | 'SELECTED' | 'NONE'; users?: string[]; roles?: string[] };
+    allowWithdraw?: boolean;
+    allowCorrection?: boolean;
+    summaryFields?: string[];
+    printEnabled?: boolean;
+  };
   fields: FormField[];
   nodes: FlowNode[];
   edges: FlowEdge[];
@@ -103,7 +122,14 @@ export const empty = (v: unknown) =>
   v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
 export function matches(c: Condition | undefined, values: Values): boolean {
   if (!c) return true;
-  const a = values[c.field],
+  const [parent, child] = c.field.split('.');
+  const a =
+      c.aggregate === 'sum'
+        ? (Array.isArray(values[parent]) ? (values[parent] as Values[]) : []).reduce(
+            (sum, row) => sum + Number(row[child] ?? 0),
+            0,
+          )
+        : values[c.field],
     b = c.value;
   if (c.op === 'present') return !empty(a);
   if (c.op === 'eq') return a === b;
@@ -118,6 +144,20 @@ export function matches(c: Condition | undefined, values: Values): boolean {
       : c.op === 'lt'
         ? Number(a) < Number(b)
         : Number(a) <= Number(b);
+}
+export const conditionalEdge = (e: FlowEdge) => !!e.condition || e.groups !== undefined;
+export function matchesEdge(e: FlowEdge, values: Values): boolean {
+  return e.groups
+    ? e.groups.some((group) => group.every((c) => matches(c, values)))
+    : matches(e.condition, values);
+}
+export function canSubmit(s: WorkflowSchema, userId: string, roles: string[]): boolean {
+  const a = s.settings?.audience;
+  return (
+    !a ||
+    a.mode === 'ALL' ||
+    (a.mode === 'SELECTED' && (!!a.users?.includes(userId) || !!a.roles?.some((r) => roles.includes(r))))
+  );
 }
 function condition(c: Condition | undefined, keys: Set<string>) {
   if (!c) return;
@@ -169,6 +209,10 @@ export function validateSchema(raw: unknown): WorkflowSchema {
         '最小长度不能大于最大长度',
       );
       check(f.required === undefined || typeof f.required === 'boolean', '必填配置格式错误');
+      for (const value of [f.placeholder, f.description])
+        check(value === undefined || (typeof value === 'string' && value.length <= 2000), '字段说明格式错误');
+      check(f.layout === undefined || ['vertical', 'horizontal'].includes(f.layout), '明细排列方式无效');
+      check(f.printable === undefined || typeof f.printable === 'boolean', '字段打印设置无效');
       check(f.pattern === undefined || typeof f.pattern === 'string', '正则表达式格式错误');
       if (f.pattern) {
         // Deliberately a bounded regular-expression subset; no groups, alternation or backrefs.
@@ -241,6 +285,39 @@ export function validateSchema(raw: unknown): WorkflowSchema {
     }
   }
   fields(s.fields);
+  for (const value of [s.description, s.category])
+    check(
+      value === undefined || (typeof value === 'string' && value.length <= 2000),
+      '基础信息过长或格式错误',
+    );
+  if (s.settings !== undefined) {
+    check(object(s.settings), '更多设置格式错误');
+    for (const key of ['allowWithdraw', 'allowCorrection', 'printEnabled'] as const)
+      check(s.settings[key] === undefined || typeof s.settings[key] === 'boolean', '流程开关格式错误');
+    const a = s.settings.audience;
+    if (a !== undefined) {
+      check(object(a) && ['ALL', 'SELECTED', 'NONE'].includes(a.mode), '提交范围无效');
+      for (const ids of [a.users, a.roles])
+        check(
+          ids === undefined ||
+            (Array.isArray(ids) &&
+              ids.length <= 200 &&
+              ids.every((id) => typeof id === 'string' && id.length <= 100)),
+          '提交人员配置无效',
+        );
+      check(
+        a.mode !== 'SELECTED' || (a.users?.length ?? 0) + (a.roles?.length ?? 0) > 0,
+        '请选择允许提交的成员或角色',
+      );
+    }
+    check(
+      s.settings.summaryFields === undefined ||
+        (Array.isArray(s.settings.summaryFields) &&
+          s.settings.summaryFields.length <= 6 &&
+          s.settings.summaryFields.every((k) => keys.has(k))),
+      '摘要最多选择6个已有字段',
+    );
+  }
   check(
     s.nodes.filter((n) => n.type === 'START').length === 1 && s.nodes.some((n) => n.type === 'END'),
     '流程需要一个发起节点和至少一个结束节点',
@@ -261,9 +338,20 @@ export function validateSchema(raw: unknown): WorkflowSchema {
         Number.isFinite(n.y),
       '节点配置无效',
     );
-    if (n.type === 'APPROVAL' || n.type === 'CC') {
+    check(!n.approvalType || ['MANUAL', 'APPROVE', 'REJECT'].includes(n.approvalType), '审批类型无效');
+    if (n.actions !== undefined) {
       check(
-        n.rule && ['USER', 'ROLE', 'MANAGER', 'SUPERVISOR', 'SELECT', 'FIELD'].includes(n.rule.type),
+        object(n.actions) && Object.values(n.actions).every((v) => typeof v === 'boolean'),
+        '节点操作权限格式错误',
+      );
+      check(
+        !(n.actions.remarkRequired && n.timeoutAction === 'APPROVE'),
+        '必填审批意见的节点不能设置超时自动同意',
+      );
+    }
+    if ((n.type === 'APPROVAL' && (!n.approvalType || n.approvalType === 'MANUAL')) || n.type === 'CC') {
+      check(
+        n.rule && ['USER', 'ROLE', 'MANAGER', 'SUPERVISOR', 'SELECT', 'FIELD', 'SELF'].includes(n.rule.type),
         '请配置审批或抄送人员',
       );
       if (n.rule.type === 'USER' || n.rule.type === 'ROLE')
@@ -306,16 +394,44 @@ export function validateSchema(raw: unknown): WorkflowSchema {
       n.type === 'END'
         ? outgoing.length === 0
         : n.type === 'BRANCH'
-          ? outgoing.length >= 2 && outgoing.filter((e) => !e.condition).length === 1
+          ? outgoing.length >= 2 && outgoing.filter((e) => !conditionalEdge(e)).length === 1
           : outgoing.length === 1,
       '普通节点须有一条连线；分支须有条件路径和唯一默认路径；结束节点不能有出线',
     );
   }
   for (const e of s.edges) {
     check(ids.has(e.from) && ids.has(e.to) && e.from !== e.to, '连线引用无效节点');
-    condition(e.condition, keys);
+    const conditionKeys = new Set([
+      ...keys,
+      ...s.fields.flatMap((f) =>
+        (f.children ?? []).filter((c) => c.type === 'number').map((c) => `${f.key}.${c.key}`),
+      ),
+    ]);
+    const validateBranchCondition = (c: Condition) => {
+      check(object(c), '分支条件格式错误');
+      condition(c, conditionKeys);
+      check(
+        c.field.includes('.') ? c.aggregate === 'sum' : c.aggregate === undefined,
+        '明细条件须使用数字列合计',
+      );
+    };
+    if (e.condition) validateBranchCondition(e.condition);
     check(
-      !e.condition || s.nodes.find((n) => n.id === e.from)?.type === 'BRANCH',
+      e.priority === undefined || (Number.isInteger(e.priority) && e.priority >= 1 && e.priority <= 160),
+      '条件优先级应为1至160',
+    );
+    if (e.groups !== undefined) {
+      check(
+        !e.condition && Array.isArray(e.groups) && e.groups.length > 0 && e.groups.length <= 20,
+        '条件组格式错误',
+      );
+      for (const g of e.groups) {
+        check(Array.isArray(g) && g.length > 0 && g.length <= 20, '条件组不能为空或超过20个条件');
+        g.forEach(validateBranchCondition);
+      }
+    }
+    check(
+      !conditionalEdge(e) || s.nodes.find((n) => n.id === e.from)?.type === 'BRANCH',
       '条件仅可配置在分支连线上',
     );
   }

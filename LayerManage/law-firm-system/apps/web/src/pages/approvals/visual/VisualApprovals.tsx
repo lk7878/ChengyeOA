@@ -5,6 +5,8 @@ import DraggableModal from '@/components/DraggableModal';
 import { useAuthStore } from '@/stores/authStore';
 import WorkflowDesigner from './WorkflowDesigner';
 import WorkflowForm, { RecordPicker } from './WorkflowForm';
+import ApprovalPrint from './ApprovalPrint';
+import { displayValue } from './print-format';
 import {
   fieldMode,
   matches,
@@ -61,6 +63,8 @@ export default function VisualApprovals() {
     [targets, setTargets] = useState<string[]>([]),
     [returnNode, setReturnNode] = useState('');
   const startPayload = useRef('');
+  const [correction, setCorrection] = useState<Instance>(),
+    [printing, setPrinting] = useState<Instance>();
   const startKey = useRef(crypto.randomUUID()),
     actionKey = useRef(crypto.randomUUID());
   const bump = () => setRefresh((x) => x + 1);
@@ -140,7 +144,21 @@ export default function VisualApprovals() {
       live = false;
     };
   }, [requestedId]);
-  const chosen = definitions.find((d) => d.id === definitionId),
+  const chosen: Definition | undefined = correction
+      ? {
+          id: correction.definitionId,
+          name: correction.title,
+          revision: 0,
+          enabled: true,
+          version: correction.definitionVersion,
+          schema: {
+            ...correction.snapshot,
+            ...(correction.snapshot.binding
+              ? { binding: { ...correction.snapshot.binding, mode: 'UPDATE' } }
+              : {}),
+          },
+        }
+      : definitions.find((d) => d.id === definitionId),
     startNode = chosen?.schema.nodes.find((n) => n.type === 'START');
   const editable =
     chosen && startNode
@@ -167,6 +185,7 @@ export default function VisualApprovals() {
         title,
         content,
         selections,
+        ...(correction ? { correctionOf: correction.id } : {}),
         ...(target ? { targetRecordId: target } : {}),
       };
       const fingerprint = JSON.stringify(payload);
@@ -303,6 +322,7 @@ export default function VisualApprovals() {
               type="primary"
               onClick={() => {
                 setDefinitionId('');
+                setCorrection(undefined);
                 setValues({});
                 setTitle('');
                 setSelections({});
@@ -438,7 +458,7 @@ export default function VisualApprovals() {
         ]}
       />
       <DraggableModal
-        title="发起可视化审批"
+        title={correction ? '提交更正申请' : '发起可视化审批'}
         open={startOpen}
         width={850}
         onCancel={() => setStartOpen(false)}
@@ -447,15 +467,27 @@ export default function VisualApprovals() {
         okText="提交申请"
         destroyOnHidden
       >
+        {correction && (
+          <Alert
+            type="info"
+            showIcon
+            title="更正单将重新审批，通过后更新原业务记录"
+            description={`原单：${correction.title}。沿用原单的表单和流程版本，保留完整历史。`}
+          />
+        )}
         <div className="wf-property">
           <label>审批流程</label>
           <Select
+            disabled={!!correction}
             style={{ width: '100%' }}
             value={definitionId || undefined}
             placeholder="选择已发布流程"
-            options={definitions
+            options={(correction && chosen ? [chosen] : definitions)
               .filter((d) => !params.get('table') || d.schema.binding?.tableId === params.get('table'))
-              .map((d) => ({ value: d.id, label: `${d.name} · V${d.version}` }))}
+              .map((d) => ({
+                value: d.id,
+                label: `${d.schema.category ? d.schema.category + ' / ' : ''}${d.name} · V${d.version}`,
+              }))}
             onChange={(id) => {
               setDefinitionId(id);
               setValues({});
@@ -470,6 +502,9 @@ export default function VisualApprovals() {
         </div>
         {chosen && (
           <>
+            {chosen.schema.description && (
+              <Alert type="info" title="申请说明" description={chosen.schema.description} />
+            )}
             {chosen.schema.binding?.mode === 'UPDATE' && (
               <div className="wf-property">
                 <label>回写业务记录</label>
@@ -478,6 +513,7 @@ export default function VisualApprovals() {
                   tableId={chosen.schema.binding.tableId}
                   value={target || undefined}
                   onChange={setTarget}
+                  disabled={!!correction}
                 />
               </div>
             )}
@@ -539,7 +575,48 @@ export default function VisualApprovals() {
               >
                 刷新详情
               </Button>
+              {detail.snapshot.settings?.printEnabled !== false && (
+                <Button onClick={() => setPrinting(detail)}>打印审批单</Button>
+              )}
+              {detail.canCorrect && apply && (
+                <Button
+                  onClick={() => {
+                    setCorrection(detail);
+                    setDefinitionId(detail.definitionId);
+                    setValues(detail.content);
+                    setTitle(`更正：${detail.title}`.slice(0, 200));
+                    setSelections({});
+                    setTarget(detail.targetRecordId ?? '');
+                    setDetail(undefined);
+                    setStartOpen(true);
+                  }}
+                >
+                  提交更正申请
+                </Button>
+              )}
             </Space>
+            {detail.correctionOf && (
+              <p>
+                更正原申请：
+                <Button type="link" onClick={() => open(detail.correctionOf!)}>
+                  查看原单及历史
+                </Button>
+              </p>
+            )}
+            <div className="wf-summary">
+              {(detail.snapshot.settings?.summaryFields?.length
+                ? detail.snapshot.settings.summaryFields
+                : detail.snapshot.fields.slice(0, 3).map((f) => f.key)
+              ).map((key) => {
+                const f = detail.snapshot.fields.find((f) => f.key === key);
+                return f && matches(f.visibleWhen, detail.content) ? (
+                  <div key={key}>
+                    <small>{f.label}</small>
+                    <strong>{displayValue(f, detail.content[key], options.users)}</strong>
+                  </div>
+                ) : null;
+              })}
+            </div>
             {detail.syncStatus === 'FAILED' && (
               <Alert
                 type="error"
@@ -574,7 +651,11 @@ export default function VisualApprovals() {
                       {pending && (process || (node?.type === 'START' && apply)) && (
                         <div className="wf-actions">
                           <Input.TextArea
-                            placeholder="审批意见（驳回、退回时必填）"
+                            placeholder={
+                              node?.actions?.remarkRequired
+                                ? '审批意见（必填）'
+                                : '审批意见（驳回、退回时必填）'
+                            }
                             value={remark}
                             maxLength={2000}
                             onChange={(e) => setRemark(e.target.value)}
@@ -609,7 +690,10 @@ export default function VisualApprovals() {
                                     .map((n) => ({ value: n.id, label: n.name }))}
                                   onChange={setReturnNode}
                                 />
-                                <Button disabled={busy || !returnNode} onClick={() => act('RETURN')}>
+                                <Button
+                                  disabled={busy || !returnNode || node?.actions?.return === false}
+                                  onClick={() => act('RETURN')}
+                                >
                                   退回
                                 </Button>
                                 <Select
@@ -623,12 +707,15 @@ export default function VisualApprovals() {
                                   onChange={setTargets}
                                 />
                                 <Button
-                                  disabled={busy || targets.length !== 1}
+                                  disabled={busy || targets.length !== 1 || node?.actions?.forward === false}
                                   onClick={() => act('FORWARD')}
                                 >
                                   转办
                                 </Button>
-                                <Button disabled={busy || !targets.length} onClick={() => act('ADD')}>
+                                <Button
+                                  disabled={busy || !targets.length || node?.actions?.add === false}
+                                  onClick={() => act('ADD')}
+                                >
                                   加签
                                 </Button>
                               </>
@@ -636,18 +723,21 @@ export default function VisualApprovals() {
                           </Space>
                         </div>
                       )}
-                      {detail.status === 'PENDING' && detail.applicantId === auth.userInfo?.id && apply && (
-                        <Button
-                          style={{ marginTop: 16 }}
-                          danger
-                          disabled={busy}
-                          onClick={() =>
-                            Modal.confirm({ title: '撤回本次申请？', onOk: () => act('WITHDRAW') })
-                          }
-                        >
-                          撤回申请
-                        </Button>
-                      )}
+                      {detail.status === 'PENDING' &&
+                        detail.applicantId === auth.userInfo?.id &&
+                        apply &&
+                        detail.snapshot.settings?.allowWithdraw !== false && (
+                          <Button
+                            style={{ marginTop: 16 }}
+                            danger
+                            disabled={busy}
+                            onClick={() =>
+                              Modal.confirm({ title: '撤回本次申请？', onOk: () => act('WITHDRAW') })
+                            }
+                          >
+                            撤回申请
+                          </Button>
+                        )}
                     </>
                   ),
                 },
@@ -732,6 +822,12 @@ export default function VisualApprovals() {
           </>
         )}
       </DraggableModal>
+      <ApprovalPrint
+        instance={printing}
+        users={options.users}
+        printer={user(auth.userInfo?.id ?? '')}
+        onClose={() => setPrinting(undefined)}
+      />
     </div>
   );
 }

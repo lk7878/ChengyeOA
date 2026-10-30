@@ -35,6 +35,9 @@ export interface Definition {
 }
 export interface Instance {
   id: string;
+  definitionId: string;
+  correctionOf?: string;
+  canCorrect?: boolean;
   title: string;
   applicantId: string;
   status: string;
@@ -152,6 +155,10 @@ export const labels: Record<string, string> = {
   RETRY_SYNC: '重试回写',
   TIMEOUT_APPROVE: '超时自动同意',
   SKIP_REPEATED: '同人自动跳过',
+  RULE_APPROVE: '规则自动同意',
+  RULE_REJECT: '规则自动驳回',
+  CORRECTION: '发起更正',
+  CORRECTION_STARTED: '关联更正申请',
 };
 export const fieldLabels: Record<string, string> = {
   text: '单行文本',
