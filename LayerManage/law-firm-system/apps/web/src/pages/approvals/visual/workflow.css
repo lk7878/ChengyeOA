@@ -13,6 +13,28 @@
   gap: 16px;
   margin-bottom: 20px;
 }
+.wf-name-field {
+  width: 320px;
+  max-width: 100%;
+}
+.wf-name-field > label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.wf-name-field > label > span,
+.wf-name-error {
+  color: #cf1322;
+}
+.wf-name-field > small,
+.wf-name-error {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.wf-name-field > small {
+  color: #64748b;
+}
 .wf-page h1 {
   margin: 10px 0;
 }

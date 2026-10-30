@@ -4,6 +4,7 @@ export {
   matches,
   fieldMode,
   validateSchema,
+  validateWorkflowName,
   validateValues,
 } from '../../../../../server/app/domain/workflow/schema';
 export type {

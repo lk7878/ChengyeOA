@@ -14,6 +14,7 @@ import {
   conditionalEdge,
   canSubmit,
   validateSchema,
+  validateWorkflowName,
   validateValues,
   WorkflowError,
   WorkflowSchema,
@@ -71,7 +72,7 @@ export class WorkflowService {
     input: { name: string; schema: WorkflowSchema; revision?: number; publish?: boolean; enabled?: boolean },
   ) {
     this.require('approval.manage');
-    const name = str(input.name);
+    const name = validateWorkflowName(input.name);
     check(input.schema && JSON.stringify(input.schema).length <= 200000, '流程配置过大');
     if (input.publish) {
       validateSchema(input.schema);

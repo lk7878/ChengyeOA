@@ -19,6 +19,62 @@ beforeEach(() => {
 });
 const options = { users: [{ id: 'reviewer', name: '审批人' }], roles: [], hooks: [] };
 
+test.each(['保存草稿', '校验并发布'])(
+  '%s identifies the missing workflow name, keeps the entered form, and succeeds after correction',
+  async (button) => {
+    const schema = starter();
+    schema.nodes[1].rule = { type: 'USER', ids: ['reviewer'] };
+    render(
+      <WorkflowDesigner
+        definition={{ name: '  ', schema, version: 0, revision: 1, enabled: false }}
+        options={options}
+        onSaved={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('tab', { name: '2 · 表单设计' }));
+    fireEvent.click(screen.getByRole('button', { name: '单行文本' }));
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    expect(screen.getByRole('alert')).toHaveTextContent('请填写流程名称');
+    const input = screen.getByRole('textbox', { name: '流程名称' });
+    expect(input).toHaveFocus();
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(post).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '删除字段' })).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: '  费用报销审批  ' } });
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(post).mock.calls[0][1]).toMatchObject({
+      name: '费用报销审批',
+      publish: button === '校验并发布',
+      schema: { nodes: schema.nodes, fields: [{ type: 'text' }] },
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  },
+);
+
+test('an overlong existing name gets a field-specific error without discarding configuration', async () => {
+  render(
+    <WorkflowDesigner
+      definition={{
+        id: 'old',
+        name: '名'.repeat(101),
+        schema: starter(),
+        version: 0,
+        revision: 1,
+        enabled: false,
+      }}
+      options={options}
+      onSaved={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: '保存草稿' })));
+  expect(screen.getByText(/流程名称不能超过100个字符，请缩短后保存/)).toHaveAttribute('role', 'alert');
+  expect(screen.getByRole('textbox', { name: '流程名称' })).toHaveValue('名'.repeat(101));
+  expect(post).not.toHaveBeenCalled();
+});
+
 test('component library adds and reorders fields; saved drafts preserve schema and optimistic revision', async () => {
   render(
     <WorkflowDesigner

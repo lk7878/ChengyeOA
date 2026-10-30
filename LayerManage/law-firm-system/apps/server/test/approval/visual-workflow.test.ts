@@ -138,6 +138,34 @@ async function action(svc: WorkflowService, id: string, action = 'APPROVE', extr
   return svc.act(id, { action, version: i.version, ...extra }, key());
 }
 
+test('workflow names return specific errors for drafts and publication, while valid names and form configuration persist', async () => {
+  const s = schema();
+  for (const publish of [false, true]) {
+    for (const name of ['', '   '])
+      await assert.rejects(admin.saveDefinition(undefined, { name, schema: s, publish }), {
+        message: '请填写流程名称，例如“费用报销审批”',
+        status: 422,
+      });
+    await assert.rejects(admin.saveDefinition(undefined, { name: '名'.repeat(101), schema: s, publish }), {
+      message: '流程名称不能超过100个字符，请缩短后保存',
+      status: 422,
+    });
+  }
+  assert.equal(await db.workflowDefinition.count(), 0);
+  const draft = await admin.saveDefinition(undefined, { name: '  费用报销审批  ', schema: s });
+  assert.equal(draft.name, '费用报销审批');
+  assert.deepEqual(draft.draft, s);
+  const updated = await admin.saveDefinition(draft.id, {
+    name: '名'.repeat(100),
+    schema: s,
+    revision: draft.revision,
+    publish: true,
+  });
+  assert.equal(updated.name.length, 100);
+  assert.deepEqual(updated.published, s);
+  assert.equal(updated.version, 1);
+});
+
 test('submission audience filters the catalog and rejects direct starts, including newly assigned roles', async () => {
   const s = schema();
   const role = await db.userRole.findFirstOrThrow({ where: { userId: applicant.actor.userId } });

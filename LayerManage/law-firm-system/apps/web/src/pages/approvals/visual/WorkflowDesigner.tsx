@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { InputRef } from 'antd';
 import { Alert, Button, Checkbox, Input, InputNumber, Select, Space, Tabs, Tag, Modal, message } from 'antd';
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import WorkflowForm from './WorkflowForm';
@@ -13,6 +14,7 @@ import {
   post,
   errorText,
   validateSchema,
+  validateWorkflowName,
   type Definition,
   type WorkflowSchema,
   type FormField,
@@ -338,6 +340,8 @@ export default function WorkflowDesigner({
     JSON.stringify({ name: definition.name, schema: definition.schema }),
   );
   const dirty = savedState !== JSON.stringify({ name, schema });
+  const nameInput = useRef<InputRef>(null);
+  const [nameError, setNameError] = useState('');
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null),
     svg = useRef<SVGSVGElement>(null);
   useEffect(() => {
@@ -387,12 +391,21 @@ export default function WorkflowDesigner({
       return { ...s, fields };
     });
   const save = async (publish: boolean) => {
+    let validatedName: string;
+    try {
+      validatedName = validateWorkflowName(name);
+      setNameError('');
+    } catch (e) {
+      setNameError(errorText(e));
+      nameInput.current?.focus();
+      return;
+    }
     try {
       if (publish) validateSchema(schema);
       setSaving(true);
       const result = await post<{ id: string; revision: number; version: number }>(
         `/workflows/definitions${id ? '/' + id : ''}`,
-        { name, schema, revision, publish },
+        { name: validatedName, schema, revision, publish },
       );
       setId(result.id);
       setRevision(result.revision);
@@ -1168,13 +1181,35 @@ export default function WorkflowDesigner({
     <div className="wf-editor">
       <header>
         <Space>
-          <Input
-            aria-label="流程名称"
-            style={{ width: 300 }}
-            placeholder="流程名称"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+          <div className="wf-name-field">
+            <label htmlFor="workflow-name">
+              <span aria-hidden="true">* </span>流程名称（必填）
+            </label>
+            <Input
+              id="workflow-name"
+              ref={nameInput}
+              aria-label="流程名称"
+              aria-required="true"
+              aria-invalid={!!nameError}
+              aria-describedby={nameError ? 'workflow-name-error' : 'workflow-name-help'}
+              status={nameError ? 'error' : undefined}
+              maxLength={100}
+              showCount
+              placeholder="例如：费用报销审批"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setNameError('');
+              }}
+            />
+            {nameError ? (
+              <div id="workflow-name-error" role="alert" className="wf-name-error">
+                {nameError}。已填写的表单和流程配置已保留。
+              </div>
+            ) : (
+              <small id="workflow-name-help">请为整个审批流程命名，最多100个字符。</small>
+            )}
+          </div>
           <Tag>已发布版本 {version}</Tag>
           <Tag color={dirty || !id ? 'orange' : 'green'}>
             {dirty ? '有未保存修改' : id ? '草稿已保存' : '新流程未保存'}
@@ -1183,7 +1218,14 @@ export default function WorkflowDesigner({
         <Space>
           <Button
             onClick={() =>
-              dirty ? Modal.confirm({ title: '放弃未保存的修改？', okText: '放弃修改', cancelText: '继续编辑', onOk: onClose }) : onClose()
+              dirty
+                ? Modal.confirm({
+                    title: '放弃未保存的修改？',
+                    okText: '放弃修改',
+                    cancelText: '继续编辑',
+                    onOk: onClose,
+                  })
+                : onClose()
             }
           >
             返回

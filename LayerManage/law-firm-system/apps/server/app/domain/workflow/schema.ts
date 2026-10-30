@@ -100,6 +100,12 @@ export class WorkflowError extends Error {
 export function check(ok: unknown, message: string, status = 422): asserts ok {
   if (!ok) throw new WorkflowError(message, status);
 }
+export function validateWorkflowName(value: unknown): string {
+  check(typeof value === 'string' && value.trim().length > 0, '请填写流程名称，例如“费用报销审批”');
+  const name = value.trim();
+  check(name.length <= 100, '流程名称不能超过100个字符，请缩短后保存');
+  return name;
+}
 const keyPattern = /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/;
 const modes = ['EDIT', 'READ', 'HIDDEN'];
 const object = (value: unknown): value is Record<string, unknown> =>
