@@ -165,6 +165,7 @@
 }
 .wf-editor header {
   position: sticky;
+  flex-wrap: wrap;
   top: 0;
   background: white;
   z-index: 5;
@@ -418,4 +419,21 @@
   .wf-editor header {
     flex-wrap: wrap;
   }
+}
+.wf-save-error {
+  flex: 0 0 100%;
+  width: 100%;
+}
+.wf-cc-group {
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0;
+  display: grid;
+  gap: 10px;
+}
+.wf-cc-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }

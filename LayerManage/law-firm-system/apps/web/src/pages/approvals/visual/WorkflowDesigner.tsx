@@ -3,6 +3,7 @@ import type { InputRef } from 'antd';
 import { Alert, Button, Checkbox, Input, InputNumber, Select, Space, Tabs, Tag, Modal, message } from 'antd';
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import WorkflowForm from './WorkflowForm';
+import CcRecipients from './CcRecipients';
 import DraggableModal from '@/components/DraggableModal';
 import FlowCanvas from './FlowCanvas';
 import { BasicSettings, MoreSettings, SubmissionScope } from './WorkflowSettings';
@@ -15,6 +16,8 @@ import {
   errorText,
   validateSchema,
   validateWorkflowName,
+  WorkflowError,
+  type WorkflowLocation,
   type Definition,
   type WorkflowSchema,
   type FormField,
@@ -342,6 +345,21 @@ export default function WorkflowDesigner({
   const dirty = savedState !== JSON.stringify({ name, schema });
   const nameInput = useRef<InputRef>(null);
   const [nameError, setNameError] = useState('');
+  const [saveError, setSaveError] = useState<{ message: string; location: WorkflowLocation }>();
+  const locateError = (location: WorkflowLocation) => {
+    setTab(location.section);
+    if (location.field) setSelectedField(location.field);
+    if (location.node) {
+      setSelectedNode(location.node);
+      setSelectedEdge('');
+      setNodeTab('people');
+    }
+    if (location.edge) {
+      setSelectedEdge(location.edge);
+      setSelectedNode('');
+    }
+    if (location.label === '流程名称') nameInput.current?.focus();
+  };
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null),
     svg = useRef<SVGSVGElement>(null);
   useEffect(() => {
@@ -397,6 +415,7 @@ export default function WorkflowDesigner({
       setNameError('');
     } catch (e) {
       setNameError(errorText(e));
+      setSaveError({ message: errorText(e), location: { section: 'basic', label: '流程名称' } });
       nameInput.current?.focus();
       return;
     }
@@ -411,10 +430,19 @@ export default function WorkflowDesigner({
       setRevision(result.revision);
       setVersion(result.version);
       setSavedState(JSON.stringify({ name, schema }));
+      setSaveError(undefined);
       message.success(publish ? '流程已发布，新申请将使用此版本' : '草稿已保存');
       onSaved();
     } catch (e) {
-      message.error(errorText(e));
+      const remoteLocation = (e as { response?: { data?: { location?: WorkflowLocation } } })?.response?.data
+        ?.location;
+      const location =
+        e instanceof WorkflowError && e.location
+          ? e.location
+          : remoteLocation && ['basic', 'form', 'flow', 'settings'].includes(remoteLocation.section)
+            ? remoteLocation
+            : { section: tab as WorkflowLocation['section'], label: '保存请求（权限、版本或网络）' };
+      setSaveError({ message: errorText(e), location });
     } finally {
       setSaving(false);
     }
@@ -850,7 +878,10 @@ export default function WorkflowDesigner({
                   )}
                 </Field>
               )}
-              {['APPROVAL', 'CC'].includes(node.type) && (
+              {node.type === 'CC' && (
+                <CcRecipients node={node} options={options} fields={schema.fields} onChange={updateNode} />
+              )}
+              {node.type === 'APPROVAL' && (
                 <>
                   <Field title="人员来源">
                     <Select
@@ -1238,6 +1269,21 @@ export default function WorkflowDesigner({
             校验并发布
           </Button>
         </Space>
+        {saveError && (
+          <Alert
+            className="wf-save-error"
+            type="error"
+            showIcon
+            title={`保存失败 · ${saveError.location.label}`}
+            description={
+              <>
+                <div>{saveError.message}</div>
+                <small>已填写的内容已保留。修改后请重新保存或发布。</small>
+              </>
+            }
+            action={<Button onClick={() => locateError(saveError.location)}>定位并修改</Button>}
+          />
+        )}
       </header>
       <Tabs
         activeKey={tab}

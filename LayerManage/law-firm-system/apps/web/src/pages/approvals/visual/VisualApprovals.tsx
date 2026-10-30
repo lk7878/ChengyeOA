@@ -9,6 +9,7 @@ import ApprovalPrint from './ApprovalPrint';
 import { displayValue } from './print-format';
 import {
   fieldMode,
+  recipientRules,
   matches,
   starter,
   labels,
@@ -525,7 +526,7 @@ export default function VisualApprovals() {
               editable={editable}
             />
             {chosen.schema.nodes
-              .filter((n) => n.rule?.type === 'SELECT')
+              .filter((n) => recipientRules(n).some((r) => r.type === 'SELECT'))
               .map((n) => (
                 <div key={n.id} className="wf-property">
                   <label>{n.name} · 自选处理人</label>

@@ -1,6 +1,6 @@
 import { Button, Dropdown, Tag } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
-import { labels, type FlowEdge, type Options, type WorkflowSchema } from './api';
+import { labels, recipientRules, type FlowEdge, type Options, type WorkflowSchema } from './api';
 
 import { insertFlowNode } from './flow-graph';
 const sourceLabels: Record<string, string> = {
@@ -37,16 +37,18 @@ export default function FlowCanvas({
       );
     seen.add(id);
     const nextPath = new Set([...path, id]);
-    const rule = n.rule;
-    const people =
-      rule?.type === 'USER' || rule?.type === 'ROLE'
-        ? (rule.ids ?? [])
-            .map(
-              (id) =>
-                (rule.type === 'USER' ? options.users : options.roles).find((u) => u.id === id)?.name ?? id,
-            )
-            .join('、') || '请选择处理人'
-        : (sourceLabels[rule?.type ?? ''] ?? '');
+    const people = recipientRules(n)
+      .map((rule) =>
+        rule?.type === 'USER' || rule?.type === 'ROLE'
+          ? (rule.ids ?? [])
+              .map(
+                (id) =>
+                  (rule.type === 'USER' ? options.users : options.roles).find((u) => u.id === id)?.name ?? id,
+              )
+              .join('、') || '请选择处理人'
+          : (sourceLabels[rule?.type ?? ''] ?? ''),
+      )
+      .join('；');
     const edges = schema.edges
       .filter((e) => e.from === id)
       .sort((a, b) => (a.priority ?? 160) - (b.priority ?? 160));

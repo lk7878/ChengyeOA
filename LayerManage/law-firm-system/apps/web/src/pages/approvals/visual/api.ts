@@ -5,10 +5,14 @@ export {
   fieldMode,
   validateSchema,
   validateWorkflowName,
+  recipientRules,
+  WorkflowError,
   validateValues,
 } from '../../../../../server/app/domain/workflow/schema';
 export type {
   WorkflowSchema,
+  WorkflowLocation,
+  AssigneeRule,
   FormField,
   FlowNode,
   FlowEdge,

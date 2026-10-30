@@ -138,6 +138,40 @@ async function action(svc: WorkflowService, id: string, action = 'APPROVE', extr
   return svc.act(id, { action, version: i.version, ...extra }, key());
 }
 
+test('CC combines multiple recipient sources, deduplicates deliveries and preserves recipient authorization', async () => {
+  const s = schema();
+  const role = await db.userRole.findFirstOrThrow({ where: { userId: reader.actor.userId } });
+  s.nodes.splice(2, 0, {
+    id: 'cc',
+    name: '结果抄送',
+    type: 'CC',
+    x: 300,
+    y: 0,
+    ccRules: [
+      { type: 'SELF' },
+      { type: 'USER', ids: [reader.actor.userId, other.actor.userId] },
+      { type: 'ROLE', ids: [role.roleId] },
+      { type: 'SELECT' },
+    ],
+  });
+  s.edges[1].to = 'cc';
+  s.edges.push({ id: 'c', from: 'cc', to: 'end' });
+  const d = await publish(s);
+  const i = await start(d, undefined, { selections: { cc: [other.actor.userId] } });
+  assert.equal((await action(reviewer, i.id)).status, 'APPROVED');
+  const tasks = await db.workflowTask.findMany({ where: { instanceId: i.id, status: 'CC' } });
+  assert.deepEqual(
+    tasks.map((t) => t.assigneeId).sort(),
+    [applicant.actor.userId, reader.actor.userId, other.actor.userId].sort(),
+  );
+  assert.equal((await reader.list('CC')).total, 1);
+  assert.equal((await reader.detail(i.id)).content.title, '审批回归');
+  const second = await start(d, undefined, { selections: { cc: [other.actor.userId] } });
+  await db.user.update({ where: { id: reader.actor.userId }, data: { status: 'DISABLED' } });
+  await assert.rejects(action(reviewer, second.id), /已停用或离职/);
+  assert.equal(await db.workflowTask.count({ where: { instanceId: second.id, status: 'CC' } }), 0);
+});
+
 test('workflow names return specific errors for drafts and publication, while valid names and form configuration persist', async () => {
   const s = schema();
   for (const publish of [false, true]) {

@@ -35,7 +35,7 @@ test.each(['保存草稿', '校验并发布'])(
     fireEvent.click(screen.getByRole('tab', { name: '2 · 表单设计' }));
     fireEvent.click(screen.getByRole('button', { name: '单行文本' }));
     fireEvent.click(screen.getByRole('button', { name: button }));
-    expect(screen.getByRole('alert')).toHaveTextContent('请填写流程名称');
+    expect(screen.getByText('保存失败 · 流程名称')).toBeInTheDocument();
     const input = screen.getByRole('textbox', { name: '流程名称' });
     expect(input).toHaveFocus();
     expect(input).toHaveAttribute('aria-invalid', 'true');
@@ -70,7 +70,7 @@ test('an overlong existing name gets a field-specific error without discarding c
     />,
   );
   await act(async () => fireEvent.click(screen.getByRole('button', { name: '保存草稿' })));
-  expect(screen.getByText(/流程名称不能超过100个字符，请缩短后保存/)).toHaveAttribute('role', 'alert');
+  expect(screen.getByRole('textbox', { name: '流程名称' })).toHaveAttribute('aria-invalid', 'true');
   expect(screen.getByRole('textbox', { name: '流程名称' })).toHaveValue('名'.repeat(101));
   expect(post).not.toHaveBeenCalled();
 });

@@ -15,8 +15,10 @@ import {
   canSubmit,
   validateSchema,
   validateWorkflowName,
+  recipientRules,
   validateValues,
   WorkflowError,
+  WorkflowLocation,
   WorkflowSchema,
   FlowNode,
   Values,
@@ -119,22 +121,37 @@ export class WorkflowService {
     });
   }
   private async validateLinks(s: WorkflowSchema) {
-    const collab = new CollaborationService(this.db, this.actor);
-    for (const f of s.fields.filter((f) => f.type === 'relation')) await collab.describe(f.tableId!);
-    if (s.binding) {
-      const d = await collab.describe(s.binding.tableId);
-      await collab.tableAccess(s.binding.tableId, this.db, 2);
-      check(
-        s.binding.mode !== 'CREATE' || (d.table.source === 'CUSTOM' && !d.table.lifecycleKind),
-        '正式业务表需关联现有记录；新增业务请使用对应业务模块',
-      );
-      for (const m of s.binding.mappings)
+    let location: WorkflowLocation = { section: 'settings', label: '多维表格与自动化' };
+    try {
+      const collab = new CollaborationService(this.db, this.actor);
+      for (const f of s.fields.filter((f) => f.type === 'relation')) {
+        location = { section: 'form', label: `表单字段：${f.label}`, field: f.key };
+        await collab.describe(f.tableId!);
+      }
+      location = { section: 'settings', label: '多维表格与自动化' };
+      if (s.binding) {
+        const d = await collab.describe(s.binding.tableId);
+        await collab.tableAccess(s.binding.tableId, this.db, 2);
         check(
-          d.fields.some((f) => f.id === m.target && f.writable),
-          '回写字段不存在、只读或未获写权限',
+          s.binding.mode !== 'CREATE' || (d.table.source === 'CUSTOM' && !d.table.lifecycleKind),
+          '正式业务表需关联现有记录；新增业务请使用对应业务模块',
         );
+        for (const m of s.binding.mappings)
+          check(
+            d.fields.some((f) => f.id === m.target && f.writable),
+            '回写字段不存在、只读或未获写权限',
+          );
+      }
+      if (s.webhook) check(Object.keys(hookConfiguration()).includes(s.webhook), '自动化接口尚未配置');
+    } catch (error) {
+      const status = (error as { status?: number })?.status;
+      if (error instanceof Error && typeof status === 'number' && status >= 400 && status < 500) {
+        const contextual = new WorkflowError(error.message, status);
+        contextual.location = location;
+        throw contextual;
+      }
+      throw error;
     }
-    if (s.webhook) check(Object.keys(hookConfiguration()).includes(s.webhook), '自动化接口尚未配置');
   }
   async options() {
     this.require('approval.read');
@@ -239,7 +256,7 @@ export class WorkflowService {
           if (original) selections._corrects = original.id;
           for (const [node, ids] of Object.entries(input.selections ?? {})) {
             check(
-              s.nodes.some((n) => n.id === node && n.rule?.type === 'SELECT') &&
+              s.nodes.some((n) => n.id === node && recipientRules(n).some((r) => r.type === 'SELECT')) &&
                 Array.isArray(ids) &&
                 ids.length > 0 &&
                 ids.length <= 50,
@@ -296,6 +313,21 @@ export class WorkflowService {
     return e.to;
   }
   private async recipients(tx: Tx, n: FlowNode, i: WorkflowInstance) {
+    if (n.type === 'CC' && n.ccRules !== undefined) {
+      const all: string[] = [];
+      for (const [index, rule] of n.ccRules.entries()) {
+        all.push(
+          ...(await this.recipients(
+            tx,
+            { ...n, name: `${n.name} / 抄送对象 ${index + 1}`, ccRules: undefined, rule },
+            i,
+          )),
+        );
+      }
+      const ids = [...new Set(all)];
+      check(ids.length > 0 && ids.length <= 100, `${n.name}合并后的抄送人数须为1至100人`);
+      return ids;
+    }
     const rule = n.rule!;
     const now = new Date();
     let ids: string[] = [];

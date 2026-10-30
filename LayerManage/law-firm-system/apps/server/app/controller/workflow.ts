@@ -5,7 +5,7 @@ import {
   AuthorizationService,
 } from '../application/authorization/authorization-service';
 import { CollaborationService } from '../application/collaboration/collaboration-service';
-import { check } from '../domain/workflow/schema';
+import { check, WorkflowError } from '../domain/workflow/schema';
 export default class WorkflowController extends Controller {
   private workflows() {
     return new WorkflowService(this.ctx.prisma, this.ctx.state.authorization as AuthorizationContext);
@@ -17,7 +17,13 @@ export default class WorkflowController extends Controller {
     this.respond(await this.workflows().definitions(this.ctx.query.manage === 'true'));
   }
   async save() {
-    this.respond(await this.workflows().saveDefinition(this.ctx.params.id, this.ctx.request.body));
+    try {
+      this.respond(await this.workflows().saveDefinition(this.ctx.params.id, this.ctx.request.body));
+    } catch (error) {
+      if (!(error instanceof WorkflowError) || !error.location) throw error;
+      this.ctx.status = error.status;
+      this.ctx.body = { code: error.status, message: error.message, location: error.location };
+    }
   }
   async start() {
     this.respond(await this.workflows().start(this.ctx.request.body, this.ctx.get('idempotency-key')));
