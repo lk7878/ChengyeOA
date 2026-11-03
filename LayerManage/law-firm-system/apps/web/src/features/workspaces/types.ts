@@ -17,6 +17,7 @@ export interface Field extends Option {
     targetSource?: 'LEADS' | 'CHANNELS';
     primary?: boolean;
     helpText?: string;
+    maskDisplay?: boolean;
     formula?: string;
     inventoryKey?: string;
     numberFormat?: 'CNY';

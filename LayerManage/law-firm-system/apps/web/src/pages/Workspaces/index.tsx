@@ -2064,6 +2064,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   { value: 'BLANK', label: '空白数据表' },
                   { value: 'TASKS', label: '任务管理模板' },
                   { value: 'CONTACTS', label: '客户跟进模板' },
+                  { value: 'LAWYER_PROSPECTS', label: '律师客资表（24个字段）' },
                   { value: 'INVENTORY_REGISTER', label: '物品 · 定制物品领用登记表（14个字段）' },
                   { value: 'INVENTORY_SUMMARY', label: '物品 · 定制物品领用统计（自动汇总）' },
                   { value: 'OFFICE_REGISTER', label: '物品 · 办公用品领用明细表（39个字段）' },

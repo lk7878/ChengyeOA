@@ -179,7 +179,8 @@ export function optionIds(options: ObjectValue): string[] {
   return options.choices.map((v) => text(object(v).id));
 }
 export function validateOptions(type: string, raw: unknown): ObjectValue {
-  const options = exact(raw ?? {}, ['choices', 'targetTableId', 'targetSource', 'primary', 'helpText']);
+  const options = exact(raw ?? {}, ['choices', 'targetTableId', 'targetSource', 'primary', 'helpText', 'maskDisplay']);
+  if (options.maskDisplay !== undefined) boolean(options.maskDisplay);
   if (options.primary !== undefined) boolean(options.primary);
   if (options.helpText !== undefined) text(options.helpText, 2000);
   if (['SINGLE_SELECT', 'MULTI_SELECT'].includes(type)) {

@@ -5,6 +5,7 @@ import { canManageHr, canReadHrPrivate, hrValues, presentHrValue, hrAge } from '
 import { caseArchiveKinds, isCaseArchiveKind, validateCaseArchiveRecord } from './case-archive-worksheets';
 import { isAdministrativeKind, validateAdministrativeRecord } from './administrative-registers';
 import { followSupportFields, followSupportKinds, FollowSupportKind } from './follow-support-templates';
+import { lawyerProspectFields, lawyerProspectTemplate } from './lawyer-prospect-template';
 import { LifecycleWorksheet, lifecycleFields, lifecycleKinds, lifecycleKey, syncedLifecycleKeys, LifecycleKind } from './lifecycle-worksheet';
 import { CASE_FIELD_ORDER } from '../case/intake-contract';
 import { WorksheetFinance, paymentWorksheetKeys, refundExecutionKeys } from '../finance/worksheet-finance';
@@ -1051,7 +1052,7 @@ export class CollaborationService {
           data: businessFields(source).map((f) => ({ ...f, tableId: table.id })),
         });
       } else {
-        const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS', ...lifecycleKinds, ...followSupportKinds, ...inventoryKinds]);
+        const template = choice(input.template ?? 'BLANK', ['BLANK', 'TASKS', 'CONTACTS', lawyerProspectTemplate, ...lifecycleKinds, ...followSupportKinds, ...inventoryKinds]);
         if (inventoryKinds.includes(template as InventoryKind)) {
           if (isCaseArchiveKind(template)) {
             const workspace = await tx.collabWorkspace.findUniqueOrThrow({where:{id:base.workspaceId}});
@@ -1063,6 +1064,8 @@ export class CollaborationService {
           await tx.collabTable.update({ where: { id: table.id }, data: { inventoryKind: template } });
           await tx.collabField.createMany({ data: inventoryFields(template as InventoryKind).map(f => ({...f, tableId: table.id})) });
           if (isInventorySummary(template)) await seedInventorySummary(tx, table.id, this.actor.userId);
+        } else if (template === lawyerProspectTemplate) {
+          await tx.collabField.createMany({ data: lawyerProspectFields().map(f => ({...f, tableId: table.id})) });
         } else if (followSupportKinds.includes(template as FollowSupportKind)) {
           await tx.collabField.createMany({ data: followSupportFields(template as FollowSupportKind).map(f => ({...f, tableId: table.id})) });
         } else if (lifecycleKinds.includes(template as LifecycleKind)) {
