@@ -202,6 +202,7 @@ model User {
   collabWorkspaces   CollabWorkspace[] @relation("CollabOwner")
   id                 String            @id @default(uuid())
   username           String            @unique
+  appearance         Json              @default("{}")
   password           String // bcrypt hash
   status             String            @default("ENABLED") // ENABLED | DISABLED
   employeeId         String?           @unique

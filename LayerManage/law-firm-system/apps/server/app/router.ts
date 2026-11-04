@@ -118,6 +118,8 @@ export default (app: Application) => {
   
   // 需要 JWT 认证的路由
   router.get('/api/v1/auth/me', controller.auth.me);
+  router.get('/api/v1/auth/appearance', controller.appearance.show);
+  router.patch('/api/v1/auth/appearance', controller.appearance.save);
   router.post('/api/v1/auth/logout', controller.auth.logout);
   router.post('/api/v1/auth/logout-all', controller.auth.logoutAll);
   router.get('/api/v1/auth/sessions', controller.auth.sessions);

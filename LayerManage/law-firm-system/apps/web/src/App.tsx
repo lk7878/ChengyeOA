@@ -11,6 +11,7 @@ import DesktopKnowledgeBridge from './features/intelligence/DesktopKnowledgeBrid
 import SmartCaseLauncher from './pages/Intelligence/SmartCaseLauncher';
 import CaseWorkbench from './components/CaseWorkbench';
 import ChineseConfig from './components/ChineseConfig';
+import AppearanceProvider from './features/appearance/AppearanceProvider';
 import React, { useEffect } from 'react';
 import {
   BrowserRouter,
@@ -123,10 +124,12 @@ function LegacyRedirect() {
 function App() {
   return (
     <ChineseConfig>
-      <BrowserRouter>
-        <DesktopKnowledgeBridge />
-        <SessionBootstrap />
-      </BrowserRouter>
+      <AppearanceProvider>
+        <BrowserRouter>
+          <DesktopKnowledgeBridge />
+          <SessionBootstrap />
+        </BrowserRouter>
+      </AppearanceProvider>
     </ChineseConfig>
   );
 }

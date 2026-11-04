@@ -1,5 +1,6 @@
 import AfterSalesStatusAction from '@/features/workspaces/AfterSalesStatusAction';
 import RowComments from '@/features/workspaces/RowComments';
+import { appearanceRowHeight, useAppearance, useAppearanceStore } from '@/features/appearance/store';
 import { createRefreshScheduler } from '@/features/workspaces/refresh-scheduler';
 import LifecycleTableControl from '@/features/workspaces/LifecycleTableControl';
 import Modal from '@/components/DraggableModal';
@@ -81,6 +82,9 @@ export default function WorkspacesPage() {
 }
 
 export function WorkspaceEditor({ businessMode = false }: { businessMode?: boolean }) {
+  const appearance = useAppearance();
+  const saveAppearance = useAppearanceStore(state => state.save);
+  const appearanceReady = useAppearanceStore(state => state.status === 'ready');
   const canStartWorkflow = useAuthStore(s => s.hasPermission('approval.apply') && s.hasPermission('approval.read'));
   const canRequestRefund = useAuthStore(s => s.hasPermission('refund.create'));
   const [creatingLead, setCreatingLead] = useState(false);
@@ -1249,13 +1253,14 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   <Button onClick={() => setSettings('view')}>排序</Button>
                   <Select
                     aria-label="行高"
-                    value={config.rowHeight || 40}
+                    disabled={!appearanceReady}
+                    value={appearance.rowHeight}
                     options={[
-                      { value: 32, label: '紧凑' },
-                      { value: 40, label: '标准' },
-                      { value: 64, label: '宽松' },
+                      { value: 'compact', label: '紧凑' },
+                      { value: 'standard', label: '标准' },
+                      { value: 'comfortable', label: '宽松' },
                     ]}
-                    onChange={(rowHeight) => updateConfig({ rowHeight })}
+                    onChange={(rowHeight) => { void saveAppearance({ ...appearance, rowHeight }).catch(e => message.error(errorMessage(e))); }}
                   />
                   {configDirty && (
                     <>
@@ -1412,7 +1417,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                                   directory={directory}
                                   tableId={tableId}
                                   schemaVersion={detail.table.schemaVersion}
-                                  height={config.rowHeight || 40}
+                                  height={appearanceRowHeight(appearance)}
                                   onDirty={(dirty) => {
                                     inlineDirtyRef.current = dirty;
                                     setInlineDirty(dirty);

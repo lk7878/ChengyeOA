@@ -1,5 +1,6 @@
 import Modal from '@/components/DraggableModal';
 import LiveNotifications from '@/features/notifications/LiveNotifications';
+import AppearanceSettings from '@/features/appearance/AppearanceSettings';
 import { businessSources } from '@/features/crm/business-sources';
 import { useState, type ReactNode } from 'react';
 import { Alert, Avatar, Breadcrumb, Button, Dropdown, Empty, Input, Result, Spin } from 'antd';
@@ -50,6 +51,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   const [contextHidden, setContextHidden] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [search, setSearch] = useState('');
   const { userInfo, authorization, authorizationStatus, ensureAuthorization, logout } = useAuthStore();
   useNavigationAuthorization();
@@ -137,6 +139,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   return (
     <UnifiedShellContext.Provider value={true}>
       <LiveNotifications />
+      {appearanceOpen && <AppearanceSettings key={userInfo?.id} onClose={() => setAppearanceOpen(false)} />}
       <div className={'unified-shell' + (expanded ? ' unified-expanded' : '')}>
         <a className="unified-skip" href="#unified-main">
           跳到主要内容
@@ -190,6 +193,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
             <Dropdown
               menu={{
                 items: [
+                  { key: 'appearance', label: '外观设置', onClick: () => setAppearanceOpen(true) },
                   { key: 'account', label: <Link to="/security/account">账号安全</Link> },
                   { key: 'logout', label: '退出登录', onClick: () => { void logout().catch(() => { /* The request interceptor displays the failure; keep the session available for retry. */ }); } },
                 ],

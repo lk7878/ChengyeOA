@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import GridCell from './GridCell';
+import { ConfigProvider } from 'antd';
 import { patch } from './api';
 import type { Field, RecordRow } from './types';
 
@@ -51,6 +52,19 @@ const props = {
   onSaved: vi.fn(),
   onConflict: vi.fn(),
 };
+
+test('changing font and row height preserves the active cell draft and original write versions', async () => {
+  vi.mocked(patch).mockResolvedValue({ id: 'r', version: 3 });
+  const { rerender } = render(<ConfigProvider theme={{ token: { fontSize: 14 } }}><GridCell {...props}/></ConfigProvider>);
+  fireEvent.click(screen.getByRole('button', { name: '标题：原值' }));
+  fireEvent.change(screen.getByLabelText('单元格编辑'), { target: { value: '外观切换前填写的内容' } });
+  rerender(<ConfigProvider theme={{ token: { fontSize: 18, controlHeight: 40 } }}><GridCell {...props} height={72}/></ConfigProvider>);
+  expect(screen.getByLabelText('单元格编辑')).toHaveValue('外观切换前填写的内容');
+  expect(patch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
+  await waitFor(() => expect(patch).toHaveBeenCalledWith('/tables/t/records/r',
+    { values: { f: '外观切换前填写的内容' }, version: 2, schemaVersion: 3 }, expect.any(String)));
+});
 
 test('prospect contact is masked in the grid and edits preserve the actual value', async () => {
   vi.mocked(patch).mockResolvedValue({ id: 'r', version: 3 });

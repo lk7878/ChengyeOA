@@ -1,0 +1,33 @@
+html[data-oa-appearance] body { font-size: var(--oa-font-size); background: var(--oa-page-bg); }
+html[data-oa-appearance] .unified-shell,
+html[data-oa-appearance] .unified-main,
+html[data-oa-appearance] .collab-workspace,
+html[data-oa-appearance] .workspace-main { background: var(--oa-page-bg); }
+html[data-oa-appearance] .unified-header,
+html[data-oa-appearance] .unified-context,
+html[data-oa-appearance] .workspace-sidebar { background: var(--oa-panel-bg); }
+html[data-oa-appearance] .unified-global-rail { background: var(--oa-rail-bg); }
+html[data-oa-appearance] .ant-table { font-size: var(--oa-font-size); }
+html[data-oa-appearance] .collab-workspace { font-size: var(--oa-font-size); }
+html[data-oa-appearance] .workspace-field-heading,
+html[data-oa-appearance] .workspace-cell { font-size: var(--oa-font-size); line-height: 1.5; }
+html[data-oa-appearance]:not([data-oa-appearance="standard"]) .workspace-cell { white-space: normal; overflow-wrap: anywhere; }
+html[data-oa-appearance] .unified-global-nav a,
+html[data-oa-appearance] .unified-context-nav,
+html[data-oa-appearance] .unified-header .ant-breadcrumb { font-size: var(--oa-font-small); }
+html[data-oa-appearance] .unified-global-nav a { white-space: normal; text-align: center; }
+html[data-oa-appearance] .unified-header { flex-wrap: wrap; }
+html[data-oa-appearance] .unified-header-left { flex-wrap: wrap; }
+html[data-oa-appearance] .workspace-toolbar { flex-wrap: wrap; }
+/* Modal portals inherit the same font and theme. Keep actions reachable on small screens. */
+html[data-oa-appearance] .ant-modal .ant-modal-content,
+html[data-oa-appearance] .ant-modal .ant-modal-container { max-height: calc(100dvh - 48px); display: flex; flex-direction: column; }
+html[data-oa-appearance] .ant-modal .ant-modal-body { overflow: auto; min-height: 0; }
+html[data-oa-appearance] .ant-modal .ant-modal-header,
+html[data-oa-appearance] .ant-modal .ant-modal-footer { flex-shrink: 0; }
+html[data-oa-appearance] .ant-modal { top: 24px; padding-bottom: 24px; }
+html[data-oa-appearance] .oa-appearance-settings .ant-radio-group { display: flex; flex-wrap: wrap; gap: 8px; }
+html[data-oa-appearance] .wf-field-help,
+html[data-oa-appearance] .wf-node-kind,
+html[data-oa-appearance] .wf-name-field > small,
+html[data-oa-appearance] .wf-name-error { font-size: var(--oa-font-small); }
