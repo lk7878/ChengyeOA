@@ -72,6 +72,7 @@ export const entries: NavigationEntry[] = [
     parent: '/approvals',
   },
   { path: '/notifications', title: '通知中心', area: 'home', group: '待办与通知' },
+  { path: '/calendar', title: '协同日历', area: 'home', group: '待办与通知' },
   {
     path: '/security/my-access',
     title: '我的权限',

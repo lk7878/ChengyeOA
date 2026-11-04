@@ -3,6 +3,8 @@ import { Alert, Badge, Button, Calendar, Card, Empty, Grid, List, Popconfirm, Sp
 import Drawer from '@/components/DraggableDrawer';
 import { useNavigate } from 'react-router';
 import dayjs, { type Dayjs } from 'dayjs';
+import 'dayjs/locale/zh-cn';
+import zhCN from 'antd/es/calendar/locale/zh_CN';
 import { appointmentApi } from '@/api/appointment';
 import type { AppointmentChannel, AppointmentStatus, AppointmentView } from '@/api/types';
 import { APPOINTMENT_CHANNEL_META, APPOINTMENT_STATUS_META } from './meta';
@@ -26,8 +28,9 @@ const VisitCalendarPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const from = anchor.startOf('month').subtract(7, 'day').toISOString();
-      const to = anchor.endOf('month').add(7, 'day').toISOString();
+      const firstDay = anchor.startOf('month').locale('zh-cn').startOf('week');
+      const from = firstDay.toISOString();
+      const to = firstDay.add(42, 'day').toISOString();
       const res = await appointmentApi.range({ from, to, page: 1, pageSize: 100 });
       setAppointments(res.data.list);
     } catch (err) {
@@ -105,6 +108,7 @@ const VisitCalendarPage: React.FC = () => {
       <Card
         title="到访日历"
         extra={(
+          <Space><Button onClick={()=>navigate('/calendar')}>协同日历 / 新建日程</Button>
           <Button onClick={() => {
             const now = dayjs();
             setPanelDate(now);
@@ -113,6 +117,7 @@ const VisitCalendarPage: React.FC = () => {
           }}>
             回到本月
           </Button>
+          </Space>
         )}
         style={{ marginBottom: 16 }}
       >
@@ -149,7 +154,8 @@ const VisitCalendarPage: React.FC = () => {
           ) : (
             <Calendar
               key={resetKey}
-              defaultValue={panelDate}
+              locale={zhCN}
+              defaultValue={panelDate.locale('zh-cn')}
               onPanelChange={handlePanelChange}
               onSelect={(date, { source }) => {
                 if (source === 'date') setSelectedDate(date);
@@ -159,7 +165,6 @@ const VisitCalendarPage: React.FC = () => {
                 const items = byDay.get(date.format('YYYY-MM-DD')) ?? [];
                 return (
                   <div>
-                    <div>{date.date()}</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       {items.slice(0, 3).map(item => (
                         <Badge

@@ -11,9 +11,13 @@ import { createAuthorizationContextLoader } from '../application/authorization/a
 import { createAuthenticationService } from '../application/auth/authentication-factory';
 import { basePulse } from '../application/collaboration/base-pulse';
 import { CollaborationService } from '../application/collaboration/collaboration-service';
+import { RowComments } from '../application/collaboration/row-comments';
 import { exact, fail, text } from '../application/collaboration/collaboration-policy';
 
 export default class CollaborationController extends Controller {
+  async comments() { this.respond(await new RowComments(this.ctx.prisma, this.ctx.state.authorization).list(this.ctx.params.tableId, this.ctx.params.recordId, this.ctx.query.before)); }
+  async commentPeople() { this.respond(await new RowComments(this.ctx.prisma, this.ctx.state.authorization).recipients(this.ctx.params.tableId, this.ctx.params.recordId, this.ctx.query.keyword || '')); }
+  async saveComment() { this.respond(await new RowComments(this.ctx.prisma, this.ctx.state.authorization).save(this.ctx.params.tableId, this.ctx.params.recordId, this.ctx.params.commentId, this.ctx.request.body, this.key())); }
   private collaborationService() {
     return new CollaborationService(this.ctx.prisma, this.ctx.state.authorization as AuthorizationContext);
   }

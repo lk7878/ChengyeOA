@@ -1770,7 +1770,7 @@ export class CollaborationService {
       take: 50,
     });
     const comments = await this.db.collabComment.findMany({
-      where: { recordId },
+      where: { tableId, recordId, deletedAt: null },
       orderBy: { createdAt: 'asc' },
       take: 100,
     });

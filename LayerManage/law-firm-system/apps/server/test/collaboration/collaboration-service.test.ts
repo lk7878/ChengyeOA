@@ -825,7 +825,7 @@ test('batch validates types and limits, and never bypasses SELF or field restric
     { schemaVersion: 2, values: { [titleId]: 'other' } },
     randomUUID(),
   );
-  const edit = (row: { id: string; version: number }) => ({ ...row, values: { [titleId]: 'updated' } });
+  const edit = (row: { id: string; version: number }) => ({ id: row.id, version: row.version, values: { [titleId]: 'updated' } });
   await assert.rejects(
     editor.saveRecords(tableId, { schemaVersion: 2, records: [edit(mine), edit(mine)] }, randomUUID()),
     hasCode('COLLAB_BATCH_DUPLICATE'),

@@ -1,4 +1,5 @@
 import Modal from '@/components/DraggableModal';
+import LiveNotifications from '@/features/notifications/LiveNotifications';
 import { businessSources } from '@/features/crm/business-sources';
 import { useState, type ReactNode } from 'react';
 import { Alert, Avatar, Breadcrumb, Button, Dropdown, Empty, Input, Result, Spin } from 'antd';
@@ -135,6 +136,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   );
   return (
     <UnifiedShellContext.Provider value={true}>
+      <LiveNotifications />
       <div className={'unified-shell' + (expanded ? ' unified-expanded' : '')}>
         <a className="unified-skip" href="#unified-main">
           跳到主要内容

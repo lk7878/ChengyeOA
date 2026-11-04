@@ -1,4 +1,5 @@
 import AfterSalesStatusAction from '@/features/workspaces/AfterSalesStatusAction';
+import RowComments from '@/features/workspaces/RowComments';
 import { createRefreshScheduler } from '@/features/workspaces/refresh-scheduler';
 import LifecycleTableControl from '@/features/workspaces/LifecycleTableControl';
 import Modal from '@/components/DraggableModal';
@@ -89,6 +90,9 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   const baseId = params.get('base') || '';
   const tableId = params.get('table') || '';
   const recordId = params.get('record') || '';
+  const commentsOnly = params.get('comments') === '1';
+  const [commentRow, setCommentRow] = useState<string>();
+  const commentRecordId = commentRow || (commentsOnly ? recordId : '');
   const selectedViewId = params.get('view') || '';
   const financeContractId = params.get('contract');
   const financeCaseId = params.get('case');
@@ -665,7 +669,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   const recordTableId = detail?.table.id;
   const recordSchemaVersion = detail?.table.schemaVersion;
   useEffect(() => {
-    if (!recordId || recordTableId !== tableId) return;
+    if (!recordId || recordTableId !== tableId || commentsOnly) return;
     let active = true;
     get<RecordDetail>('/tables/' + tableId + '/records/' + recordId)
       .then((d) => {
@@ -693,7 +697,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
     return () => {
       active = false;
     };
-  }, [recordId, tableId, recordTableId, recordSchemaVersion, revision]);
+  }, [recordId, tableId, recordTableId, recordSchemaVersion, revision, commentsOnly]);
   const saveRecord = async () => {
     if (!editing || !detail) return;
     setBusy(true);
@@ -1434,11 +1438,13 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                           {
                             key: 'record-actions',
                             title: '操作',
-                            width: detail.table.lifecycleKind === 'AFTER_SALES' ? 450 : 230,
+                            width: detail.table.lifecycleKind === 'AFTER_SALES' ? 570 : 350,
                             fixed: 'right' as const,
                             onCell: (row) => (row.group ? { colSpan: 0 } : {}),
                             render: (_: unknown, row: GridRow) => row.group ? null : <Space>
                               <Button size="small" disabled={inlineDirty} onClick={() => void openRecord(row)}>{row.writable !== false && fields.some(f => f.writable) ? '编辑' : '详情'}</Button>
+                              <Button size="small" onClick={() => setCommentRow(row.id)}>评论</Button>
+                              <Button size="small" disabled={inlineDirty} onClick={() => navigate('/calendar?' + new URLSearchParams({table:tableId,record:row.id}))}>安排日程</Button>
                               {detail.table.lifecycleKind === 'AFTER_SALES' && <AfterSalesStatusAction fields={fields} row={row} disabled={inlineDirty} onEdit={field => void openRecord(row, field)} />}
                               {row.lifecycle && <Button size="small" onClick={()=>navigate('/cases/'+row.lifecycle!.caseId)}>关联案件</Button>}
                               {canRequestRefund && detail.table.lifecycleKind === 'CASE_REFUNDS' && row.lifecycle?.contractId && <Button size="small" onClick={()=>navigate('/refunds?'+new URLSearchParams({contract:row.lifecycle!.contractId!,case:row.lifecycle!.caseId,caseNo:row.lifecycle!.caseNo,workspace:detail.access.workspaceId}))}>查看财务退款</Button>}
@@ -1523,6 +1529,12 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       )}
       <Drawer title="数据表" open={mobileNav} onClose={() => setMobileNav(false)} placement="left">
         {tableNav}
+      </Drawer>
+      <Drawer title="记录评论" width={560} open={!!commentRecordId} onClose={() => {
+        setCommentRow(undefined);
+        if (commentsOnly) { const next = new URLSearchParams(params); next.delete('comments'); next.delete('record'); setParams(next, {replace:true}); }
+      }}>
+        {commentRecordId && <RowComments key={tableId+commentRecordId} tableId={tableId} recordId={commentRecordId}/>}
       </Drawer>
       {creatingLead && detail?.canCreateBusiness && detail.table.source === 'FOLLOWS' && (
         <CreateBusinessFollow key={tableId} tableId={tableId}

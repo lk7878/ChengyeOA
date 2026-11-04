@@ -20,6 +20,15 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  COMMENT_MENTION_FORBIDDEN: '被提及的成员没有查看本行的权限，请重新选择。',
+  COMMENT_VERSION_CONFLICT: '评论已被修改，请刷新后重新编辑。当前输入已保留。',
+  CALENDAR_NOT_FOUND: '日程不存在或你没有查看权限。',
+  CALENDAR_INVALID_TIME: '请填写有效时间，结束时间必须晚于开始时间。',
+  CALENDAR_VERSION_CONFLICT: '日程安排已变化，请重新打开后再操作。',
+  CALENDAR_PRIVATE_INVITE: '邀请其他成员时，请将可见范围改为受邀成员或公开。',
+  CALENDAR_INVALID_INVITEE: '有成员账号已停用或不存在，请重新选择。',
+  CALENDAR_INVALID_REMINDERS: '最多设置10个提醒，支持提前0分钟至28天。',
+  CALENDAR_INVALID_LINK: '请选择完整的关联记录。',
   COLLAB_ARCHIVE_NUMBER_DUPLICATE: '该档号已存在，请使用其他档号；恢复记录前也需先解决档号重复。',
   COLLAB_MEETING_NUMBER_DUPLICATE: '本表已有相同的会议编号，请修改编号或使用已有记录。',
   COLLAB_NONNEGATIVE_INTEGER_REQUIRED: '份数或人数必须为大于等于0的整数。',

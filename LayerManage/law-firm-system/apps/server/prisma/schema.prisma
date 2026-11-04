@@ -1837,6 +1837,7 @@ model CollabTable {
   views         CollabView[]
   extensions    CollabExtension[]
   records       CollabRecord[]
+  comments      CollabComment[]
   rules         CollabRule[]
 
   @@unique([baseId, name])
@@ -1895,7 +1896,6 @@ model CollabRecord {
   updatedAt         DateTime         @updatedAt
   table             CollabTable      @relation(fields: [tableId], references: [id], onDelete: Cascade)
   revisions         CollabRevision[]
-  comments          CollabComment[]
 
   @@index([values(ops: JsonbPathOps)], type: Gin, map: "collab_record_values_path_gin")
   @@index([tableId, archived, createdAt, id])
@@ -1970,14 +1970,66 @@ model CollabPresence {
 model CollabComment {
   id        String       @id @default(uuid())
   recordId  String
+  tableId   String
   actorId   String
   content   String
   mentions  String[]     @default([])
   createdAt DateTime     @default(now())
-  record    CollabRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  updatedAt DateTime     @default(now()) @updatedAt
+  deletedAt DateTime?
+  version   Int          @default(1)
+  table     CollabTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
 
   @@index([recordId, createdAt])
+  @@index([tableId, recordId, createdAt])
   @@map("collab_comment")
+}
+
+model CalendarEvent {
+  id String @id @default(uuid())
+  ownerId String
+  title String
+  description String @default("")
+  location String @default("")
+  startAt DateTime
+  endAt DateTime
+  important Boolean @default(false)
+  visibility String @default("PRIVATE")
+  tableId String?
+  recordId String?
+  version Int @default(1)
+  cancelledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  invitations CalendarInvitation[]
+  reminders CalendarReminder[]
+  @@index([startAt, endAt])
+  @@index([ownerId])
+  @@map("calendar_event")
+}
+
+model CalendarInvitation {
+  id String @id @default(uuid())
+  eventId String
+  userId String
+  status String @default("PENDING")
+  respondedAt DateTime?
+  event CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  @@unique([eventId, userId])
+  @@index([userId, status])
+  @@map("calendar_invitation")
+}
+
+model CalendarReminder {
+  id String @id @default(uuid())
+  eventId String
+  minutesBefore Int
+  dueAt DateTime
+  processedAt DateTime?
+  event CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  @@unique([eventId, minutesBefore])
+  @@index([processedAt, dueAt])
+  @@map("calendar_reminder")
 }
 
 model CollabAttachment {

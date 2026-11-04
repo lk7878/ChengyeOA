@@ -63,9 +63,11 @@ test('module creation connects real sources atomically and keeps business connec
   for (const source of ['LEADS', 'FOLLOWS', ...Object.keys(domainSources)]) {
     const requestKey = key();
     const input = { name: source, moduleSource: source, connectBusiness: true };
-    const result = await owner.createDriveBase(workspace, input, requestKey);
-    assert.deepEqual(await owner.createDriveBase(workspace, input, requestKey), result);
-    assert.equal((await db.collabTable.findUniqueOrThrow({ where: { id: result.tableId } })).source, source);
+    const dedicated = ['INVENTORY_STOCKTAKES', 'INVENTORY_MOVEMENTS'].includes(source);
+    const targetWorkspace = dedicated ? (await owner.provisionModuleWorkspace(workspace, { source }, key())).id : workspace;
+    const result = await owner.createDriveBase(targetWorkspace, input, requestKey);
+    assert.deepEqual(await owner.createDriveBase(targetWorkspace, input, requestKey), result);
+    assert.equal((await db.collabTable.findUniqueOrThrow({ where: { id: result.tableId } })).source, dedicated ? 'CUSTOM' : source);
     assert.ok((await owner.describe(result.tableId)).fields.length > 0, source);
     assert.equal((await db.collabRecord.count({ where: { tableId: result.tableId } })), 0);
   }
@@ -245,6 +247,13 @@ test('all business modules discover associated custom tables and expired assignm
   const base = await owner.createDriveBase(workspace, { name: '跨模块验证' }, key());
   let version = 1;
   for (const source of ['LEADS', 'FOLLOWS', ...Object.keys(domainSources)]) {
+    if (['INVENTORY_STOCKTAKES', 'INVENTORY_MOVEMENTS'].includes(source)) {
+      await assert.rejects(owner.saveBaseModule(base.id, { moduleSource: source, version }, key()), code('COLLAB_MODULE_WORKSPACE_MISMATCH'));
+      const targetWorkspace = (await owner.provisionModuleWorkspace(workspace, { source }, key())).id;
+      const child = await owner.createDriveBase(targetWorkspace, { name: source, moduleSource: source }, key());
+      assert.ok((await owner.businessTables({ source })).tables.some(t => t.id === child.tableId));
+      continue;
+    }
     await owner.saveBaseModule(base.id, { moduleSource: source, version: version++ }, key());
     assert.equal((await owner.businessTables({ source })).tables[0]?.id, base.tableId, source);
   }

@@ -12,6 +12,11 @@ const auth: AuthorizationSummary = {
   validUntil: null,
   fieldCapabilities: {},
 };
+test('calendar invitations and row mentions link directly to authorized local destinations',()=>{
+  expect(notificationTarget({relatedType:'CALENDAR_EVENT',relatedId:'e',routeUrl:'/calendar?event=e'},auth)).toBe('/calendar?event=e');
+  expect(notificationTarget({relatedType:'COLLAB_RECORD',relatedId:'r',routeUrl:'/workspaces?base=b&table=t&record=r&comments=1'},auth))
+    .toBe('/workspaces?base=b&table=t&record=r&comments=1');
+});
 test('formal notification IDs preserve record identity and require current navigation authorization', () => {
   expect(
     notificationTarget(

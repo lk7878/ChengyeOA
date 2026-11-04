@@ -62,8 +62,8 @@ export const channelApi = {
 };
 
 export const notificationApi = {
-  list: (params?: QueryParams) =>
-    request.get<ApiResponse<PaginatedData<Notification>>>('/v1/notifications', { params }),
+  list: (params?: QueryParams, options?: { suppressGlobalError?: boolean }) =>
+    request.get<ApiResponse<PaginatedData<Notification>>>('/v1/notifications', { params, ...options }),
   read: (id: string) => request.patch<ApiResponse<Notification>>(`/v1/notifications/${id}/read`),
   readAll: () => request.post<ApiResponse<null>>('/v1/notifications/read-all'),
   unreadCount: () => request.get<ApiResponse<{ count: number }>>('/v1/notifications/unread-count'),

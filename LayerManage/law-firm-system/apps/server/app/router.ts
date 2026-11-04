@@ -427,6 +427,17 @@ export default (app: Application) => {
 
   // 通知模块
   router.get('/api/v1/notifications', controller.notification.index);
+  router.get('/api/v1/calendar/events', controller.calendar.index);
+  router.get('/api/v1/calendar/people', controller.calendar.people);
+  router.get('/api/v1/calendar/events/:id', controller.calendar.show);
+  router.post('/api/v1/calendar/events', controller.calendar.create);
+  router.patch('/api/v1/calendar/events/:id', controller.calendar.update);
+  router.post('/api/v1/calendar/events/:id/respond', controller.calendar.respondInvitation);
+  router.post('/api/v1/calendar/events/:id/cancel', controller.calendar.cancel);
+  router.get('/api/v1/tables/:tableId/records/:recordId/comments', controller.collaboration.comments);
+  router.get('/api/v1/tables/:tableId/records/:recordId/comment-people', controller.collaboration.commentPeople);
+  router.post('/api/v1/tables/:tableId/records/:recordId/comments', controller.collaboration.saveComment);
+  router.patch('/api/v1/tables/:tableId/records/:recordId/comments/:commentId', controller.collaboration.saveComment);
   router.patch('/api/v1/notifications/:id/read', controller.notification.read);
   router.post('/api/v1/notifications/read-all', controller.notification.readAll);
   router.get('/api/v1/notifications/unread-count', controller.notification.unreadCount);
