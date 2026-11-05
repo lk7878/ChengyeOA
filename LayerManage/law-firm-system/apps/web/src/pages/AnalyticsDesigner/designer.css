@@ -1,0 +1,265 @@
+.analytics-designer > header,
+.analytics-widget > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.analytics-designer h2,
+.analytics-designer h3 {
+  margin: 0 0 8px;
+}
+.analytics-designer p {
+  color: #667085;
+}
+.analytics-toolbar {
+  padding: 16px 0;
+}
+.analytics-editor {
+  display: grid;
+  grid-template-columns: 160px minmax(300px, 1fr) 320px;
+  gap: 14px;
+  align-items: start;
+}
+.analytics-library,
+.analytics-properties {
+  background: var(--oa-container, #fff);
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px;
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+}
+.analytics-library button {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  margin: 6px 0;
+  background: #f5f8ff;
+  border: 1px solid #dae5ff;
+  border-radius: 7px;
+  color: #17499e;
+  cursor: grab;
+}
+.analytics-canvas {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
+  align-content: start;
+  background: #f2f5f9;
+  padding: 16px;
+  min-height: 500px;
+  border-radius: 12px;
+}
+.analytics-canvas > .ant-empty {
+  grid-column: span 12;
+  align-self: center;
+}
+.analytics-widget {
+  border: 1px solid #e6e8ed;
+  border-radius: 10px;
+  padding: 16px;
+  overflow: auto;
+  min-width: 0;
+  box-shadow: 0 2px 6px #172b4d08;
+}
+.analytics-widget.selected {
+  outline: 2px solid #1677ff;
+}
+.analytics-widget > header {
+  border-bottom: 1px solid #eee;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+}
+.analytics-widget > header[draggable='true'] {
+  cursor: grab;
+}
+.analytics-widget h3 {
+  font-size: 1em;
+}
+.analytics-updated {
+  display: block;
+  color: #87909d;
+  text-align: right;
+  margin-top: 12px;
+}
+.analytics-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+}
+.analytics-control > .ant-select,
+.analytics-properties .ant-select {
+  width: 100%;
+}
+.analytics-filter {
+  display: grid;
+  gap: 5px;
+  padding: 10px 0;
+  border-bottom: 1px solid #eee;
+}
+.analytics-metric {
+  width: 100%;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.analytics-metric strong {
+  font-size: clamp(28px, 4vw, 64px);
+  overflow-wrap: anywhere;
+}
+.analytics-metric span {
+  font-size: 14px;
+  color: #667085;
+}
+.analytics-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.analytics-legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+.analytics-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  min-height: 230px;
+}
+.analytics-cloud button {
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.analytics-cloud small {
+  font-size: 12px;
+}
+.analytics-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+.analytics-record-card {
+  display: block;
+  border: 1px solid #e2e6ec;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.analytics-record-card p {
+  font-size: 12px;
+  margin: 5px 0;
+}
+.analytics-kanban {
+  display: flex;
+  gap: 12px;
+  overflow: auto;
+}
+.analytics-kanban > section {
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 180px;
+  flex: 1;
+}
+.analytics-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(50px, 1fr));
+  margin-top: 12px;
+}
+.analytics-calendar > b {
+  text-align: center;
+}
+.analytics-calendar > section {
+  border: 1px solid #eee;
+  min-height: 70px;
+  padding: 5px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.analytics-calendar a {
+  display: block;
+  padding: 3px;
+  background: #eef5ff;
+  margin: 3px 0;
+}
+.analytics-gantt > div {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0;
+}
+.analytics-gantt > div > a {
+  width: 120px;
+  flex-shrink: 0;
+  overflow-wrap: anywhere;
+}
+.analytics-gantt span {
+  position: relative;
+  display: block;
+  flex: 1;
+  background: #f7f7f7;
+  height: 25px;
+}
+.analytics-gantt span a {
+  position: absolute;
+  height: 20px;
+  top: 2px;
+  border-radius: 3px;
+  min-width: 5px;
+}
+.analytics-widget svg [role='button'] {
+  cursor: pointer;
+}
+.analytics-widget svg [role='button']:focus {
+  outline: 2px solid #111;
+}
+@media (max-width: 1300px) {
+  .analytics-editor {
+    grid-template-columns: 140px minmax(250px, 1fr);
+  }
+  .analytics-properties {
+    position: static;
+    grid-column: span 2;
+    max-height: none;
+  }
+  .analytics-editor .analytics-widget {
+    grid-column: span 12 !important;
+  }
+}
+@media (max-width: 760px) {
+  .analytics-editor {
+    display: block;
+  }
+  .analytics-library {
+    position: static;
+    max-height: 180px;
+    margin-bottom: 12px;
+  }
+  .analytics-widget {
+    grid-column: span 12 !important;
+  }
+  .analytics-canvas {
+    padding: 8px;
+  }
+  .analytics-properties {
+    margin-top: 12px;
+  }
+}

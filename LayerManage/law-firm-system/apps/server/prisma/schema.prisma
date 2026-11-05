@@ -2677,3 +2677,17 @@ model WorkflowFile {
   @@index([ownerId,createdAt])
   @@map("workflow_file")
 }
+
+model AnalyticsDashboard {
+  id String @id @default(uuid())
+  ownerId String
+  name String
+  shared Boolean @default(false)
+  widgets Json @default("[]")
+  refreshSeconds Int @default(0)
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([ownerId])
+  @@map("analytics_dashboard")
+}

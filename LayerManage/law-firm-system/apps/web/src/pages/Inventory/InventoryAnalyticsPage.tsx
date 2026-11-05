@@ -52,6 +52,7 @@ export default function InventoryAnalyticsPage() {
     [error, setError] = useState(''),
     [filters, setFilters] = useState<InventoryQuery>({}),
     [draftFilters, setDraftFilters] = useState<InventoryQuery>({});
+  const [queryVersion, setQueryVersion] = useState(0);
   const query: InventoryQuery = {
     ...filters,
     page,
@@ -59,7 +60,7 @@ export default function InventoryAnalyticsPage() {
     view: isItems
       ? 'items'
       : isStats
-        ? 'statistics'
+        ? 'worksheet-statistics'
         : isStocktake
           ? 'stocktakes'
           : isDashboard
@@ -75,9 +76,9 @@ export default function InventoryAnalyticsPage() {
   };
   const queryKey = JSON.stringify(query);
   const generation = useRef(0);
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     const current = ++generation.current;
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError('');
     try {
       const q = JSON.parse(queryKey) as InventoryQuery;
@@ -109,13 +110,13 @@ export default function InventoryAnalyticsPage() {
     void Promise.resolve().then(() => {
       if (active) void load();
     });
-    const timer = window.setInterval(() => void load(), 5000);
+    const timer = window.setInterval(() => { if (!document.hidden) void load(true); }, 5000);
     return () => {
       active = false;
       window.clearInterval(timer);
       invalidate();
     };
-  }, [load, invalidate]);
+  }, [load, invalidate, queryVersion]);
 
   const [busy, setBusy] = useState(false);
   const exportRows = async () => {
@@ -134,7 +135,7 @@ export default function InventoryAnalyticsPage() {
       title: '物品名称',
       dataIndex: 'itemName',
       width: 200,
-      render: (name: string, row: InventoryRow) => <Link to={'/inventory/items/' + row.itemId}>{name}</Link>,
+      render: (name: string, row: InventoryRow) => row.itemId ? <Link to={'/inventory/items/' + row.itemId}>{name}</Link> : name,
     },
     { title: '领用人', dataIndex: 'employeeName', width: 130 },
     { title: '领用组织', dataIndex: 'organizationPath', width: 300 },
@@ -145,11 +146,11 @@ export default function InventoryAnalyticsPage() {
   return (
     <div>
       <h2>{titles[section] || '综合行政管理'}</h2>
-      <p>实际领用与出库共用同一单据。库存调整需通过入库、领用或盘点登记，历史记录保留。</p>
+      <p>{isStats ? '实时汇总低值易耗品中对应领用登记表的可见记录；修改或删除登记后，统计自动更新。领用笔数按该物品数量大于零的登记行计数。' : '实际领用与出库共用同一单据，历史记录保留。'}</p>
       <Space wrap style={{ marginBottom: 16 }}>
         <Input
           aria-label="物品查询"
-          placeholder="物品名称、编码或领用人"
+          placeholder="物品名称、领用人或部门"
           value={draftFilters.keyword || ''}
           onChange={(e) => setDraftFilters({ ...draftFilters, keyword: e.target.value })}
           style={{ width: 240 }}
@@ -199,6 +200,7 @@ export default function InventoryAnalyticsPage() {
           onClick={() => {
             setFilters(draftFilters);
             setPage(1);
+            setQueryVersion((v) => v + 1);
           }}
         >
           查询
@@ -208,6 +210,7 @@ export default function InventoryAnalyticsPage() {
             setFilters({});
             setDraftFilters({});
             setPage(1);
+            setQueryVersion((v) => v + 1);
           }}
         >
           重置

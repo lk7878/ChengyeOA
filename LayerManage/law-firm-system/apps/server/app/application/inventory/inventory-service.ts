@@ -1,3 +1,4 @@
+import { worksheetStatistics } from './worksheet-statistics';
 import { crmTransaction } from '../crm/crm-transaction';
 import { createOnce } from '../finance/domain-mutation';
 import {
@@ -451,6 +452,7 @@ export class InventoryService {
       'movements',
       'stocktakes',
       'statistics',
+      'worksheet-statistics',
       'dashboard',
     ]);
     const kind = query.kind ? normalizeAllowedValue(query.kind, KINDS) : undefined;
@@ -515,6 +517,14 @@ export class InventoryService {
     const f = this.filters(query),
       skip = exporting ? 0 : f.skip,
       take = exporting ? 10001 : f.take;
+    if (f.view === 'worksheet-statistics') {
+      const q = query as Record<string, string>;
+      const scope = exporting ? await inventoryScope(this.prisma, this.context, 'inventory.export', 'items') : undefined;
+      const creatorIds = scope && Object.keys(scope).length
+        ? [...new Set((scope.OR ?? [scope]).flatMap(clause => clause.createdBy?.in ?? []))]
+        : undefined;
+      return worksheetStatistics(this.prisma, this.context, { kind: q.kind, keyword: q.keyword?.trim(), from: q.from || undefined, to: q.to || undefined, groupBy: f.groupBy, skip, take, creatorIds });
+    }
     for (const source of ['items', 'movements', 'stocktakes'] as const) {
       f[source] = {
         AND: [
@@ -526,6 +536,7 @@ export class InventoryService {
     }
     if (f.view === 'dashboard') return this.dashboard(f.items, f.movements);
     if (f.view === 'statistics') return this.statistics(f.movements, f.groupBy, skip, take);
+
     if (f.view === 'items') {
       const [total, list] = await this.prisma.$transaction([
         this.prisma.inventoryItem.count({ where: f.items }),

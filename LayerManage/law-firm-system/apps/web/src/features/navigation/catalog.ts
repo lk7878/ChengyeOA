@@ -28,6 +28,7 @@ const lead: PermissionCode[] = ['menu.lead_crm', 'lead.read'];
 const customer: PermissionCode[] = ['menu.customer', 'customer.read'];
 const contract: PermissionCode[] = ['menu.contract', 'contract.read'];
 export const entries: NavigationEntry[] = [
+  {path:'/analytics/dashboards',title:'可视化仪表盘',area:'analytics',group:'自助分析'},
   {path:'/cases/:id/assessments',title:'百分制满意度',area:'apps',group:'质量管理',required:['quality.assessment.read','case.read'],hidden:true,parent:'/cases'},
   {path:'/quality/special-analyses',title:'专项分析',area:'apps',group:'质量管理',required:['menu.quality','quality.analysis.read','case.read']},
   {path:'/quality/special-analyses/:id',title:'专项分析办理',area:'apps',group:'质量管理',required:['quality.analysis.read','case.read'],hidden:true,parent:'/quality/special-analyses'},

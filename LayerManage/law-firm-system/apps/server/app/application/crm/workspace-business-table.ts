@@ -279,8 +279,7 @@ export class WorkspaceBusinessTable {
     );
     order.push(Prisma.sql`r."createdAt" DESC`, Prisma.sql`r.id ASC`);
     const group = (config.groupBy ?? []).map((id) => groupExpression(fieldOf(fields, id)));
-    const result = await this.db.$transaction(
-      async (tx) => {
+    const readSnapshot = async (tx: Prisma.TransactionClient) => {
         const records = await tx.$queryRaw<CollabRecord[]>(
           Prisma.sql`WITH r AS (${source}) SELECT * FROM r WHERE ${where} ORDER BY ${Prisma.join(order)} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
         );
@@ -297,9 +296,11 @@ export class WorkspaceBusinessTable {
           total: Number(counts[0].count),
           groups: groups.map((g) => ({ keys: g.keys, count: Number(g.count) })),
         };
-      },
-      { isolationLevel: 'RepeatableRead' },
-    );
+      };
+    // Analytics may already hold one repeatable-read snapshot across tables and pages.
+    const result = typeof this.db.$transaction === 'function'
+      ? await this.db.$transaction(readSnapshot, { isolationLevel: 'RepeatableRead' })
+      : await readSnapshot(this.db);
     if (isDomainSource(table.source))
       return {
         ...result,

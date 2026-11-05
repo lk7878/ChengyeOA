@@ -457,6 +457,12 @@ export default (app: Application) => {
   router.post('/api/v1/performances/:id/manager-review', requirePermission('performance.confirm'), controller.performance.managerReview);
 
   // 仪表盘模块
+  router.get('/api/v1/analytics/sources', controller.analytics.sources);
+  router.post('/api/v1/analytics/query', controller.analytics.query);
+  router.get('/api/v1/analytics/dashboards', controller.analytics.index);
+  router.post('/api/v1/analytics/dashboards', controller.analytics.save);
+  router.patch('/api/v1/analytics/dashboards/:id', controller.analytics.save);
+  router.post('/api/v1/analytics/dashboards/:id/delete', controller.analytics.remove);
   router.get('/api/v1/dashboard/metrics', controller.dashboard.metrics);
   router.get('/api/v1/dashboard/funnel', controller.dashboard.funnel);
   router.get('/api/v1/dashboard/team-metrics', controller.dashboard.teamMetrics);

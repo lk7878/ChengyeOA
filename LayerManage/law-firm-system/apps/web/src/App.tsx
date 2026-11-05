@@ -1,3 +1,4 @@
+import AnalyticsDesigner from './pages/AnalyticsDesigner';
 import {AssessmentPage,AnalysisPage,QualityMetricsPage} from './pages/Quality/AnalysisPages';
 import {QualityRulesPage,QualityRunsPage,QualityRunPage,QualityInspectionPage,QualityIssuePage} from './pages/Quality';
 import SopSubmissionPage from './pages/SopExecution/SubmissionPage';
@@ -168,6 +169,7 @@ function SessionBootstrap() {
           <Route path="/" element={<AreaPage area="home" />} />
           <Route path="/apps" element={<AreaPage key="apps" area="apps" />} />
           <Route path="/analytics" element={<AreaPage key="analytics" area="analytics" />} />
+          <Route path="/analytics/dashboards" element={<AnalyticsDesigner />} />
           <Route path="/analytics/overview" element={<Dashboard />} />
           <Route path="/admin/sop-templates" element={<PermissionRoute permission="sop.template.read"><SopTemplatesPage /></PermissionRoute>} />
               <Route path="/admin" element={<AreaPage key="admin" area="admin" />} />
