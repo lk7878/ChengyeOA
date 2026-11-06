@@ -1,3 +1,5 @@
+> 2026-11-06：本文保留部署及历史运行门禁。当前功能/数据模型见 [CURRENT_SPEC](CURRENT_SPEC.md)；用户功能人工验收不等同于生产恢复、独立安装器或外部服务验收。已有库部署按完整迁移目录检查，不重跑初始化或清空业务。
+
 # Deployment
 
 Deploy with Node 22, npm, PostgreSQL 16, and an externally managed `DATABASE_URL`.

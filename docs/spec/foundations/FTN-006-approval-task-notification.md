@@ -1,131 +1,67 @@
 ---
 id: FTN-006
-title: 审批、任务与消息通知
-source: PRD §7.6-7.7
-status: approved
-implements: SPEC-007（审批实例与通知部分）
-design_refs: [docs/专项设计/审批实例任务与消息回调设计.md]
-last_updated: 2026-07-28
+title: 可视化审批执行契约
+type: foundation
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# FTN-006 审批、任务与消息通知
+# FTN-006 可视化审批执行契约
 
-## 1. 契约概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-本契约定义承业 OA 系统的审批实例与任务模型，以及消息通知与任务分发机制。审批能力覆盖合同作废/终止、退款减免、客户合并、角色权限变更、敏感文件批量导出、低满意度专项分析关闭等高风险动作；消息通知采用「事件触发 + 模板渲染 + 多通道发送」方式，承载待办、审批、超时提醒、状态变更、AI 任务完成、低满意度预警、回款逾期提醒等类型，并支持卡片式同步回调操作。
+## 1. 引擎和权限
 
-## 2. 契约定义
+当前唯一用户审批入口使用Workflow系列对象，旧Approval路由返回410。`approval.read/apply/process/manage`分别覆盖读取、发起、处理当前任务和管理配置；manage不应被解释为任何业务记录可写。本人参与范围、管理范围和受管业务额外策略仍生效。
 
-源 PRD §7.6 审批实例与任务模型 + §7.7 消息通知与任务分发。
+## 2. 定义和实例
 
-**§7.6 审批实例与任务模型：**
+流程草稿可修改，发布生成新版本；运行中实例固化schema快照。停用定义不抹除已有实例，草稿不能发起。提交范围ALL/SELECTED/NONE检查账号及有效角色；配置无效时错误定位到基础/表单/流程/设置板块。
 
-审批能力参考“审批定义 - 审批实例 - 审批任务 - 状态事件”的模型设计。
+表单字段上限80、节点80、连线160；单层明细最多200行；连续主管最多10层。节点START/APPROVAL/CC/BRANCH/END，流程不允许环，分支须唯一默认路径。条件组OR、组内AND，每路径最多20组、每组20项；顺序及priority决定优先。
 
-| 概念 | 本系统对象 | 说明 |
-|---|---|---|
-| 审批定义 | ApprovalDefinition | 定义审批类型、表单字段、节点、审批人规则 |
-| 审批实例 | ApprovalInstance | 某次具体审批，例如合同作废、退款、客户合并 |
-| 审批任务 | ApprovalTask | 分配给审批人的待办任务 |
-| 审批抄送 | ApprovalCc | 需要知情的人员 |
-| 审批事件 | approval.* | 审批创建、通过、拒绝、撤回、转交、结束 |
+人员来源支持指定成员、角色、部门负责人、主管、自选、表单联系人和本人。CC最多20个来源组、去重后最多100人；不凭截图假定用户组、表单部门等未实现来源存在。
 
-必须走审批或二次确认的动作：
+## 3. 表单权限和决策
 
-1. 合同作废、终止。
-2. 退款、减免。
-3. 客户合并。
-4. 角色权限变更。
-5. 敏感文件批量导出。
-6. 低满意度专项分析关闭。
+节点默认及角色覆盖中的HIDDEN优先于READ、READ优先于EDIT；计算字段始终只读。服务器验证必填、条件显示、类型、人员/关联和安全正则；任意代码公式不执行。
 
-**§7.7 消息通知与任务分发：**
+ALL/ANY/SEQUENTIAL分别会签、或签和依次；当前待办与任务状态决定是否可处理。驳回/退回必须原因；转办/加签/退回是否启用来自节点配置。修改或退回后不能复用旧的“同人跳过”结果。
 
-系统消息应采用“事件触发 + 模板渲染 + 多通道发送”的方式。
+超时默认不自动批准，仅显式配置才可提醒或同意；不能把缺少权限、材料或必填字段的申请自动放行。要求同意意见的节点不能配置超时自动同意。
 
-消息类型：
+## 4. 写回、失败重试和更正
 
-- 待办任务。
-- 审批任务。
-- 超时提醒。
-- 业务状态变更通知。
-- AI 任务完成通知。
-- 低满意度预警。
-- 回款逾期提醒。
+binding由表ID、CREATE/UPDATE及字段映射组成。普通自建表可创建，正式业务表只能更新支持的已有记录；回写调用CollaborationService并重载发起人权限。货币、日期、人员/员工ID、选项及附件转换必须满足目标字段。
 
-消息要求：
+记录版本或结构版本变化、字段删除、权限撤销等可导致同步失败。实例保持通过及失败说明，允许的重试需核对当前版本；结构不兼容应重新申请。已通过内容不原地撤销覆盖，通过更正申请重新审批，关联原单与历史，回写同一目标记录；一条原单仅一个处理中或已通过后继更正。
 
-1. 消息应关联业务对象，用户可从消息跳转到对象详情。
-2. 重要消息支持卡片式操作，例如审批同意、任务完成、AI 结果确认。
-3. 消息发送失败要记录失败原因并可重试。
-4. 同一对象短时间内重复消息应合并或去重。
-5. 消息中心必须支持已读、未读、待办、已办。
+SOP_REVIEW及QUALITY_ANALYSIS是受管审核：必须由原业务提交，禁止自审、材料完整、当前业务状态与资格仍校验；只开放其支持的读取/同意/拒绝/撤回。审批结束由专用syncManagedReview回写，不绕过领域服务。
 
-## 3. 规则与边界
+## 5. 通知、打印与未开放能力
 
-审批与消息通知规则（源 PRD §7.6-7.7）：
+待办、抄送、流转及异常通知指向授权详情；打印仅包含当前可见且允许打印字段。附件下载再次鉴权。并行网关、独立办理节点、手写签名、代他人提交、批量审批、自定义打印模板及完整飞书API兼容未作为当前能力承诺。
 
-1. 审批能力按「审批定义 - 审批实例 - 审批任务 - 状态事件」建模， ApprovalDefinition / ApprovalInstance / ApprovalTask / ApprovalCc / approval.* 事件为本契约统一对象，业务模块不得自行定义旁路审批结构。
-2. 必须走审批或二次确认的动作仅限本契约 §2.1 列举的六类：合同作废/终止、退款/减免、客户合并、角色权限变更、敏感文件批量导出、低满意度专项分析关闭。
-3. 消息通知统一采用「事件触发 + 模板渲染 + 多通道发送」方式，消息类型仅限本契约 §2.2 列举的七类（待办任务、审批任务、超时提醒、业务状态变更通知、AI 任务完成通知、低满意度预警、回款逾期提醒）。
-4. 消息必须关联业务对象，支持从消息跳转到对象详情；重要消息支持卡片式同步回调操作（审批同意、任务完成、AI 结果确认等），回调规则沿用 FTN-005 §2.3。
-5. 消息发送失败要记录失败原因并可重试；同一对象短时间内重复消息应合并或去重。
-6. 消息中心必须支持已读、未读、待办、已办四类视图。
+## 6. 验收要求
 
-边界：
+发布快照、缺项定位、多来源CC去重、默认路径、会签/或签/依次、越权/自审拒绝、同步失败不丢审批、重试不重写新版本、更正不改原单、撤权附件不可下载均需覆盖。
 
-1. 审批实例与任务由 MOD-013 自动化、通知、审批与审计 承载，业务模块只发起审批申请并消费审批结果事件，不直接修改 ApprovalInstance / ApprovalTask 状态。
-2. 消息通知与任务分发以 FTN-005 事件驱动模型为唯一触发源；业务模块禁止绕过事件中心直接发送通知。
-3. 审批记录、通知记录不得业务删除（与 FTN-001 §3 数据模型设计原则一致）。
+## 实现与回归入口
 
-## 4. 被引用模块
+- [apps/server/app/domain/workflow/schema.ts](../../../LayerManage/law-firm-system/apps/server/app/domain/workflow/schema.ts)
+- [apps/server/app/application/workflow/workflow-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/workflow/workflow-service.ts)
+- [apps/server/app/application/workflow/managed-reviews.ts](../../../LayerManage/law-firm-system/apps/server/app/application/workflow/managed-reviews.ts)
+- [apps/server/app/application/sop/review-policy.ts](../../../LayerManage/law-firm-system/apps/server/app/application/sop/review-policy.ts)
+- [apps/server/app/application/quality/analysis-review-policy.ts](../../../LayerManage/law-firm-system/apps/server/app/application/quality/analysis-review-policy.ts)
+- [apps/server/app/controller/approval.ts](../../../LayerManage/law-firm-system/apps/server/app/controller/approval.ts)
 
-以下业务模块依赖本契约（发起审批或消费通知/任务）：
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
-- MOD-002 系统配置中心 — 配置审核（节点资料要求、动态字段、模板、字典、SOP 的草稿/审核/发布/回滚）走 AdminOperationReview，复用审批实例与任务模型。
-- MOD-005 客户主数据 — 客户合并审批走 ApprovalInstance，合并通过后保留原 ID 映射和审计记录。
-- MOD-013 自动化、通知、审批与审计 — 审批/通知核心承载者，定义并维护 ApprovalDefinition / ApprovalInstance / ApprovalTask / ApprovalCc / Notification 与 approval.* 事件。
-- MOD-006 合同财务 — 合同作废/终止、退款/减免走审批实例。
-- MOD-001 组织权限 — 角色权限变更走审批或二次确认。
-- MOD-008 案件交付与质控 — 节点任务、质控任务经消息通知分发，低满意度专项分析关闭走审批。
-- MOD-009 满意度、复购与转介绍 — 低满意度预警通知、专项分析关闭审批。
-- MOD-010 AI、录音与文件 — AI 任务完成通知、敏感文件批量导出审批。
+- [apps/server/test/approval/visual-workflow.test.ts](../../../LayerManage/law-firm-system/apps/server/test/approval/visual-workflow.test.ts)
+- [apps/server/test/sop/submission-service.test.ts](../../../LayerManage/law-firm-system/apps/server/test/sop/submission-service.test.ts)
+- [apps/server/test/quality/analysis-service.test.ts](../../../LayerManage/law-firm-system/apps/server/test/quality/analysis-service.test.ts)
 
-## 5. 验收要求
+## 历史需求追溯
 
-源 PRD §14.1 通用验收要求中与本契约相关的条目：
-
-1. 接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。
-2. 状态机验收：允许流转、禁止流转、撤销/作废、异常提示（审批实例状态流转）。
-3. 事务验收：合同生效、收款确认、客户合并、低满意度触发必须验证一致性。
-4. 回调验收：审批同意、任务完成、AI 结果确认等同步回调必须校验权限、状态和重复提交。
-5. 管理员治理验收：高风险操作审核前不得生效；低风险操作生效后进入复核；管理员不得自审或给本人提权。
-
-源 PRD §14.2 端到端验收链路中与本契约相关：
-
-- 重复提交合同生效、重复确认收款、重复处理审批任务时，系统应通过幂等机制避免重复生成应收、案件、通知或统计。
-- 系统管理员发起合同/收款/案件状态干预后，系统在超级管理员审核通过前不得修改业务数据；通过后保留前后快照和完整审计链路。
-
-补充：
-
-- 审批实例与任务模型必须可验证：ApprovalDefinition / ApprovalInstance / ApprovalTask / ApprovalCc 的创建、分配、抄送、状态流转（通过、拒绝、撤回、转交、结束）均可追溯。
-- 必须走审批的六类动作（合同作废/终止、退款/减免、客户合并、角色权限变更、敏感文件批量导出、低满意度专项分析关闭）必须验证未经审批不得生效。
-- 消息通知必须可验证：消息关联业务对象、卡片式回调、失败重试、重复合并/去重、已读/未读/待办/已办四类视图均可验证。
-
-## 6. 追溯
-- 专项设计: docs/专项设计/审批实例任务与消息回调设计.md
-- 落地 SPEC: SPEC-007（审批实例与通知部分）
-- 主要代码: apps/server/app/controller/approval.ts、apps/server/app/controller/notification.ts；ApprovalDefinition / ApprovalInstance / ApprovalTask / ApprovalCc / Notification 数据模型（apps/server/prisma/schema.prisma）
-- 测试: 无
-
-
-### SOP/质检规划记录（2026-09-16，实施现状见下）
-
-SOP成果/质检业务对象复用原ApprovalInstance/Task及结果同步，不新增旁路审批系统。专项分析关闭沿原批准/二次确认策略；提醒为获权站内待办，改期撤权及旧回调不能误更新。详见增量规格§9，新增适配器仍待开发。 [SPEC-SOP-QC-20260916](../../superpowers/specs/2026-09-16-sop-quality-control.md)。
-
-
-### SOP/质检实施现状（2026-09-17）
-
-SOP_REVIEW与QUALITY_ANALYSIS已适配原ApprovalInstance/Task和原ApprovalSyncRecord。私有定义禁止通用申请/编辑伪造；冻结版本/摘要/清单、回避提交人和本轮执行人、当前岗位与材料权限均在办理及同步复验。同步失败沿原台账重试，审核通过不等于业务已同步。二级SamplingItem是检查事实，不另造审批待办。已结案件整改继续可投递获权待办；原审批超时扫描跳过失权人员并分页继续，恢复权限后再检查。
-
-实现与验证见[SQ阶段计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)及[验收追溯](../../superpowers/reports/2026-09-17-sop-quality-acceptance.md)。SQ7最终运行结果以验收记录为准。
+[对齐前原文](../history/2026-11-06-before-alignment/foundations/FTN-006-approval-task-notification.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。

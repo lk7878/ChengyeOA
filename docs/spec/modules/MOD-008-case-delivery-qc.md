@@ -1,111 +1,71 @@
 ---
 id: MOD-008
-title: 案件交付与质量控制模块
-source: PRD §8.8
-status: draft
-implements: [SPEC-CASE-20260914, SPEC-CASE-CRUD-20260914, SPEC-SOP-QC-20260916]
-design_refs: [docs/专项设计/三大专业团队SOP系统字段清单.md]
-last_updated: 2026-09-17
+title: 案件、售后、退费、归档与质检
+type: module
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# MOD-008 案件交付与质量控制模块
+# MOD-008 案件、售后、退费、归档与质检
 
-## 1. 需求概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-案件交付与质量控制模块承接正式委托合同生效后的案件全生命周期交付与质控能力，覆盖案件建档、成员管理、SOP 节点任务、材料管理、客户进展告知、专家指导、文书审核、质量审核、结案报告与复盘报告，并配套一级审核、二级抽检和低满意度专项分析流程。
+## 1. 案件工作表
 
-案件及原任务/材料/沟通已由案件规格和U5-B/U7验收覆盖；配置化SOP、成果审核、二级抽检和专项分析已按SPEC-SOP-QC-20260916分阶段实现，SQ7整体交付结果见验收记录。
+CASES 来源由正式案件投影，按 CASE_FIELD_ORDER 排列。字段覆盖签约、客户、代理程序、收费约定、到款退款、律师与谈案人员、发票、材料及审计信息。详细字段逐项见 [标准字段](../reference/STANDARD-FIELDS.md)，领域服务另有必填和类型校验。
 
-## 2. 功能清单
+- 案件显示“合同ID”为 `Case.contractDisplayId` 全库唯一自增整数，小于1000补三位，超过后正常显示；不是合同UUID，也不是各分所分别从001重新编号。数据库序列不承诺删除/回滚后无空号。
+- 合同业务编号、案件编号及内部关联ID分别保留，不以显示编号覆盖数据库关系。
+- 双击允许字段可保存/取消；title、caseType、priority、lawyerId、fee和允许的 intake 字段由服务白名单决定。公式字段不能直接写入。
+- 客户电话原值需客户字段权限；同步列、金额投影和状态操作不能通过自由文本编辑绕过。
+- 初始材料、案件附件分类和归档材料保留授权下载；删除案件不得破坏财务和交付引用。
 
-| 编号 | 功能 | 需求 | 现状 |
-|---|---|---|---|
-| MAT-01 | 案件建档 | 客户与主办律师必填；补全签约、代理收费、收退款、提成、附件；客户管理新建往返保留草稿 | SPEC-CASE-20260914 已实现并验证 |
-| MAT-01B | 案件展示与维护 | 列表完整字段、查询详情、带版本修改和删除；删除受独立权限及财务关联保护 | SPEC-CASE-CRUD-20260914 已实现并验证 |
-| MAT-02 | 成员管理 | 支持主办律师、协办律师、助理、专家指导人 | 待补SPEC |
-| MAT-03 | 节点任务 | 按案件类型生成 SOP 节点任务 | 已实现：原CaseTask增量SOP节点与同源工作表 |
-| MAT-04 | 材料管理 | 上传、分类、预览、下载、归档案件材料 | 待补SPEC |
-| MAT-04A | 节点资料要求配置 | 系统管理员可配置各案件类型、各节点的资料上传要求、模板和提示说明 | 已实现：模板版本化节点资料、说明及强制门槛 |
-| MAT-04B | Harness 成果主动归档 | 用户选择文件并确认目标案件，按案件编号和归档权限上传；不自动同步本地工作区，保留历史版本与审核流程 | 待开发 |
-| MAT-05 | 客户进展告知 | 按案件类型、合同约定或负责人手动配置，不作为所有案件强制项 | 待补SPEC |
-| MAT-06 | 专家指导 | 记录专家意见、指导时间、指导人、结论 | 已实现：独立专家意见及提交版本引用 |
-| MAT-07 | 文书审核 | 支持提交、审核、退回、通过 | 已实现：成果冻结修订与原审批退回/通过 |
-| MAT-08 | 质量审核 | 支持一级审核、二级抽检 | 已实现：一级审批、二级抽检/整改、低满意度专项 |
-| MAT-09 | 结案报告 | 支持结案说明、结果、费用、材料归档 | SOP成果与原结案说明已实现；专用汇总报告待扩展 |
-| MAT-10 | 复盘报告 | 支持案件复盘、问题、经验、知识沉淀 | 复盘节点/分析与整改历史已实现；自动知识沉淀待开发 |
+## 2. 公式与财务字段
 
-## 3. 业务规则
+`formulaMoney/formulaRatio/formulaNumber` 保留字段及只读语义。律师提成、管理费、质保金等尚未提供完整业务规则的字段不能编造公式。已有到款、退费、发票等专门投影按实际服务计算，不因为其他公式待定而停用。
 
-1. 一级审核由团队负责人或总所专家执行。
-2. 二级审核由管委会抽检。
-3. 已结案件支持每月随机抽检。
-4. 满意度低于 80 分自动触发管委会专项分析流程。
-5. 专项分析流程不强制固定责任人、整改期限、复查结论和复盘入库规则，只记录触发原因、分析过程、处理结论和关闭状态。
+## 3. 售后及退费链
 
-## 4. 数据对象
+AFTER_SALES 关联案件，CASE_REFUNDS 关联售后及对应案件。上游合同编号、客户、签约、案件类型、承办律师等同步字段由关联来源读取；处理情况、当事人诉求、原因、面谈和材料是各表独立内容。
 
-核心数据对象：`Case`、`CaseTask`、`Communication`。
+“是否解除合同”在售后及退费表当前均为只读空值占位，等待用户补充规则；不把早期建议中的“终止/作废自动是”当作已经实现的规则。正式退费申请由联动服务建立/更新，审批和执行另受财务权限控制。退费表中的申请金额与实际退费金额不得混为同一字段。
 
-字段定义见 FTN-001；SOP 节点任务、专家指导等字段清单见 `docs/专项设计/三大专业团队SOP系统字段清单.md`。
+## 4. 案卷归档与质量
 
-## 5. 状态机
+| 模板/业务 | 当前规则 |
+|---|---|
+| CASE_ARCHIVE_REVIEW | 审理时间、合同编号、当事人、类型、问题、盖章归档、质保金签字及凭证 |
+| CASE_ARCHIVE_REGISTER | 归档时间、编号、类型、档号、案由、当事人、律师、合同编号、盒号、柜号、备注 |
+| CASE_ARCHIVE_OFFLINE | 不上传法网的登记模板，同类字段；不代表已实现法网自动上传 |
+| 档号唯一 | 同一表有效记录内唯一，删除后可复用，恢复重新校验；不会自动改变合同或案件状态 |
+| 二级抽检/整改 | 策略、批次、检查、问题、负责人、时限、材料、整改及复核分开记录 |
+| 专项分析 | 资料、原因及改进记录；关闭审核以 QUALITY_ANALYSIS 接入可视化引擎 |
 
-案件状态、质控状态（一级审核、二级抽检、专项分析）按本模块规则隐含流转；状态机编码与转换规则见 FTN-002。
+专项关闭保留禁止自审、材料校验、人员权限及业务状态回写，不能用通用审批跳过。满意度及低分来源见MOD-009。
 
-## 6. 验收要求
+## 5. 验收要求
 
-- 状态可还原：所有关键状态变化均可从业务对象、事件日志、审批任务和审计日志还原完整过程。（源自 §3.3 总闭环规则 6 / §14.2 第 8 项）
-- 关键状态可审计：案件建档、节点任务、文书审核、质量审核、结案、复盘等关键状态变化必须可审计。
-- 端到端链路：建立轻量案件，完成节点任务、质控、满意度、低满意度专项分析或复盘入库。（源自 §14.2 第 6 项）
-- 事务验收：质控状态推进、专项分析触发必须验证一致性。（源自 §14.1 第 5 项）
-- 配置验收：节点资料要求、模板、提示说明的草稿、审核、发布、停用、回滚和历史版本读取。（源自 §14.1 第 9 项）
-- 回调验收：文书审核同意/退回、质量审核通过等同步回调必须校验权限、状态和重复提交。（源自 §14.1 第 8 项）
+管理员和获授案件读写的普通账号能看同一业务记录、修改同一允许字段；保存后按各自可见字段同步。无权限字段/状态被拒绝；刷新不抢占编辑。售后与退款引用链、财务实际支付结果、档号重复/恢复冲突、SOP/质检材料权限分别验证。
 
-## 7. 追溯
-- 案件展示与维护：[SPEC-CASE-CRUD-20260914](../../superpowers/specs/2026-09-14-case-management-crud.md)，验证见[实施记录](../../superpowers/plans/2026-09-14-case-management-crud.md)。
-- 本次案件管理完善：[SPEC-CASE-20260914](../../superpowers/specs/2026-09-14-case-management-extension.md)，验证见[实施记录](../../superpowers/plans/2026-09-14-case-management-extension.md)。
-- 专项设计: docs/专项设计/三大专业团队SOP系统字段清单.md
-- 落地 SPEC: 待立项
-- 主要代码: apps/server/app/controller/case.ts
-- 测试: 无
+## 实现与回归入口
 
-<!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->
+- [apps/server/app/application/case/intake-contract.ts](../../../LayerManage/law-firm-system/apps/server/app/application/case/intake-contract.ts)
+- [apps/server/app/application/collaboration/case-grid-fields.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/case-grid-fields.ts)
+- [apps/server/app/application/collaboration/lifecycle-worksheet.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/lifecycle-worksheet.ts)
+- [apps/server/app/application/collaboration/case-archive-worksheets.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/case-archive-worksheets.ts)
+- [apps/server/app/application/quality/analysis-review-policy.ts](../../../LayerManage/law-firm-system/apps/server/app/application/quality/analysis-review-policy.ts)
+- [apps/server/app/application/workflow/managed-reviews.ts](../../../LayerManage/law-firm-system/apps/server/app/application/workflow/managed-reviews.ts)
 
-### 2026-09-11 财务、审批与工资表联动
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
-本模块增量契约及验证参见 [SPEC-FIN-APPR-PAYROLL-20260911](../../superpowers/specs/2026-09-11-finance-approval-payroll.md) 和 [实施记录](../../superpowers/plans/2026-09-11-finance-approval-payroll.md)。团队分类支持中文；财务按案件编号关联；最终通过审批幂等写入对应业务台账；工资文件按版本保存并提交审批，权限和历史保留见增量契约。
+- [apps/server/test/collaboration/lifecycle-worksheet.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/lifecycle-worksheet.test.ts)
+- [apps/server/test/collaboration/case-archive-worksheets.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/case-archive-worksheets.test.ts)
+- [apps/server/test/quality/quality-service.test.ts](../../../LayerManage/law-firm-system/apps/server/test/quality/quality-service.test.ts)
+- [apps/server/test/quality/analysis-service.test.ts](../../../LayerManage/law-firm-system/apps/server/test/quality/analysis-service.test.ts)
 
-### 2026-09-13 Harness 成果主动归档（已确认、待实施）
+## 历史需求追溯
 
-MAT-04B 遵循 [SPEC-AI-DESKTOP-20260913 §7](../../superpowers/specs/2026-09-13-unified-desktop-local-harness.md#7-主动提交至案件档案)：仅提交用户确认的文件；服务端校验案件、归档权限及文件完整性；重试幂等、失败保留本地原件、归档不等于审核通过；本地修改或删除不自动影响云端档案。本次仅立项，不宣称已实现。
+历史编号保留：`MAT-01`、`MAT-01B`、`MAT-02`、`MAT-03`、`MAT-04`、`MAT-04A`、`MAT-04B`、`MAT-05`、`MAT-06`、`MAT-07`、`MAT-08`、`MAT-09`、`MAT-10`。
 
-2026-09-13 阶段进度：已完成统一桌面与本地 Harness 基础验证，见 [阶段一实施记录](../../superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。完整 AI-08 接入验收、AI-09/10 新云端连接及 MAT-04B 归档仍待后续阶段，未标记为整体验收通过。
-
-
-### 全站统一迁移（U0/U1，2026-09-15）
-
-案件业务管理进入业务应用的签约交付，case.read 控制入口与直链；任务、沟通、文件、结案的原业务权限与校验保持，U5 深度整合。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。
-
-### U5-B 案件工作表与交付（2026-09-15）
-
-/cases 接入 CASES 正式来源，受理字段、个人/共享视图和扩展字段读取同一 Case；/cases/new、/cases/:id 保留建档、任务、沟通、材料、结案及受控归档。创建人取实际操作者，主办律师不等于创建人。所有原案件与子对象 API 落实对应动作的数据范围，普通 SELF 不可通过直链绕过。旧 caseNo 链接和新建客户往返草稿保留。历史归属缺失记录进入待补录队列，只有 case.update 全量范围可以选择真实归属、填写依据并审计，不覆写已有身份。具体迁移、验证与未实现的质控/SOP 边界见 [U5–U7 契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)及[阶段记录](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。本批不等于尚未实现的完整质控、复盘或 Harness 主动归档。
-
-
-2026-09-16 U7：U7历史案件身份补录的候选和提交独立核验账户/组织读取权限及范围；不能借补录扩权，不自动修复未知历史组织。旧未路由案件列表移除，受理精度/字段清空/附件确认保留于现行详情回归；独立质检和SOP仍未实现。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。
-
-
-### SOP与质检增量（规划，2026-09-16）
-
-[增量规格](../../superpowers/specs/2026-09-16-sop-quality-control.md)及[SQ阶段计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)承接MAT-03/04A/06/07/08和复盘整改。一级审核复用审批基础；二级抽检与问题闭环独立；专项分析不强制固定负责人/期限，关闭沿原审批策略。旧Case.satisfaction为1–5，新专项触发采用独立0–100量表，禁止擅自换算。MAT-04B主动归档仍单列，尚未实施。
-
-
-2026-09-17 SQ3已验收：SopSubmission/SubmissionAttachment、ExpertGuidance和QualityReview落地；SopSubmissionService与原ApprovalInstance/Sync服务完成冻结版本、一级检查、退回修订及同步失败重试，SopExecution/SubmissionPage提供真实办理入口。对应SQ-AC-05及SQ-AC-03/04/11/12本阶段范围；64迁移99模型。实际测试与失败修复见SQ阶段计划，二级抽检、专项分析及前期衔接仍属SQ4–SQ7，不将一级审核视为完整质检交付。
-
-
-2026-09-17 SQ4已验收：QualityService及6表实现不可变抽检策略、月度固定候选/种子、无放回补抽、二级检查与问题整改修订，QUALITY_REVIEWS/QUALITY_ISSUES读取原ID，Quality页面按原授权办理；已结案件新增整改材料不修改原生命周期。对应SQ-AC-06/07及本阶段03/11/12；105模型65迁移，真实App与条件负载结果见SQ阶段计划。满意度专项分析/提醒/前期衔接仍待SQ5–SQ7。
-
-
-2026-09-17 SQ5已验收：独立SatisfactionAssessment、SpecialAnalysis及原QUALITY_ANALYSIS审批适配、任职指纹与配置提醒、QUALITY_ANALYSES原ID工作表和当前范围指标落地。对应SQ-AC-08/09及本阶段03/07/11/12；110模型66迁移，测试/真实App/100会话负载与限制见SQ阶段计划。完整前期衔接及桌面恢复仍待SQ6/SQ7。
-
-
-2026-09-17 SQ6已验收：真实Lead/AnalysisEngagement/Case互斥上下文、独立前期材料、同一CaseTask原ID和双向授权接续已实现。三团队九/九/十二节点各走原转换/合同/建案与退回重提；跨来源材料拒绝，历史不复制。112模型67迁移；85个不同SQ6/原业务用例及最终24项补强复验、304前端、真实App和100会话负载均有通过记录，详见SQ计划。完整桌面保护与运行恢复仍由SQ7收尾。
+[对齐前原文](../history/2026-11-06-before-alignment/modules/MOD-008-case-delivery-qc.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。

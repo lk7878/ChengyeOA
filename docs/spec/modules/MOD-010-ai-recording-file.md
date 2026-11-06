@@ -1,119 +1,53 @@
 ---
 id: MOD-010
-title: AI、录音与文件模块
-source: PRD §8.10
-status: draft
-implements:
-design_refs: [docs/专项设计/文件录音AI任务设计.md]
-last_updated: 2026-09-13
+title: 文件、知识库与智慧办案
+type: module
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# MOD-010 AI、录音与文件模块
+# MOD-010 文件、知识库与智慧办案
 
-## 1. 需求概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-本模块覆盖谈案录音登记与转写、AI 供应商适配与提取结果治理、文件服务存储与可见范围治理。模块来源 PRD §8.10，包含「录音能力/AI 供应商/文件能力」三小节，已有专项设计 `docs/专项设计/文件录音AI任务设计.md`，录音专项仍待实施。2026-09 智能化增量已形成 V1.2 历史实现；最新统一桌面与本地 Harness 需求已确认、待实施，见下方追溯。
+## 1. 文件与业务材料
 
-## 2. 功能清单
+云盘资源生命周期、工作表附件、案件材料、SOP成果、审批附件分别有存储/授权入口；共享链接、图片预览和下载都不能绕过业务记录权限。文件的归档、回收、恢复和永久删除与业务表行删除不是同一操作。
 
-| 编号 | 功能 | 需求 | 现状 |
-|---|---|---|---|
-| AI-01 | 录音登记 | 登记胸牌设备、谈案人、客户、线索、案件、开始时间、结束时间 | 待开发 |
-| AI-02 | 人工上传 | 支持录音文件人工上传 | 待开发 |
-| AI-03 | 实时转写 | 支持谈案录音实时转写 | 待开发 |
-| AI-04 | 异步转写 | 上传后可异步转写，失败可重试 | 待开发 |
-| AI-05 | AI 提取 | 提取事实、诉求、证据、风险、争议焦点、下一步建议 | 待开发 |
-| AI-06 | 人工修订 | AI 结果必须支持人工修订、版本记录和确认状态 | 待开发 |
-| AI-07 | 专家标注 | 支持专家对转写和提取结果进行标注 | 待开发 |
-| AI-08 | 统一桌面与本地办案 | 完整复用 Harness 原生桌面 UI/引擎，选择本地目录，不自动同步材料和会话 | 待开发 |
-| AI-09 | 云端 Wiki 调用 | 管理员维护和编译，律师与本地 Harness 只读检索同一知识库 | 待开发（新桌面接入） |
-| AI-10 | 个人视觉识别 | Harness 配置在线视觉 API，区别于管理员使用的 Wiki 云端 OCR | 待开发 |
+审批附件有独立校验：PDF、PNG、JPEG、WebP、DOCX、XLSX，单文件不超过10MB；这不是所有模块统一的上传类型/大小，其他附件按各服务规则。审批回写附件生成目标表的受控附件引用，失败回滚并清理本次生成的临时文件。
 
-## 3. 业务规则
+## 2. 知识库及智慧办案架构边界
 
-### AI 供应商
+顶栏提供知识库和智慧办案授权入口。仓库包含 intelligence 集成、Harness票据和桌面工程；OA业务服务负责正式权限与数据，个人办案目录/本地会话不因用户登录OA自动同步至全所云盘。
 
-1. 在线调用模型，不做本地大模型部署。
-2. 分别为 FAL、DashScope 编写供应商适配器。
-3. 统一内部调用接口和任务状态，供应商请求参数在适配器内转换。
-4. `apiKey` 只从 `.env` 读取，不入库。
-5. AI 输出保留原始录音、转写文本、提取结果、人工修订结果和操作日志。
+当前规格不宣称所有外部模型、OCR、第三方服务均已配置可用；运行能力取决于本地/服务端配置及供应端。用户确认OA人工测试完成不等同于独立Windows安装包、自动更新、离线草稿同步和生产灾备验收。
 
-建议环境变量：
+## 3. 与历史规划的差异
 
-```env
-AI_PROVIDER=dashscope
-FAL_AI_BASE_URL=
-FAL_AI_MODEL=
-FAL_AI_API_KEY=
-DASHSCOPE_BASE_URL=
-DASHSCOPE_MODEL=
-DASHSCOPE_API_KEY=
-FILE_STORAGE_DRIVER=local
-FILE_STORAGE_ROOT=
-OBJECT_STORAGE_ENDPOINT=
-OBJECT_STORAGE_BUCKET=
-OBJECT_STORAGE_ACCESS_KEY=
-OBJECT_STORAGE_SECRET_KEY=
-```
+- 录音上传和材料附件不等于实现全自动转写、事实抽取及合规归档流水线。
+- 智慧办案已有工程入口不意味着任意AI输出可直接写正式案件字段或状态。
+- 知识库入口不自动授予内容维护/删除权；外部Wiki部署与OA表权限分开管理。
+- 飞书式界面借鉴不构成飞书API、机器人、文档协作或公式生态兼容声明。
 
-### 文件能力
+## 4. 验收要求
 
-1. 文件服务同时支持本地服务器存储和对象存储。
-2. 业务表不直接依赖物理路径，统一引用文件 ID 或存储 Key。
-3. 文件元数据包含文件 ID、原文件名、存储 Key、文件类型、大小、Hash、上传人、上传时间、关联对象、可见范围。
-4. 具备对象可见范围的使用者默认可下载文件，不做过度限制。
-5. 录音、刑事材料、合同金额等敏感文件下载仍保留审计。
-6. 文件预览、删除、转移归档必须审计。
+可见附件与所属记录权限一致；私有所有权资源在授权离职交接中可转交；越权下载被拒绝。文件回收恢复、审批附件写回冲突及本地材料不自动上云分别验证。外部服务和桌面发布需独立环境验收记录。
 
-## 4. 数据对象
+## 实现与回归入口
 
-核心数据对象尚不存在，待建模：`Recording`（录音登记与转写任务）、`FileUpload`（文件元数据与存储 Key）、`AiTask`（AI 供应商任务与状态）。字段定义与状态字段见 FTN-001。
+- [apps/server/app/application/collaboration/drive-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/drive-service.ts)
+- [apps/server/app/application/harness/harness-ticket-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/harness/harness-ticket-service.ts)
+- [apps/server/app/application/workflow/workflow-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/workflow/workflow-service.ts)
+- [apps/server/app/application/master-data/employee-resource-transfer.ts](../../../LayerManage/law-firm-system/apps/server/app/application/master-data/employee-resource-transfer.ts)
 
-## 5. 状态机
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
-录音与 AI 任务存在以下隐含状态：
+- [apps/server/test/collaboration/drive-lifecycle.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/drive-lifecycle.test.ts)
+- [apps/server/test/approval/visual-workflow.test.ts](../../../LayerManage/law-firm-system/apps/server/test/approval/visual-workflow.test.ts)
 
-- 录音：登记 / 实时转写中 / 转写完成 / 转写失败可重试。
-- 异步 AI 任务：提交中 / 执行中 / 成功 / 失败可重试。
-- AI 提取结果：草稿 / 人工修订 / 已确认（确认后进入业务结果）。
+## 历史需求追溯
 
-状态机字段定义见 FTN-002。
+历史编号保留：`AI-01`、`AI-02`、`AI-03`、`AI-04`、`AI-05`、`AI-06`、`AI-07`、`AI-08`、`AI-09`、`AI-10`。
 
-## 6. 验收要求
-
-- AI 验收：上传录音、实时转写、异步失败、重试、人工修订、权限控制。（源自 §14.1.6）
-- AI 输出必须人工确认后进入业务结果。（源自 §17.6）
-- 回调验收：AI 结果确认等同步回调必须校验权限、状态和重复提交。（源自 §14.1.8）
-- 接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。（源自 §14.1.2）
-- 端到端链路：客户到访，创建谈案记录，登记胸牌录音并完成转写和 AI 提取。（源自 §14.2.2）
-
-## 7. 追溯
-- 专项设计: docs/专项设计/文件录音AI任务设计.md
-- 落地 SPEC: 待立项
-- 主要代码: 无
-- 测试: 无
-
-<!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->
-
-### 2026-09-13 统一桌面、本地 Harness 与云端 Wiki（已确认、待实施）
-
-2026-09-14 部署细化：[部署规格](../../superpowers/specs/2026-09-14-production-deployment.md)及[实施计划](../../superpowers/plans/2026-09-14-production-deployment.md)。明确单 Wiki 写入者、云端原生依赖/OCR验收、业务附件与 Wiki 完整备份恢复、无源码 Windows 安装、版本兼容和更新保留数据；本次仅文档更新，不计入生产 implements。主动归档、OA离线草稿和 Wiki快照同步维持原有待实现/待决状态。
-
-[最新工程规格](../../superpowers/specs/2026-09-13-unified-desktop-local-harness.md)定义 AI-08～10 及数据边界，目标 V1.3.0。既有 AI 供应商章节描述录音专项，不限制个人 Harness 沿用其原生供应商及安全配置能力。个人材料仅在执行明确的模型/视觉任务时发送必要内容，不进入 OA/Wiki 自动同步。主动成果归档见 MOD-008 MAT-04B；本次只批准文档，不计入 implements 或已验收功能。历史实现见 [V1.2.0](../../superpowers/specs/2026-09-12-harness-decoupled.md)及 [V1.2.1](../../superpowers/specs/2026-09-12-smart-case-native-ui.md)。
-
-2026-09-13 阶段进度：已完成统一桌面与本地 Harness 基础验证，见 [阶段一实施记录](../../superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。[阶段二](../../superpowers/plans/2026-09-13-desktop-cloud-wiki-vision.md)接入 AI-09 云端 Wiki 只读查询和 AI-10 个人原生视觉 API 链路，并验证身份、权限及根会话隔离。真实模型效果、云端 OCR 实际部署、完整 AI-08 安装验收及 MAT-04B 归档仍待后续阶段，未标记为整体验收通过。
-
-2026-09-14 法律能力补充：[四类法律技能 Spec](../../superpowers/specs/2026-09-14-lawyer-skills.md)限定合同审查、应诉分析、管辖分析和法规/案例检索。沿用唯一 lawyer、只读云端 Wiki、个人模型及本地文件边界；测试范围见[实施记录](../../superpowers/plans/2026-09-14-lawyer-skills.md)，不计为完整 V1.3.0 或真实法律质量验收。
-
-
-### 全站统一迁移（U0/U1，2026-09-15）
-
-知识库与智慧办案保持相邻全局顶栏入口；只适配外层框架，保留 Wiki 服务与原 Harness 会话/文件边界。案件文件仍由案件业务管理入口办理。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。
-
-### U5-B 案件材料边界（2026-09-15）
-
-案件详情、文件列表、下载均执行 case.file.read 的案件范围；上传、删除、受理表单附件变更另执行 case.file.manage 范围及终态限制。文件元数据、案件版本和审计同事务，上传失败清理本次文件，删除在数据库提交后清理文件。详情后台复查授权，失败清除已加载案件或材料；不改变 Wiki/Harness 会话、个人目录或模型调用。[实施契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
-
-
-2026-09-16 U7保护边界验收：真实Electron完整本地目录/读写/Wiki/技能/窗口与重启恢复/跨账号隔离通过，浏览器维护/只读Wiki及办案会话保留通过；测试模型、外部服务和OA授权为夹具，未验证生产模型质量。12桌面单元、2集成脚本与9267导入源文件核对通过，未重写Wiki/Harness核心。详见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。
+[对齐前原文](../history/2026-11-06-before-alignment/modules/MOD-010-ai-recording-file.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。

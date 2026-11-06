@@ -1,174 +1,73 @@
 ---
 id: FTN-003
-title: RBAC 与数据范围
-source: PRD §11
-status: approved
-implements: SPEC-004
-design_refs: [docs/专项设计/角色权限与数据范围设计.md]
-last_updated: 2026-09-14
+title: 权限、数据范围与共享交集
+type: foundation
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# FTN-003 RBAC 与数据范围
+# FTN-003 权限、数据范围与共享交集
 
-## 1. 契约概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-源 PRD §11 权限与数据范围。本契约定义承业 OA 系统统一采用的 `RBAC + 数据范围 + 敏感动作权限` 权限模型，覆盖菜单权限、操作权限、数据范围、字段权限、特殊权限和管理员权限六个层级，以及 L1~L4 数据分级与处理规则。所有业务模块的列表、详情、字段展示、敏感动作必须接入本契约定义的权限与数据范围规则，作为各业务模块「规则与边界」段的统一引用源。
+## 1. 授权模型
 
-## 2. 契约定义
+权限目录199项，类型MENU/ACTION/SPECIAL；完整代码、资源、风险见 [权限清单](../reference/PERMISSIONS.md)。角色是权限集合，不以“合伙人/律师/财务”等显示名硬编码全权。账号拥有某角色还需角色启用、任期有效、未撤销；临时授权亦检查有效期。
 
-源 PRD §11 权限与数据范围。
+数据范围类型 ALL、HQ_SCOPE、ORG、BRANCH、TEAM、SELF_AND_SUBORDINATES、SELF、CUSTOM。组织路径、员工任职、汇报线和团队成员影响范围解析。多个有效范围按领域解析组合；无有效范围不能回落到全库。
 
-权限模型采用 `RBAC + 数据范围 + 敏感动作权限`。
+## 2. 表格授权交集
 
-| 层级 | 示例 | 要求 |
-|---|---|---|
-| 菜单权限 | 线索管理、合同管理、案件管理、驾驶舱 | 控制可见模块 |
-| 操作权限 | 新增、编辑、删除、导出、审批、分配、作废 | 控制按钮和 API |
-| 数据范围 | 全所、总所中台、指定分所、指定团队、本人、本人下属 | 控制列表和详情数据 |
-| 字段权限 | 身份证、电话、录音、合同金额、刑事材料、AI 提取结果 | 控制敏感字段展示 |
-| 特殊权限 | 客户合并、合同作废、退款确认、低满意度关闭、录音下载、系统配置干预 | 单独授权并审计 |
-| 管理员权限 | 表格、资料、字段、模板、字典、状态机、SOP 节点、自动化规则增改删查 | 系统管理员可操作，关键操作进入超级管理员审核 |
+```text
+有效登录与账号状态
+  ∩ 业务动作权限 + 业务记录范围
+  ∩ 工作区/文件夹/Base/Table访问及行限制
+  ∩ 字段可读/可写策略
+  ∩ 业务状态、版本和特殊安全校验
+  = 本次请求允许的操作
+```
 
-源 PRD §11.1 数据分级与处理规则。
+普通自建表没有强行套用不存在的领域记录，但仍有资源、行、字段、模板和动作能力。工作表正式来源必须同时满足领域范围；共享给普通账号不能授予所有管理员数据。
 
-| 级别 | 数据示例 | 默认处理规则 |
-|---|---|---|
-| L1 公开 | 已公开品牌内容、公开案例、公开活动 | 按业务权限查看，可对外发布 |
-| L2 内部 | 组织信息、培训资料、普通经营统计 | 仅内部账号访问，导出记录日志 |
-| L3 敏感 | 客户联系方式、合同金额、回款、员工档案、谈案录音 | 字段权限控制，展示可脱敏，查看、下载、导出审计 |
-| L4 高敏 | 身份证件、刑事案件材料、未公开证据、专家意见、AI 提取的案件事实 | 最小权限授权，默认禁止批量导出，下载和外发单独授权并审计 |
+## 3. 主体、行和字段
 
-### 多维协作资源授权（2026-09-14，待实现）
+资源主体支持USER/ROLE/POSITION/ORG/TEAM；READER/EDITOR/MANAGER/OWNER资源等级与canCreate、canManageAccess、SELF/ALL行范围、hiddenFields、readonlyFields分别计算。父文件夹继承及资源显式授权不能绕过已删除/归档边界。显式DENY或restricted且无匹配grant时拒绝；一般子资源授权按父级能力收窄，OWNER有明确所有者路径，不从超管标志直接推导所有权。
 
-[SPEC-COLLAB-20260914](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md) §6 为新工作区授权契约。新增阅读、编辑、表管理、应用管理和可单独授予的建表能力，均绑定工作区/应用/表资源，不等于系统管理员角色。
+字段读取级别NONE/MASKED/READ。字段隐藏应从投影移除，不能只在UI隐藏；脱敏字段不得参与未经允许的原值筛选/排序推断。编辑需要可读原值及写权，不能把掩码写回。HR敏感字段另有专门权限。
 
-- 核心表：既有业务权限与数据范围 ∩ 工作区资源授权 ∩ 字段权限 ∩ 动作约束；通用表：组织隔离 ∩ 资源授权 ∩ 行权限 ∩ 字段/动作权限。拒绝规则优先。
-- 员工可保存个人视图；有资源管理能力者可创建表、管理普通字段和共享视图。个人/共享视图的可见性与负责人筛选分别定义；“总表”仍只返回授权记录。
-- 普通授权资源配置直接保存、版本化留痕；系统治理、高风险配置、权限扩大、敏感等级降低及已有值字段类型迁移仍适用治理审批。管理员操作审核仅指系统治理能力，不能据此要求个人视图进入系统级审批。
-- 分享只能委派已有可委派权限，不能通过分享突破既有数据范围；元数据、关联名称/数量、统计、导出、附件、历史、通知和事件同样校验。
-- 撤权立即阻断后续访问和事件分发，清除客户端显示/缓存；组织离职禁用同时终止会话和协作订阅。P1 仅组织内登录访问。
+## 4. 普通账号读写一致性
 
-验收：不同部门/团队/个人范围下验证建表、分享、字段拒绝与权限来源解释；对越权查询、篡改资源 ID、聚合旁路和撤权后的流连接进行验证。历史 SPEC-004 已验收不代表以上扩展已实现。
+创建人字段保存User ID；SELF/下属范围来源常为Employee ID，必须经有效绑定映射。客户可能无sourceLead，合同/谈案可能无branchId，按实际服务补充创建人组织分支，而不是把空组织视为全局共享。
 
-## 3. 规则与边界
+列表、详情、工作表、关联候选、导出、统计、评论@、审批回写都重新校验。共享仪表盘只共享配置；每个访问者在自身权限内查询两侧关联表，禁止通过聚合越权。
 
-源 PRD §11 管理员权限规则：
+## 5. 撤权与受保护对象
 
-1. 系统管理员是系统配置和业务干预的最高执行权限，可管理逻辑表格、资料、动态字段、模板、字典、状态机、SOP 节点和自动化规则。
-2. 系统超级管理员是系统治理和监督的最高权限，拥有系统管理员全部执行能力，并负责管理员授权、高风险操作审核和普通操作复核。
-3. 系统管理员可以对业务流程进行必要干预，包括状态修正、节点资料要求调整、模板调整、字段启停、自动化规则启停，但必须通过受控操作接口执行。
-4. 系统管理员不得直接连接数据库修改业务数据或物理表结构，不得删除或篡改审计日志、事件日志和管理员审核记录。
-5. 系统级治理操作必须写入操作审核记录；高风险操作事前审核，低风险操作生效后事后复核。
-6. 系统管理员不得审核本人操作，不得修改本人角色，不得创建、授权或停用系统超级管理员。
-7. 系统超级管理员不得绕过审计，其操作同样必须记录操作日志和审计日志；涉及本人账号和权限的操作由另一名系统超级管理员审核。
-8. 系统管理员和系统超级管理员权限不受普通组织数据范围限制，但敏感数据查看、下载、导出仍需审计。
+撤权/停用/删除/凭证变化使相应会话或授权失效；编辑暂停刷新不能推迟服务端鉴权。初始化超管和根组织按初始化记录身份保护；其他管理员账号不是永久不可删除。
 
-源 PRD §11.1 数据分级规则：
+审批决定权限不替代业务写权。回写按发起人当前权限重载；SOP/专项分析保留禁止自审；高风险操作按step-up规则执行。
 
-1. 每个核心字段和文件类型必须标记数据级别，未标记的客户和案件数据默认按 L3 处理。
-2. 系统管理员可配置字段展示和处理规则，但降低 L3/L4 数据级别属于高风险操作，需超级管理员事前审核。
-3. 系统超级管理员的审核权限不等于默认查看所有 L4 内容，查看具体内容仍需记录访问目的并审计。
-4. 导出文件应包含导出人、导出时间和用途标识；L3/L4 导出支持水印或追踪标识。
+## 6. 验收矩阵
 
-源 PRD §8.1 组织权限模块规则中与本契约直接相关：
+至少覆盖管理员、同范围编辑者、只读者、无范围用户，以及账号禁用/撤权。同一业务ID在同范围用户间同步，字段输出可因敏感策略不同；无范围请求拒绝或隐藏为404，不泄露存在性。直接API请求需与UI按钮约束一致。
 
-1. 所有业务列表和详情必须接入数据范围过滤。
-2. 用户权限计算结果必须可解释，系统应展示每项权限来自哪个角色或专项授权。
+## 实现与回归入口
 
-## 4. 被引用模块
+- [apps/server/app/domain/authorization/authorization-types.ts](../../../LayerManage/law-firm-system/apps/server/app/domain/authorization/authorization-types.ts)
+- [apps/server/app/application/authorization/data-scope-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/authorization/data-scope-service.ts)
+- [apps/server/app/application/authorization/field-projection-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/authorization/field-projection-service.ts)
+- [apps/server/app/application/contract/contract-scope.ts](../../../LayerManage/law-firm-system/apps/server/app/application/contract/contract-scope.ts)
+- [apps/server/app/application/collaboration/resource-access.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/resource-access.ts)
+- [apps/server/app/application/collaboration/analytics-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/analytics-service.ts)
 
-以下所有业务模块的列表、详情、字段展示与敏感动作均引用本契约（按 PRD §8.1 规则1，所有业务列表和详情必须接入数据范围过滤）：
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
-- MOD-001 组织权限模块
-- MOD-002 系统配置中心
-- MOD-003 品牌运营与获客
-- MOD-004 线索销转
-- MOD-005 客户主数据
-- MOD-006 合同财务
-- MOD-007 专业团队与分析报告
-- MOD-008 案件交付与质控
-- MOD-009 满意度、复购与转介绍
-- MOD-010 AI、录音与文件
-- MOD-011 组织人事
-- MOD-012 管理驾驶舱
-- MOD-013 自动化、通知、审批与审计
+- [apps/server/test/authorization/authorization-service.test.ts](../../../LayerManage/law-firm-system/apps/server/test/authorization/authorization-service.test.ts)
+- [apps/server/test/collaboration/module-sharing.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/module-sharing.test.ts)
+- [apps/server/test/collaboration/new-account-business.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/new-account-business.test.ts)
+- [apps/server/test/collaboration/analytics.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/analytics.test.ts)
 
-## 5. 验收要求
+## 历史需求追溯
 
-源 PRD §14 及 §3.3 中与本契约相关的验收条目：
-
-1. §3.3.5 权限隔离验收：总所、分所、专业团队和个人数据必须按权限隔离，越权访问测试不得出现敏感数据泄露。
-2. §8.1 规则6 权限可解释：用户权限计算结果必须可解释，系统应展示每项权限来自哪个角色或专项授权。
-3. §14.1 通用验收要求-接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。
-4. §14.1 通用验收要求-权限验收：总所、分所、专业团队、个人四类数据范围至少各测一组。
-5. §14.1 通用验收要求-数据安全验收：L3/L4 字段脱敏、下载、导出、授权、审计和水印规则必须可验证。
-6. §14.1 通用验收要求-管理员治理验收：高风险操作审核前不得生效；低风险操作生效后进入复核；管理员不得自审或给本人提权。
-7. §14.1 通用验收要求-回调验收：审批同意、任务完成、AI 结果确认等同步回调必须校验权限、状态和重复提交。
-
-## 6. 追溯
-
-[云盘 G1 权限决策表](../../superpowers/specs/2026-09-15-cloud-drive-g1-contract.md)扩展到文件夹祖先链：工作区 → 文件夹 → Base → 表 → 记录/字段/领域约束逐层收敛；DENY 优先，保留显式工作区 OWNER 例外。目录 ownerId、个人/共享入口及视图筛选均不授予业务数据权限。资源列表、搜索、计数、直链、附件和订阅使用相同边界，普通用户默认只看自己创建的记录。G1 已实现，文件夹、岗位创建者、祖先撤权、附件/关联与旧直链已加入服务和浏览器回归；证据见云盘实施记录。
-
-- 专项设计: docs/专项设计/角色权限与数据范围设计.md
-- 落地 SPEC: SPEC-004
-- 主要代码: apps/server/app/application/{auth,authorization}、apps/server/app/controller/{auth,authorization,permission,role,organization}
-- 测试: SPEC-004 相关测试
-
-
-G2-A [生命周期权限](../../superpowers/specs/2026-09-15-cloud-drive-g2-lifecycle.md)要求工作区显式 canManageAccess 与源/目标有效管理权限，整树操作要求所有后代可管理。移动重新继承目标祖先权限，预览是授权规则差异而非实际人员枚举。自身或祖先回收时所有内容入口拒绝，显式工作区 OWNER 例外不覆盖回收状态；恢复按当前授权重新计算。回收站也按当前可管理范围过滤，普通员工不获得资源生命周期权限。
-
-
-G2-B [快捷方式权限](../../superpowers/specs/2026-09-15-cloud-drive-g2b-shortcuts-recents.md)将个人使用状态与资源归属分开：根快捷方式及访问历史仅本人可见，工作区 OWNER 也不读取他人的个人状态。共享链接要求链接位置与原目标祖先链同时可读；打开原目标沿用原资源权限，链接不授权、不成为新父级。添加共享链接要求位置 MANAGER，个人根入口只要求可读目标；移除只整理引用。统计、搜索和预览均先过滤失效目标。
-
-
-### 全站统一框架（2026-09-15）
-
-导航、入口搜索和直链共用目录权限声明，菜单码与读取权限取交集；组织架构保留额外超级管理员边界。共享五入口不授予业务读取权。后台刷新成功不卸载表单，失败/撤权关闭受保护内容，异步结果核对账号和会话令牌。实现前契约见[U0/U1 导航与迁移矩阵](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。
-
-
-### U4 线索业务工作区
-
-U4 业务创建及池动作取 CRM 动作范围、工作区组织与资源/字段限制的交集；创建人 User ID 与负责人 Employee ID 分别定义。目录及关联标签不暴露无权记录，已撤权时不可凭幂等 key 获取先前结果。 工程契约见[线索与跟进统一](../../superpowers/specs/2026-09-15-u4-lead-workspace.md)，验收记录见全站统一计划第 7 节。
-
-
-### U5-A 授权交集
-
-新增三类正式来源使用原领域 read scope ∩ 工作区组织 ∩ 资源 createdBy SELF；关联客户名称同样受客户权限、组织和创建人范围约束。客户隐藏/脱敏字段拒绝查询推断并复用原读取审计。扩展写要求资源 EDITOR 及领域编辑动作/范围；合同映射既有 contract.submit，不新增不存在的 contract.update 或触发提交。旧领域详情仍采用其原领域授权，资源入口不充当领域接口全局 ACL；岗位管理员需同时配置原领域范围和资源范围。详见[U5–U7 契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
-
-### U5-B 案件与材料范围（2026-09-15）
-
-Case 原 API 使用真实创建人/组织/团队解析对应 case.* 动作范围；工作表再与工作区组织和资源创建人 SELF 取交集。文件读写范围可比案件读写更窄，详情不能泄漏无权材料元数据，受理附件增删不能绕过材料范围。身份未知行不进入 SELF，补录只允许 case.update 全量授权、仅填空值、必填依据并审计；普通岗位不能通过改派律师取得创建人权限。[详细契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
-
-### U6-A 财务范围（实施中）
-
-已有收款、发票和退款的 read/办理范围使用单据实际 createdBy；组织/团队通过合同定位。创建目标仍按相应 create 的合同范围授权，原应收计划读取仍按 payment.read 合同范围。成本 read/更新/删除补真实创建人/案件组织/无案件时创建人有效任职组织；无可靠团队锚的纯 TEAM 匹配空集。工作表再与资源 SELF、组织和字段权限取交集，案件标签及编号查询需独立 case.read。
-
-登记目标 ALL 与单据读取 SELF 可用不同岗位角色组合：登记角色只授 create 及其目标范围，办理角色授 read/confirm 等与 SELF；不能为了登记他人合同而给 read 一并扩大 ALL。渠道原读取权限缺口由 U6-C 接续，不能将财务范围验证写成渠道权限已完成。[范围契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
-
-
-2026-09-16 U6-A 阶段已验收，91模型/57迁移已部署开发库并保留业务记录数量。财务权限、精确金额、事务重试与真实 App/MFA 冒烟通过，完整测试与负载条件见[计划第10节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)；此前“实施中/隔离库”文字为实施过程记录。
-
-
-### U6-B 实施补充（2026-09-16）
-
-库存与绩效原接口补齐动作+数据范围。SELF 均为真实记录创建人；库存组织读取物品创建人的有效任职、纯TEAM不授仓库范围；绩效组织/团队取被考核员工的有效关系，自评还要求当前员工本人。原工资表ownerUserId和审批参与者权限保持，绩效ALL不扩展工资附件权限。阶段状态和验证证据以[阶段计划](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)第11节为准，U6-B两端构建、冒烟、指定CPU条件下负载与开发库58项增量迁移均已验收；U6-C/U7继续执行。
-
-
-### U6-C 实施补充（2026-09-16）
-
-渠道5个菜单/动作权限及channel资源可由原岗位角色配置；渠道按创建人/组织范围，与工作区和协作SELF交集。经营分析按各domain read及scope独立计算，缺权限为null；客户/合同/谈案员工目标映射真实账户。身份补录候选另校验账户和组织读取。 阶段未完成，验证与限制见[实施计划](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)第12节。
-
-
-2026-09-16 U7：U7 requireAnyPermission只吞当前候选动作的PERMISSION_DENIED；授权成功后next仅调用一次，下游版本/事务错误原样传播。案件历史补录同时校验账户与组织目录范围。四类CRM详情增加每5秒/焦点恢复记录权限复核，失败清除详情及草稿；菜单可见性不能替代记录授权。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。
-
-
-### SOP/质检规划记录（2026-09-16，实施现状见下）
-
-普通岗位SELF默认真实创建人；获派任务另经显式对象协作授权，不自动扩大Case/材料读取。TEAM采用明确实例团队和有效任职；候选、审批摘要、导出、统计、SSE及下载统一复验范围。配置权不代替业务审核权。详见增量规格§5。 [SPEC-SOP-QC-20260916](../../superpowers/specs/2026-09-16-sop-quality-control.md)。
-
-
-### SOP/质检实施现状（2026-09-17）
-
-新增sop_template/sop_instance/sop_task资源范围与对应动作，沿原角色/岗位配置。SELF真实创建人、TEAM/ORG绑定模板真实锚点；SopTaskAccess只开放必要任务内容并绑定有效期、任职指纹，调岗后需重新分派。材料独立case.file.*或sop.material.*且与原Case/Lead/Contract权限求交；后续Case权限不能读取前期资料。质检动作取case范围与case.read交集；当前权限约束候选、审批台账、统计、下载及幂等重放。菜单/视图不扩大范围。
-
-实现与验证见[SQ阶段计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)及[验收追溯](../../superpowers/reports/2026-09-17-sop-quality-acceptance.md)。SQ7最终运行结果以验收记录为准。
+[对齐前原文](../history/2026-11-06-before-alignment/foundations/FTN-003-rbac-data-scope.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。

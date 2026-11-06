@@ -1,78 +1,54 @@
 ---
 id: MOD-004
-title: 线索销转模块
-source: PRD §8.4
-status: draft
-implements: SPEC-009（已验收 2026-07-30；CRM-01~06 + CUS-01~02 落地）；SPEC-010（CRM-07 谈案，设计已批准，待实施）
-design_refs: [docs/专项设计/页面与接口清单.md]
-last_updated: 2026-09-14
+title: 线索、跟进、公海与到访
+type: module
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# MOD-004 线索销转模块
+# MOD-004 线索、跟进、公海与到访
 
-## 1. 需求概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-线索销转模块承接品牌获客产出的线索，完成线索录入、去重、公海/私海管理、分配、客服跟进、邀约、谈案直至成交或进入二次营销池的闭环销转链路，是经营闭环从流量到签约的关键转换环节。
+## 1. 入口和数据
 
-## 2. 功能清单
-| 编号 | 功能 | 需求 | 现状 |
-|---|---|---|---|
-| CRM-01 | 线索录入 | 支持手工录入、Excel 导入、外部 API 预留 | ✅（SPEC-009 验收；Excel 导入/API 预留下推） |
-| CRM-02 | 线索去重 | 根据电话、姓名、微信、身份证等规则提示重复 | ✅（SPEC-009 验收；身份证规则下推） |
-| CRM-03 | 公海/私海 | 支持公海领取、私海管理、超时回收 | ✅（SPEC-009 验收） |
-| CRM-04 | 线索分配 | 支持自动分配和手动改派 | ✅（SPEC-009 验收；自动分配规则引擎下推） |
-| CRM-05 | 客服跟进 | 记录首响、咨询内容、初筛结果、无效原因 | ✅（SPEC-009 验收） |
-| CRM-06 | 邀约管理 | 记录邀约计划、到访确认、爽约原因、二次邀约 | ✅（SPEC-009 验收 + 日历范围查询增量） |
-| CRM-07 | 谈案管理 | 记录谈案人、报价、客户关注点、竞争对手、未签原因 | SPEC-010 立项（设计已批准，待实施） |
-| CRM-08 | 二次营销池 | 未成交线索进入二次营销池，可重新激活 | 占位（SPEC-009 状态机 LOST/NURTURE 保留，激活流转下推） |
+客户经营下包含线索列表、跟进工作表、公海池、到访日历。`LEADS`、`FOLLOWS` 直接读取正式线索及跟进记录，详情和多维表格没有各自独立副本。病例评估、签约转化和律师客资属于补充模板，应与正式来源区别。
 
-### 多维工作区接入（2026-09-14，待实施）
+## 2. 业务操作
 
-线索与跟进通过 [SPEC-COLLAB-20260914](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md) 的业务表适配器接入统一表格工作区；既有 ID、数据范围、去重/关联、状态流转、审计和事务不变。总表、个人与共享视图读取同源记录，通用表格操作不得绕过领域命令。新建业务表能力同时支持空白自建数据源，不能只做本模块固定页面换肤。接入验证以新规格 AC-03/05/06/07/12 为准，历史业务验收不表示适配器已实现。
+- 线索新建、详情、查询、编辑、删除按 `lead.*` 动作处理；网格直接编辑姓名、电话、微信、意向等级白名单，状态/负责人采用业务动作。
+- 跟进支持在表中新增、修改允许字段和删除；关联线索选项必须来自操作者可见线索，不使用无范围员工/客户全集。
+- 跟进自动编号按服务产生，最后操作人/时间由系统维护；不能在网格伪造审计字段。
+- 公海领取、分配、重新分配、回收有独立流转记录；池状态与业务状态分开存储。
+- 到访日历中的业务邀约与工作台协同日历是两个对象，不能把成员邀请应答当成线索已到访。
+- `MEDICAL_ASSESSMENT` 病例评估表和 `SIGNING_CONVERSION` 签约转化表按标准字段维护；自动操作人/时间只读。
 
-## 3. 业务规则
+## 3. 状态和敏感数据
 
-1. 线索转客户必须经过客户主数据去重判断。
-2. 线索分配、改派、领取、回收必须记录操作日志。
-3. 未跟进超时可自动提醒或回收到公海。
+线索状态代码为 NEW、ASSIGNED、CONTACTED、SCREENED、INVITED、VISITED、CONVERTED、LOST、NURTURE；池状态 PUBLIC、PRIVATE、RECYCLED。邀约状态 PENDING、CONFIRMED、VISITED、NOSHOW、CANCELLED、RESCHEDULED。合法转换由业务服务控制，不能推断所有状态可两两切换。
 
-## 4. 数据对象
+电话/微信使用字段投影和动作权限，脱敏值不允许写回覆盖原值。跟进读取、导出、关联选择与业务范围一致；普通账号不能通过工作表绕过正式线索权限。
 
-核心数据对象：`Lead`、`LeadFollow`。
+## 4. 验收要求
 
-> 备注：SPEC-009 计划重构为 +`LeadPoolRecord`/`Appointment`，见 FTN-001。当前 `Lead`/`LeadFollow` 为原型实现，未经 SPEC 验收。
+有权限账号新建线索及跟进后，模块列表、表格、详情均可查询；双击修改允许字段能保存；取消不改变记录；删除受领域约束和审计保护。用户A无范围的线索不出现在用户B关联候选、搜索、导出和@接收对象中。已转换线索保留客户关联和来源追溯。
 
-## 5. 状态机
+## 实现与回归入口
 
-线索涉及公海/私海状态（`poolStatus`）与线索跟进状态（`status`）的转换，包含公海领取、私海超时回收、跟进流转、邀约到访、谈案签约、二次营销池激活等。
+- [apps/server/app/application/crm/crm-worksheet-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/crm/crm-worksheet-service.ts)
+- [apps/server/app/application/crm/follow-worksheet-fields.ts](../../../LayerManage/law-firm-system/apps/server/app/application/crm/follow-worksheet-fields.ts)
+- [apps/server/app/domain/crm/lead-policy.ts](../../../LayerManage/law-firm-system/apps/server/app/domain/crm/lead-policy.ts)
+- [apps/server/app/application/collaboration/follow-support-templates.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/follow-support-templates.ts)
 
-状态编码与转换细则见 FTN-002（状态机与业务字典）。
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
-> 备注：SPEC-009 计划对状态机进行重构，见 FTN-002。
+- [apps/server/test/crm/lead-service.test.ts](../../../LayerManage/law-firm-system/apps/server/test/crm/lead-service.test.ts)
+- [apps/server/test/crm/appointment-service.test.ts](../../../LayerManage/law-firm-system/apps/server/test/crm/appointment-service.test.ts)
+- [apps/server/test/collaboration/follow-support-tables.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/follow-support-tables.test.ts)
 
-## 6. 验收要求
+## 历史需求追溯
 
-- 线索追溯：任一有效线索均可追溯来源、负责人、跟进、邀约、谈案、合同、收款和案件去向。（源自 §3.3.1）
-- 回归验收：线索到正式签约主链路必须有端到端用例，覆盖归因、分配、跟进、邀约、谈案、合同、收款、案件建档全链路。（源自 §14.1.13、§14.2.1、§14.2.3）
-- 主数据验收：线索转客户必须经过客户主数据去重判断，消费模块不得绕过客户主模块直接修改客户数据。（源自 §14.1.11、规则 1）
-- 接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录；线索分配、改派、领取、回收必须记录操作日志。（源自 §14.1.2、规则 2）
-- 状态机验收：公海领取、私海超时回收、跟进流转等允许流转、禁止流转、撤销/异常提示必须可验证。（源自 §14.1.3）
+历史编号保留：`CRM-01`、`CRM-02`、`CRM-03`、`CRM-04`、`CRM-05`、`CRM-06`、`CRM-07`、`CRM-08`。
 
-## 7. 追溯
-- 专项设计: docs/专项设计/页面与接口清单.md；docs/superpowers/specs/2026-07-28-lead-crm-customer-master-data-design.md（SPEC-009 设计，已批准）
-- 落地 SPEC: SPEC-009（CRM-01~06，2026-07-30 本地验收，终审 READY）；SPEC-010（CRM-07 谈案，设计已批准，待实施）；CRM-08 二次营销池激活下推
-- 主要代码: apps/server/app/application/crm/（lead-service/lead-assignment-service/lead-follow-service/appointment-service/customer-service）、apps/server/app/controller/{lead,appointment,customer}.ts
-- 测试: apps/server/test/crm/、apps/server/test/app/{lead,appointment,customer}-api.test.ts
-
-<!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->
-
-
-### 全站统一迁移（U0/U1，2026-09-15）
-
-线索、公海、到访日历与记录详情进入业务应用的客户经营，旧 URL 和 Lead ID 保留。U4 继续接入同源视图/详情/受控跟进动作。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。
-
-
-U4 开发以[线索与跟进工作区契约](../../superpowers/specs/2026-09-15-u4-lead-workspace.md)为准：正式数据同源、资源与业务权限交集、业务/云盘共用编辑器、受控创建及池动作；旧 CRM SELF 负责人语义与协作 SELF 创建人语义分别保持。此前适配器已实现，本批接通统一入口并补齐命令，验收状态见全站计划第 7 节。
-
-
-2026-09-16 U7：U7移除未路由旧线索/谈案列表。现行详情每5秒与恢复焦点复核原记录可见性；失败卸载详情和草稿，显式重试成功才恢复，正常复核不重建草稿或推进动作版本。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。
+[对齐前原文](../history/2026-11-06-before-alignment/modules/MOD-004-lead-crm.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。

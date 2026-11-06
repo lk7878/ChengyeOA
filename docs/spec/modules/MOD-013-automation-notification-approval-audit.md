@@ -1,138 +1,73 @@
 ---
 id: MOD-013
-title: 自动化、通知、审批与审计模块
-source: PRD §8.13
-status: draft
-implements: SPEC-007（审批/通知/outbox 部分；自动化规则引擎未覆盖）
-design_refs: [docs/专项设计/审计日志与自动化规则设计.md, docs/专项设计/审批实例任务与消息回调设计.md]
-last_updated: 2026-09-14
+title: 可视化审批、通知、日历与审计
+type: module
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# MOD-013 自动化、通知、审批与审计模块
+# MOD-013 可视化审批、通知、日历与审计
 
-## 1. 需求概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-自动化、通知、审批与审计模块覆盖线索到结案全链路的自动化规则触发、通知投递、审批实例与审计日志能力。其中审批实例、通知与 outbox 事件日志已由 SPEC-007 落地；自动化规则引擎尚未覆盖，待立项开发。
+## 1. 审批模式统一
 
-## 2. 功能清单
+审批中心 `/approvals` 直接承载可视化审批；`/approvals/visual` 是兼容重定向，不再嵌套两套审批模式。旧 `/api/v1/approvals` 定义/实例操作及旧台账/同步规则入口返回410；当前流程接口使用 `/api/v1/workflows`。保留旧表或旧服务文件不等于旧模式仍开放。
 
-### 自动化规则
+## 2. 四步流程配置
 
-| 编号 | 功能 | 需求 | 现状 |
-|---|---|---|---|
-| AUTO-01 | 新线索进入 | 表单/电话/私信/手工录入 → 去重、打标签、分级、归因、分配 | 待开发 |
-| AUTO-02 | 首响超时 | 分配后 N 分钟未跟进 → 提醒本人和主管 | 待开发 |
-| AUTO-03 | 胸牌录音登记 | 谈案开始、录音上传或实时转写开始 → 关联线索、客户、谈案人、分所、专业团队 | 待开发 |
-| AUTO-04 | 录音转写 | 录音上传或实时音频进入 → 调用模型完成转写，保存任务状态 | 待开发 |
-| AUTO-05 | AI 要点提取 | 转写完成 → 提取事实、诉求、证据、风险、争议焦点和建议 | 待开发 |
-| AUTO-06 | 总所分析协助 | 谈案录音上传/到访开始 → 推送前瞻研究部、律师培训部或专家值班人员 | 待开发 |
-| AUTO-07 | 邀约提醒 | 预约前 N 小时 → 提醒邀约人、谈案人、客户 | 待开发 |
-| AUTO-08 | 爽约 | 预约时间后未到访 → 生成二次邀约任务 | 待开发 |
-| AUTO-09 | 未跟进回收 | N 天无跟进 → 回收到公海或预警池 | 待开发 |
-| AUTO-10 | 首签后材料收集 | 首签合同生效 → 生成材料清单任务 | 待开发 |
-| AUTO-11 | 分析报告提醒 | 按案件类型配置的提醒时间未出报告 → 提醒团队负责人 | 待开发 |
-| AUTO-12 | 正式签约 | 目标对齐通过 → 生成正式合同、应收计划、风险告知 | 待开发 |
-| AUTO-13 | 回款逾期 | 应收计划到期未收 → 提醒谈案、财务、主管 | 待开发 |
-| AUTO-14 | 收款确认 | 财务确认到账 → 更新合同、客户、案件、统计基础 | 待开发 |
-| AUTO-15 | 客户进展告知 | 按案件类型、合同约定或负责人配置 → 生成客户进展告知任务 | 待开发 |
-| AUTO-16 | 质量审核 | 文书/结案/重大节点提交 → 推送一级审核或二级抽检 | 待开发 |
-| AUTO-17 | 低满意度预警 | 满意度低于 80 分 → 触发管委会专项分析流程 | 待开发 |
-| AUTO-18 | 结案复盘 | 案件结案 → 生成满意度、复盘、知识库、品牌素材任务 | 待开发 |
-| AUTO-19 | 表格自动化编辑器 | 应用右上入口配置记录新增/变更/定时触发、条件、提醒/任务动作；规则版本与执行记录、当前权限校验、幂等重试和循环保护 | 待开发 |
+1. 基础信息：名称（去空白后1–100字符）、分组、说明、提交范围。
+2. 表单：文本、长文本、数字、日期、单/多选、附件、人员、业务关联、明细、金额大写和受控公式；拖入、复制、排序、删除、预览。
+3. 流程：START、APPROVAL、CC、BRANCH、END；竖向节点插入及高级连线；会签ALL、或签ANY、依次SEQUENTIAL；节点字段和角色字段权限。
+4. 更多设置：撤回、更正、摘要、打印、表格回写、允许的自动化接口。
 
-### 记录讨论与提醒
+草稿与发布区分，每次发布产生新版本，实例固化完整快照。保存失败返回具体板块及字段/节点/连线定位，保留输入；不能只用“内容为空或过长”笼统替代所有错误。
 
-| 编号 | 功能 | 需求 | 现状 |
-|---|---|---|---|
-| COLLAB-01 | 记录评论与提及 | 记录抽屉评论、@成员、授权通知和深链接；讨论与业务变更历史分离 | 待开发 |
+## 3. 人员、抄送与流转
 
-工程输入见 [SPEC-COLLAB-20260914](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md) §6/9/10。AUTO-19 和 COLLAB-01 为 P2 必交，现有通知与事件模型不等于已实现规则编辑器或讨论协作。
+审批人员来源 USER、ROLE、MANAGER、SUPERVISOR、SELECT、FIELD、SELF。角色按有效任期解析、员工及账号必须有效；缺少有效处理人不静默跳过。
 
-### 审批、通知与 Outbox
+CC支持多个 `ccRules` 来源组，合并去重；不是只能选一个抄送人。表单权限 EDIT/READ/HIDDEN，多角色限制按隐藏优先、只读其次，计算字段只读。
 
-| 编号 | 功能 | 需求 | 现状 |
-|---|---|---|---|
-| APPR-01 | 审批实例 | 审批发起、流转、回调、幂等提交 | 已实现 |
-| APPR-02 | 自定义审批类型 | 申请人创建个人类型、复用已有表单及审批流程；管理员管理公共类型 | 已实现 |
-| APPR-03 | 审批附件 | 凭证上传、授权读取、提交冻结、保留原件、图片/PDF 预览、Office 基本编辑导出 | 已实现 |
-| APPR-04 | 审批材料归档 | 导出打印申请内容、材料清单和审批记录，提供线下签字归档栏 | 已实现 |
-| NOTI-01 | 通知投递 | 通知生成、订阅、投递、失败重试、人工处理 | 已实现 |
-| OUTBOX-01 | 事件日志 | 事件生成、投递结果可查、关键状态可审计还原 | 已实现 |
+条件支持比较、包含、非空和明细求和，组内AND/组间OR。分支按优先级/连线顺序命中，唯一默认路径；不允许图中环。退回为受控动作。转办、加签、撤回、更正、同人跳过和超时均受发布配置及当前任务校验。
 
-### 审计要求
+## 4. 回写和更正
 
-| 编号 | 功能 | 需求 | 现状 |
-|---|---|---|---|
-| AUDIT-01 | 审计日志记录 | 所有敏感数据访问/下载/导出/权限变更等动作写审计日志 | 已实现 |
+审批通过和同步结果是两个状态。回写使用重新加载的发起人权限；校验表结构及目标记录版本，普通表可CREATE，正式表更新已有业务记录。附件、人员、日期和选项按目标类型转换。
 
-## 3. 业务规则
+冲突或权限失效时保留“已通过/同步失败”，不覆盖新数据；可按允许流程重试。已通过申请更正生成关联的新申请，原单及历史只读；重审通过才写同一目标记录。SOP_REVIEW、QUALITY_ANALYSIS使用受管业务适配，保留禁止自审、材料校验及业务回写，不开放通用动作绕过。
 
-### 自动触发
+## 5. 评论提醒与协同日历
 
-自动化规则按上述场景表配置触发条件与自动动作。
+- 工作表评论支持@多个有权读取该行的用户，通知深链接到记录；收到提醒不自动获得访问权。
+- `/calendar` 提供日/周/月事件、时间、可见范围、关联表记录和成员邀请。所有者编辑/取消，成员可接受/拒绝/暂定；时间变化要求重新应答。
+- 默认提醒1天/1小时；可设至多10个提醒，范围0–28天。后台向所有者和已接受成员发送，持久化去重并支持错过扫描后的补发。
+- 站内未读通知静默轮询，不刷新正在编辑的表格和审批表单。外部飞书/钉钉消息接入不是当前交付承诺。
 
-### 审计要求
+## 6. 审计、自动化和验收
 
-必须写审计日志的动作：
+关键写入、授权、业务流转、评论、审批决定和同步结果记录审计。Outbox投递与可视化Webhook分开管理；仅运维配置的HTTPS目的地址可选，签名、超时、失败重试受服务控制。
 
-1. 登录、退出、登录失败。
-2. 导出数据。
-3. 下载录音、刑事材料、合同文件等敏感文件。
-4. 查看敏感字段。
-5. 合同作废、终止。
-6. 退款、减免。
-7. 客户合并。
-8. 权限变更。
-9. 角色授权。
-10. AI 转写和提取任务失败重试。
+验收覆盖草稿不发起、发布快照、抄送多组去重、必填定位、分支默认路径、并发决定、撤权、已通过更正、回写冲突、受管业务禁止自审、提醒去重和邀请隐私。完整边界见FTN-006；不宣称平行审批网关、手写签名或外部机器人全量兼容。
 
-审计日志字段至少包括操作人、组织、IP、User-Agent、对象类型、对象 ID、动作、前后摘要、时间。
+## 实现与回归入口
 
-## 4. 数据对象
+- [apps/server/app/domain/workflow/schema.ts](../../../LayerManage/law-firm-system/apps/server/app/domain/workflow/schema.ts)
+- [apps/server/app/application/workflow/workflow-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/workflow/workflow-service.ts)
+- [apps/server/app/application/workflow/managed-reviews.ts](../../../LayerManage/law-firm-system/apps/server/app/application/workflow/managed-reviews.ts)
+- [apps/server/app/controller/approval.ts](../../../LayerManage/law-firm-system/apps/server/app/controller/approval.ts)
+- [apps/server/app/application/calendar/calendar-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/calendar/calendar-service.ts)
+- [apps/server/app/application/collaboration/row-comments.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/row-comments.ts)
 
-核心数据对象：
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
-- `Approval`（审批实例）— 已实现
-- `Notification`（通知）— 已实现
-- `OperationLog`（操作审计日志）— 已实现
-- `EventLog`（事件日志）— 已实现
-- `AutomationRule`（自动化规则）— 待建
+- [apps/server/test/approval/visual-workflow.test.ts](../../../LayerManage/law-firm-system/apps/server/test/approval/visual-workflow.test.ts)
+- [apps/server/test/collaboration/comments-calendar.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/comments-calendar.test.ts)
+- [apps/server/test/app/calendar-api.test.ts](../../../LayerManage/law-firm-system/apps/server/test/app/calendar-api.test.ts)
 
-字段定义见 FTN-001。
+## 历史需求追溯
 
-## 5. 状态机
+历史编号保留：`AUTO-01`、`AUTO-02`、`AUTO-03`、`AUTO-04`、`AUTO-05`、`AUTO-06`、`AUTO-07`、`AUTO-08`、`AUTO-09`、`AUTO-10`、`AUTO-11`、`AUTO-12`、`AUTO-13`、`AUTO-14`、`AUTO-15`、`AUTO-16`、`AUTO-17`、`AUTO-18`、`AUTO-19`、`COLLAB-01`、`APPR-01`、`APPR-02`、`APPR-03`、`APPR-04`、`NOTI-01`、`OUTBOX-01`、`AUDIT-01`。
 
-审批实例状态见 FTN-002（审批状态机）。
-
-自动化规则无显式状态机（按场景触发执行）；规则配置的草稿/审核/发布/停用/回滚生命周期见 §6 配置验收。
-
-## 6. 验收要求
-
-- 审计覆盖：所有敏感数据访问、下载、导出、权限变更、角色授权、合同作废/终止、退款/减免、客户合并、AI 失败重试必须写审计日志，字段至少包含操作人、组织、IP、User-Agent、对象类型、对象 ID、动作、前后摘要、时间。（源自 §3.3.6 / §17.9 / §8.13 审计要求）
-- 关键状态可审计还原：线索到正式签约、正式签约到案件建档、结案到满意度和复盘三条主链路的关键状态变化均能在 EventLog 中查询到事件、在 EventDelivery 中查询到投递结果。（源自 §14.2.8）
-- 事件验收：事件生成、订阅、投递、失败重试、幂等消费、人工处理必须可验证。（源自 §14.1.7）
-- 回调验收：审批同意、任务完成、AI 结果确认等同步回调必须校验权限、状态和重复提交。（源自 §14.1.8）
-- 配置验收：动态字段、模板、字典、SOP 和自动化规则必须验证草稿、审核、发布、停用、回滚和历史版本读取。（源自 §14.1.9）
-- 幂等验收：重复提交合同生效、重复确认收款、重复处理审批任务时，系统应通过幂等机制避免重复生成应收、案件、通知或统计。（源自 §14.2.9）
-
-## 7. 追溯
-- 增量规格：[SPEC-APPR-20260911](../../superpowers/specs/2026-09-11-approval-materials.md)（已实现，见规格中的格式及编辑边界）。
-- 专项设计: docs/专项设计/审计日志与自动化规则设计.md、docs/专项设计/审批实例任务与消息回调设计.md
-- 落地 SPEC: SPEC-007（审批/通知/outbox 部分；自动化规则引擎未覆盖）
-- 主要代码: apps/server/app/controller/approval.ts、apps/server/app/controller/notification.ts，model Approval/Notification/OperationLog/EventLog
-- 测试: 无（自动化规则引擎待立项；审批/通知相关测试随 SPEC-007 落地）
-
-<!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->
-
-### 2026-09-11 财务、审批与工资表联动
-
-本模块增量契约及验证参见 [SPEC-FIN-APPR-PAYROLL-20260911](../../superpowers/specs/2026-09-11-finance-approval-payroll.md) 和 [实施记录](../../superpowers/plans/2026-09-11-finance-approval-payroll.md)。团队分类支持中文；财务按案件编号关联；最终通过审批幂等写入对应业务台账；工资文件按版本保存并提交审批，权限和历史保留见增量契约。
-
-
-### 全站统一迁移（U0/U1，2026-09-15）
-
-审批中心、审批台账、通知进入工作台；原状态机、处理权限和通知链接不变。U6 继续统一待办与业务记录联动。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。
-
-
-### U6-C 通知与审批定位
-通知保留当前账号隔离，分页≤100；列表、未读及失败重试进入统一框架。APPROVAL_INSTANCE、ADMIN_OPERATION关联使用原始ID打开已授权站内审批/治理详情，目标接口仍核验记录权限。台账链接回原审批办理；审批通过不等于款项支付。详情周期校验读取可见性，失败清除内容与动作草稿，保留显式重新加载；动作版本不随背景校验静默前移。
+[对齐前原文](../history/2026-11-06-before-alignment/modules/MOD-013-automation-notification-approval-audit.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。

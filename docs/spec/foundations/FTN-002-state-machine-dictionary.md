@@ -1,94 +1,63 @@
 ---
 id: FTN-002
-title: 状态机与业务字典
-source: PRD §10
-status: draft
-implements:
-design_refs: [docs/专项设计/状态机与业务字典设计.md]
-last_updated: 2026-07-28
+title: 状态、字典与只读投影
+type: foundation
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# FTN-002 状态机与业务字典
+# FTN-002 状态、字典与只读投影
 
-## 1. 契约概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-源 PRD §10 状态机要求。本契约定义承业 OA 系统中所有具有状态流转的业务对象的状态定义、状态机规则及业务字典编码约束，作为各业务模块「状态机」段的统一引用源。状态机不独立成业务 SPEC，散落在各业务 SPEC 内落地，本契约仅提供横切的契约定义与规则边界。
+## 1. 状态不是显示文本
 
-## 2. 契约定义
+数据库代码、中文标签、动作权限和合法转换分别定义。只有服务允许的动作能改变业务状态，不能通过表格把状态字段改成任意中文值。字符串状态字段不代表无枚举约束，Prisma也不是唯一状态规则来源。
 
-源 PRD §10 状态机要求。
+## 2. 当前关键状态
 
-| 对象 | 状态 |
+| 对象 | 状态/流转口径 |
 |---|---|
-| Lead | 新线索、已分配、已联系、已初筛、已邀约、已到访、已首签、未成交、二次营销、已转客户 |
-| Appointment | 待确认、已确认、已到访、爽约、取消、改期 |
-| Negotiation | 待谈案、谈案中、待首签、已首签、未签、待复盘 |
-| Contract | 草稿、审批中、待签署、已签署、生效中、已终止、已作废 |
-| PaymentPlan | 待收、部分收款、已收清、逾期、已取消 |
-| Payment | 待确认、已确认、已冲销、已退款 |
-| AnalysisEngagement | 待材料、材料收集中、待分析、分析中、待目标对齐、已完成、已终止 |
-| MatterAnalysisReport | 草稿、待审核、需修改、已通过、已归档 |
-| Matter | 待建档、在办、暂停、结案、归档 |
-| MatterTask | 待办、处理中、待审核、已完成、已取消、逾期 |
-| AudioRecording | 已登记、上传中、已上传、转写中、转写完成、提取完成、人工确认、失败 |
-| SatisfactionSurvey | 待发送、已发送、已回收、低满意度分析中、已关闭 |
-| EventDelivery | 待投递、投递中、已成功、待重试、已失败、人工处理 |
-| ApprovalInstance | 草稿、审批中、已通过、已拒绝、已撤回、已取消 |
-| ApprovalTask | 待处理、已同意、已拒绝、已转交、已超时、已取消 |
-| Notification | 待发送、已发送、发送失败、已读、已处理 |
-| CallbackAction | 待响应、已响应、响应失败、已转异步处理 |
-| ConfigVersion | 草稿、待审核、已发布、已停用、已归档、已回滚 |
-| AdminOperationReview | 待审核、已通过、已拒绝、待复核、已复核、已撤销 |
-| DataInterventionRequest | 草稿、待审核、已通过、执行中、已完成、执行失败、已回滚 |
+| 账号 | ENABLED、DISABLED、DELETED；删除前需禁用并保护初始化信任根 |
+| 线索 | NEW/ASSIGNED/CONTACTED/SCREENED/INVITED/VISITED/CONVERTED/LOST/NURTURE |
+| 线索池 | PUBLIC/PRIVATE/RECYCLED，与线索业务状态正交 |
+| 邀约 | PENDING/CONFIRMED/VISITED/NOSHOW/CANCELLED/RESCHEDULED |
+| 合同 | DRAFT→PENDING_APPROVAL→PENDING_SIGN→SIGNED→EFFECTIVE；驳回回DRAFT，指定状态可VOID或TERMINATED；类型决定审批/应收差异 |
+| 开票 | PENDING→APPROVED→COMPLETED，PENDING可REJECTED |
+| 退费 | PENDING→APPROVED→EXECUTED，PENDING可REJECTED；通过不等于已打款 |
+| 可视化申请 | PENDING、APPROVED、REJECTED、WITHDRAWN；同步状态独立记录 |
+| 审批任务 | PENDING/WAITING/APPROVED/AUTO_APPROVED/REJECTED/RETURNED/FORWARDED/SKIPPED/CANCELLED及CC等执行标记，不能当成实例状态 |
+| 普通记录/表 | archived等生命周期标记与正式业务状态分离 |
 
-## 3. 规则与边界
+## 3. 字段与业务操作边界
 
-源 PRD §10 状态机规则：
+合同状态、已收金额、库存、评分/奖金、审批关联、创建/修改人时间等由来源服务维护。表格显示一个字段不保证可直接编辑；接口capabilities和业务可写白名单共同决定。
 
-1. 状态流转必须通过服务方法完成，记录操作人、时间、前状态、后状态和原因。
-2. 禁止前端直接提交任意目标状态。
-3. 作废、终止、退款、客户合并、合同删除等高风险动作必须走审批或二次确认。
-4. 所有枚举字典必须有编码、名称、排序、启用状态和适用范围。
-5. 配置、管理员审核和数据干预必须使用独立状态机，禁止通过通用编辑接口绕过审核直接生效。
+案件合同显示号为全库序列，正式合同编号为合同编号服务结果；两者不能互换。售后/退费“是否解除合同”当前为只读空值占位，等待规则，不按合同VOID/TERMINATED自动推导。未确定提成公式同样不得填假结果。
 
-## 4. 被引用模块
+## 4. 字典边界
 
-以下业务模块的「状态机」段引用本契约（凡涉及状态流转的对象均依赖本契约的状态定义与规则）：
-
-- MOD-004 线索销转（Lead / Appointment / Negotiation 状态流转）
-- MOD-006 合同财务（Contract / PaymentPlan / Payment 状态流转）
-- MOD-008 案件交付与质控（Matter / MatterTask / MatterAnalysisReport / AnalysisEngagement 状态流转）
-- MOD-002 系统配置中心（ConfigVersion / AdminOperationReview / DataInterventionRequest 独立状态机）
-- MOD-013 自动化、通知、审批与审计（EventDelivery / ApprovalInstance / ApprovalTask / Notification / CallbackAction 状态流转）
-- MOD-009 满意度、复购与转介绍（SatisfactionSurvey 状态流转）
-- MOD-010 AI、录音与文件（AudioRecording 状态流转）
+标准字段选项存在模板代码中，生成附录保留选项ID/名称和日期精度。普通表配置、审批表单选项、案件intake字典各有独立校验，不构成统一全局字典热发布系统。行政收发文的现有字段映射在MOD-011明确保留。
 
 ## 5. 验收要求
 
-源 PRD §14 中与本契约相关的状态机验收条目：
+非法跨状态操作拒绝、终态保护、并发重复提交、审批通过但同步失败、退款实际执行与申请状态分别验证。自定义视图隐藏状态列不改变业务状态；改标签不改变数据库代码。只读投影不允许经API写回。
 
-1. §14.1 通用验收要求-状态机验收：允许流转、禁止流转、撤销/作废、异常提示。
-2. §14.1 通用验收要求-页面验收：列表、筛选、详情、新增、编辑、状态流转、空状态、错误状态。
-3. §14.1 通用验收要求-接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。
-4. §3.3.6 闭环验收：所有关键状态变化均可从业务对象、事件日志、审批任务和审计日志还原完整过程。
-5. §14.2 端到端验收链路：上述链路的关键状态变化均能在 EventLog 中查询到事件，在 EventDelivery 中查询到投递结果。
-6. §14.2 端到端验收链路：重复提交合同生效、重复确认收款、重复处理审批任务时，系统应通过幂等机制避免重复生成应收、案件、通知或统计。
-7. §14.2 端到端验收链路：系统管理员发起合同/收款/案件状态干预后，系统在超级管理员审核通过前不得修改业务数据；通过后保留前后快照和完整审计链路。
+## 实现与回归入口
 
-## 6. 追溯
-- 专项设计: docs/专项设计/状态机与业务字典设计.md
-- 落地 SPEC: 待立项（状态机散落在各业务 SPEC 内落地，无独立状态机 SPEC）
-- 主要代码: 无（状态机编码散落在各业务模块应用服务与领域服务内）
-- 测试: 无
+- [apps/server/app/domain/contract/contract-policy.ts](../../../LayerManage/law-firm-system/apps/server/app/domain/contract/contract-policy.ts)
+- [apps/server/app/domain/finance/finance-policy.ts](../../../LayerManage/law-firm-system/apps/server/app/domain/finance/finance-policy.ts)
+- [apps/server/app/domain/crm/lead-policy.ts](../../../LayerManage/law-firm-system/apps/server/app/domain/crm/lead-policy.ts)
+- [apps/server/app/domain/workflow/schema.ts](../../../LayerManage/law-firm-system/apps/server/app/domain/workflow/schema.ts)
+- [apps/server/app/application/collaboration/lifecycle-worksheet.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/lifecycle-worksheet.ts)
 
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
-### SOP/质检规划记录（2026-09-16，实施现状见下）
+- [apps/server/test/crm/lead-policy.test.ts](../../../LayerManage/law-firm-system/apps/server/test/crm/lead-policy.test.ts)
+- [apps/server/test/collaboration/lifecycle-worksheet.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/lifecycle-worksheet.test.ts)
+- [apps/server/test/approval/visual-workflow.test.ts](../../../LayerManage/law-firm-system/apps/server/test/approval/visual-workflow.test.ts)
 
-模板、实例、节点、提交审核、问题单与专项分析各独立状态；逾期为计算标记，资料默认不强制，自审/旧回调/取消后推进被拒绝。质检不自动改变Case生命周期。编码与动作约束见增量规格§7，尚未实施。 [SPEC-SOP-QC-20260916](../../superpowers/specs/2026-09-16-sop-quality-control.md)。
+## 历史需求追溯
 
-
-### SOP/质检实施现状（2026-09-17）
-
-SQ1–SQ6状态与受控动作已实现。物理CaseTask初始状态为PENDING（规格逻辑NOT_STARTED），审批退回为CHANGES_REQUESTED；实例ACTIVE/PAUSED/COMPLETED/CANCELLED，终态与原结案分离。提交版本不可覆盖，原审批同步失败不虚假完成；问题OPEN/IN_PROGRESS/PENDING_VERIFY/CLOSED/CANCELLED，专项OPEN/ANALYZING/PENDING_CLOSE/CLOSED。前期接续只保存关系，不移动来源、不代填状态。
-
-实现与验证见[SQ阶段计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)及[验收追溯](../../superpowers/reports/2026-09-17-sop-quality-acceptance.md)。SQ7最终运行结果以验收记录为准。
+[对齐前原文](../history/2026-11-06-before-alignment/foundations/FTN-002-state-machine-dictionary.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。

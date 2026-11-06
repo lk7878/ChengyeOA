@@ -1,3 +1,5 @@
+> 历史接口说明：当前以 [统一API入口](../../../docs/API_SPEC.md) 及其现行清单/契约为准；下列旧审批、角色或字段说明不覆盖2026-11-06的实现。
+
 # Server API Baseline
 
 ## Runtime Contract

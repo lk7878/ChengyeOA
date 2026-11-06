@@ -6,7 +6,13 @@
 - npm
 - Docker with PostgreSQL 16
 
-## Local Baseline
+## 当前开发说明（2026-11-06）
+
+当前功能、权限和字段见 [CURRENT_SPEC](CURRENT_SPEC.md)。已有项目使用现有环境启动：在应用根分别运行 `npm.cmd run dev:server`、`npm.cmd run dev:web`；需要时启动已配置PostgreSQL。前端默认3000，代理后端7001。Node要求>=22.14且<23，以package.json为准。
+
+下面bootstrap/空库步骤只适用于新的未初始化环境，不适用于日常人工测试启动。测试重置只操作隔离_test数据库。生产部署、桌面安装和外部服务另需验收。
+
+## New Empty Environment Baseline
 
 ```powershell
 Copy-Item apps\server\.env.example apps\server\.env

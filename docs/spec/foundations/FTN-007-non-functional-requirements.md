@@ -1,94 +1,58 @@
 ---
 id: FTN-007
-title: 非功能需求
-source: PRD §13
-status: draft
-implements: SEC-SPEC-001, SPEC-006
-design_refs:
-last_updated: 2026-09-14
+title: 运行、安全、交互与验证边界
+type: foundation
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# FTN-007 非功能需求
+# FTN-007 运行、安全、交互与验证边界
 
-## 1. 契约概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-源 PRD §13 非功能需求。本契约定义承业 OA 系统在可用性、性能、并发、数据安全、备份恢复、可维护性、配置安全、可观测性、可扩展性、合规性等横切维度上的目标与边界，作为所有业务模块和工程 SPEC 共用的非功能基线。非功能需求为全局横切约束，部分安全/身份相关条目已由 SEC-SPEC-001（依赖安全）与 SPEC-006（身份与 MFA）落地，其余条目散落在后续 SPEC 中逐步覆盖。
+## 1. 技术与运行基线
 
-## 2. 契约定义
+应用根为LayerManage/law-firm-system；Node要求>=22.14且<23，后端Egg/TypeScript、Prisma5/PostgreSQL16，前端React/TypeScript/Vite/Ant Design，具体依赖版本以各package及lockfile为准。不要把显示版本、package版本和Git提交号混为发布标识。
 
-源 PRD §13 非功能需求全量条目：
+本地前端惯用3000、后端7001；PostgreSQL端口由compose/环境配置决定，不写死开发者口令。已有环境仅启动依赖及服务，不重新bootstrap或清空数据。测试数据库必须与业务库隔离，重置要求_test目标和显式guard。
 
-| 类别 | 目标 |
-|---|---|
-| 可用性 | 工作时间内稳定可用，关键数据写入失败要有明确错误提示和重试入口 |
-| 性能 | 常用列表 2 秒内返回，驾驶舱统计可异步预计算，大文件上传不阻塞主请求 |
-| 并发 | 支持 100 名内部用户并发在线的设计余量 |
-| 数据安全 | 敏感字段脱敏展示，导出、下载、查看敏感数据均审计 |
-| 备份恢复 | PostgreSQL 每日备份，上传文件和数据库备份策略同步设计 |
-| 恢复目标 | 核心数据库设计目标 RPO 不超过 1 小时、RTO 不超过 4 小时；文件恢复策略与数据库一致 |
-| 可维护性 | 每个业务域有清晰 service，状态机、字典、权限资源集中管理 |
-| 配置安全 | 已发布配置可追踪版本、审核、影响范围并支持回滚；禁止配置中心直接修改数据库物理结构 |
-| 可观测性 | API 请求日志、错误日志、慢查询、事件投递失败、AI 调用失败、定时任务失败可追踪 |
-| 可扩展性 | 分所、专业团队、案件类型、AI 供应商、文件存储可配置扩展 |
-| 合规性 | 客户隐私、录音、刑事材料、合同金额、身份证件按敏感数据处理 |
+## 2. 安全与一致性
 
-### 多维协作验收负载（2026-09-14，待验证）
+认证会话、凭证版本、失效/撤销、MFA及step-up维持服务端约束。LOCAL_PASSWORD_LOGIN只允许受约束本地开发，不等于生产免MFA。任何文档不记录真实口令、连接串凭据、签名密钥、验证码或恢复材料。
 
-[SPEC-COLLAB-20260914](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md) §10.1 规定可复现的验收环境、数据规模和延迟口径：100 人在线，10 张表，最大表 10,000 记录/50 字段，20 人每 5 秒一次读写持续 15 分钟，并含筛选分组和多类权限。记录硬件、网络和索引，不能以空库单账号结果代替。
+字段脱敏、资源隐藏、范围过滤、附件鉴权和审计适用于API、表格、导出、图表、评论和审批回写。前端隐藏菜单不能代替后端授权。
 
-常用查询和普通保存 P95≤2秒，提交成功至另一有权客户端可见 P95≤2秒，重连恢复 P95≤5秒；撤权后的访问立即拒绝，在线显示与订阅清理≤5秒。错误和冲突单列，不静默排除。上述为工程目标，未通过实测。
+## 3. 编辑体验与个人偏好
 
-服务端分页、筛选、排序与分组，前端虚拟化；异步导入导出、大附件上传不阻塞网格。验证 1440/1024/390px 布局、中文输入法、键盘、焦点与错误状态。配置备份覆盖所有元数据/记录/关系/历史，附件一致恢复；既有 RPO/RTO 保持。普通视图版本留痕无需进入系统级审批，治理审核只适用于风险范围内的配置。
+表格双击编辑有保存/取消，刷新不覆盖活动输入。共享弹窗基础能力、错误定位、加载/失败状态按当前组件实现，不承诺外部浏览器所有对话框均可拖动。
 
-验收对应 AC-10/15，同时覆盖新增表格结构和协作流的故障、权限撤销与观测指标。
+外观设置按账号保存：字号标准14/大16/特大18，背景默认/米色/绿色，行高紧凑32/标准40/舒适64并结合字号调整。先预览/暂存，保存才持久化；取消不改变已保存偏好，恢复默认仍需保存。切换外观不能重挂业务表单导致输入丢失，也不修改共享视图布局。
 
-## 3. 规则与边界
+## 4. 资源上限与性能证据
 
-非功能需求规则与边界（源 PRD §13）：
+分析最多30组件、每来源/关联展开最多10,000行；普通查询分页与批量粘贴另有上限。超限返回明确错误，不静默截断统计。历史局部负载报告只适用于当时场景，不据此宣称本版本全站承载或生产SLA。
 
-1. 上述条目为系统全局横切约束，对所有 MOD 模块生效，不按模块单独裁剪。
-2. 硬性设计目标：核心数据库 RPO 不超过 1 小时、RTO 不超过 4 小时；常用列表 2 秒内返回。
-3. 设计余量目标：支持 100 名内部用户并发在线，为余量而非峰值上限。
-4. 数据安全与合规性条目对客户隐私、录音、刑事材料、合同金额、身份证件按敏感数据处理，脱敏展示且导出/下载/查看均审计。
-5. 配置安全边界：已发布配置须可追踪版本、适用的审核、影响范围并支持回滚；禁止配置中心直接修改数据库物理结构。
-6. 可维护性要求每个业务域有清晰 service，状态机、字典、权限资源集中管理，避免散落实现。
-7. 可观测性要求 API 请求日志、错误日志、慢查询、事件投递失败、AI 调用失败、定时任务失败可追踪。
+## 5. 验证与发布
 
-## 4. 被引用模块
+用户已确认当前功能人工测试完成。本次变更只对齐文档，验证链接、源码清单、差异及机密泄漏；不伪造全量自动化重跑结果。代码变更时按影响范围执行lint/typecheck/单测/构建和项目verify要求。
 
-非功能需求横切全局，以下所有业务模块均需遵循本契约：
+生产云端部署、跨机器数据恢复、独立Windows安装和自动更新、第三方AI/消息服务仍需各自环境证据。本地网页可启动、单测通过或用户人工验收不能替代这些发布门禁。
 
-- MOD-001 组织权限模块
-- MOD-002 系统配置中心
-- MOD-003 品牌运营与获客
-- MOD-004 线索销转
-- MOD-005 客户主数据
-- MOD-006 合同财务
-- MOD-007 专业团队与分析报告
-- MOD-008 案件交付与质控
-- MOD-009 满意度、复购与转介绍
-- MOD-010 AI、录音与文件
-- MOD-011 组织人事
-- MOD-012 管理驾驶舱
-- MOD-013 自动化、通知、审批与审计
+## 实现与回归入口
 
-## 5. 验收要求
+- [package.json](../../../LayerManage/law-firm-system/package.json)
+- [apps/server/config/config.default.ts](../../../LayerManage/law-firm-system/apps/server/config/config.default.ts)
+- [apps/server/config/env.ts](../../../LayerManage/law-firm-system/apps/server/config/env.ts)
+- [apps/web/src/features/appearance/AppearanceProvider.tsx](../../../LayerManage/law-firm-system/apps/web/src/features/appearance/AppearanceProvider.tsx)
+- [apps/server/app/application/collaboration/analytics-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/analytics-service.ts)
 
-源 PRD §14.1 通用验收要求中与本契约非功能维度相关的条目：
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
-1. 接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。
-2. 权限验收：总所、分所、专业团队、个人四类数据范围至少各测一组。
-3. 事务验收：合同生效、收款确认、客户合并、低满意度触发必须验证一致性。
-4. 配置验收：适用治理的动态字段、模板、字典、SOP 和自动化规则必须验证草稿、审核、发布、停用、回滚和历史版本读取。
-5. 管理员治理验收：高风险操作审核前不得生效；低风险操作生效后进入复核；管理员不得自审或给本人提权。
+- [apps/server/test/auth/session-service.test.ts](../../../LayerManage/law-firm-system/apps/server/test/auth/session-service.test.ts)
+- [apps/web/src/features/workspaces/GridCell.test.tsx](../../../LayerManage/law-firm-system/apps/web/src/features/workspaces/GridCell.test.tsx)
+- [apps/web/src/pages/AnalyticsDesigner/AnalyticsDesigner.test.tsx](../../../LayerManage/law-firm-system/apps/web/src/pages/AnalyticsDesigner/AnalyticsDesigner.test.tsx)
 
-源 PRD §14.2 端到端验收链路中与本契约相关：
+## 历史需求追溯
 
-- 重复提交合同生效、重复确认收款、重复处理审批任务时，系统应通过幂等机制避免重复生成应收、案件、通知或统计。
-- 系统管理员发起合同/收款/案件状态干预后，系统在超级管理员审核通过前不得修改业务数据；通过后保留前后快照和完整审计链路。
-
-## 6. 追溯
-- 专项设计: 无
-- 落地 SPEC: SEC-SPEC-001, SPEC-006（安全/身份相关）；其余非功能条目散落于后续 SPEC
-- 主要代码: apps/server/app/**, apps/server/app/middleware/**, apps/web/**
-- 测试: 无
+[对齐前原文](../history/2026-11-06-before-alignment/foundations/FTN-007-non-functional-requirements.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。

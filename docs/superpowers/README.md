@@ -1,10 +1,12 @@
 # Superpowers Engineering Records
 
-This directory holds the approved engineering decisions and operator records for Chengye OA.
+This directory holds historical engineering decisions and operator records for Chengye OA.
+
+> 2026-11-06：当前实现以 [Spec总纲](../spec/README.md)、[追溯矩阵](../spec/TRACE.md)及 [差异清单](../spec/CHANGES-2026-11-06.md) 为准。下列是分阶段历史工程记录；其中待实施状态、旧审批模式与早期数据模型不覆盖当前已开发成果。已完成报告不改写其验收日期和结论。
 
 | Area | Authoritative record |
 | --- | --- |
-| 飞书式多维协作工作区（规格已建立，待实施） | [SPEC-COLLAB-20260914](specs/2026-09-14-feishu-aligned-collaborative-workspace.md) |
+| 飞书式多维协作工作区（早期设计；现状见当前Spec） | [SPEC-COLLAB-20260914](specs/2026-09-14-feishu-aligned-collaborative-workspace.md) |
 | 云端服务与 Windows 客户端部署规格（文档已完善，部署待实施） | [SPEC-DEPLOY-20260914](specs/2026-09-14-production-deployment.md) |
 | 部署分阶段计划及验收 | [P0～P3 部署计划](plans/2026-09-14-production-deployment.md) |
 | Implemented baseline | `specs/2026-07-12-engineering-baseline-postgresql-migration-design.md` |

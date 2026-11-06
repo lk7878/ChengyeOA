@@ -1,105 +1,71 @@
 ---
 id: MOD-006
-title: 合同财务模块
-source: PRD §8.6
-status: draft
-implements: SPEC-010（设计已批准 2026-07-30，待实施；覆盖 CON-01~07 + FIN-01，FIN-02~05 下推 SPEC-011）
-design_refs: [docs/superpowers/specs/2026-07-30-negotiation-contract-payment-design.md]
-last_updated: 2026-07-30
+title: 谈案、合同与财务
+type: module
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# MOD-006 合同财务模块
+# MOD-006 谈案、合同与财务
 
-## 1. 需求概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-合同财务模块负责合同对象全生命周期与配套财务流转，以「合同类型」为基础组织合同模板、编号、审批、签署与作废/终止记录，并在合同生效后驱动应收计划、收款确认、开票、退款/减免与成本记录，为线索、客户、案件与经营统计提供资金侧的事实来源。
+## 1. 正式来源与入口
 
-系统必须将以下合同作为独立合同对象管理（合同类型）：
+谈案 NEGOTIATIONS、合同 CONTRACTS、收款 PAYMENTS、开票 INVOICES、退费 REFUNDS、成本 COSTS 均有正式来源适配。业务工作区直接显示授权正式记录，进入对应工作表仍读取同一记录；表名不同不代表需要手动复制。
 
-1. 首签/证据收集合同。
-2. 正式委托合同。
-3. 补充协议。
-4. 风险告知书和费用结构说明。
+## 2. 谈案与合同
 
-## 2. 功能清单
-| 编号 | 功能 | 需求 | 现状 |
-|---|---|---|---|
-| CON-01 | 合同模板 | 首签/证据收集合同、正式委托合同分别维护模板 | SPEC-010 立项（设计已批准） |
-| CON-02 | 编号规则 | 支持合同类型、分所、专业团队、年份、流水号 | SPEC-010 立项（设计已批准） |
-| CON-03 | 合同创建 | 从客户、谈案、分析委托或案件创建合同 | SPEC-010 立项（设计已批准） |
-| CON-04 | 合同审批 | 两类合同分别配置审批流 | SPEC-010 立项（内嵌单步审批；完整审批中心下推 MOD-013） |
-| CON-05 | 电子签入口 | 预留签署链接、签署流水号、签署状态、回调字段 | SPEC-010 立项（仅预留字段，不对接） |
-| CON-06 | 合同状态 | 管理草稿、审批中、待签署、已签署、生效中、已终止、已作废 | SPEC-010 立项（设计已批准） |
-| CON-07 | 应收计划 | 合同生效后生成应收计划 | SPEC-010 立项（设计已批准） |
-| FIN-01 | 收款确认 | 财务确认到账后更新应收、合同、客户、案件统计 | SPEC-010 立项（设计已批准） |
-| FIN-02 | 开票申请 | 支持开票申请、审核、开票状态 | 待补SPEC（SPEC-011） |
-| FIN-03 | 退款/减免 | 支持退款、减免申请和审批 | 待补SPEC（SPEC-011） |
-| FIN-04 | 成本记录 | 记录渠道成本、证据收集成本、办案成本、人工成本、办公成本 | 待补SPEC（SPEC-011） |
-| FIN-05 | 异常数据 | 展示已签未收、已收未开票、首签未二签、收款未建案 | 待补SPEC（SPEC-011） |
+| 功能 | 当前规则 |
+|---|---|
+| 谈案保存 | 修改谈案人、报价、客户顾虑、竞对和备注等允许字段；字段必填/有效人员由服务校验 |
+| 谈案完结 | 更新原谈案结果及关联业务，不以在普通数据表新添一行为完结证据 |
+| 合同创建 | 客户、合同类型、组织/团队及金额走正式创建服务，创建人身份按用户ID持久化 |
+| 网格编辑 | 合同直接编辑 title、amount，仍受更新权限、记录范围和状态限制 |
+| 合同删除 | 行删除调用领域规则；已流转及被引用记录不能被通用删行绕过 |
+| 合同编号 | 业务编号服务生成类型/分所/团队/年度序列；与案件展示“合同ID”不同 |
 
-## 3. 业务规则
+合同类型 FIRST_SIGN、FORMAL、SUPPLEMENT、RISK_NOTICE。前三类要求审批并可产生应收，风险告知不产生应收、签署即事实终态。主状态 DRAFT → PENDING_APPROVAL → PENDING_SIGN → SIGNED → EFFECTIVE；驳回回草稿；终止/作废仅允许规定来源状态。合同领域审批动作与通用可视化申请不能混同。
 
-1. 首签/证据收集合同与正式委托合同必须有独立编号、状态、审批、收款计划和作废/终止记录。
-2. 合同生效必须生成应收计划。
-3. 收款确认必须由财务角色或具备收款确认权限的用户执行。
-4. 合同作废、退款、减免必须审计。
-5. 本 PRD 不做分账、提成和自动结算。
+## 3. 收款、开票、退费和成本
 
-## 4. 数据对象
+- 收款登记、确认及其金额投影是合同已收/待收和案件财务展示的来源；未经确认的金额不能计作确认回款。
+- 开票申请 PENDING → APPROVED → COMPLETED，驳回进入 REJECTED。终态不能通过普通编辑重开。
+- 退款申请 PENDING → APPROVED → EXECUTED，驳回进入 REJECTED；“审批通过”与“实际退费已执行”不同。实际金额、日期及凭证由执行业务维护。
+- 售后/退费模板可关联正式 RefundRequest；按 sourceRecordId 定位，避免重复点击生成重复申请。回写到案件、售后、退费表时遵循来源关系和版本。
+- 财务高风险操作保留动作授权及 step-up 身份校验；本地登录便利模式不代表全部退款确认免验证码。
+- 成本按类别要求关联锚点：渠道成本需要渠道；取证/办案成本需要案件；人工/办公成本不接受案件/渠道锚点；报销类别有独立约束。
+- 工资批次及审批与绩效另有服务，不能用普通表格编辑替代正式工资审批。
 
-核心数据对象：`Contract`、`Payment`。
+## 4. 权限与异常
 
-字段定义见 FTN-001。
+合同/谈案组织为空的历史或直接创建记录，可通过创建人组织解析所属范围；SELF/下属范围须把员工映射到用户，不再把两种ID相互比较。发起人有创建权不自动意味着对其他分所全部记录有读权。关联客户、财务记录、表资源和字段权限仍分别校验。
 
-合同编号规则：按合同类型、分所、专业团队、年份、流水号编排（见 CON-02、§8.6 功能清单）。
+金额采用数据库 Decimal 及领域金额转换，不能用界面浮点汇总替代财务真值。保存失败保留输入并展示具体原因；成功创建后详情404需检查范围解析，不通过放宽到全所解决。
 
-## 5. 状态机
+## 5. 验收要求
 
-合同按合同类型独立维护编号、状态、审批、收款计划和作废/终止记录（见 §3 业务规则 1）。
+同范围普通账号和超管创建/读取合同结果一致；表格修改名称/金额、取消编辑、行删除保护分别检查。完整客户→谈案→合同→案件→售后→退费链路保留关联ID；退费申请、审批、执行的金额及状态分别核对，重复请求不产生重复付款记录。
 
-合同状态集合（CON-06）：草稿、审批中、待签署、已签署、生效中、已终止、已作废。
+## 实现与回归入口
 
-收款状态由 `Payment`/`PaymentPlan` 与合同收款状态联动（见 FIN-01、§12.2 收款确认事务）。
+- [apps/server/app/application/contract/contract-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/contract/contract-service.ts)
+- [apps/server/app/application/contract/negotiation-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/contract/negotiation-service.ts)
+- [apps/server/app/application/contract/contract-scope.ts](../../../LayerManage/law-firm-system/apps/server/app/application/contract/contract-scope.ts)
+- [apps/server/app/domain/contract/contract-policy.ts](../../../LayerManage/law-firm-system/apps/server/app/domain/contract/contract-policy.ts)
+- [apps/server/app/domain/finance/finance-policy.ts](../../../LayerManage/law-firm-system/apps/server/app/domain/finance/finance-policy.ts)
+- [apps/server/app/application/finance/worksheet-finance.ts](../../../LayerManage/law-firm-system/apps/server/app/application/finance/worksheet-finance.ts)
+- [apps/server/app/application/finance/refund-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/finance/refund-service.ts)
 
-具体状态机定义见 FTN-002。
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
-## 6. 验收要求
+- [apps/server/test/collaboration/financial-workspace.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/financial-workspace.test.ts)
+- [apps/server/test/collaboration/new-account-business.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/new-account-business.test.ts)
+- [apps/server/test/finance/refund-step-up.test.ts](../../../LayerManage/law-firm-system/apps/server/test/finance/refund-step-up.test.ts)
 
-- 独立合同闭环：首签/证据收集合同和正式委托合同可独立审批、签署、收款、终止和审计。（源自 §3.3）
-- 强一致性：合同、收款、客户、案件主链路必须强一致。（源自 §17.7、§12.3.1）
-- 事务验收：合同生效、收款确认必须验证一致性。首签合同生效时合同状态、应收计划、材料任务、分析委托同事务；正式委托合同生效时合同状态、应收计划、案件建档、风险告知同事务；收款确认时 Payment、PaymentPlan、Contract 收款状态同事务，统计可异步。（源自 §14.1.5、§12.2）
-- 幂等验收：重复提交合同生效、重复确认收款时，系统应通过幂等机制避免重复生成应收或统计。（源自 §14.2.9）
-- 主数据验收：合同、收款必须验证唯一数据源，消费模块不得绕过本模块直接修改。（源自 §14.1.11）
-- 接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。（源自 §14.1.2）
+## 历史需求追溯
 
-## 7. 追溯
-- 专项设计: docs/superpowers/specs/2026-07-30-negotiation-contract-payment-design.md（SPEC-010 设计，已批准 2026-07-30）
-- 落地 SPEC: SPEC-010（设计已批准，待实施；覆盖 CON-01~07 + FIN-01；FIN-02~05 下推 SPEC-011）
-- 主要代码: apps/server/app/controller/contract.ts、apps/server/app/controller/payment.ts（原型代码，未 SPEC 验证，SPEC-010 整体重建）
-- 测试: 无
+历史编号保留：`CON-01`、`CON-02`、`CON-03`、`CON-04`、`CON-05`、`CON-06`、`CON-07`、`FIN-01`、`FIN-02`、`FIN-03`、`FIN-04`、`FIN-05`。
 
-<!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->
-
-### 2026-09-11 财务、审批与工资表联动
-
-本模块增量契约及验证参见 [SPEC-FIN-APPR-PAYROLL-20260911](../../superpowers/specs/2026-09-11-finance-approval-payroll.md) 和 [实施记录](../../superpowers/plans/2026-09-11-finance-approval-payroll.md)。团队分类支持中文；财务按案件编号关联；最终通过审批幂等写入对应业务台账；工资文件按版本保存并提交审批，权限和历史保留见增量契约。
-
-
-### 全站统一迁移（U0/U1，2026-09-15）
-
-谈案/合同进入签约交付，收款/开票/退款/成本进入财务运营。旧 URL、caseNo 查询、金额、审批和状态机保持，业务深度整合由 U5/U6 完成。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。
-
-
-### U5-A 谈案与合同共同工作表（2026-09-15）
-
-/negotiations、/contracts 接入正式 NEGOTIATIONS/CONTRACTS 来源；金额以 Decimal 字符串投影并在数据库数值筛选/排序。统一记录可定位原业务详情和状态机，谈案新建/完结及合同提交后回到同源行；扩展字段不写核心条款。谈案人员/组织选项限定于所选授权工作区；合同详情无 payment.read 时不请求和呈现财务明细。原签署、生效、审批等领域事务保持。范围与合同扩展授权映射见[U5–U7 契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)；财务台账整合继续 U6，不能据此计为完成。
-
-### U6-A 财务工作表整合（实施与验收中）
-
-/payments、/invoices、/refunds、/costs 使用共同数据目录、视图栏、字段设置与记录抽屉；/new 和 /:id 提供独立财务表单与办理，/finance 保留按案件编号解析正式合同。案件上下文只与当前查询过滤器做 AND，不写入个人/共享视图。金额输入、粘贴、分组和余额计算保持十进制精度；退款审批继续验证码与单据版本绑定。旧完整列表代码待 U7 在覆盖后清理，当前已移出有效路由。阶段证据、权限改动和未覆盖范围见 [连续开发契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md) 与 [计划第 10 节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。
-
-
-2026-09-16 U6-A 财务子阶段验收完成：四来源共同表格、独立受控办理、真实单据创建人范围与持久请求重试均通过真实 App 冒烟和相关回归；开发库增量部署及有条件100会话900秒验证结果见[计划第10节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。渠道候选权限与全站界面收敛仍在 U6-C/U7，不计作本阶段已完成。
-
-
-2026-09-16 U7：U7移除未路由旧合同/财务列表，将合同动作矩阵与退款真实Step-Up回归迁到存续测试。正式财务详情保留原因必填、版本冲突草稿与状态门控；审批来源使用原sourceApprovalId，台账仅对有权且已同步的成本提供正式记录链接。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。
+[对齐前原文](../history/2026-11-06-before-alignment/modules/MOD-006-contract-finance.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。

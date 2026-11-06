@@ -1,106 +1,67 @@
 ---
 id: MOD-001
-title: 组织权限模块
-source: PRD §8.1
-status: approved
-implements: SPEC-002, SPEC-003, SPEC-004, SPEC-005, SPEC-003-A
-design_refs: [docs/专项设计/角色权限与数据范围设计.md, docs/专项设计/系统管理员与超级管理员权限设计.md]
-last_updated: 2026-09-15
+title: 组织、账号、岗位与权限
+type: module
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# MOD-001 组织权限模块
+# MOD-001 组织、账号、岗位与权限
 
-## 1. 需求概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-组织权限模块是所有业务数据范围和操作权限的基础。
+## 1. 入口与对象
 
-## 2. 功能清单
-| 编号 | 功能 | 需求 | 现状 |
-|---|---|---|---|
-| ORG-01 | 组织架构管理 | 支持总所、中心、部门、分所、专业团队、小组的树形维护 | 已实现 |
-| ORG-02 | 岗位管理 | 支持岗位名称、岗位类别、所属组织、职责说明、启用状态 | 已实现 |
-| ORG-03 | 员工管理 | 支持员工基础信息、执业证、专业方向、所属组织、所属团队 | 已实现 |
-| ORG-04 | 账号管理 | 支持员工绑定账号、启停账号、重置密码、离职禁用 | 已实现 |
-| ORG-05 | 角色管理 | 支持角色、菜单权限、操作权限、字段权限和特殊权限 | 已实现 |
-| ORG-06 | 数据范围 | 支持全所、总所中台、指定分所、指定团队、本人、本人下属 | 已实现 |
-| ORG-07 | 敏感权限 | 支持录音下载、合同作废、退款确认、客户合并、权限变更等特殊授权 | 已实现 |
-| ORG-08 | 管理员授权 | 系统超级管理员管理系统管理员账号、权限、生效时间和失效时间 | 已实现 |
-| ORG-09 | 临时授权 | 支持带有效期、授权原因和审批记录的临时角色与特殊权限 | 已实现 |
-| ORG-10 | 权限追踪 | 查询用户权限来源、角色组合、数据范围、字段权限和历史变更 | 已实现 |
-| ORG-11 | 超管组织管理与复制 | 仅超级管理员查询、编辑、删除无引用组织；新增可复制全部下级和岗位结构 | 已实现 |
-| ORG-12 | 部门负责人 | 从现有在职员工设置、更换或清空负责人，不隐式授予权限 | 已实现 |
-| ORG-13 | 组织树折叠与排序 | 各节点独立展开/收起；全部组织排序号全局唯一，占用号不可重复选择 | 已实现 |
-| ORG-14 | 协作资源授权 | 工作区/应用/表成员及建表能力，分享委派、行列权限和撤权后的协作会话失效；扩展文件夹继承 | G1 及 G2-A 已实现：工作区/文件夹/应用/表、岗位主体、行列范围、分享委派、订阅撤权、移动预览和回收状态；验收见云盘实施记录 |
-| ORG-15 | 账号密码重置 | 管理员在线重置普通用户密码，重置后强制改密并使该账号全部旧会话失效 | 已实现（见 SPEC-PW-RESET-20260919） |
+管理中心包含组织架构、岗位管理、员工与任职、专业团队、账号管理、角色权限、账号授权、管理员治理和身份安全。组织、员工、登录账号是不同对象；员工可有任职、汇报关系、团队成员关系，账号绑定员工不等于自动拥有业务权限。
 
-ORG-14 工程输入见 [SPEC-COLLAB-20260914](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md) §6/10；原组织与账号验收不代表协作资源授权完成。
+## 2. 现行功能
 
-2026-09-15 扩展：[云盘规格](../../superpowers/specs/2026-09-15-feishu-cloud-drive-resource-center.md)及[G1 权限决策表](../../superpowers/specs/2026-09-15-cloud-drive-g1-contract.md)。全部角色共用界面，资源访问、记录范围和操作分别由授权控制；系统管理员不自动读取私有资源，文件夹/资源归属不改变 SELF 的 createdBy 语义。文件夹授权必须进入旧直链、附件、关联和 SSE 的现有鉴权路径，不能仅在云盘前端隐藏。
+| 范围 | 当前行为 | 约束 |
+|---|---|---|
+| 组织 | 树形维护、排序、负责人、复制组织结构及岗位 | 组织页面有超级管理员限制；根组织受初始化信任根保护 |
+| 岗位 | 自定义编号、所属组织、级别、说明、启停与删除 | 删除要求 `position.delete` 及记录范围；版本校验后软删除，保留当前和历史任职关联 |
+| 岗位汇总 | 可按所选组织包含下级查询 | 按组织路径、级别和编号排序；并非复制一份分所岗位至总所 |
+| 专业团队 | 团队维护、成员加入/结束、负责人及删除 | 保留领域服务的引用检查和审计 |
+| 账号 | 新建、绑定/解绑员工、角色授予、停用、重置密码、删除 | 账号生命周期与员工档案删除分开处理 |
+| 角色 | 菜单、动作、特殊权限、数据范围、字段策略，启停与删除 | 系统信任根角色不可普通删除；角色名称不是授权依据 |
+| 授权 | 用户角色任期、临时直接授权、权限来源查询 | 生效时间、失效时间、撤销和角色状态参与计算 |
 
-## 3. 业务规则
+删除岗位无需先移除历史任职，不是物理级联删除员工或任职记录。分所能看到和创建哪些岗位，取决于其动作权限与组织数据范围。
 
-1. 所有业务列表和详情必须接入数据范围过滤。
-2. 前瞻研究部可以管理系统、AI、知识库和数据看板，但敏感案件内容仍需字段权限。
-3. 品牌宣传部可查看品牌素材、满意度、脱敏案例，不默认查看完整案件敏感材料。
-4. 专业团队负责人可查看本团队跨分所案件、SOP、质控和绩效数据。
-5. 管理员角色必须单独授权，不得通过普通业务角色自动继承。
-6. 用户权限计算结果必须可解释，系统应展示每项权限来自哪个角色或专项授权。
+## 3. 账号删除和离职
 
-## 4. 数据对象
+1. 账号先禁用，再执行删除；不能删除当前登录账号。
+2. 受保护的是 `SystemInitialization.superAdminUserId` 指定的初始化账号身份，不能仅凭用户名是否叫 `admin` 判断。其他管理员账号由超级管理员按生命周期规则处理。
+3. 删除会设为 `DELETED`、解绑员工、撤销会话及有效授权，保留历史业务与审计。不是删掉所有该账号创建的数据。
+4. 若指定资源接收账号，执行资源转交；该能力要求超级管理员，包含私人所有权资源，不能仅处理已共享资源。
+5. 员工离职先查看未结案件、未完成线索、在任下属、部门负责人、团队负责人等阻塞清单，再移交、结束任职和办理删除。部门负责人可作为建议接收人，仍要验证有效账号。
 
-核心数据对象：`Organization`、`Position`、`Employee`、`Role`、`Permission`、`DataScope`、`UserRole`。
+## 4. 权限组合和验收要求
 
-字段定义见 FTN-001。
+- 读取、新增、修改、删除各自授权；菜单可见不能作为 CRUD 已授权的证据。
+- 新账号的员工ID与用户ID正确映射；本人范围的合同、谈案和客户创建后，详情、工作区列表及同源表结果一致。
+- 普通用户只能看到获授范围；管理员与普通账号共享记录时显示同一业务ID，字段脱敏和写权限可不同。
+- 撤权、停用、改密及删除后旧会话不可继续写入。
+- 普通视图不得泄漏被隐藏字段；组织负责人设置本身不隐式赋予管理员身份。
 
-## 5. 状态机
+## 实现与回归入口
 
-无（账号启停状态见 FTN-002）。
+- [apps/server/app/application/master-data/position-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/master-data/position-service.ts)
+- [apps/server/app/application/master-data/employee-offboarding.ts](../../../LayerManage/law-firm-system/apps/server/app/application/master-data/employee-offboarding.ts)
+- [apps/server/app/application/master-data/employee-resource-transfer.ts](../../../LayerManage/law-firm-system/apps/server/app/application/master-data/employee-resource-transfer.ts)
+- [apps/server/app/application/system/retire-user.ts](../../../LayerManage/law-firm-system/apps/server/app/application/system/retire-user.ts)
+- [apps/server/app/application/system/trust-root-guard.ts](../../../LayerManage/law-firm-system/apps/server/app/application/system/trust-root-guard.ts)
+- [apps/server/app/application/authorization/role-authorization-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/authorization/role-authorization-service.ts)
 
-## 6. 验收要求
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
-- 权限隔离：总所、分所、专业团队和个人数据必须按权限隔离，越权访问测试不得出现敏感数据泄露。（源自 §3.3.5）
-- 权限可解释：用户权限计算结果必须可解释，系统应展示每项权限来自哪个角色或专项授权。（源自 §8.1 规则 6）
-- 数据范围验收：总所、分所、专业团队、个人四类数据范围至少各测一组。（源自 §14.1.4）
-- 管理员治理验收：高风险操作审核前不得生效；低风险操作生效后进入复核；管理员不得自审或给本人提权。（源自 §14.1.10）
-- 接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。（源自 §14.1.2）
+- [apps/server/test/master-data/oa-management-repair.test.ts](../../../LayerManage/law-firm-system/apps/server/test/master-data/oa-management-repair.test.ts)
+- [apps/server/test/collaboration/new-account-business.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/new-account-business.test.ts)
+- [apps/server/test/authorization/permission-trace-service.test.ts](../../../LayerManage/law-firm-system/apps/server/test/authorization/permission-trace-service.test.ts)
 
-## 7. 追溯
-- 增量规格：[SPEC-003-B 组织树折叠与全局排序号](../../superpowers/specs/2026-09-11-organization-tree-ordering.md)（已实现，本地自动化验收通过）。
-- 增量规格：[SPEC-003-A 组织架构管理扩展](../../superpowers/specs/2026-09-11-organization-management-extension.md)（2026-09-11 已实施，本地自动化验收通过，浏览器手工验收未执行）。
-- 专项设计: docs/专项设计/角色权限与数据范围设计.md、docs/专项设计/系统管理员与超级管理员权限设计.md
-- 落地 SPEC: SPEC-002, SPEC-003, SPEC-004, SPEC-005
-- 主要代码: apps/server/app/controller/organization.ts、apps/server/app/controller/role.ts、apps/server/app/controller/permission.ts、apps/server/app/controller/user.ts
-- 测试: apps/server/test/ 下权限相关
+## 历史需求追溯
 
-<!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->
+历史编号保留：`ORG-01`、`ORG-02`、`ORG-03`、`ORG-04`、`ORG-05`、`ORG-06`、`ORG-07`、`ORG-08`、`ORG-09`、`ORG-10`、`ORG-11`、`ORG-12`、`ORG-13`、`ORG-14`、`ORG-15`。
 
-### 岗位显示与列宽扩展（SPEC-UI-20260911）
-
-按[2026-09-11 规格](../../superpowers/specs/2026-09-11-table-resize-chinese.md)统一业务表格列宽拖动与浏览器记忆。岗位编码以中文编号显示并保留原始标识，新建自动生成；分类使用中文选择，接口值和既有任职关系不变。
-
-### 员工类型与组织路径（SPEC-EMP-UI-20260911）
-
-[2026-09-11 员工显示规格](../../superpowers/specs/2026-09-11-employee-display.md)：人员类型统一中文；主组织及任职组织按可见组织树显示祖先到实际所属组织的完整路径，保留主职 ID 与现有权限边界。
-
-### SPEC-MD-DELETE-20260911：主数据删除与离职工号复用
-
-参见 [增量规格](../../superpowers/specs/2026-09-11-master-data-delete-number-reuse.md)。本规格将工号唯一范围更新为在职员工；历史档案保留原工号，通过员工 ID 区分历任人员。岗位受任职关联保护，员工档案逻辑删除，删除仅超级管理员可执行。
-
-
-G2-A [移动与回收权限](../../superpowers/specs/2026-09-15-cloud-drive-g2-lifecycle.md)沿用显式授权管理委派，MANAGER 或系统管理员身份不自动拥有资源生命周期能力；源子树与目标目录仍须可管理。回收会阻断负责人和员工的旧链接与已打开页面，恢复按当前岗位/工作区/资源规则重新求交。
-
-
-G2-B [导航授权边界](../../superpowers/specs/2026-09-15-cloud-drive-g2b-shortcuts-recents.md)要求个人状态隔离与共享引用双路径校验；个人快捷方式不授予共享目录管理能力，管理员不能通过最近访问查询他人足迹，链接不得绕过目标的岗位/行字段约束。
-
-
-### 全站统一迁移（U0/U1，2026-09-15）
-
-组织、岗位、员工、团队与身份授权进入管理中心；我的权限/账号安全进入工作台。导航按菜单与读取权限取交集，组织架构保留超级管理员额外限制，后端行/列范围及治理审批不变。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。
-
-
-2026-09-16 U7：U7继续复用组织、岗位、人员、角色与权限管理专用页面；旧未路由Role列表移除。案件历史补录另核验user.read/organization.read和候选范围，case.update ALL不隐含人员目录授权。 最终证据见[阶段计划第13节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)。
-
-
-### 账号密码重置（SPEC-PW-RESET-20260919）
-
-账号管理新增管理员在线重置普通用户密码能力，见[增量规格](../../superpowers/specs/2026-09-19-user-password-reset.md)。新增 CRITICAL 权限 `user.password.reset`（资源 user，动作 password.reset），接口 `POST /api/v1/users/:id/password-reset` 按该权限及数据范围门控；操作者不得重置自己，初始超级管理员（信任根）与持有 SYSTEM_ADMIN/SYSTEM_SUPER_ADMIN 角色的账号不得在线重置。重置后写入新密码、`mustChangePassword=true`、`credentialVersion` 自增使旧会话失效，并写入审计（不含密码明文）。
+[对齐前原文](../history/2026-11-06-before-alignment/modules/MOD-001-organization-permission.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。

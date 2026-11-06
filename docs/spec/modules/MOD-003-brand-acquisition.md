@@ -1,63 +1,50 @@
 ---
 id: MOD-003
-title: 品牌运营与获客模块
-source: PRD §8.3
-status: draft
-implements:
-design_refs:
-last_updated: 2026-07-28
+title: 渠道与获客入口
+type: module
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# MOD-003 品牌运营与获客模块
+# MOD-003 渠道与获客入口
 
-## 1. 需求概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-品牌运营与获客模块负责律所品牌素材、律师 IP、内容资产、投放计划与线索归因的统一管理，并产出品牌经营指标，支撑「品牌与流量获客」环节与下游线索销转、客户主数据的归因闭环。
+## 1. 已有能力
 
-## 2. 功能清单
-| 编号 | 功能 | 需求 | 现状 |
-|---|---|---|---|
-| MKT-01 | 渠道管理 | 支持公众号、视频号、抖音、官网、直播、SEO/SEM、社区普法、行业合作、转介绍 | 待补SPEC |
-| MKT-02 | 律师 IP 管理 | 记录账号、负责人、内容方向、更新频率、线索归因 | 待开发 |
-| MKT-03 | 内容素材库 | 管理文章、短视频脚本、直播主题、案例素材、脱敏案例 | 待开发 |
-| MKT-04 | 投放计划 | 管理渠道、预算、素材、投手、地区、专业团队 | 待开发 |
-| MKT-05 | 线索归因 | 记录渠道、内容、IP、活动、转介绍人 | 待开发 |
-| MKT-06 | 品牌指标 | 统计线索量、到访率、签约率、转介绍率、内容产出、素材复用率 | 待开发 |
+渠道管理作为业务应用的客户经营入口，维护渠道编号、名称、类型、说明、成本、状态、所属组织及登记人；正式来源为 `CHANNELS`，工作表读取同一渠道业务数据。线索可关联渠道，成本域可登记渠道成本。
 
-## 3. 业务规则
+律师客资表使用 `LAWYER_PROSPECTS` 模板，24个标准字段，包含客资来源、联系方式、客户网名/姓名、地区、对话、跟进方式、标的范围、案件类型、价值等级、状态、预约、代理费、合同/材料附件等。代码提供两个命名模板，但名称不构成账号权限。
 
-本模块未在 PRD §8.3 单列业务规则，相关归因/口径规则见 FTN-004 API 与 FTN-007 非功能。
+## 2. 写入与权限
 
-## 4. 数据对象
+- 渠道直接网格编辑白名单为名称、说明、成本、状态；编号、登记时间等不是任意文本修改项。
+- 渠道读写按 `channel.*` 动作和数据范围处理；关联渠道不自动扩大对线索、客户、成本的读取权限。
+- 客资表属于普通模板记录；“客户状态”标签不是正式线索或合同状态机，保存客资行不等于自动生成客户、谈案或合同。
+- 客资联系方式默认脱敏展示，编辑能力和表共享范围决定原值访问；只读共享不能据此取得修改权。
 
-核心数据对象：`Channel`（渠道）；`Lead` 上的线索归因字段（`channelId` 及内容/IP/活动/转介绍人等归因字段）。
+## 3. 范围澄清
 
-字段定义见 FTN-001。
+旧 PRD 提出的品牌内容生产、律师IP更新、直播运营、平台广告自动拉取、完整投放归因等，不因渠道表和客资模板存在就标记为完成。当前规范承诺已注册渠道业务及模板能力；外部平台自动接入需单独立项。
 
-## 5. 状态机
+## 4. 验收要求
 
-PRD §8.3 未显式定义状态机。渠道与投放计划的状态/生命周期若后续需要，统一纳入 FTN-002 状态机字典管理。
+渠道列表与工作表引用同一ID，编辑可写字段后双方一致；停用状态和数据范围受后端约束。客资模板字段、默认脱敏、附件授权和只读时间字段正确，测试中不要求向初始表灌入真实客户资料。
 
-## 6. 验收要求
+## 实现与回归入口
 
-- 接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。（源自 §14.1.2）
-- 权限验收：总所、分所、专业团队、个人四类数据范围至少各测一组。（源自 §14.1.4）
-- 端到端验收：新线索进入，完成归因、分配、跟进和邀约。（源自 §14.2.1）
-- 回归验收：线索到正式签约主链路必须有端到端用例，归因数据可追溯。（源自 §14.1.13）
+- [apps/server/app/application/channel/channel-service.ts](../../../LayerManage/law-firm-system/apps/server/app/application/channel/channel-service.ts)
+- [apps/server/app/application/collaboration/lawyer-prospect-template.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/lawyer-prospect-template.ts)
+- [apps/server/app/application/collaboration/business-grid-fields.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/business-grid-fields.ts)
 
-## 7. 追溯
-- 专项设计: 无
-- 落地 SPEC: 待立项
-- 主要代码: apps/server/app/controller/channel.ts（仅渠道）
-- 测试: 无
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
-<!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->
+- [apps/server/test/collaboration/lawyer-prospects.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/lawyer-prospects.test.ts)
+- [apps/server/test/collaboration/workspace-domain-sources.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/workspace-domain-sources.test.ts)
 
+## 历史需求追溯
 
-### 全站统一迁移（U0/U1，2026-09-15）
+历史编号保留：`MKT-01`、`MKT-02`、`MKT-03`、`MKT-04`、`MKT-05`、`MKT-06`。
 
-渠道进入业务应用的客户经营；尚无独立路由的内容获客能力继续列入 U6，不能因框架接入标记为已交付。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。
-
-
-### U6-C 渠道统一
-渠道入口连接正式CHANNELS工作表，可配置视图和扩展字段；正式名称、类型、预算、状态用渠道办理页。新增channel资源和五项菜单/动作权限，SELF取实际创建人，负责人按授予ALL范围管理。渠道ID不变；未知历史身份保留，管理员按版本、依据和独立账户/组织读取权限补录，审计不覆盖已有事实。线索、成本及审批同步引用渠道时独立核验channel.read范围。渠道统计另取获权线索交集，缺权限显示不可用。实施与验证见统一改造计划§12。
+[对齐前原文](../history/2026-11-06-before-alignment/modules/MOD-003-brand-acquisition.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。

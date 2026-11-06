@@ -1,77 +1,71 @@
 ---
 id: MOD-011
-title: 组织人事模块
-source: PRD §8.11
-status: draft
-implements: SPEC-003（员工/岗位主数据部分；考勤/请假/培训/绩效未覆盖）
-design_refs: [docs/专项设计/数据库核心表设计草案.md]
-last_updated: 2026-07-28
+title: 综合行政、人力资源与库存
+type: module
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# MOD-011 组织人事模块
+# MOD-011 综合行政、人力资源与库存
 
-## 1. 需求概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-组织人事模块覆盖员工档案、入职/异动、考勤、请假/调休/加班、培训、绩效、价值观评价与设备领用等人力资源职能，与组织权限模块（MOD-001）共享员工主数据。员工档案、岗位等基础主数据由 SPEC-003 落地；考勤、请假、培训、绩效等员工职能子域尚未走 SPEC 闭环。
+## 1. 当前菜单与内部标识
 
-## 2. 功能清单
-| 编号 | 功能 | 需求 | 现状 |
-|---|---|---|---|
-| HR-01 | 员工档案 | 基础信息、劳动合同、执业证、学历、技能、专业方向、所属团队 | 已实现 |
-| HR-02 | 入职流程 | 账号、设备、培训、导师、试用期任务 | 已实现 |
-| HR-03 | 转正/调岗/晋升/离职 | 支持员工异动记录 | 已实现 |
-| HR-04 | 考勤 | 支持考勤记录、排班、异常 | 待补SPEC |
-| HR-05 | 请假/调休/加班 | 支持申请、审批、记录 | 待补SPEC |
-| HR-06 | 培训 | 培训计划、学时、考试、模拟法庭、庭审复盘 | 待补SPEC |
-| HR-07 | 绩效 | 从业务数据取数，人工确认后生成绩效结果 | 待补SPEC |
-| HR-08 | 价值观评价 | 只记录不计入绩效分 | 待补SPEC |
-| HR-09 | 设备领用 | 胸牌录音设备、电脑、终端领用和回收 | 待补SPEC |
+业务应用分组为“综合行政管理”，包含低值易耗品、人力资源、行政事务。内部 `INVENTORY_ITEMS/STOCKTAKES/MOVEMENTS` 等代码及旧路由仍用于兼容，不能根据旧英文或旧“物品管理”工作区名称把页面改回历史布局。低值易耗品中的既有多维表格保持独立。
 
-## 3. 业务规则
+## 2. 人力资源八张标准表
 
-#### 绩效模型
+| 类型 | 表名 | 特殊规则 |
+|---|---|---|
+| HR_ROSTER | 律所员工名册 | 部门、姓名、职务、电话、入职时间必填；含敏感资料及附件 |
+| HR_INTERNS | 实习律师名单 | 姓名、指导律师等模板要求；实习/执业资料 |
+| HR_CONTACTS | 员工名单及通讯录 | 部门、姓名、职务、电话 |
+| HR_HQ_LAWYERS | 总所在册律师名单 | 执业证号和非负整数执业年限；年龄按身份证出生年份投影 |
+| HR_BRANCH_LAWYERS | 派驻分所律师明细 | 同类律师标准字段，授权范围独立 |
+| HR_LEAVERS | 离职人员名单 | 入职、离职时间等登记字段 |
+| HR_NEW_HIRES | 新入职人员名单 | 应聘者、经历、家庭、附件及条件必填 |
+| HR_RECRUITMENT | 招聘面试 | 岗位、候选人、面试状态、招聘负责人等 |
 
-| 维度 | 长期权重建议 | 本 PRD 口径 | 数据来源 |
-|---|---:|---|---|
-| 业务业绩 | 40% | 计分，人工确认后生效 | 签约案件量、标的额、回款率、创收额 |
-| 交付质量 | 25% | 计分，人工确认后生效 | 客户满意度、SOP 执行率、审核通过率、结案周期 |
-| 价值观践行 | 20% | 只记录不计分 | 360 评价、客户评价、诚信记录、管委会评定 |
-| 学习成长 | 15% | 计分，人工确认后生效 | 培训参与率、知识库贡献、AI 工具使用率、专业认证 |
+各表只定义结构，不自动灌入初始员工数据。登记人事表不自动创建账号、岗位任职或办理正式离职。人事权限 `hr.worksheet.read/manage/sensitive` 与表ACL同时校验。敏感标记的非附件字段采用带表/字段绑定的AES-GCM加密，派生密钥与MFA用途隔离；无敏感权的读取脱敏，密钥轮换须保留旧版本可读性。入职时间可保留 YYYY-MM，不补造某日；年龄、编号和审计字段只读。完整字段及选项见字段附录。
 
-## 4. 数据对象
+## 3. 行政事务
 
-核心数据对象：`Employee`、`Performance`。
+- 行政费用支出表；用印登记；发文登记；收文登记；会议登记。
+- 用印“审核意见”使用审核结果＋原因控件，需用印审核权限及表编辑权，不能仅依靠前端禁用。
+- 会议编号在同表有效记录唯一；人数、份数是非负整数；附件、日期精度、必填和默认选项按模板。
+- 当前代码有意保留反馈材料的命名映射：`ADMIN_SENT/发文登记` 使用“收文日期、来文单位”等字段；`ADMIN_RECEIVED/收文登记` 使用“发文日期、主送单位”等字段。本轮以现有成果为准记录该映射，不擅自互换业务字段。
 
-字段定义见 FTN-001。
+## 4. 低值易耗品与统计
 
-## 5. 状态机
+定制物品领用登记及统计、办公用品领用明细及统计、入库、出库、库存、定期盘存模板并存。定制物品数量项10类、办公用品35类。领用统计依据模板类型标识和正数量字段展开，而非表名或历史 InventoryMovement 假定。
 
-无（员工异动状态见 FTN-002）。
+库存表有入库量、出库量和库存量投影；盘存的期初/盘存数量是独立登记字段，不能自动当成库存调整业务。既有正式库存对象和新表格投影的来源区别必须保留。
 
-## 6. 验收要求
+数据分析提供按物品/领用人/组织的登记统计、日期过滤和导出；导出额外要求 `inventory.export` 与其范围。未授权、归档、删除、隐藏数量字段不进入聚合；详细口径见MOD-012。
 
-- 主数据验收：客户、合同、收款、案件、人员必须验证唯一数据源，消费模块不得绕过主模块直接修改。（源自 §14.1.11，员工/岗位主数据部分由 SPEC-003 覆盖）
-- 接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。（源自 §14.1.2）
-- 权限验收：总所、分所、专业团队、个人四类数据范围至少各测一组。（源自 §14.1.4）
+## 5. 验收要求
 
-## 7. 追溯
-- 专项设计: docs/专项设计/数据库核心表设计草案.md
-- 落地 SPEC: SPEC-003（员工主数据部分）
-- 主要代码: apps/server/app/controller/employee.ts、apps/server/app/controller/performance.ts
-- 测试: apps/server/test/ 下员工主数据相关
+8张人事表只建字段、保留月份精度、敏感字段不可越权；行政审核字段权限、会议编号唯一与恢复检查正确；领用数量修改后统计联动，撤权后不能通过汇总/导出读取。员工账号生命周期另按MOD-001处理。
 
-<!-- 现状列取值：已实现(✅)/待开发(⬜)/待补SPEC(⚠️)/有设计无SPEC(📋)，与 TRACE.md 图例一一对应 -->
+## 实现与回归入口
 
-### 2026-09-11 财务、审批与工资表联动
+- [apps/server/app/application/collaboration/hr-worksheets.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/hr-worksheets.ts)
+- [apps/server/app/application/collaboration/hr-privacy.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/hr-privacy.ts)
+- [apps/server/app/application/collaboration/administrative-registers.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/administrative-registers.ts)
+- [apps/server/app/application/collaboration/inventory-worksheets.ts](../../../LayerManage/law-firm-system/apps/server/app/application/collaboration/inventory-worksheets.ts)
+- [apps/server/app/application/inventory/worksheet-statistics.ts](../../../LayerManage/law-firm-system/apps/server/app/application/inventory/worksheet-statistics.ts)
+- [apps/web/src/features/navigation/catalog.ts](../../../LayerManage/law-firm-system/apps/web/src/features/navigation/catalog.ts)
 
-本模块增量契约及验证参见 [SPEC-FIN-APPR-PAYROLL-20260911](../../superpowers/specs/2026-09-11-finance-approval-payroll.md) 和 [实施记录](../../superpowers/plans/2026-09-11-finance-approval-payroll.md)。团队分类支持中文；财务按案件编号关联；最终通过审批幂等写入对应业务台账；工资文件按版本保存并提交审批，权限和历史保留见增量契约。
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
+- [apps/server/test/collaboration/hr-worksheets.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/hr-worksheets.test.ts)
+- [apps/server/test/collaboration/office-inventory.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/office-inventory.test.ts)
+- [apps/server/test/collaboration/module-inventory.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/module-inventory.test.ts)
 
-### 全站统一迁移（U0/U1，2026-09-15）
+## 历史需求追溯
 
-人事主数据进入管理中心；库存办理进入业务应用，库存统计与绩效进入数据分析。出入库/盘点/考核等正式事务不因框架迁移改写，U6 深度整合。完整路由、权限和阶段边界见[统一框架契约](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。本批框架纳入不代表本模块业务深度整合已经完成。
+历史编号保留：`HR-01`、`HR-02`、`HR-03`、`HR-04`、`HR-05`、`HR-06`、`HR-07`、`HR-08`、`HR-09`。
 
-
-### U6-B 实施补充（2026-09-16）
-
-INVENTORY_ITEMS/INVENTORY_MOVEMENTS/INVENTORY_STOCKTAKES 对应正式物品、出入库、盘点ID，库存精度Decimal(18,3)字符串贯穿网格查询/排序/分组。新建、物品详情、入库/领用/盘点通过独立办理页；旧物品分类/出入库路径转为临时AND筛选，不改写个人视图。统计和导出保持专用入口及独立读取/导出范围，人员候选分页且检查有效任职。阶段状态和验证证据以[阶段计划](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)第11节为准，U6-B两端构建、冒烟、指定CPU条件下负载与开发库58项增量迁移均已验收；U6-C/U7继续执行。
+[对齐前原文](../history/2026-11-06-before-alignment/modules/MOD-011-organization-hr.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。

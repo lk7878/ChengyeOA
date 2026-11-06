@@ -1,276 +1,60 @@
 ---
 id: FTN-005
-title: 事件驱动模型
-source: PRD §7.2-7.5
-status: approved
-implements: SPEC-007, SPEC-008
-design_refs: [docs/专项设计/数据流转事件中心设计.md]
-last_updated: 2026-09-14
+title: 事件、协作更新与后台任务
+type: foundation
+status: implemented-baseline
+source_commit: dcf8447d
+last_updated: 2026-11-06
 ---
 
-# FTN-005 事件驱动模型
+# FTN-005 事件、协作更新与后台任务
 
-## 1. 契约概述
+> 本文按当前代码对齐，定义现行实现。用户已确认功能人工测试完成；本轮为文档核对，不把已有测试文件视为本轮全部执行通过。适用范围及证据口径见 [总纲](../README.md)。
 
-本系统参考飞书开放平台的数据流转范式，将业务数据拆为「资源对象、状态变化、事件投递、审批任务、消息通知、同步回调」六类能力。业务模块只负责产生事实和状态变化，跨模块联动由事件和自动化规则驱动。
+## 1. 分清三类机制
 
-源 PRD §7.1 资源对象模型 — 主数据责任与唯一数据源：
-
-| 主数据 | 唯一数据源模块 | 业务责任角色 | 可消费模块 | 维护规则 |
-|---|---|---|---|---|
-| 组织、岗位、员工 | 组织人事 | 人事；系统管理员负责技术配置 | 权限、线索、合同、案件、绩效、驾驶舱 | 其他模块只引用 ID，不复制人员档案 |
-| 用户、角色、权限 | 组织权限 | 系统管理员；超级管理员审核高风险变更 | 全部模块 | 权限变更统一从权限中心执行 |
-| 客户、联系人 | 客户主数据 | 客服/谈案人员维护，合并由授权人审核 | 线索、合同、财务、案件、满意度 | 客户合并后保留原 ID 映射和审计记录 |
-| 渠道、内容、活动 | 品牌运营 | 品牌宣传部、运营人员 | 线索、驾驶舱 | 归因使用渠道 ID、内容 ID、活动 ID |
-| 合同 | 合同财务 | 谈案律师发起，授权审批人审核 | 财务、案件、驾驶舱 | 其他模块不得直接修改合同状态和金额 |
-| 应收、收款、退款、开票 | 合同财务 | 财务 | 合同、客户全景、案件、驾驶舱 | 到账状态只能由财务确认或受控接口写入 |
-| 案件、程序、任务 | 案件交付 | 专业团队负责人、承办律师 | 质控、知识、客户告知、驾驶舱 | 合同模块只触发建案，不维护案件事实 |
-| 模板、字典、SOP、核心字段规则 | 系统配置中心 | 系统管理员；超级管理员审核 | 全部模块 | 按治理版本发布，业务模块读取已生效版本 |
-| 自建表、普通动态字段、个人/共享视图 | 多维协作工作区 | 授权资源管理者或视图所有人 | 相应协作成员与领域适配器 | 普通配置版本化直接生效；高风险变更按治理规则执行 |
-| 审计日志、事件日志 | 审计与事件中心 | 系统自动生成，超级管理员监督 | 管理后台、监控、问题追踪 | 业务用户不可修改或删除 |
-
-主数据规则：
-
-1. 每类主数据必须明确唯一数据源模块，其他模块通过 ID 和 API 引用，不建立可独立修改的副本。
-2. 跨模块展示可使用只读快照，但快照必须记录来源对象 ID 和版本，不能反向覆盖主数据。
-3. 主数据合并、状态修正和关联迁移必须保留原值、目标值、原因、操作人、审核人和时间。
-4. 驾驶舱和报表是统计消费端，不作为业务主数据修改入口。
-
-源 PRD §7.2 事件驱动模型：
-
-系统内所有关键状态变化都应产生业务事件。事件用于驱动通知、审批、任务、统计、AI 任务、外部集成和审计。
-
-事件通用结构：
-
-| 字段 | 说明 |
-|---|---|
-| event_id | 事件唯一 ID，用于幂等 |
-| event_type | 事件类型，例如 `lead.created`、`contract.signed` |
-| event_version | 事件版本 |
-| occurred_at | 事件发生时间 |
-| source_module | 来源模块 |
-| object_type | 业务对象类型 |
-| object_id | 业务对象 ID |
-| operator_id | 操作人 |
-| organization_id | 所属组织 |
-| branch_id | 所属分所 |
-| team_id | 所属专业团队 |
-| payload | 事件载荷 |
-| trace_id | 链路追踪 ID |
-
-事件处理规则：
-
-1. 业务写入成功后通过事件表记录事件，采用 Outbox 模式避免业务数据已提交但事件丢失。
-2. 事件消费者必须按 `event_id` 做幂等处理。
-3. 事件投递失败要记录失败原因、重试次数、下次重试时间和人工处理入口。
-4. 对顺序敏感的对象事件，例如合同状态、审批任务、案件节点，应按同一对象维度顺序消费。
-5. 事件处理逻辑不得阻塞主业务事务，驾驶舱统计、通知、AI 任务可异步处理。
-
-## 2. 契约定义
-
-### 2.1 事件类型清单（源 PRD §7.3）
-
-| 事件类型 | 触发场景 | 主要消费者 |
+| 机制 | 职责 | 失败处理 |
 |---|---|---|
-| `lead.created` | 新线索进入 | 去重、分配、通知、驾驶舱 |
-| `lead.assigned` | 线索分配 | 客服通知、首响计时 |
-| `appointment.created` | 创建邀约 | 日程提醒、谈案人通知 |
-| `appointment.visited` | 客户到访 | 谈案任务、录音登记 |
-| `negotiation.recorded` | 谈案记录完成 | 首签判断、AI 任务 |
-| `audio.uploaded` | 录音上传 | 转写任务 |
-| `audio.transcribed` | 转写完成 | AI 要点提取 |
-| `ai.extraction.confirmed` | AI 结果人工确认 | 分析委托、知识沉淀 |
-| `contract.first_signed` | 首签/证据收集合同生效 | 应收计划、材料任务、分析委托 |
-| `analysis.report_submitted` | 分析报告提交 | 审核任务、目标对齐 |
-| `contract.formal_signed` | 正式委托合同生效 | 应收计划、案件建档 |
-| `payment.confirmed` | 收款确认 | 合同状态、客户全景、驾驶舱 |
-| `matter.created` | 案件建档 | SOP 节点任务 |
-| `matter.task.completed` | 节点任务完成 | 下一节点、质控、统计 |
-| `quality.review_completed` | 质量审核完成 | 案件状态、复盘 |
-| `survey.low_score` | 满意度低于 80 分 | 管委会专项分析、通知 |
-| `matter.closed` | 案件结案 | 满意度、复盘、知识资产 |
-| `knowledge.asset_created` | 知识资产入库 | 品牌素材、培训素材 |
-| `config.published` | 配置版本发布 | 页面、缓存、权限、自动化规则 |
-| `admin.operation.reviewed` | 管理员操作完成审核或复核 | 配置发布、数据干预、审计通知 |
-| `data.intervention.executed` | 数据干预执行完成 | 业务对象、审计、管理通知 |
+| 业务Outbox/Delivery | 业务事务追加事件，注册订阅处理、投递、幂等和运行状态 | 重试、租约、失败日志和人工处理；由事件开关配置 |
+| 工作表协作更新 | 业务/表格保存后的通知、在线成员、变更拉取和权限失效 | 前端合并普通刷新；版本冲突保护输入；安全事件不延迟 |
+| 独立计划任务 | 可视化审批超时/Webhook、协同日历到时提醒 | 各自任务扫描、持久化去重和失败处理，不等同于通用Outbox已开启 |
 
-### 2.2 订阅、投递与重试（源 PRD §7.4）
+## 2. Outbox契约
 
-系统应内置事件订阅机制，允许不同模块订阅特定事件。
+事件类型、版本与handler由注册表约束；未注册事件/handler不自动执行任意业务脚本。事件写入与业务状态事务一致，处理端使用日志/幂等防重复。租约、退避和服务降级有运行状态，不能因为API仍可访问就认定事件全部投递完成。
 
-| 对象 | 说明 |
-|---|---|
-| EventLog | 事件原始记录 |
-| EventSubscription | 订阅关系，定义订阅者、事件类型、过滤条件、启用状态 |
-| EventDelivery | 投递记录，记录投递状态、重试次数、错误原因 |
-| EventHandler | 事件处理器，执行通知、任务、统计、AI、审批等动作 |
+事件payload安全摘要与完整业务数据分开；权限变化后的读取依然鉴权。历史PRD列出的全量事件名称不是当前已注册清单，实际以订阅目录、factory及handler registry为准。
 
-投递要求：
+## 3. 可视化自动化接口
 
-1. 事件投递支持同步入库、异步消费。
-2. 投递失败应重试，重试策略可参考「短间隔快速重试 + 长间隔兜底重试」。
-3. 多次失败后进入人工处理队列。
-4. 事件消费者处理成功后记录消费时间和处理结果。
-5. 系统要支持按事件 ID、对象 ID、事件类型查询流转日志。
+只允许服务端WORKFLOW_WEBHOOKS配置的具名HTTPS目的地址，禁止含URL凭据；使用HMAC签名、投递ID、时间戳、受限body和超时，不跟随重定向。UI不暴露密钥。部署未配置目的地址时不宣称已对接外部系统。
 
-### 2.3 同步回调与交互反馈（源 PRD §7.5）
+## 4. 刷新与提醒
 
-对于需要用户即时反馈的操作，采用同步回调模型，例如：
+工作表普通变更采用合并调度，默认30秒并检查编辑暂停；与主动保存、手动刷新及授权失效分开。未读通知轮询是通知机制，不能触发全表反复加载导致草稿丢失。
 
-1. 消息卡片中点击「同意/拒绝审批」。
-2. 线索卡片中点击「领取/改派」。
-3. AI 提取结果中点击「确认/退回修改」。
-4. 质量审核中点击「通过/退回」。
-5. 低满意度专项分析中点击「关闭/继续跟进」。
-
-同步回调规则：
-
-1. 回调接口必须快速返回操作结果和展示文案。
-2. 复杂业务处理应先落库并产生事件，后续异步完成。
-3. 回调必须校验用户身份、对象权限、操作权限和对象当前状态。
-4. 回调必须记录操作日志和审计日志。
-5. 回调失败时应给用户明确错误提示，不能静默失败。
-
-### 多维协作增量事件（2026-09-14，待实现）
-
-[SPEC-COLLAB-20260914](../../superpowers/specs/2026-09-14-feishu-aligned-collaborative-workspace.md) §7 定义提交后通知、权限过滤、游标重连和客户端刷新。现有事件中心复用 Outbox，不直接将包含敏感载荷的内部 EventLog 广播到浏览器；协作层生成有权限的失效通知并重新授权查询。
-
-新增表/字段/视图配置以及通用记录事件，保留稳定资源 ID、版本、操作者和幂等标识；核心对象继续产生原领域事件，由适配器映射为表格刷新，避免重复触发领域动作。初始化快照与订阅之间不能遗漏变更。权限变更通知与版本心跳负责客户端缓存失效；分发时仍检查当前权限。
-
-业务记录变化与可靠事件同事务；在线成员心跳、编辑位置为短期协作状态，不写成每次业务变更，也不提供排他锁保证。自动化按当前执行权限、规则版本和事件 ID 执行，重放幂等，失败重试有上限，循环触发可阻断。
-
-验收覆盖同步计数、断线补齐、乱序、重复、撤权、规则重试；历史 SPEC-007/008 结果不覆盖新增实时协作通路。
-
-## 3. 规则与边界
-
-事件处理规则（源 PRD §7.2）：
-
-1. 业务写入成功后通过事件表记录事件，采用 Outbox 模式避免业务数据已提交但事件丢失。
-2. 事件消费者必须按 `event_id` 做幂等处理。
-3. 事件投递失败要记录失败原因、重试次数、下次重试时间和人工处理入口。
-4. 对顺序敏感的对象事件，例如合同状态、审批任务、案件节点，应按同一对象维度顺序消费。
-5. 事件处理逻辑不得阻塞主业务事务，驾驶舱统计、通知、AI 任务可异步处理。
-
-投递规则（源 PRD §7.4）：
-
-1. 事件投递支持同步入库、异步消费。
-2. 投递失败应重试，重试策略可参考「短间隔快速重试 + 长间隔兜底重试」。
-3. 多次失败后进入人工处理队列。
-4. 事件消费者处理成功后记录消费时间和处理结果。
-5. 系统要支持按事件 ID、对象 ID、事件类型查询流转日志。
-
-同步回调规则（源 PRD §7.5）：
-
-1. 回调接口必须快速返回操作结果和展示文案。
-2. 复杂业务处理应先落库并产生事件，后续异步完成。
-3. 回调必须校验用户身份、对象权限、操作权限和对象当前状态。
-4. 回调必须记录操作日志和审计日志。
-5. 回调失败时应给用户明确错误提示，不能静默失败。
-
-边界：
-
-1. 事件中心是承业 OA 跨模块联动的唯一事实通道；业务模块禁止直接互相调用以绕过事件日志与审计。
-2. 审计日志、事件日志由系统自动生成，业务用户不可修改或删除（见 §1 主数据责任表）。
-3. 所有事件载荷以业务对象 ID 维度建模；状态、金额、组织范围等关键字段以主数据模块为唯一数据源，事件不得反向覆盖主数据。
-
-## 4. 被引用模块
-
-本契约是所有跨模块联动的横切通道，以下模块依赖本契约（事件来源或消费者）：
-
-- MOD-013 自动化、通知、审批与审计 — 事件中心核心（EventLog / EventSubscription / EventDelivery / EventHandler 承载者），审批、任务、通知、审计均以事件驱动。
-- MOD-004 线索销转 — 发出 `lead.created`、`lead.assigned`、`appointment.created`、`appointment.visited`、`negotiation.recorded`。
-- MOD-005 客户主数据 — 接收线索转化事件，客户合并产生客户领域事件。
-- MOD-006 合同财务 — 发出 `contract.first_signed`、`contract.formal_signed`、`payment.confirmed`，并驱动应收计划、案件建档。
-- MOD-007 专业团队与分析报告 — 发出 `analysis.report_submitted`，对接审核任务与目标对齐。
-- MOD-008 案件交付与质控 — 发出 `matter.created`、`matter.task.completed`、`quality.review_completed`、`matter.closed`。
-- MOD-009 满意度、复购与转介绍 — 发出 `survey.low_score`，并消费 `matter.closed` 触发满意度与复盘。
-- MOD-010 AI、录音与文件 — 发出 `audio.uploaded`、`audio.transcribed`、`ai.extraction.confirmed`，并产生 `knowledge.asset_created`。
-- MOD-002 系统配置中心 — 发出 `config.published`，驱动页面、缓存、权限与自动化规则刷新。
-- MOD-001 组织权限、MOD-011 组织人事、MOD-012 管理驾驶舱 — 主要为事件消费方，接收人员、权限、配置与经营事件。
-- MOD-003 品牌运营与获客 — 发出渠道、内容、活动相关归因事件，消费 `knowledge.asset_created` 作为品牌与培训素材。
+日历后台约30秒扫描，持久化提醒节点及去重，向所有者及已接受成员通知；可视化审批任务约每分钟扫描。两者独立调度，不能把EVENT_WORKER_ENABLED误当总开关。测试环境按任务配置禁用自动扫描，避免污染测试。
 
 ## 5. 验收要求
 
-源 PRD §3 设计原则中的相关条目：所有关键状态变化均可从业务对象、事件日志、审批任务和审计日志还原完整过程。
+业务事务回滚不留下成功事件；重复投递不重复处理；权限失效后不能订阅/拉取受限数据。进程重启可从持久状态恢复，提醒不会因重新进入页面重复创建。运行健康、投递积压与前端访问成功应分别记录。
 
-源 PRD §14.1 通用验收要求中与本契约相关的条目：
+## 实现与回归入口
 
-7. 事件验收：事件生成、订阅、投递、失败重试、幂等消费、人工处理必须可验证。
-8. 回调验收：审批同意、任务完成、AI 结果确认等同步回调必须校验权限、状态和重复提交。
+- [apps/server/app/application/events/event-handler-registry.ts](../../../LayerManage/law-firm-system/apps/server/app/application/events/event-handler-registry.ts)
+- [apps/server/app/application/events/event-services-factory.ts](../../../LayerManage/law-firm-system/apps/server/app/application/events/event-services-factory.ts)
+- [apps/server/app/application/events/event-worker.ts](../../../LayerManage/law-firm-system/apps/server/app/application/events/event-worker.ts)
+- [apps/server/app/application/workflow/workflow-worker.ts](../../../LayerManage/law-firm-system/apps/server/app/application/workflow/workflow-worker.ts)
+- [apps/server/app/schedule/workflow.ts](../../../LayerManage/law-firm-system/apps/server/app/schedule/workflow.ts)
+- [apps/server/app/schedule/calendar.ts](../../../LayerManage/law-firm-system/apps/server/app/schedule/calendar.ts)
+- [apps/web/src/features/workspaces/refresh-scheduler.ts](../../../LayerManage/law-firm-system/apps/web/src/features/workspaces/refresh-scheduler.ts)
 
-源 PRD §14.2 端到端验收链路中与本契约相关：
+以下为已有回归代码入口，执行状态见具体测试报告，而非本清单：
 
-8. 上述链路的关键状态变化均能在 EventLog 中查询到事件，在 EventDelivery 中查询到投递结果。
-9. 重复提交合同生效、重复确认收款、重复处理审批任务时，系统应通过幂等机制避免重复生成应收、案件、通知或统计。
+- [apps/server/test/collaboration/comments-calendar.test.ts](../../../LayerManage/law-firm-system/apps/server/test/collaboration/comments-calendar.test.ts)
+- [apps/server/test/approval/visual-workflow.test.ts](../../../LayerManage/law-firm-system/apps/server/test/approval/visual-workflow.test.ts)
+- [apps/web/src/features/workspaces/refresh-scheduler.test.ts](../../../LayerManage/law-firm-system/apps/web/src/features/workspaces/refresh-scheduler.test.ts)
 
-补充：
+## 历史需求追溯
 
-- Outbox 模式必须可验证：业务事务回滚时事件不残留；业务事务提交时事件必须同事务入库并最终投递。
-- 顺序敏感对象（合同状态、审批任务、案件节点）的事件投递必须可验证按同一对象维度顺序消费。
-- 同步回调必须可验证：复杂处理先落库产生事件再异步完成，回调失败给用户明确提示且不静默失败。
-
-## 6. 追溯
-
-[云盘 G1 协作契约](../../superpowers/specs/2026-09-15-cloud-drive-g1-contract.md)：Base 变化复用现有协作事件和 outbox，目录元数据变化保留事务审计；文件夹撤权由已打开 Base 订阅的实时祖先鉴权发现。目录定时刷新只读取当前授权结果，不缓存跨请求权限；不得为更新列表修改时间而在每次记录写入时争用同一目录行。G1 已实现，目录每 2 秒/聚焦刷新，文件夹权限变化由订阅实时鉴权发现，Base 重命名继续触发原协作事件；证据见云盘实施记录。
-
-- 专项设计: docs/专项设计/数据流转事件中心设计.md
-- 落地 SPEC: SPEC-007, SPEC-008
-- 主要代码: apps/server/app/application/events、apps/server/app/domain/events、apps/server/app/controller/eventOperations.ts；EventLog / EventSubscription / EventDelivery / EventHandlerLog 数据模型（apps/server/prisma/schema.prisma）
-- 测试: 无
-
-
-G2-A [生命周期事件](../../superpowers/specs/2026-09-15-cloud-drive-g2-lifecycle.md)在移动、回收和恢复事务内为子树 Base 写入 access.updated 协作事件和 outbox；不在事件中广播记录内容。SSE 继续实时检查自身与祖先状态，已打开的失效页面须在 5 秒内清空。目录每 2 秒/聚焦刷新，预览也重新检查访问权限，不能持有失效资源名称或规则作为长期授权缓存。
-
-
-G2-B [个人访问与引用](../../superpowers/specs/2026-09-15-cloud-drive-g2b-shortcuts-recents.md)不写公共协作事件或更新 Base 修改时间；链接创建/移除保留事务审计，目录每 2 秒刷新当前授权结果。最近访问仅在进入资源后登记，SSE、记录查询/保存及列表轮询不触发访问登记。链接失效由同一目录刷新与打开前解析校验，原内容订阅继续使用既有撤权机制。
-
-
-### 全站统一框架（2026-09-15）
-
-导航授权每 15 秒及恢复焦点刷新，不新增业务事件，不修改记录查询/保存、tableAccess/folderChain 或 SSE 热路径；知识库桥与 CaseWorkbench 根保持在业务路由之外。实现前契约见[U0/U1 导航与迁移矩阵](../../superpowers/specs/2026-09-15-unified-navigation-contract.md)。
-
-
-### U4 线索业务工作区
-
-U4 复用 CRM 领域事件和 collaboration.changed 通知，无记录值广播；业务入口与云盘共用订阅，原接口写入继续由既有 5 秒业务刷新捕获。 工程契约见[线索与跟进统一](../../superpowers/specs/2026-09-15-u4-lead-workspace.md)，验收记录见全站统一计划第 7 节。
-
-
-### U5-A 事件边界
-
-客户/谈案/合同同源表的扩展编辑复用协作事件；原业务命令保留原事件与事务，不复制核心事实，不新增第二套结算或签约事件。本批原领域动作回表时回源刷新，未声称全部旧领域事件已接入协作 SSE 推送。详见[U5–U7 契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
-
-原业务动作的多人可见性复用既有 collaboration.events：选中非 CUSTOM 表时每 5 秒发 business.refresh 失效通知，接收端重新按自身授权读取；消息不携带业务字段。直接协作扩展事件保持原机制。该边界是有界回源刷新，不等同于为全部旧领域命令新增即时 outbox 事件。
-
-### U5-B 多人案件刷新（2026-09-15）
-
-CASES 沿用非 CUSTOM 表每 5 秒 business.refresh 失效通知，客户端按当前范围回源读取；任务、材料和状态动作更新父案件版本。详情路由在焦点恢复及每 5 秒复查，保留编辑草稿但清除撤权后的展示数据。不把该机制声明为全领域即时 outbox 广播。[详细契约](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
-
-协作事件写入使用 appendCollaborationChange，在调用方事务内以一个参数化 SQL CTE 写入 collab_event、event_log 和 operation_log；仍经原 registry 信封验证，不广播记录值、不绕过权限与版本。真实数据库约束故障覆盖任一写入失败时领域变更、事件、审计和幂等结果全量回滚；具体性能条件见全站计划 U5-B。
-
-### U6-A 财务刷新（实施中）
-
-收款/发票/退款/成本领域事件、资金联动与原事务保持，新增创建幂等标记随领域事务提交。共同表继续每 5 秒 business.refresh 后授权回源；详情每 5 秒/聚焦刷新，保留动作草稿与原版本，撤权清空数据。没有新建第二套财务资金事件。[事件边界](../../superpowers/specs/2026-09-15-u5-u7-business-unification.md)。
-
-
-2026-09-16 U6-A 阶段已验收，91模型/57迁移已部署开发库并保留业务记录数量。财务权限、精确金额、事务重试与真实 App/MFA 冒烟通过，完整测试与负载条件见[计划第10节](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)；此前“实施中/隔离库”文字为实施过程记录。
-
-
-### U6-B 实施补充（2026-09-16）
-
-库存与绩效同源协作扩展沿用既有协作失效事件和Outbox；库存/绩效正式办理保留原审计事务，工作表与详情采用已有刷新机制观察领域变化。不把每种领域原动作都宣称为新增SSE事件生产者。阶段状态和验证证据以[阶段计划](../../superpowers/plans/2026-09-15-feishu-unified-oa-refactor.md)第11节为准，U6-B两端构建、冒烟、指定CPU条件下负载与开发库58项增量迁移均已验收；U6-C/U7继续执行。
-
-
-### U6-C 消息边界
-通知关联路径不具有授权效力，前端仅允许导航目录中已授权的站内地址并优先从正式记录ID构造路径。渠道办理仍用正式服务事务及审计，经营看板回源获权聚合；没有新增“审批已支付”事件，也不把五秒回源等同所有领域即时SSE。
-
-
-### SOP/质检规划记录（2026-09-16，实施现状见下）
-
-SOP实例化、提交审核、质检和专项分析事实与审计/Outbox同事务，通知统计异步；重复/乱序/权限变化重查。抽样批次及低满意度触发有业务唯一键，自动化执行身份须有明确范围。详见增量规格§8–9。 [SPEC-SOP-QC-20260916](../../superpowers/specs/2026-09-16-sop-quality-control.md)。
-
-
-### SOP/质检实施现状（2026-09-17）
-
-SOP/Quality原事实、OperationLog及Outbox同事务，来源工作表继续回源原ID，无CollabRecord镜像。低分评估事件按持久assessmentId唯一生成专项，79/80/null、重复/乱序/回滚重试已覆盖；task/version/kind/recipient唯一提醒复验当前状态和授权，默认未配置不发。MATERIAL/CONTINUE只记录材料/接续事实，不触发无关人员通知；站内消息不带业务正文。SOP及质检创建使用原DomainMutation，重复请求复验当前权限。
-
-实现与验证见[SQ阶段计划](../../superpowers/plans/2026-09-16-sop-quality-control.md)及[验收追溯](../../superpowers/reports/2026-09-17-sop-quality-acceptance.md)。SQ7最终运行结果以验收记录为准。
+[对齐前原文](../history/2026-11-06-before-alignment/foundations/FTN-005-event-driven-model.md)保留原需求、旧状态和历史工程链接。上述编号不是“全部已实现”的声明；当前边界以本文及 [差异清单](../CHANGES-2026-11-06.md) 为准。
