@@ -9,6 +9,7 @@ import { isHrKind } from './hr-worksheets';
 import { retiredSources } from '../../domain/module-availability';
 import { object, fail } from './collaboration-policy';
 import type { TableRule } from './worksheet-roles';
+import { presets } from './worksheet-roles';
 
 type DB = PrismaClient | Prisma.TransactionClient;
 export function tableBusinessCapabilities(table: Pick<CollabTable,'source'|'inventoryKind'>) {
@@ -69,7 +70,8 @@ export async function worksheetContext(db:DB, actor:AuthorizationContext, tableI
   const ids=actor.previewRoleId ? [actor.previewRoleId] : [...(actor.activeRoleIds ?? [...new Set(actor.grants.map(g=>g.sourceRoleId).filter((s):s is string=>!!s))])];
   const rules=(table.rolePolicy?.rules ?? {}) as unknown as Record<string,TableRule>;
   const invitation=(table.rolePolicy?.invitations as Record<string,string>|undefined)?.[actor.userId];
-  if(invitation && rules[invitation]?.business) ids.push(invitation);
+  if(invitation && !actor.previewRoleId && rules[invitation]?.business &&
+    (presets.some(p=>p===invitation) || await db.role.findFirst({where:{id:invitation,type:'BUSINESS',status:'ENABLED'},select:{id:true}}))) ids.push(invitation);
   const extra:EffectiveGrant[]=[];
   const fieldRules=[...actor.fieldRules];
   for(const roleId of ids) {

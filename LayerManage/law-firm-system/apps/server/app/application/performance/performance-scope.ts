@@ -19,10 +19,11 @@ export async function performanceScope(
   const clauses: Prisma.PerformanceWhereInput[] = [];
   const ownEmployee=context.grants.some(g=>g.permissionCode===permission&&g.resource==='performance'&&g.scopeIds.includes('worksheet:self'));
   if(ownEmployee&&context.employeeId) clauses.push({employeeId:context.employeeId});
-  const legacyEmployeeScope=context.grants.some(g=>g.permissionCode===permission&&g.resource==='performance'&&g.scopeIds.some(id=>!id.startsWith('worksheet:')));
-  if (resolved.employeeIds.length && (!ownEmployee||legacyEmployeeScope)) {
+  const creatorScope = ownEmployee ? await auth.resolveScopeTargets({...context,
+    grants:context.grants.map(g=>({...g,scopeIds:g.scopeIds.filter(id=>id!=='worksheet:self')}))},'performance',permission) : resolved;
+  if (creatorScope.employeeIds.length) {
     const users = await db.user.findMany({
-      where: { employeeId: { in: resolved.employeeIds } },
+      where: { employeeId: { in: creatorScope.employeeIds } },
       select: { id: true },
     });
     if (users.length) clauses.push({ createdBy: { in: users.map((u) => u.id) } });

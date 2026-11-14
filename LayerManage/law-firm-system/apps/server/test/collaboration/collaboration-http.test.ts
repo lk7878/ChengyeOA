@@ -6089,6 +6089,9 @@ test('global read-only preview uses the target permissions and keeps the adminis
       await ordinary.getByRole('columnheader',{name:/申请人/}).waitFor();
       await ordinary.getByText('验收员工',{exact:true}).first().waitFor();
       assert.equal(await ordinary.getByRole('button',{name:'批量导入',exact:true}).count(),0);
+      await ordinary.getByText('实时同步已连接',{exact:true}).waitFor();
+      assert.equal(await ordinary.getByRole('alert').count(),0);
+      await ordinary.getByRole('columnheader',{name:/申请人/}).waitFor();
       await ordinary.screenshot({path:'/tmp/oa1114-office-role.png',fullPage:true});
       await ordinary.close();
 

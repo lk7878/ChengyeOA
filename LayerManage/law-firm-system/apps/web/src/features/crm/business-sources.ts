@@ -53,4 +53,4 @@ export function domainCreate(source: string | undefined) {
     : undefined;
 }
 
-export const moduleOptions = Object.entries(businessSources).map(([value, source]) => ({ value, label: source.title }));
+export const moduleOptions = Object.entries(businessSources).filter(([source]) => !['SOP_TASKS','QUALITY_REVIEWS','QUALITY_ISSUES','QUALITY_ANALYSES'].includes(source)).map(([value, source]) => ({ value, label: source.title }));

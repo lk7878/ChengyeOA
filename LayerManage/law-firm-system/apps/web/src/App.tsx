@@ -6,7 +6,6 @@ import {QualityRulesPage,QualityRunsPage,QualityRunPage,QualityInspectionPage,Qu
 import SopSubmissionPage from './pages/SopExecution/SubmissionPage';
 import SopTaskPage from './pages/SopExecution/TaskPage';
 import SopInstancePage from './pages/SopExecution/InstancePage';
-import SopStartPage from './pages/SopExecution/StartPage';
 import SopTemplatesPage from './pages/SopTemplates';
 import RecordAccessBoundary from './features/crm/RecordAccessBoundary';
 import IntelligencePage from './pages/Intelligence';
@@ -312,7 +311,7 @@ function SessionBootstrap() {
           <Route path="/sop/tasks" element={<BusinessWorkspacePage source="SOP_TASKS" />} />
           <Route path="/sop/submissions/:id" element={<SopSubmissionPage />} />
           <Route path="/sop/tasks/:id" element={<SopTaskPage />} />
-          <Route path="/sop/instances/new" element={<SopStartPage />} />
+          <Route path="/sop/instances/new" element={<Navigate to="/admin/archives" replace />} />
           <Route path="/sop/instances/:id" element={<SopInstancePage />} />
           <Route path="/cases/new" element={<CaseRecordPage />} />
           <Route path="/cases/:id" element={<CaseRecordPage />} />

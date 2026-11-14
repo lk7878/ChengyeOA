@@ -399,3 +399,19 @@ test('screening distinguishes a reversed pair, a shared name and a retired case;
   await prisma.case.update({where:{id:first.id},data:{deletedAt:new Date()}});
   assert.equal((await svc.screenConflict({id:saved.id,customerId:other,intakeData:input.intakeData})).level,'GREEN');
 });
+
+
+test('retired SOP close gates preserve historical tasks without blocking case closure',async()=>{
+  const caseId=await seedCase('历史交付案件','PROCESSING');
+  const orgId=randomUUID();
+  const org=await prisma.organization.create({data:{id:orgId,code:randomUUID(),name:'历史组织',type:'FIRM',path:'/'+orgId}});
+  const team=await prisma.professionalTeam.create({data:{code:randomUUID(),name:'历史团队',categoryCode:'MEDICAL',homeOrganizationId:org.id}});
+  const template=await prisma.sopTemplate.create({data:{code:randomUUID(),name:'历史模板',caseType:'民事',organizationId:org.id,professionalTeamId:team.id,createdBy:'case-admin'}});
+  const version=await prisma.sopTemplateVersion.create({data:{templateId:template.id,number:1,content:{},contentHash:'fixture',createdBy:'case-admin'}});
+  const instance=await prisma.sopInstance.create({data:{caseId,templateVersionId:version.id,createdBy:'case-admin'}});
+  const task=await prisma.caseTask.create({data:{caseId,sopInstanceId:instance.id,nodeCode:'CLOSE',createdBy:'case-admin',name:'旧结案门槛',nodeType:'SOP',nodeSnapshot:{closeGate:true},status:'PENDING'}});
+  const closed=await serviceFor('case-admin',actor('case-admin')).closeCase(caseId,{});
+  assert.equal(closed.status,'CLOSED');
+  assert.equal((await prisma.caseTask.findUniqueOrThrow({where:{id:task.id}})).status,'PENDING');
+  assert.equal(await prisma.sopInstance.count(),1);
+});

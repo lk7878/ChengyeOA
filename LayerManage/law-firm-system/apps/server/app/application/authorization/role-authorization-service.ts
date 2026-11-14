@@ -3,7 +3,7 @@ import type { AuthorizationContext } from './authorization-service';
 import { WorksheetPermissions } from '../collaboration/worksheet-permissions';
 import { exact, fail } from '../collaboration/collaboration-policy';
 import { randomUUID } from 'node:crypto';
-import { officeTemplate } from './office-role-template';
+import { basicOfficeCodes, officeTemplate } from './office-role-template';
 import { retiredPermission } from '../../domain/module-availability';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationError, AUTHORIZATION_CODES, authorizationInputError } from '../../domain/authorization/authorization-errors';
@@ -130,11 +130,11 @@ export class RoleAuthorizationService {
       return await this.prisma.$transaction(async tx => {
         const template = await officeTemplate(tx);
         if(input.basicOffice !== undefined && typeof input.basicOffice !== 'boolean') authorizationInputError();
-        const source = input.copyRoleId ? await tx.role.findFirst({where:{id:input.copyRoleId,type:'BUSINESS',status:'ENABLED'},include:ROLE_INCLUDE}) : null;
-        if(input.copyRoleId && !source) authorizationInputError();
+        const source = input.copyRoleId ? await lockRole(tx,input.copyRoleId) : null;
+        if(source && (source.type!=='BUSINESS' || source.status!=='ENABLED')) authorizationInputError();
         const permissions = [...new Set([
           ...(input.basicOffice === false ? [] : template.permissionCodes),
-          ...(source?.permissions.map(p=>p.permission.code).filter(c=>!retiredPermission(c)) ?? []),
+          ...(source?.permissions.map(p=>p.permission.code).filter(c=>!retiredPermission(c) && !basicOfficeCodes.includes(c)) ?? []),
         ])];
         normalizePermissionCodes(permissions);
         const role = await tx.role.create({ data: { name, code, description, type: 'BUSINESS',
@@ -151,16 +151,17 @@ export class RoleAuthorizationService {
             if(!rules[source.id]) continue;
             await tx.$queryRaw`SELECT id FROM collab_table WHERE id=${policy.tableId} FOR UPDATE`;
             const latest=await tx.worksheetRolePolicy.findUniqueOrThrow({where:{tableId:policy.tableId}});
-            await tx.worksheetRolePolicy.update({where:{tableId:policy.tableId},data:{rules:{...latest.rules as Prisma.JsonObject,[role.id]:rules[source.id]},version:{increment:1}}});
+            const currentRules=latest.rules as Prisma.JsonObject;
+            if(currentRules[source.id]) await tx.worksheetRolePolicy.update({where:{tableId:policy.tableId},data:{rules:{...currentRules,[role.id]:currentRules[source.id]},version:{increment:1}}});
           }
-        }
-        if(input.applications?.length) {
-          if(!this.authorization) fail('COLLAB_FORBIDDEN',403);
-          for(const application of input.applications) await saveApplicationPolicy(tx,this.authorization,role.id,application);
         }
         if(source) {
           const applications=await tx.roleApplicationPolicy.findMany({where:{roleId:source.id}});
           if(applications.length) await tx.roleApplicationPolicy.createMany({data:applications.map(({roleId:_,...p})=>({...p,roleId:role.id,version:1}))});
+        }
+        if(input.applications?.length) {
+          if(!this.authorization) fail('COLLAB_FORBIDDEN',403);
+          for(const application of input.applications) await saveApplicationPolicy(tx,this.authorization,role.id,application);
         }
         if(input.worksheets?.length) await this.saveWorksheets(tx,role.id,input.worksheets);
         await writeAuthorizationAudit(tx, {

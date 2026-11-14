@@ -7,6 +7,7 @@ import { AuthorizationContext } from '../../app/application/authorization/author
 import { InventoryService } from '../../app/application/inventory/inventory-service';
 import { PerformanceService } from '../../app/application/performance/performance-service';
 import { DomainSource } from '../../app/application/crm/workspace-domain-source';
+import { businessFields } from '../../app/application/crm/workspace-business-table';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 
 let db: PrismaClient, owner: CollaborationService, staff: CollaborationService;
@@ -147,14 +148,22 @@ async function seed(source: DomainSource, ctx = staff.actor) {
     idempotencyKey: key(),
   });
 }
+// Existing movement/stocktake projections remain readable; new module tables
+// use the administrative and HR templates instead of creating these sources.
+async function sourceTable(source:DomainSource) {
+  if(!['INVENTORY_MOVEMENTS','INVENTORY_STOCKTAKES'].includes(source))
+    return owner.createTable(base,{name:source,source},key());
+  const table=await db.collabTable.create({data:{baseId:base,source,name:source,createdBy:owner.actor.userId}});
+  await db.collabField.createMany({data:businessFields(source).map(f=>({...f,tableId:table.id}))});
+  return table;
+}
 for (const source of [
   'INVENTORY_ITEMS',
   'INVENTORY_MOVEMENTS',
-  'INVENTORY_STOCKTAKES',
   'PERFORMANCES',
 ] as DomainSource[]) {
   test(`${source}: canonical rows, creator SELF, no duplicate records and immutable core`, async () => {
-    const table = (await owner.createTable(base, { name: source, source }, key())).id;
+    const table = (await sourceTable(source)).id;
     const own = await seed(source),
       other = await seed(source, owner.actor);
     const visible = await staff.query(table, {});
@@ -345,7 +354,7 @@ test('recipient pages enforce scoped valid employment and movement labels do not
     idempotencyKey: key(),
   });
   await db.inventoryMovement.update({ where: { id: move.id }, data: { createdBy: staff.actor.userId } });
-  const table = (await owner.createTable(base, { name: '出入库', source: 'INVENTORY_MOVEMENTS' }, key())).id;
+  const table = (await sourceTable('INVENTORY_MOVEMENTS')).id;
   const ctx = selfContext();
   const scoped = new CollaborationService(db, ctx);
   const field = (await scoped.describe(table)).fields.find(
@@ -368,4 +377,21 @@ test('recipient pages enforce scoped valid employment and movement labels do not
   const after = await inventory(ctx).recipients(undefined, 1);
   assert.ok(!Array.isArray(after));
   assert.equal(after.total, 0);
+});
+
+
+test('worksheet self performance refers to the employee subject and legacy SELF remains creator based',async()=>{
+  const created=await performance(staff.actor).createPerformance({employeeId:owner.actor.employeeId!,period:'2026-11',type:'MONTHLY',idempotencyKey:key()});
+  const own=(ctx:AuthorizationContext):AuthorizationContext=>({...ctx,grants:ctx.grants.map(g=>({...g,scopeIds:['worksheet:self']}))});
+  assert.equal((await performance(own(staff.actor)).listPerformances({})).total,0);
+  assert.equal((await performance(own(owner.actor)).listPerformances({})).list[0].id,created.id);
+  const union={...own(staff.actor),grants:[...own(staff.actor).grants,...selfContext(staff.actor).grants]};
+  assert.equal((await performance(union).listPerformances({})).total,1);
+});
+
+
+test('legacy stocktake records survive while new stocktake source tables are replaced by HR worksheets',async()=>{
+  const record=await seed('INVENTORY_STOCKTAKES');
+  await assert.rejects(owner.createTable(base,{name:'旧盘点来源',source:'INVENTORY_STOCKTAKES'},key()),rejects('COLLAB_INVALID_SOURCE'));
+  assert.equal(await db.inventoryStocktake.count({where:{id:record.id}}),1);
 });

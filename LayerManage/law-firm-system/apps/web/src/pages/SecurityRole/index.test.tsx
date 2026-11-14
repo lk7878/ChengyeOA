@@ -89,6 +89,7 @@ test('saves the selected business permissions while marking reserved governance 
   vi.mocked(authorizationAdminApi.roles.replacePermissions).mockResolvedValue({...role,permissionCodes:['employee.read','cost.read'],version:3});
   render(<SecurityRolePage/>);
   fireEvent.click(await screen.findByRole('button',{name:/编辑重庆分所负责人/}));
+  fireEvent.click(await screen.findByText('高级设置 · 操作代码、数据范围及字段规则'));
   fireEvent.click(await screen.findByRole('tab',{name:'操作权限'}));
   expect(screen.getByRole('checkbox',{name:'管理角色权限（系统保留）'})).toBeDisabled();
   fireEvent.click(screen.getByRole('checkbox',{name:'查看成本'}));

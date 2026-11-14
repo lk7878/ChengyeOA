@@ -259,11 +259,27 @@ export class CollaborationService {
     const [path] = await tx.$queryRaw<Array<{ chain: FolderAncestor[] }>>(
       Prisma.sql`SELECT ${folderChainSql(Prisma.sql`${baseId}`)} AS chain`,
     );
-    const access = restrictResourceAccess(
-      inheritFolders(parent, path.chain, principals),
-      base.accessPolicy,
-      principals,
-    );
+    let access: Access;
+    try {
+      access = restrictResourceAccess(inheritFolders(parent, path.chain, principals),base.accessPolicy,principals);
+    } catch (error) {
+      if (level !== 1 || (error as {code:string}).code !== 'COLLAB_FORBIDDEN') throw error;
+      access = {...parent,level:0,canCreate:false,canManageAccess:false};
+    }
+    // A direct worksheet grant also permits navigating to its directory. It
+    // does not grant access to sibling tables or directory administration.
+    if (access.level < 1 && level === 1) {
+      for (const candidate of await this.directTables(tx, baseId)) {
+        try {
+          const child = await this.tableAccess(candidate.id, tx);
+          access = {level:1,canCreate:false,canManageAccess:false,selfOnly:false,
+            hidden:[],readonly:[],workspaceId:base.workspaceId,organizationId:child.access.organizationId};
+          break;
+        } catch (error) {
+          if (!['COLLAB_FORBIDDEN','COLLAB_NOT_FOUND'].includes((error as {code:string}).code)) throw error;
+        }
+      }
+    }
     if (base.moduleSource==='INVENTORY_STOCKTAKES' && !canManageHr(this.actor)) { access.canCreate=false; access.level=Math.min(access.level,1); }
     if (access.level < level) fail('COLLAB_FORBIDDEN', 403);
     return { base, access };

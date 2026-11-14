@@ -167,7 +167,6 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   const canDelete = useAuthStore((state) => state.hasPermission('case.delete'));
   const canClose = useAuthStore((state) => state.hasPermission('case.close'));
   const canAssessment=useAuthStore(state=>state.hasPermission('quality.assessment.read'));
-  const canStartSop = useAuthStore(state=>state.hasPermission('sop.instance.start'));
   const canTask = useAuthStore((state) => state.hasPermission('case.task.manage'));
   const canCommunicate = useAuthStore((state) => state.hasPermission('case.communication.create'));
 
@@ -689,7 +688,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
     <div>
       <Space wrap style={{ marginBottom: 16 }}>
         <Link to="/cases">返回案件工作表</Link>
-        {id && <BusinessTableLinks source="CASES" recordId={id} />}{id&&canAssessment&&<Link to={"/cases/"+id+"/assessments"}>百分制满意度评估</Link>}{id&&canStartSop&&<Link to={"/sop/instances/new?case="+id}>启动SOP流程</Link>}
+        {id && <BusinessTableLinks source="CASES" recordId={id} />}{id&&canAssessment&&<Link to={"/cases/"+id+"/assessments"}>百分制满意度评估</Link>}
         {detail && <Link to={'/finance?caseNo=' + encodeURIComponent(detail.caseNo)}>关联财务</Link>}
       </Space>
       <h1>{id ? '案件详情与交付' : '新建案件'}</h1>
@@ -1166,7 +1165,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
                       }
                     >
                       <p style={{ margin: 0 }}>
-                        <strong>{task.name}</strong> <Tag>{task.nodeType}</Tag>{task.nodeType==='SOP'&&<Link to={'/sop/tasks/'+task.id}>办理SOP节点</Link>}{' '}
+                        <strong>{task.name}</strong> <Tag>{task.nodeType}</Tag>{task.nodeType==='SOP'&&<Link to={'/sop/tasks/'+task.id}>查看历史SOP节点</Link>}{' '}
                         <Tag color={TASK_STATUS_META[task.status]?.color}>
                           {TASK_STATUS_META[task.status]?.text ?? task.status}
                         </Tag>

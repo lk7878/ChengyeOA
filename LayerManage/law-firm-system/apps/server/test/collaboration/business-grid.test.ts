@@ -1012,7 +1012,13 @@ test('new role defaults and atomic worksheet grants support private tables witho
     {tableId:t.id,version:0,rule:{...rule,level:'READER'}}]}),code('COLLAB_ACCESS_CONFLICT'));
   assert.equal((await roles.detail(role.id)).version,role.version);
   assert.equal((await db.worksheetRolePolicy.findUniqueOrThrow({where:{tableId:t.id}})).version,1);
-  const duplicate=await roles.create({name:'复制行政主管',copyRoleId:role.id});
+  const directory=await new CollaborationService(db,actor).listTables(t.detail.table.baseId);
+  assert.deepEqual(directory.tables.map(t=>t.id),[t.id]);
+  assert.equal(directory.access.level,1);
+  await assert.rejects(new CollaborationService(db,actor).baseAccess(t.detail.table.baseId,db,3),code('COLLAB_FORBIDDEN'));
+  const duplicate=await roles.create({name:'复制行政主管',copyRoleId:role.id,basicOffice:false});
+  assert.ok(!duplicate.permissionCodes.includes('approval.apply'));
+
   assert.ok((await db.worksheetRolePolicy.findUniqueOrThrow({where:{tableId:t.id}})).rules[duplicate.id]);
   assert.equal(await db.userRole.count({where:{roleId:duplicate.id}}),0);
 });
