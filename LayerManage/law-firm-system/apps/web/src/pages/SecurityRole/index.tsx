@@ -1,8 +1,13 @@
+import ApplicationDefaults from './ApplicationDefaults';
+import OfficeTemplate from './OfficeTemplate';
+import CreateRole from './CreateRole';
+import { ApplicationPermissions, type WorksheetChange } from './ApplicationPermissions';
+import request from '@/api/request';
 import { WorksheetPermissions } from './WorksheetPermissions';
 import { businessLabel } from '@/locales/business-labels';
 import Table from '@/components/ResizableTable';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, DatePicker, Form, Input, message, Select, Space, Switch, Tabs, Tag, Checkbox } from 'antd';
+import { Button, DatePicker, Form, Input, message, Select, Space, Switch, Tabs, Tag, Checkbox, Collapse } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
 import Modal from '@/components/DraggableModal';
 import { EditOutlined, PlusOutlined, ReloadOutlined, SaveOutlined, UserAddOutlined } from '@ant-design/icons';
@@ -50,7 +55,7 @@ export default function SecurityRolePage() {
   const [teams, setTeams] = useState<ProfessionalTeam[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [createForm] = Form.useForm<RoleForm>();
+  const [worksheetChanges,setWorksheetChanges]=useState<WorksheetChange[]>([]);
   const [editForm] = Form.useForm<RoleForm>();
   const [scopeForm] = Form.useForm<ScopeForm>();
   const scopeType = Form.useWatch('scopeType', scopeForm);
@@ -98,6 +103,7 @@ export default function SecurityRolePage() {
 
   const openRole = (role: RoleAuthorizationView) => {
     setSelected(role);
+    setWorksheetChanges([]);
     editForm.setFieldsValue({ name: role.name, code: role.code, description: role.description ?? undefined });
     setPermissions(role.permissionCodes);
     setScopeBindings(groupBindings(role));
@@ -200,8 +206,8 @@ export default function SecurityRolePage() {
       key:tab.key,label:tab.label,children:<section className="auth-editor-section">
         {selected.type==='BUSINESS' && catalog.some(item=>item.businessRoleAssignable===false && permissions.includes(item.code)) &&
           <p role="alert">此角色包含系统保留权限，请取消勾选后保存：{catalog.filter(item=>item.businessRoleAssignable===false && permissions.includes(item.code)).map(item=>item.name).join('、')}</p>}
-        {[...new Set(catalog.filter(item=>(item.type==='MENU')===tab.menu).map(item=>item.resource))].map(resource=><div key={resource} className="auth-scope-row">
-          <strong>{businessLabel(resource)}</strong><Space wrap>{catalog.filter(item=>item.resource===resource && (item.type==='MENU')===tab.menu).map(item=>
+        {[...new Set(catalog.filter(item=>(item.type==='MENU')===tab.menu && (!/^(quality\.|sop\.|menu\.(quality|sop_tasks|sop_templates)$)/.test(item.code) || permissions.includes(item.code))).map(item=>item.resource))].map(resource=><div key={resource} className="auth-scope-row">
+          <strong>{businessLabel(resource)}</strong><Space wrap>{catalog.filter(item=>item.resource===resource && (item.type==='MENU')===tab.menu && (!/^(quality\.|sop\.|menu\.(quality|sop_tasks|sop_templates)$)/.test(item.code) || permissions.includes(item.code))).map(item=>
             <Checkbox key={item.code} disabled={!canManagePermissions || selected.type !== 'BUSINESS' || (item.businessRoleAssignable === false && !permissions.includes(item.code))} checked={permissions.includes(item.code)}
               onChange={e=>setPermissions(prev=>e.target.checked?[...prev,item.code]:prev.filter(p=>p!==item.code))}>{item.name}{item.businessRoleAssignable === false && '（系统保留）'}</Checkbox>)}</Space>
         </div>)}
@@ -232,7 +238,7 @@ export default function SecurityRolePage() {
   ] : [];
 
   return <section className="auth-page">
-    <header className="auth-page-header"><div><h2>角色与权限</h2><p>可删除未被账号使用的业务角色，历史授权与审计记录保留。</p></div><Space wrap>{canManagePermissions && <WorksheetPermissions roles={roles.filter(r=>r.type==='BUSINESS'&&r.status==='ENABLED')} superAdmin={!!authorization?.isSystemSuperAdmin}/>}<Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button>{canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => { createForm.resetFields(); setCreateOpen(true); }}>新建角色</Button>}</Space></header>
+    <header className="auth-page-header"><div><h2>角色与权限</h2><p>可删除未被账号使用的业务角色，历史授权与审计记录保留。</p></div><Space wrap>{canManagePermissions&&<OfficeTemplate roles={roles} onSaved={()=>void load()}/>} {canManagePermissions && <WorksheetPermissions roles={roles.filter(r=>r.type==='BUSINESS'&&r.status==='ENABLED')} superAdmin={!!authorization?.isSystemSuperAdmin}/>}<Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button>{canCreate && <Button aria-label="新建角色" type="primary" icon={<PlusOutlined />} onClick={() => { setCreateOpen(true); }}>新建角色</Button>}</Space></header>
     <Table loading={loading} rowKey="id" dataSource={roles} pagination={false} scroll={{ x: 760 }} columns={[
       { title: '角色', dataIndex: 'name' },
       { title: '代码', dataIndex: 'code', render: value => <code>{value}</code> },
@@ -242,7 +248,18 @@ export default function SecurityRolePage() {
       { title: '操作', fixed: 'right', width: 140, render: (_, role) => <Space><Button type="text" icon={<EditOutlined />} aria-label={`编辑${role.name}`} onClick={() => openRole(role)} />{canManageStatus && role.type === 'BUSINESS' && <Button type="link" danger onClick={() => setDeleteTarget(role)}>删除</Button>}</Space> },
     ]} />
     <Drawer open={Boolean(selected)} onClose={() => setSelected(null)} title={selected ? `配置角色 · ${selected.name}` : ''} size="large" destroyOnHidden>
-      <Tabs items={roleTabs} />
+      <Tabs items={[...roleTabs.filter(t=>t.key==='basic'),{
+        key:'worksheets',label:'应用与表格权限',children:selected&&<>
+          <Collapse items={[{key:'defaults',label:'应用创建权限与新增表默认授权',children:<ApplicationDefaults role={selected} onSaved={acceptUpdatedRole} editable={!!authorization?.isSystemSuperAdmin&&selected.type==='BUSINESS'}/>}]} />
+          <ApplicationPermissions key={selected.id+':'+selected.version} roleId={selected.id} changes={worksheetChanges} onChange={setWorksheetChanges}
+            readOnly={!canManagePermissions||selected.type!=='BUSINESS'} superAdmin={!!authorization?.isSystemSuperAdmin}/>
+          {canManagePermissions&&selected.type==='BUSINESS'&&<Button type="primary" disabled={!worksheetChanges.length} loading={saving}
+            onClick={()=>Modal.confirm({title:'确认保存这些授权变更？',content:'仅更新上方差异中列出的工作表。请核对数据范围和特殊权限。',
+              onOk:async()=>{const response=await request.put<{data:RoleAuthorizationView}>('/roles/'+selected.id+'/worksheets',
+                {version:selected.version,worksheets:worksheetChanges},{suppressGlobalError:true});
+                acceptUpdatedRole(response.data);setWorksheetChanges([]);message.success('表格授权已保存');}})}>核对并保存表格授权</Button>}
+        </>},...roleTabs.filter(t=>t.key==='members')]} />
+      <Collapse items={[{key:'advanced',label:'高级设置 · 操作代码、数据范围及字段规则',children:<Tabs items={roleTabs.filter(t=>!['basic','members'].includes(t.key))}/>}]} />
     </Drawer>
     <Modal open={Boolean(deleteTarget)} title={`删除角色 · ${deleteTarget?.name ?? ''}`} okText="确认删除" okButtonProps={{ danger: true }} confirmLoading={saving} onCancel={() => setDeleteTarget(null)} onOk={async () => {
       if (!deleteTarget) return;
@@ -255,21 +272,8 @@ export default function SecurityRolePage() {
         message.success('角色已删除');
       } catch (error) { message.error(authorizationErrorMessage(error)); } finally { setSaving(false); }
     }}><p>删除后不再显示或分配此角色。请先撤销账号对该角色的有效授权（包括尚未生效的授权）。历史记录保留。</p></Modal>
-    <Modal open={createOpen} title="新建业务角色" onCancel={() => setCreateOpen(false)} onOk={() => createForm.submit()} confirmLoading={saving} destroyOnHidden>
-      <Form form={createForm} layout="vertical" onFinish={async values => {
-        setSaving(true);
-        try {
-          const created = await authorizationAdminApi.roles.create({ name: values.name, code: values.code.toUpperCase(), description: values.description || null });
-          setRoles(current => [created, ...current]);
-          setCreateOpen(false);
-          message.success('角色已创建');
-        } catch (error) { message.error(authorizationErrorMessage(error)); } finally { setSaving(false); }
-      }}>
-        <Form.Item name="name" label="角色名称" rules={[{ required: true }]}><Input /></Form.Item>
-        <Form.Item name="code" label="角色代码" normalize={(value: string) => value?.toUpperCase()} rules={[{ required: true }, { pattern: /^[A-Z][A-Z0-9_]{2,63}$/, message: '请输入 3-64 位大写字母、数字或下划线' }]}><Input /></Form.Item>
-        <Form.Item name="description" label="说明"><Input.TextArea rows={3} maxLength={500} /></Form.Item>
-      </Form>
-    </Modal>
+    {createOpen&&<CreateRole roles={roles} canAuthorize={canManagePermissions} onClose={()=>setCreateOpen(false)}
+      onCreated={created=>{setRoles(current=>[created,...current]);setCreateOpen(false);openRole(created);}}/>}
     <Modal open={scopeCreateOpen} title="新建数据范围" onCancel={() => setScopeCreateOpen(false)} onOk={() => scopeForm.submit()} confirmLoading={saving} destroyOnHidden>
       <Form form={scopeForm} layout="vertical" onFinish={async values => {
         setSaving(true);

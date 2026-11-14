@@ -1,3 +1,4 @@
+import { deliveryModulesEnabled } from '../../domain/module-availability';
 import { screenParties, verifyConflictReview } from './conflict-screen';
 import { CONTRACT_INTAKE_KEYS, projectLinkedIntake } from './case-linked-intake';
 import { CASE_FIELD_ORDER, FORMULA_KEYS, INTAKE_FIELDS, CaseIntake } from './intake-contract';
@@ -840,7 +841,7 @@ export class CaseService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
       await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.close', tx);
-      if (
+      if (deliveryModulesEnabled &&
         await tx.caseTask.count({
           where: {
             caseId: id,

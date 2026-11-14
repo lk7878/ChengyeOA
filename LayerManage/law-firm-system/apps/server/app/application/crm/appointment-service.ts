@@ -461,6 +461,16 @@ export class AppointmentService {
     };
   }
 
+  async calendarAppointments(from: Date, to: Date) {
+    this.authorization.requireAction(this.authorizationContext, 'appointment.read');
+    const scope = await this.buildAppointmentScopeWhere('appointment.read');
+    return this.prisma.appointment.findMany({
+      where: { AND: [scope, { lead: { deletedAt: null }, status: { notIn: ['CANCELLED', 'RESCHEDULED', 'NOSHOW'] },
+        scheduledAt: { gte: from, lt: to } }] },
+      orderBy: [{ scheduledAt: 'asc' }, { id: 'asc' }], take: 501,
+    });
+  }
+
   /** markNoShow/cancel 共用：活动状态 → 终态（状态守护 CAS），无事件、不动 lead。 */
   private async transitionToTerminal(
     appointmentId: string,

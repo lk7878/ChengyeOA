@@ -51,6 +51,7 @@ export class PermissionTraceService {
       where: { id: { in: scopeIds } }, select: { id: true, scopeType: true },
     });
     const scopeTypeById = new Map(scopes.map(scope => [scope.id, scope.scopeType]));
+    scopeTypeById.set('worksheet:self','SELF');scopeTypeById.set('worksheet:department','OWN_ORG');
     const sources = target.grants
       .filter(grant => !permissionCode || grant.permissionCode === permissionCode)
       .map(grant => ({

@@ -127,3 +127,26 @@ test('failed notification insert rolls back reminder completion and can be retri
   assert.equal(await db.calendarReminder.count({where:{processedAt:null}}),1);
   assert.equal((await deliverCalendarReminders(db,new Date('2030-01-02T08:00:00Z'))).sent,1);
 });
+
+test('unified calendar projects existing visits and follows reschedule, cancel and business scope',async()=>{
+  const {AppointmentService}=await import('../../app/application/crm/appointment-service');
+  const lead=await db.lead.create({data:{leadNo:key(),name:'预约客户',phone:'13800000000',phoneHash:key(),status:'SCREENED',createdBy:owner.userId,branchId:org}});
+  const appointments=new AppointmentService(db,{actorUserId:owner.userId},owner);
+  const at=new Date('2026-11-20T02:00:00Z');
+  const visit=await appointments.createAppointment(lead.id,{scheduledAt:at,channel:'ONSITE'});
+  const calendar=new CalendarService(db,owner);
+  const range={from:'2026-11-01T00:00:00Z',to:'2026-12-01T00:00:00Z',type:'VISIT'};
+  const first=await calendar.events(range);
+  assert.equal(first.rows.length,1);
+  assert.equal(first.rows[0].id,'visit:'+visit.id);
+  assert.equal((await new CalendarService(db,outsider).events(range)).rows.length,0);
+  await assert.rejects(new CalendarService(db,outsider).eventDetail('visit:'+visit.id));
+  const moved=await appointments.reschedule(visit.id,new Date('2026-11-21T02:00:00Z'));
+  const second=await calendar.events(range);
+  assert.equal(second.rows.length,1);
+  assert.equal(second.rows[0].id,'visit:'+moved.id);
+  await appointments.cancel(moved.id);
+  assert.equal((await calendar.events(range)).rows.length,0);
+  assert.equal(await db.calendarEvent.count(),0);
+  assert.equal(await db.calendarReminder.count(),0);
+});

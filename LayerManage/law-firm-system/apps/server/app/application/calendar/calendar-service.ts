@@ -1,3 +1,4 @@
+import { AppointmentService, type AppointmentView } from '../crm/appointment-service';
 import { Prisma, PrismaClient, CalendarEvent } from '@prisma/client';
 import { CollaborationService } from '../collaboration/collaboration-service';
 import { boolean, choice, exact, fail, integer, strings, text } from '../collaboration/collaboration-policy';
@@ -24,15 +25,30 @@ export class CalendarService extends CollaborationService {
     return users.map(u => ({ id: u.id, name: u.employee?.name || u.username, username: u.username }));
   }
   async events(raw: unknown) {
-    const input = exact(raw, ['from', 'to']);
+    const input = exact(raw, ['from', 'to', 'type']);
+    const type = choice(input.type ?? 'ALL', ['ALL', 'EVENT', 'VISIT']);
     const from = date(input.from), to = date(input.to);
     if (to <= from || to.getTime() - from.getTime() > 93 * 86400000) fail('CALENDAR_INVALID_TIME');
-    const rows = await this.db.calendarEvent.findMany({ where: { ...this.visible(), cancelledAt: null,
+    const rows = type === 'VISIT' ? [] : await this.db.calendarEvent.findMany({ where: { ...this.visible(), cancelledAt: null,
       startAt: { lt: to }, endAt: { gt: from } }, include: eventInclude, orderBy: [{ startAt: 'asc' }, { id: 'asc' }], take: 501 });
-    return { rows: rows.slice(0, 500).map(e => ({ ...e, mine: e.ownerId === this.actor.userId,
-      myResponse: e.invitations.find(i => i.userId === this.actor.userId)?.status })), truncated: rows.length > 500 };
+    const visits = type !== 'EVENT' && (this.actor.isSystemSuperAdmin || this.actor.permissionCodes.includes('appointment.read'))
+      ? await this.appointments().calendarAppointments(from, to) : [];
+    const combined = [...rows.map(e => ({ ...e, type: 'EVENT', mine: e.ownerId === this.actor.userId,
+      myResponse: e.invitations.find(i => i.userId === this.actor.userId)?.status })), ...visits.map(visitEvent)]
+      .sort((a, b) => a.startAt.getTime() - b.startAt.getTime() || a.id.localeCompare(b.id));
+    return { rows: combined.slice(0, 500), truncated: combined.length > 500 };
   }
+  private appointments() {
+    return new AppointmentService(this.db, { actorUserId: this.actor.userId }, this.actor);
+  }
+
   async eventDetail(id: string) {
+    if (id.startsWith('visit:')) {
+      const visit = await this.appointments().getAppointment(id.slice(6));
+      return { ...visitEvent(visit), recordUrl: '/leads/' + encodeURIComponent(visit.leadId), people: [] as {id:string;name:string;username:string}[],
+        canConfirmVisit: ['PENDING', 'CONFIRMED'].includes(visit.status) &&
+          (this.actor.isSystemSuperAdmin || this.actor.permissionCodes.includes('appointment.visit')) };
+    }
     const event = await this.db.calendarEvent.findFirst({ where: { id, ...this.visible() }, include: eventInclude });
     if (!event) fail('CALENDAR_NOT_FOUND', 404);
     const people = await this.db.user.findMany({ where: { id: { in: [event.ownerId, ...event.invitations.map(i => i.userId)] } },
@@ -159,4 +175,13 @@ export async function deliverCalendarReminders(db: PrismaClient, now = new Date(
     }
     return { jobs: due.length, sent };
   }, { timeout: 30000 });
+}
+
+function visitEvent(visit: Omit<AppointmentView,'status'> & {status:string}) {
+  return { id: 'visit:' + visit.id, type: 'VISIT', appointmentId: visit.id, title: '客户到访 · ' + visit.appointmentNo,
+    description: visit.remark || '', location: visit.channel === 'ONSITE' ? '现场到访' : '线上沟通',
+    startAt: visit.scheduledAt, endAt: new Date(visit.scheduledAt.getTime() + 1),
+    status: visit.status, important: false, visibility: 'BUSINESS', mine: false, version: 1,
+    ownerId: visit.createdBy, invitations: [] as {userId:string;status:string}[], reminders: [] as {minutesBefore:number}[],
+    cancelledAt: ['CANCELLED', 'RESCHEDULED', 'NOSHOW'].includes(visit.status) ? visit.updatedAt : null };
 }

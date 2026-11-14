@@ -1,4 +1,3 @@
-import CaseIdentityGaps from './CaseIdentityGaps';
 import { useEffect, useState } from 'react';
 import { Alert, Button, Spin } from 'antd';
 import { useLocation, useNavigate, useSearchParams } from 'react-router';
@@ -15,7 +14,6 @@ export default function CaseWorkspacePage() {
   return (
     <>
       <BusinessWorkspacePage source="CASES" />
-      {!params.get('base') && <CaseIdentityGaps />}
     </>
   );
 }

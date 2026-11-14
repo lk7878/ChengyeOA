@@ -1,3 +1,4 @@
+import { basicOfficeCodes } from '../../app/application/authorization/office-role-template';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
@@ -147,7 +148,7 @@ test('blocks disabling an assigned role and rolls back a replacement when audit 
   }));
   const unchanged = await service.detail(role.id);
   assert.equal(unchanged.version, role.version);
-  assert.deepEqual(unchanged.permissionCodes, []);
+  assert.deepEqual(unchanged.permissionCodes, [...basicOfficeCodes].sort());
 });
 
 function hasCode(code: string) {

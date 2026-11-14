@@ -82,6 +82,7 @@ export interface Workspace extends Option {
   bases: Base[];
 }
 export interface Access {
+  import?:boolean;
   add?:boolean; copy?:boolean; automate?:boolean;
   level: number;
   canCreate: boolean;
@@ -93,6 +94,7 @@ export interface Access {
 }
 export interface TableDetail {
   canDeleteRecords?: boolean;
+  businessPermissions?:string[];
   canCreateBusiness?: boolean;
   table: DataTable;
   fields: Field[];

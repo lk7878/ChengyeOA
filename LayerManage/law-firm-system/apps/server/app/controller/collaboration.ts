@@ -45,6 +45,8 @@ export default class CollaborationController extends Controller {
   async contractChoices() {
     this.respond(await this.collaborationService().contractChoices(this.ctx.query));
   }
+  async importRecords() { this.respond(await this.collaborationService().importRecords(this.ctx.params.tableId,this.ctx.request.body,this.key())); }
+  async exportRecords() { this.respond(await this.collaborationService().exportRecords(this.ctx.params.tableId,this.ctx.request.body)); }
   async recordOperations() {
     this.respond(await this.collaborationService().recordOperations(this.ctx.params.tableId, this.ctx.query));
   }

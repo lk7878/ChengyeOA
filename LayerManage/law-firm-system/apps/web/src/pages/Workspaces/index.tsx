@@ -1,3 +1,4 @@
+import BulkTransfer from '@/features/workspaces/BulkTransfer';
 import AfterSalesStatusAction from '@/features/workspaces/AfterSalesStatusAction';
 import RowComments from '@/features/workspaces/RowComments';
 import { appearanceRowHeight, useAppearance, useAppearanceStore } from '@/features/appearance/store';
@@ -1124,6 +1125,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   </Dropdown>
                 </div>
                 <div className="workspace-toolbar">
+                  <BulkTransfer detail={detail} config={config} viewId={view?.id} onImported={refresh} superAdmin={!!useAuthStore.getState().authorization?.isSystemSuperAdmin}/>
                   <Button
                     type="primary"
                     icon={<PlusOutlined aria-hidden="true" />}

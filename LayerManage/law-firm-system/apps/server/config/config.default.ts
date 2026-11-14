@@ -38,7 +38,7 @@ export default (appInfo: EggAppInfo) => {
   config.keys = env.appKeys.join(',');
 
   // 中间件配置
-  config.middleware = ['errorHandler', 'csrf', 'auth', 'authorizationContext', 'administratorMfaGuard', 'permissionPreview'];
+  config.middleware = ['errorHandler', 'csrf', 'auth', 'authorizationContext', 'administratorMfaGuard', 'permissionPreview', 'retiredModules', 'worksheetAuthorization'];
 
   // 安全配置
   config.security = {

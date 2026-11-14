@@ -1,3 +1,8 @@
+import { FIELD_CATALOG } from '../../domain/authorization/field-security-policy';
+import { FieldProjectionService } from '../authorization/field-projection-service';
+import { applicationPolicies, mayCreateInApplication, initializeTablePolicies } from './application-role-policy';
+import { tableBusinessCapabilities, worksheetRuleContext } from './worksheet-business-grants';
+import { retiredSources } from '../../domain/module-availability';
 import { applyRules, recordFieldLevel, defaultRule, presets, rowPredicate, ruleAllowsWrite, type RolePolicy, type TableRule } from './worksheet-roles';
 import { moduleGroup, moduleGroups, ensureModuleWorkspace } from './module-workspaces';
 import { inventoryFields, inventoryKinds, InventoryKind, seedInventorySummary, inventorySummarySql, assignInventoryNumber, isInventorySummary, hasInventoryProjection, validateOfficeStock } from './inventory-worksheets';
@@ -82,6 +87,8 @@ type MemberAccess = Pick<
   'role' | 'canCreate' | 'rowScope' | 'canManageAccess' | 'hiddenFields' | 'readonlyFields'
 >;
 export interface Access {
+  createOnly?:boolean;
+  import?:boolean;
   previewCeiling?: Access;
   rules?: TableRule[];
   viewIds?: string[];
@@ -175,7 +182,13 @@ export class CollaborationService {
     if (!w) fail('COLLAB_NOT_FOUND', 404);
     this.authorizeModuleGroup(w.moduleGroup);
     const members = await tx.collabMember.findMany({ where: { workspaceId, OR: await this.principals(tx) } });
-    return this.memberAccess(workspaceId, w.organizationId, members, level);
+    if(!members.length && await mayCreateInApplication(tx,this.actor,workspaceId)) {
+      if(level>1) fail('COLLAB_FORBIDDEN',403);
+      return {level:1,canCreate:true,createOnly:true,selfOnly:false,canManageAccess:false,hidden:[],readonly:[],workspaceId,organizationId:w.organizationId};
+    }
+    const access=this.memberAccess(workspaceId, w.organizationId, members, level);
+    if(await mayCreateInApplication(tx,this.actor,workspaceId)) access.canCreate=true;
+    return access;
   }
   private memberAccess(
     workspaceId: string,
@@ -347,10 +360,12 @@ export class CollaborationService {
       const roleIds = principals.filter(p => p.principalType === 'ROLE').map(p => p.principalId);
       const assigned = roleIds.filter(id => _rolePolicy?.rules[id]);
       const direct = invitedRole || assigned.length > 0;
+      const explicitTableGrant = !!(invitedRole && _rolePolicy?.rules[invitedRole]?.business) || assigned.some(id=>_rolePolicy?.rules[id]?.business && _rolePolicy.rules[id].level!=='DENY');
       const joined = _members.length > 0;
-      const workspaceAccess = this.memberAccess(_workspaceId, _organizationId, joined ? _members :
-        direct ? [{role:'READER', rowScope:'ALL', canCreate:false, canManageAccess:false, hiddenFields:[], readonlyFields:[]}] : []);
-      const parent = await this.restrict(inheritFolders(workspaceAccess, _folderChain, principals), _basePolicy, tx, principals);
+      const workspaceAccess = joined || direct ? this.memberAccess(_workspaceId, _organizationId, joined ? _members :
+        [{role:'READER', rowScope:'ALL', canCreate:false, canManageAccess:false, hiddenFields:[], readonlyFields:[]}])
+        : await this.access(_workspaceId,tx);
+      const parent = explicitTableGrant ? {...workspaceAccess,level:3} : await this.restrict(inheritFolders(workspaceAccess, _folderChain, principals), _basePolicy, tx, principals);
       if (!definition.accessPolicy && !_basePolicy && _folderChain.every(f => !f.accessPolicy) &&
         definition.createdBy === this.actor.userId && parent.level >= 2 && parent.canCreate)
         parent.level = Math.max(parent.level, 3);
@@ -368,8 +383,13 @@ export class CollaborationService {
           access.level = 3;
         applyRules(access, rules, _fields);
         if (direct && access.level>=3 && !access.selfOnly && !access.hidden.length && !access.readonly.length &&
-            rules.some(r=>r.rows==='ALL' && (r.level==='MANAGER'||r.level==='OWNER'))) access.canManageAccess=true;
+            rules.some(r=>r.share!==false && r.rows==='ALL' && (r.level==='MANAGER'||r.level==='OWNER'))) access.canManageAccess=true;
       }
+    }
+    if (retiredSources.includes(definition.source)) {
+      if (level > 1) fail('MODULE_RETIRED',409);
+      access.level = Math.min(access.level,1); access.add=false; access.remove=false; access.automate=false; access.canManageAccess=false;
+      access.readonly = [...new Set([...access.readonly,..._fields.map(f=>f.id)])];
     }
     if (access.level < level) fail('COLLAB_FORBIDDEN', 403);
     const table = {
@@ -388,7 +408,7 @@ export class CollaborationService {
     if (table.inventoryKind === 'ADMIN_SEAL' && !this.actor.isSystemSuperAdmin && !this.actor.permissionCodes.includes('inventory.seal.review'))
       access.readonly.push(...visible.filter(f => object(f.options).adminReview).map(f => f.id));
     const fields = table.source === 'CUSTOM' ? visible : new WorkspaceBusinessTable(this.db, this.actor).visibleFields(table.source, visible);
-    if (access.rules?.every(r => r.rows !== 'ALL')) {
+    if (access.rules?.every(r => r.rows !== 'ALL' || !!r.business)) {
       const rawFields = table.fields.filter(f => !f.archived);
       access.rowIds = await this.matchingRows(table, access, rawFields, access.rules, tx);
     }
@@ -397,12 +417,12 @@ export class CollaborationService {
       const allowed=new Set(allowedIds);
       access.rowIds=access.rowIds ? access.rowIds.filter(id=>allowed.has(id)) : allowedIds;
     }
-    if (access.rules && access.rules.length > 1 && access.rules.some(r=>r.rows!=='ALL')) {
+    if (access.rules && access.rules.length > 1 && access.rules.some(r=>r.rows!=='ALL'||!!r.business)) {
       access.conditional=fields.filter(f=>new Set(access.rules.map(r=>r.fields[f.id] ?? 'EDIT')).size>1).map(f=>f.id);
       if (access.conditional.length || new Set(access.rules.map(r=>r.level)).size>1) {
         access.scopedRules=[];
         for (const rule of access.rules) {
-          const ids=rule.rows==='ALL' ? undefined : new Set(await this.matchingRows(table,access,table.fields,[rule],tx));
+          const ids=rule.rows==='ALL' && !rule.business ? undefined : new Set(await this.matchingRows(table,access,table.fields,[rule],tx));
           access.scopedRules.push({rule,ids});
         }
       }
@@ -441,8 +461,13 @@ export class CollaborationService {
     await this.checkRowWrite(table,access,tx,id,[...changed,...Object.keys(patch)],'add');
     await this.event(tx,table.baseId,'record.updated',id);
   }
-  private async matchingRows(table: CollabTable, access: Access, fields: CollabField[], rules: TableRule[], tx: Tx, id?: string) {
-    const source = table.source !== 'CUSTOM' ? await new WorkspaceBusinessTable(this.db, this.actor).sourceSql(table, access, fields)
+  private async matchingRows(table: CollabTable, access: Access, fields: CollabField[], rules: TableRule[], tx: Tx, id?: string):Promise<string[]> {
+    if(rules.length>1 && rules.some(rule=>!!rule.business)) {
+      const matches=await Promise.all(rules.map(rule=>this.matchingRows(table,access,fields,[rule],tx,id)));
+      return [...new Set(matches.flat())];
+    }
+    const actor=rules.length===1?worksheetRuleContext(this.actor,rules[0]):this.actor;
+    const source = table.source !== 'CUSTOM' ? await new WorkspaceBusinessTable(this.db, actor).sourceSql(table, access, fields)
       : table.lifecycleKind ? await this.lifecycle().sourceSql(table,access,fields)
       : hasInventoryProjection(table.inventoryKind) ? await inventorySummarySql(this.db,table,fields,this.actor.userId,key => this.tableAccess(key,tx))
       : Prisma.sql`SELECT * FROM collab_record WHERE "tableId"=${table.id}`;
@@ -457,7 +482,7 @@ export class CollaborationService {
     const groups = fieldIds.length ? fieldIds.map(key => [key]) : [[]];
     for (const group of groups) {
       const rules = access.rules.filter(r => ruleAllowsWrite(r,group,action));
-      if (!rules.length || (!rules.some(r => r.rows === 'ALL') &&
+      if (!rules.length || (!rules.some(r => r.rows === 'ALL' && !r.business) &&
         !(await this.matchingRows(table,access,table.fields,rules,tx,id)).length)) fail('COLLAB_FORBIDDEN',403);
     }
   }
@@ -639,8 +664,9 @@ export class CollaborationService {
       select: { workspaceId: true },
     });
     const direct = await this.directTables(this.db);
+    const applicationGrants=await applicationPolicies(this.db,this.actor);
     const workspaces = await this.db.collabWorkspace.findMany({
-      where: { id: { in: [...members,...direct].map(m=>m.workspaceId) } },
+      where: { id: { in: [...members,...direct,...applicationGrants.filter(p=>p.canCreate)].map(m=>m.workspaceId) } },
       include: { bases: { orderBy: { name: 'asc' } } },
       orderBy: { name: 'asc' },
     });
@@ -650,7 +676,7 @@ export class CollaborationService {
       try {
         const access = await this.access(workspace.id);
         if (group && !workspace.moduleGroup && access.level >= 3) provisionParents.push({ id: workspace.id, name: workspace.name });
-        if (group && (workspace.moduleGroup !== group || access.level < 3)) continue;
+        if (group && (workspace.moduleGroup !== group || (access.level < 3 && !access.canCreate))) continue;
       } catch (e) { if ((e as {code:string}).code !== 'COLLAB_FORBIDDEN') throw e;
         if (group || !direct.some(t=>t.workspaceId===workspace.id)) continue; }
       available.push(workspace);
@@ -664,7 +690,7 @@ export class CollaborationService {
         }
       }
       workspace.bases = permitted;
-      if (!permitted.length && !members.some(m=>m.workspaceId===workspace.id)) available.pop();
+      if (!permitted.length && !members.some(m=>m.workspaceId===workspace.id) && !applicationGrants.some(p=>p.workspaceId===workspace.id&&p.canCreate)) available.pop();
     }
     return {
       workspaces: available,
@@ -1217,6 +1243,7 @@ export class CollaborationService {
     ]);
     // The administrative module now stores expenses in its own editable worksheet.
     if (source === 'INVENTORY_MOVEMENTS' || source === 'INVENTORY_STOCKTAKES') fail('COLLAB_INVALID_SOURCE');
+    if (retiredSources.includes(source)) fail('MODULE_RETIRED',409);
     if (source !== 'CUSTOM') new WorkspaceBusinessTable(this.db, this.actor).authorize(source);
     const initial = await this.baseAccess(baseId);
     if (!initial.access.canCreate || (source !== 'CUSTOM' && initial.access.level < 4))
@@ -1305,6 +1332,7 @@ export class CollaborationService {
           } : {}),
         },
       });
+      await initializeTablePolicies(tx,table,base.workspaceId,this.actor.userId);
       await this.event(tx, baseId, 'table.created', table.id);
       return { id: table.id, viewId: view.id };
     });
@@ -1320,6 +1348,7 @@ export class CollaborationService {
     });
     return {
       table: { ...table, accessPolicy: null as null, fields: [] as CollabField[] },
+      businessPermissions: this.actor.permissionCodes,
       canDeleteRecords: access.remove !== false &&
         (!isHrKind(table.inventoryKind) || canManageHr(this.actor)) &&
         !isInventorySummary(table.inventoryKind) &&
@@ -2521,6 +2550,44 @@ export class CollaborationService {
       transaction,
     );
   }
+  async importRecords(tableId:string,raw:unknown,key:string) {
+    const input=exact(raw,['records','schemaVersion']);
+    if(!Array.isArray(input.records)||!input.records.length||input.records.length>200) fail('COLLAB_INVALID_INPUT');
+    return this.write(key,['records.import',tableId,input],async tx=>{
+      const {table,access}=await this.tableAccess(tableId,tx,2);
+      if(!this.actor.isSystemSuperAdmin && access.import!==true) fail('COLLAB_FORBIDDEN',403);
+      if(table.source!=='CUSTOM'||table.lifecycleKind||hasInventoryProjection(table.inventoryKind)) fail('COLLAB_IMPORT_UNSUPPORTED',422);
+      if(table.schemaVersion!==integer(input.schemaVersion)) fail('COLLAB_SCHEMA_CONFLICT',409);
+      const ids:string[]=[];
+      for(const values of input.records as unknown[])
+        ids.push((await this.saveRecord(tableId,undefined,{values,schemaVersion:table.schemaVersion},key,tx)).id);
+      return {ids,count:ids.length};
+    });
+  }
+  async exportRecords(tableId:string,raw:unknown) {
+    const input=exact(raw,['viewId','config']);
+    if(!this.actor.isSystemSuperAdmin&&!this.actor.permissionCodes.includes('data.bulk_export')) fail('COLLAB_FORBIDDEN',403);
+    return this.db.$transaction(async tx=>{
+      const service=new CollaborationService(tx as PrismaClient,this.actor,this.preview);
+      const detail=await service.describe(tableId);
+      if(detail.access.copy===false) fail('COLLAB_FORBIDDEN',403);
+      const rows:Awaited<ReturnType<CollaborationService['query']>>['records']=[];
+      for(let page=1;page<=50;page++) {
+        const result=await service.query(tableId,{...input,page,pageSize:200});
+        if(result.total>10000) fail('COLLAB_EXPORT_LIMIT',422);
+        rows.push(...result.records);
+        if(rows.length>=result.total)break;
+      }
+      const caps=tableBusinessCapabilities(detail.table);
+      const projection=new FieldProjectionService();
+      const fields=detail.fields.filter(f=>{
+        const policy=FIELD_CATALOG.find(p=>p.resource===caps.resource && p.field===object(f.options).businessKey);
+        return !policy || projection.canExportField(this.actor,policy.resource,policy.code,(caps.basic.find(p=>p.endsWith('.read'))||'lead.read') as never);
+      });
+      return {fields:fields.map(f=>({id:f.id,name:f.name})),records:rows.map(r=>({id:r.id,values:Object.fromEntries(fields.map(f=>[f.id,r.values[f.id]]))}))};
+    },{isolationLevel:'RepeatableRead',timeout:30000});
+  }
+
   async recordOperations(tableId: string, raw: unknown = {}) {
     const input = exact(raw, ['trash', 'page']);
     await this.tableAccess(tableId, this.db, 2);

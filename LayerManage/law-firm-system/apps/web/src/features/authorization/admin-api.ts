@@ -29,7 +29,7 @@ export const authorizationAdminApi = {
   roles: {
     list: (params: { page?: number; pageSize?: number; keyword?: string } = {}) => data(request.get<ApiResponse<Page<RoleAuthorizationView>>>('/v1/roles', { params })),
     detail: (id: string) => data(request.get<ApiResponse<RoleAuthorizationView>>(`/v1/roles/${id}`)),
-    create: (input: { name: string; code: string; description?: string | null }) => data(request.post<ApiResponse<RoleAuthorizationView>>('/v1/roles', input)),
+    create: (input: { name: string; code?: string; description?: string | null; basicOffice?:boolean; copyRoleId?:string; worksheets?:unknown[] }) => data(request.post<ApiResponse<RoleAuthorizationView>>('/v1/roles', input)),
     update: (id: string, input: { name?: string; description?: string | null; version: number }) => data(request.patch<ApiResponse<RoleAuthorizationView>>(`/v1/roles/${id}`, input)),
     enable: (id: string, version: number) => data(request.post<ApiResponse<RoleAuthorizationView>>(`/v1/roles/${id}/enable`, { version })),
     disable: (id: string, version: number) => data(request.post<ApiResponse<RoleAuthorizationView>>(`/v1/roles/${id}/disable`, { version })),

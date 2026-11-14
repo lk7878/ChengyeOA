@@ -1,3 +1,4 @@
+import { officeTemplate, saveOfficeTemplate, applyOfficeTemplate } from '../application/authorization/office-role-template';
 import { Controller } from 'egg';
 import { RoleAuthorizationService } from '../application/authorization/role-authorization-service';
 import { UserGrantService } from '../application/authorization/user-grant-service';
@@ -5,6 +6,11 @@ import { AuthorizationContext } from '../application/authorization/authorization
 import { authorizationInputError } from '../domain/authorization/authorization-errors';
 
 export default class RoleController extends Controller {
+  async applications() { this.respond(await this.roleAuthorizationService().applications(this.ctx.params.id)); }
+  async replaceApplications() { this.respond(await this.roleAuthorizationService().replaceApplications(this.ctx.params.id,this.ctx.request.body)); }
+  async officeTemplate() { this.respond(await officeTemplate(this.ctx.prisma)); }
+  async saveOfficeTemplate() { this.respond(await saveOfficeTemplate(this.ctx.prisma,this.authorization().userId,this.ctx.request.body)); }
+  async applyOfficeTemplate() { this.respond(await applyOfficeTemplate(this.ctx.prisma,this.authorization().userId,this.ctx.request.body)); }
   async index() {
     const page = positiveInteger(this.ctx.query.page, 1, 10_000);
     const pageSize = positiveInteger(this.ctx.query.pageSize, 20, 100);
@@ -42,6 +48,7 @@ export default class RoleController extends Controller {
     this.respond(await this.roleAuthorizationService().enable(this.ctx.params.id, this.ctx.request.body?.version));
   }
 
+  async replaceWorksheets() { this.respond(await this.roleAuthorizationService().replaceWorksheets(this.ctx.params.id,this.ctx.request.body)); }
   async replacePermissions() {
     this.respond(await this.roleAuthorizationService().replacePermissions(this.ctx.params.id, this.ctx.request.body));
   }
@@ -58,7 +65,7 @@ export default class RoleController extends Controller {
     return new RoleAuthorizationService(this.ctx.prisma, {
       actorUserId: this.authorization().userId,
       ip: this.ctx.ip,
-    });
+    },this.authorization());
   }
 
   private grantService(): UserGrantService {

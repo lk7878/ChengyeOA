@@ -6018,6 +6018,7 @@ test('global read-only preview uses the target permissions and keeps the adminis
       await page.getByRole('region',{name:'权限预览'}).getByRole('columnheader',{name:'标题'}).waitFor();
       await page.getByRole('button',{name:'退出预览'}).click();
       await page.getByRole('button',{name:'编辑行政主管',exact:true}).click();
+      await page.getByText('高级设置 · 操作代码、数据范围及字段规则',{exact:true}).click();
       await page.getByRole('tab',{name:'操作权限',exact:true}).click();
       assert.equal(await page.getByRole('checkbox',{name:'管理角色权限（系统保留）',exact:true}).isDisabled(),true);
       const permission=page.getByRole('checkbox',{name:'查看异常数据',exact:true});
@@ -6028,6 +6029,75 @@ test('global read-only preview uses the target permissions and keeps the adminis
       ]);
       const actual=(await adminRequest('get','/roles/'+businessRole.id).expect(200)).body.data.permissionCodes;
       assert.deepEqual(actual.sort(),[...costs,'anomaly.read'].sort());
+      const {AuthorizationContextLoader}=await import('../../app/application/authorization/authorization-context-loader');
+      const {DriveService}=await import('../../app/application/collaboration/drive-service');
+      const {ensureModuleWorkspace}=await import('../../app/application/collaboration/module-workspaces');
+      const actor=await new AuthorizationContextLoader(db).load(owner);
+      const drive=new DriveService(db,actor);
+      const existingBase=await db.collabBase.findUniqueOrThrow({where:{id:baseId}});
+      const fixtures=[];
+      for(const [group,source,name] of [['HUMAN_RESOURCES','INVENTORY_STOCKTAKES','员工名册'],['ADMINISTRATION','INVENTORY_MOVEMENTS','行政费用'],['INVENTORY','INVENTORY_ITEMS','物品名录']]) {
+        const workspace=await ensureModuleWorkspace(db,existingBase.workspaceId,group,owner);
+        const item=await drive.createDriveBase(workspace.id,{name,moduleSource:source,connectBusiness:source==='INVENTORY_ITEMS'},randomUUID());
+        await db.collabTable.update({where:{id:item.tableId},data:{name}});
+        fixtures.push({...item,name,source,workspaceName:workspace.name});
+      }
+      await page.getByRole('dialog',{name:'配置角色 · 行政主管',exact:true}).locator('.ant-drawer-close').click();
+      await page.getByRole('button',{name:'新建角色',exact:true}).click();
+      const wizard=page.getByRole('dialog',{name:'新建角色',exact:true});
+      await wizard.getByRole('textbox',{name:'角色名称',exact:true}).fill('行政主管验收');
+      assert.equal(await wizard.getByRole('checkbox',{name:'基础办公',exact:true}).isChecked(),true);
+      await wizard.getByRole('button',{name:'下一步',exact:true}).click();
+      for(const fixture of fixtures) {
+        await wizard.getByRole('menuitem',{name:fixture.workspaceName,exact:true}).click();
+        await wizard.getByRole('combobox',{name:fixture.name+'权限',exact:true}).click();
+        await page.locator('.ant-select-dropdown:visible').getByText(fixture.source==='INVENTORY_ITEMS'?'查看':'编辑',{exact:true}).click();
+      }
+      await wizard.getByRole('button',{name:'下一步',exact:true}).click();
+      const createdResponse=page.waitForResponse((r:any)=>r.url().endsWith('/api/v1/roles')&&r.request().method()==='POST');
+      await wizard.getByRole('button',{name:'核对并创建',exact:true}).click();
+      const createdResult=await createdResponse;
+      assert.equal(createdResult.status(),200);
+      const createdRole=(await createdResult.json()).data;
+      assert.match(createdRole.code,/^ROLE_[A-F0-9]{24}$/);
+      assert.ok(createdRole.permissionCodes.includes('approval.process'));
+      const member=await db.user.create({data:{username:'office-role-acceptance',password:'unused',userRoles:{create:{roleId:createdRole.id}}}});
+      const session=await createApiSession(db,member.id);
+      const memberApi=(method:'get'|'post',path:string)=>app.httpRequest()[method]('/api/v1'+path).set('Authorization','Bearer '+session.token);
+      for(const fixture of fixtures) {
+        const detail=(await memberApi('get','/tables/'+fixture.tableId).expect(200)).body.data;
+        assert.equal(detail.access.level,fixture.source==='INVENTORY_ITEMS'?1:2);
+        assert.equal(detail.canDeleteRecords,false);
+        assert.equal(detail.access.canManageAccess,false);
+        await memberApi('post','/tables/'+fixture.tableId+'/export').send({}).expect(403);
+        const simulated=await adminRequest('post','/tables/'+fixture.tableId+'/permission-preview').send({target:'MEMBER',id:member.id}).expect(200);
+        assert.equal(simulated.body.data.canDelete,false);
+      }
+      const expense=fixtures.find(f=>f.source==='INVENTORY_MOVEMENTS')!;
+      const expenseDetail=(await memberApi('get','/tables/'+expense.tableId).expect(200)).body.data;
+      const applicant=expenseDetail.fields.find((f:any)=>f.name==='申请人').id;
+      await memberApi('post','/tables/'+expense.tableId+'/records').set('Idempotency-Key',randomUUID())
+        .send({schemaVersion:expenseDetail.table.schemaVersion,values:{[applicant]:'验收员工',[expenseDetail.fields.find((f:any)=>f.name==='采购日期') .id]:'2026-11-14T00:00:00.000Z',[expenseDetail.fields.find((f:any)=>f.name==='产品名称').id]:'验收用品'}}).expect(200);
+      const ordinary=await browser.newPage();
+      await ordinary.addInitScript('if (window===window.parent) window.unifiedTestSession='+JSON.stringify({
+        mode:'AUTHENTICATED',token:session.token,csrfToken:session.csrfToken,expiresIn:900,user:{id:member.id,username:member.username,name:'验收员工',roles:[],permissions:[]}}));
+      await ordinary.route((url:URL)=>url.origin===new URL(address).origin,async(route:any)=>{
+        if(route.request().frame()!==ordinary.mainFrame()||route.request().resourceType()!=='document')return route.continue();
+        const response=await route.fetch();await route.fulfill({response,body:(await response.text()).replace('/src/main.tsx','/e2e/unified-harness.tsx')});
+      });
+      await ordinary.goto(address+'inventory/movements?'+new URLSearchParams({base:expense.id,table:expense.tableId}));
+      await ordinary.getByRole('columnheader',{name:/申请人/}).waitFor();
+      await ordinary.getByText('验收员工',{exact:true}).first().waitFor();
+      assert.equal(await ordinary.getByRole('button',{name:'批量导入',exact:true}).count(),0);
+      await ordinary.screenshot({path:'/tmp/oa1114-office-role.png',fullPage:true});
+      await ordinary.close();
+
+    } catch(error) {
+      for(const context of browser.contexts()) for(const page of context.pages()) {
+        await writeFile('/tmp/oa1114-role-browser-failure.txt',await page.locator('body').ariaSnapshot()).catch(()=>undefined);
+        await page.screenshot({path:'/tmp/oa1114-role-browser-failure.png',fullPage:true}).catch(()=>undefined);
+      }
+      throw error;
     } finally {await browser.close();await vite.close();}
   }
 });

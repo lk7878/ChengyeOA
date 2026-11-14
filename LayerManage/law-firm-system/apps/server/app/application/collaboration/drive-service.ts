@@ -1,3 +1,5 @@
+import { mayCreateInApplication, initializeTablePolicies } from './application-role-policy';
+import { retiredSources } from '../../domain/module-availability';
 import { createHash } from 'node:crypto';
 import { unlink } from 'node:fs/promises';
 import path from 'node:path';
@@ -168,7 +170,7 @@ export class DriveService extends CollaborationService {
       canManageAccess: snapshot.root.canManageAccess,
       workspaceLevel: snapshot.root.level,
       canCreateFolder: scope !== 'trash' && parent.access.level >= 3 && parent.path.length < 8,
-      canCreateBase: scope !== 'trash' && parent.access.level >= 3,
+      canCreateBase: scope !== 'trash' && (parent.access.level >= 3 || parent.access.canCreate),
     };
   }
 
@@ -522,23 +524,26 @@ export class DriveService extends CollaborationService {
   async createDriveBase(workspaceId: string, raw: unknown, key: unknown) {
     const input = exact(raw, ['name', 'parentId', 'moduleSource', 'connectBusiness']);
     const moduleSource = this.moduleSource(input.moduleSource);
+    if(moduleSource && retiredSources.includes(moduleSource)) fail('MODULE_RETIRED',409);
+    const applicationCreate=await mayCreateInApplication(this.db,this.actor,workspaceId);
     if (input.connectBusiness !== undefined && typeof input.connectBusiness !== 'boolean') fail('COLLAB_INVALID_INPUT');
     const hr = moduleSource === 'INVENTORY_STOCKTAKES';
-    if (hr && !canManageHr(this.actor)) fail('COLLAB_FORBIDDEN',403);
+    if (hr && !canManageHr(this.actor) && !applicationCreate) fail('COLLAB_FORBIDDEN',403);
     const expenses = moduleSource === 'INVENTORY_MOVEMENTS';
     const connectBusiness = !hr && !expenses && input.connectBusiness === true;
     if (connectBusiness) {
       if (!moduleSource) fail('COLLAB_INVALID_SOURCE');
-      new WorkspaceBusinessTable(this.db, this.actor).authorize(moduleSource);
+      if(!applicationCreate) new WorkspaceBusinessTable(this.db, this.actor).authorize(moduleSource);
     }
     const name = text(input.name),
       parentId = optionalParent(input.parentId);
-    this.parent(await this.catalog(workspaceId), parentId, true);
+    if(!applicationCreate || parentId) this.parent(await this.catalog(workspaceId), parentId, true);
     return this.write(key, ['drive.base.create', workspaceId, name, parentId, moduleSource, connectBusiness], async (tx) => {
       await this.lock(tx, workspaceId);
-      const parent = this.parent(await this.catalog(workspaceId, tx), parentId, true);
+      const allowedCreate=await mayCreateInApplication(tx,this.actor,workspaceId);
+      const parent = allowedCreate && !parentId ? {access:{level:3}} : this.parent(await this.catalog(workspaceId, tx), parentId, true);
       await this.assertModuleWorkspace(workspaceId, moduleSource, tx);
-      if (connectBusiness && parent.access.level < 4) fail('COLLAB_FORBIDDEN', 403);
+      if (connectBusiness && parent.access.level < 4 && !allowedCreate) fail('COLLAB_FORBIDDEN', 403);
       const base = await tx.collabBase.create({
         data: {
           workspaceId,
@@ -573,6 +578,7 @@ export class DriveService extends CollaborationService {
       const view = await tx.collabView.create({
         data: { tableId: table.id, name: '总表', ownerId: this.actor.userId, shared: true, isDefault: true },
       });
+      await initializeTablePolicies(tx,table,workspaceId,this.actor.userId);
       await this.event(tx, base.id, 'base.created', base.id);
       return { id: base.id, baseId: base.id, tableId: table.id, viewId: view.id };
     });

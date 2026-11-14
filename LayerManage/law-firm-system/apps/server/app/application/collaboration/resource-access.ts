@@ -13,10 +13,12 @@ export function restrictResourceAccess(parent: Access, raw: unknown, principals:
   );
   if (grants.some((g) => g.role === 'DENY') || (policy.restricted && !grants.length))
     fail('COLLAB_FORBIDDEN', 403);
+  if (parent.createOnly && !grants.length) fail('COLLAB_FORBIDDEN',403);
   if (!grants.length) return parent;
   return {
     ...parent,
-    level: Math.min(parent.level, Math.max(...grants.map((g) => resourceLevels[g.role] ?? 0))),
+    createOnly:false,
+    level: Math.min(parent.createOnly ? 3 : parent.level, Math.max(...grants.map((g) => resourceLevels[g.role] ?? 0))),
     canCreate:
       parent.canCreate &&
       grants.some((g) => resourceLevels[g.role] >= 3 || (resourceLevels[g.role] >= 2 && g.canCreate)),

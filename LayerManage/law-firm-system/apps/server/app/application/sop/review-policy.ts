@@ -1,3 +1,4 @@
+import { deliveryModulesEnabled } from '../../domain/module-availability';
 import {
   ReviewEngine,
   reviewReference,
@@ -140,6 +141,7 @@ export async function guardSopApproval(
   if (!(await reviewVisible(db, approvalId, await sopApprovalScope(db, current), engine)))
     sopFail('SOP_REVIEW_NOT_FOUND', 404);
   if (action === 'READ') return;
+  if(!deliveryModulesEnabled) sopFail('MODULE_RETIRED',409);
   if (action === 'FORWARD') sopFail('SOP_REVIEW_ROUTING_FIXED', 409);
   const review = await db.qualityReview.findUniqueOrThrow({
     where: reviewReference(approvalId, engine),

@@ -115,6 +115,12 @@ export class DataScopeService {
 
     const resolution = emptyResolution(context, false);
     resolution.organizationTargets.push(...hqTargets);
+    if(scopeIds.includes('worksheet:self') && context.employeeId) resolution.employeeIds.push(context.employeeId);
+    if(scopeIds.includes('worksheet:department') && context.employeeId) {
+      const assignments=await this.prisma.employeeAssignment.findMany({where:{employeeId:context.employeeId,startedAt:{lte:context.evaluatedAt},
+        OR:[{endedAt:null},{endedAt:{gt:context.evaluatedAt}}],organization:{status:'ENABLED'}},select:{organization:{select:{path:true}}}});
+      resolution.organizationTargets.push(...assignments.map(a=>({path:a.organization.path,includeDescendants:false})));
+    }
     for (const scope of scopes) {
       if ((scope.scopeType === 'ORG' || scope.scopeType === 'BRANCH')
         && scope.organization?.status === 'ENABLED') {

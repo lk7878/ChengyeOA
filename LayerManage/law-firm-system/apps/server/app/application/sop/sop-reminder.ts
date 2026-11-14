@@ -1,3 +1,4 @@
+import { deliveryModulesEnabled } from '../../domain/module-availability';
 import { sopSourceActive, lockSopSource } from './source-context';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { qualityActor } from '../quality/quality-scope';
@@ -41,6 +42,7 @@ export class SopReminderScanner {
   private cursor: string | null = null;
   constructor(private db: PrismaClient) {}
   async scanOnce(now: Date) {
+    if (!deliveryModulesEnabled) return;
     const rows = await this.db.caseTask.findMany({
       where: {
         sopInstance: { status: 'ACTIVE' },
@@ -107,6 +109,7 @@ export class SopReminderScanner {
 }
 export class SopReminderHandler implements EventHandler {
   async handle(tx: Prisma.TransactionClient, context: EventHandlerContext) {
+    if (!deliveryModulesEnabled) return;
     const { id } = parseEventPayload<{ id: string }>('sop.reminder.due', 1, context.payload).payload;
     const emission = await tx.sopReminderEmission.findUnique({ where: { id } });
     if (!emission) return;

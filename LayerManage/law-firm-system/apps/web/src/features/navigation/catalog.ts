@@ -19,6 +19,7 @@ export interface NavigationEntry {
   anyOf?: PermissionCode[][];
   superAdminOnly?: boolean;
   hidden?: boolean;
+  retired?: boolean;
   parent?: string;
   global?: boolean;
 }
@@ -497,6 +498,14 @@ export const legacyRedirects: Record<string, string> = {
   '/employees': '/org/employees',
   '/roles': '/security/roles',
 };
+export function retiredPath(path: string) {
+  return /^\/(quality|sop)(\/|$)/.test(path) || ['/admin/quality-rules','/admin/sop-templates','/analytics/quality','/cases/:id/assessments'].includes(path);
+}
+entries.forEach(entry => {
+  if (retiredPath(entry.path)) entry.retired = true;
+  if (entry.path === '/leads/calendar') entry.hidden = true;
+});
+entries.push({path:'/admin/archives',title:'停用模块历史归档',area:'admin',group:'历史资料'});
 export function findEntry(pathname: string): NavigationEntry | undefined {
   pathname = pathname.replace(/\/+$/, '') || '/';
   return (
@@ -516,6 +525,6 @@ export function canOpen(entry: NavigationEntry, authorization: AuthorizationSumm
 export function visibleEntries(authorization: AuthorizationSummary | null, area?: Area) {
   return entries.filter(
     (entry) =>
-      !entry.hidden && !entry.global && (!area || entry.area === area) && canOpen(entry, authorization),
+      !entry.retired && !entry.hidden && !entry.global && (!area || entry.area === area) && canOpen(entry, authorization),
   );
 }

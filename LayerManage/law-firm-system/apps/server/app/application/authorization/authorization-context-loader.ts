@@ -1,3 +1,4 @@
+import { worksheetNavigationGrants } from '../collaboration/worksheet-business-grants';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationError, AUTHORIZATION_CODES } from '../../domain/authorization/authorization-errors';
 import { PERMISSION_CATALOG } from '../../domain/authorization/permission-catalog';
@@ -41,12 +42,12 @@ export class AuthorizationContextLoader {
 
   async load(userId: string, evaluatedAt = new Date()): Promise<AuthorizationContext> {
     const user = await this.user(userId,evaluatedAt);
-    return this.project(userId,user,evaluatedAt);
+    return worksheetNavigationGrants(this.prisma,this.project(userId,user,evaluatedAt),user?.userRoles.map(r=>r.role.id) ?? []);
   }
   async previewRole(id: string) {
     const role = await this.prisma.role.findFirst({where:{id,status:'ENABLED'}, select:roleSelection});
     if (!role) throw new AuthorizationError(AUTHORIZATION_CODES.permission,403);
-    return this.project('preview:'+id,{status:'ENABLED',lockedUntil:null,employeeId:null,permissionGrants:[],userRoles:[{id,validUntil:null,role}]},new Date());
+    return worksheetNavigationGrants(this.prisma,{...this.project('preview:'+id,{status:'ENABLED',lockedUntil:null,employeeId:null,permissionGrants:[],userRoles:[{id,validUntil:null,role}]},new Date()),previewRoleId:id},[id]);
   }
   private user(userId: string,evaluatedAt: Date) {
     return this.prisma.user.findUnique({

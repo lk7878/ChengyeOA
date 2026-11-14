@@ -254,7 +254,7 @@ export class DashboardService {
     const [overdueTasks, payments, unassignedLeads, urgentCases] = await Promise.all([
       tasks
         ? this.db.caseTask.count({
-            where: { case: { AND: [cases!, tasks] }, status: { not: 'COMPLETED' }, dueDate: { lt: now } },
+            where: { sopInstanceId: null, case: { AND: [cases!, tasks] }, status: { not: 'COMPLETED' }, dueDate: { lt: now } },
           })
         : null,
       plans

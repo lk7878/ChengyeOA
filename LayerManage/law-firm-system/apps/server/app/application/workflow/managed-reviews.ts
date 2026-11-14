@@ -1,3 +1,4 @@
+import { deliveryModulesEnabled } from '../../domain/module-availability';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext } from '../authorization/authorization-service';
 import { AuditActor } from '../master-data/master-data-types';
@@ -28,6 +29,7 @@ export async function guardManagedReview(
 ) {
   const i = await db.workflowInstance.findUniqueOrThrow({ where: { id } });
   if (!isManagedReview(i.businessType)) return;
+  check(deliveryModulesEnabled || action === 'READ', '该业务模块已停用，审批仅供归档查阅', 409);
   if (['FORWARD', 'ADD', 'RETURN'].includes(action)) {
     await sop.guardSopApproval(db, actor, id, 'FORWARD', remark, 'workflow');
     await analysis.guardAnalysisApproval(db, actor, id, 'FORWARD', remark, 'workflow');

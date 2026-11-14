@@ -1,3 +1,4 @@
+import { deliveryModulesEnabled } from '../../domain/module-availability';
 import { sopSourceActive } from './source-context';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { EventHandler, EventHandlerContext } from '../events/event-delivery-store';
@@ -7,6 +8,7 @@ import { requireSopTask } from './execution-scope';
 import { sopReminderRecipient } from './sop-reminder';
 export class SopChangeNotification implements EventHandler {
   async handle(tx: Prisma.TransactionClient, context: EventHandlerContext) {
+    if (!deliveryModulesEnabled) return;
     const event = parseEventPayload<{ id: string; version: number; action: string }>(
       'sop.task.changed',
       1,
@@ -55,6 +57,7 @@ export class SopChangeNotification implements EventHandler {
 }
 export class QualityChangeNotification implements EventHandler {
   async handle(tx: Prisma.TransactionClient, context: EventHandlerContext) {
+    if (!deliveryModulesEnabled) return;
     const event = parseEventPayload<{ id: string; version: number; action: string; type: string }>(
       'quality.changed',
       1,

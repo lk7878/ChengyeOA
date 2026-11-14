@@ -1,3 +1,4 @@
+import RetiredArchives from './pages/RetiredArchives';
 import { inPreviewFrame } from './features/authorization/preview-frame';
 import AnalyticsDesigner from './pages/AnalyticsDesigner';
 import {AssessmentPage,AnalysisPage,QualityMetricsPage} from './pages/Quality/AnalysisPages';
@@ -173,6 +174,7 @@ function SessionBootstrap() {
           <Route path="/analytics/dashboards" element={<AnalyticsDesigner />} />
           <Route path="/analytics/overview" element={<Dashboard />} />
           <Route path="/admin/sop-templates" element={<PermissionRoute permission="sop.template.read"><SopTemplatesPage /></PermissionRoute>} />
+              <Route path="/admin/archives" element={<RetiredArchives />} />
               <Route path="/admin" element={<AreaPage key="admin" area="admin" />} />
           <Route path="/workspaces" element={<WorkspacesPage />} />
           <Route

@@ -45,6 +45,8 @@ export default (app: Application) => {
   // SPEC-COLLAB: authenticated endpoints; services enforce resource permissions.
   router.get('/api/v1/collaboration/business-tables', controller.collaboration.businessTables);
   router.post('/api/v1/bases/:baseId/module', controller.collaboration.saveBaseModule);
+  router.post('/api/v1/tables/:tableId/import', controller.collaboration.importRecords);
+  router.post('/api/v1/tables/:tableId/export', controller.collaboration.exportRecords);
   router.post('/api/v1/tables/:tableId/business-records', controller.collaboration.createBusinessRecord);
   router.get('/api/v1/worksheet-permissions/tables', requirePermission('role.permission.manage'),controller.collaboration.policyCatalog);
   router.get('/api/v1/worksheet-permissions/:tableId',requirePermission('role.permission.manage'),controller.collaboration.policySettings);
@@ -176,6 +178,12 @@ export default (app: Application) => {
   router.post('/api/v1/users/:id/special-grants/:grantId/revoke', requirePermission('temporary_grant.manage'), controller.user.revokeSpecialGrant);
 
   // 角色模块
+  router.get('/api/v1/roles/application-options', requirePermission('role.permission.manage'), controller.role.applications);
+  router.get('/api/v1/roles/:id/applications', requirePermission('role.permission.manage'), controller.role.applications);
+  router.put('/api/v1/roles/:id/applications', requirePermission('role.permission.manage'), controller.role.replaceApplications);
+  router.get('/api/v1/roles/office-template', requirePermission('role.create'), controller.role.officeTemplate);
+  router.put('/api/v1/roles/office-template', requirePermission('role.permission.manage'), controller.role.saveOfficeTemplate);
+  router.post('/api/v1/roles/office-template/apply', requirePermission('role.permission.manage'), controller.role.applyOfficeTemplate);
   router.get('/api/v1/roles', requirePermission('role.read'), controller.role.index);
   router.get('/api/v1/roles/:id', requirePermission('role.read'), controller.role.show);
   // SPEC-015 follow-up（业务角色成员指派）：per-role 成员列表——role.read 或委派码任一可过。
@@ -185,6 +193,7 @@ export default (app: Application) => {
   router.delete('/api/v1/roles/:id', requirePermission('role.status.manage'), controller.role.destroy);
   router.post('/api/v1/roles/:id/disable', requirePermission('role.status.manage'), controller.role.disable);
   router.post('/api/v1/roles/:id/enable', requirePermission('role.status.manage'), controller.role.enable);
+  router.put('/api/v1/roles/:id/worksheets', requirePermission('role.permission.manage'), controller.role.replaceWorksheets);
   router.put('/api/v1/roles/:id/permissions', requirePermission('role.permission.manage'), controller.role.replacePermissions);
   router.put('/api/v1/roles/:id/data-scopes', requirePermission('role.permission.manage'), controller.role.replaceDataScopes);
   router.put('/api/v1/roles/:id/field-permissions', requirePermission('role.permission.manage'), controller.role.replaceFieldPermissions);

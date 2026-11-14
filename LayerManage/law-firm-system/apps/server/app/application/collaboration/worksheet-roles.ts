@@ -6,6 +6,9 @@ export const presets = ['OWNER', 'MANAGER', 'EDITOR', 'READER'] as const;
 const levels = { DENY: 0, READER: 1, EDITOR: 2, MANAGER: 3, OWNER: 4 };
 const modes = ['HIDDEN', 'MASK', 'READ', 'EDIT'] as const;
 export type TableRule = {
+  business?: {permissions: string[]; scopeIds:string[]};
+  share?: boolean;
+  import?: boolean;
   level: keyof typeof levels;
   rows: 'ALL' | 'SELF' | 'FILTER';
   filter?: Filter;
@@ -19,7 +22,7 @@ export function defaultRule(role: TableRule['level']): TableRule {
     analytics: true, copy: true, automate: levels[role] >= 2 };
 }
 export function parseRule(raw: unknown, fields: CollabField[], sharedViews: string[]): TableRule {
-  const v = exact(raw, ['level','rows','filter','viewIds','fields','add','remove','analytics','copy','automate']);
+  const v = exact(raw, ['level','rows','filter','viewIds','fields','add','remove','analytics','copy','automate','business','share','import']);
   const level = choice(v.level, ['DENY','READER','EDITOR','MANAGER']) as TableRule['level'];
   const rows = choice(v.rows,['SELF','ALL','FILTER']) as TableRule['rows'];
   if (rows === 'FILTER') {
@@ -37,7 +40,8 @@ export function parseRule(raw: unknown, fields: CollabField[], sharedViews: stri
     if (!fields.some(f => f.id === id)) fail('COLLAB_FIELD_UNAVAILABLE');
     columns[id] = choice(mode, [...modes]) as typeof modes[number];
   }
-  return { level, rows, ...(viewIds && {viewIds}), ...(rows === 'FILTER' ? {filter: v.filter as Filter} : {}), fields: columns,
+  return { level, rows, ...(v.business !== undefined ? {business:object(v.business) as TableRule['business']} : {}),
+    ...(v.share !== undefined ? {share:boolean(v.share)} : {}), ...(v.import !== undefined ? {import:boolean(v.import)} : {}), ...(viewIds && {viewIds}), ...(rows === 'FILTER' ? {filter: v.filter as Filter} : {}), fields: columns,
     add: boolean(v.add) && levels[level] >= 2, remove: boolean(v.remove) && levels[level] >= 2,
     analytics: boolean(v.analytics), copy: boolean(v.copy), automate: boolean(v.automate) && levels[level] >= 2 };
 }
@@ -47,6 +51,8 @@ export function applyRules(access: Access, rules: TableRule[], fields: CollabFie
   if (!readable.length) fail('COLLAB_FORBIDDEN',403);
   access.level = Math.min(access.level, Math.max(...readable.map(r => levels[r.level])));
   access.rules = readable;
+  if(readable.every(r=>r.share !== undefined)) access.canManageAccess = access.level>=3 && readable.some(r=>r.share);
+  if(readable.every(r=>r.import !== undefined)) access.import = access.level>=2 && readable.some(r=>r.import);
   if (readable.every(r => r.viewIds)) access.viewIds = [...new Set(readable.flatMap(r => r.viewIds || []))];
   access.add = access.level >= 2 && readable.some(r => r.add);
   access.remove = access.level >= 2 && readable.some(r => r.remove);

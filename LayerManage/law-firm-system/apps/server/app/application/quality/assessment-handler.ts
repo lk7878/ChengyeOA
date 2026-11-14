@@ -1,3 +1,4 @@
+import { deliveryModulesEnabled } from '../../domain/module-availability';
 import { Prisma } from '@prisma/client';
 import { EventHandler, EventHandlerContext } from '../events/event-delivery-store';
 import { parseEventPayload } from '../../domain/events/event-registry';
@@ -5,6 +6,7 @@ import { PermanentEventError } from '../../domain/events/event-errors';
 import { analysisChanged } from './analysis-change';
 export class AssessmentHandler implements EventHandler {
   async handle(tx: Prisma.TransactionClient, context: EventHandlerContext) {
+    if (!deliveryModulesEnabled) return;
     const payload = parseEventPayload<{ id: string }>(
       'quality.assessment.recorded',
       1,

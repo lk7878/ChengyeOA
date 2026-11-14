@@ -337,6 +337,7 @@ model StepUpGrant {
 }
 
 model Role {
+  officeTemplateSnapshot Json?
   id          String   @id @default(uuid())
   name        String   @unique
   code        String   @unique
@@ -2700,4 +2701,22 @@ model AnalyticsDashboard {
   updatedAt DateTime @updatedAt
   @@index([ownerId])
   @@map("analytics_dashboard")
+}
+
+model OfficeRoleTemplate {
+  id String @id @default("basic")
+  permissionCodes Json
+  version Int @default(1)
+  updatedAt DateTime @updatedAt
+  @@map("office_role_template")
+}
+
+model RoleApplicationPolicy {
+  roleId String
+  workspaceId String
+  canCreate Boolean @default(false)
+  defaultLevel String @default("DENY")
+  version Int @default(1)
+  @@id([roleId,workspaceId])
+  @@map("role_application_policy")
 }

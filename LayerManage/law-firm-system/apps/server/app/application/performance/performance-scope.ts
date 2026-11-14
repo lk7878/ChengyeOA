@@ -17,7 +17,10 @@ export async function performanceScope(
   const resolved = await auth.resolveScopeTargets(context, 'performance', permission);
   if (resolved.all) return {};
   const clauses: Prisma.PerformanceWhereInput[] = [];
-  if (resolved.employeeIds.length) {
+  const ownEmployee=context.grants.some(g=>g.permissionCode===permission&&g.resource==='performance'&&g.scopeIds.includes('worksheet:self'));
+  if(ownEmployee&&context.employeeId) clauses.push({employeeId:context.employeeId});
+  const legacyEmployeeScope=context.grants.some(g=>g.permissionCode===permission&&g.resource==='performance'&&g.scopeIds.some(id=>!id.startsWith('worksheet:')));
+  if (resolved.employeeIds.length && (!ownEmployee||legacyEmployeeScope)) {
     const users = await db.user.findMany({
       where: { employeeId: { in: resolved.employeeIds } },
       select: { id: true },

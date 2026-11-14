@@ -25,6 +25,7 @@ export interface EffectiveFieldRule {
 }
 
 export interface AuthorizationContext {
+  activeRoleIds?: string[];
   previewRoleId?:string;
   userId: string;
   employeeId: string | null;

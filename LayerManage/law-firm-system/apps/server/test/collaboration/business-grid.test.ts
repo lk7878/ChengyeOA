@@ -885,6 +885,9 @@ test('all worksheet source families describe and query through the common permis
     if (source === 'INVENTORY_MOVEMENTS' || source === 'INVENTORY_STOCKTAKES') {
       await assert.rejects(table(source),code('COLLAB_INVALID_SOURCE')); continue;
     }
+    if(['SOP_TASKS','QUALITY_ANALYSES','QUALITY_REVIEWS','QUALITY_ISSUES'].includes(source)) {
+      await assert.rejects(table(source),code('MODULE_RETIRED')); continue;
+    }
     const t = await table(source);
     assert.equal(t.detail.table.source, source);
     const result = await svc.query(t.id, {});
@@ -975,4 +978,90 @@ test('worksheet case creation enforces required extensions and saves canonical a
   assert.equal(await db.case.count(),0);
   const created=await cases.createCase({...input,worksheetValues:{[extra.id]:'所内编号'}});
   assert.equal((await svc.record(t.id,created.id)).record.values[extra.id],'所内编号');
+});
+
+
+test('new role defaults and atomic worksheet grants support private tables without broad business data access', async () => {
+  const { RoleAuthorizationService } = await import('../../app/application/authorization/role-authorization-service');
+  const { AuthorizationContextLoader } = await import('../../app/application/authorization/authorization-context-loader');
+  const { worksheetContext, tableBusinessCapabilities } = await import('../../app/application/collaboration/worksheet-business-grants');
+  const { defaultRule } = await import('../../app/application/collaboration/worksheet-roles');
+  const { WorksheetPermissions } = await import('../../app/application/collaboration/worksheet-permissions');
+  const t = await table('CUSTOMERS');
+  await seed('CUSTOMERS');
+  await db.collabBase.update({where:{id:t.detail.table.baseId},data:{accessPolicy:{restricted:true,grants:[]}}});
+  const roles = new RoleAuthorizationService(db,{actorUserId:user},svc.actor);
+  const caps = tableBusinessCapabilities(t.detail.table);
+  const rule={...defaultRule('EDITOR'),remove:false,copy:false,automate:false,share:false,
+    business:{permissions:[...caps.basic,...caps.edit],scopeIds:['ALL']}};
+  const role=await roles.create({name:'行政主管',worksheets:[{tableId:t.id,version:0,rule}]});
+  assert.match(role.code,/^ROLE_[A-F0-9]{24}$/);
+  assert.ok(role.permissionCodes.includes('approval.apply'));
+  const account=await db.user.create({data:{username:key(),password:'unused',userRoles:{create:{roleId:role.id}}}});
+  const actor=await new AuthorizationContextLoader(db).load(account.id);
+  assert.ok(actor.permissionCodes.includes('customer.read'));
+  assert.ok(!actor.permissionCodes.includes('customer.delete'));
+  const rootAccess = new (await import('../../app/application/authorization/data-scope-service')).DataScopeService(db);
+  assert.equal((await rootAccess.resolveScopeTargets(actor,'customer','customer.read')).all,false);
+  const scoped=await worksheetContext(db,actor,t.id);
+  const member=new CollaborationService(db,scoped);
+  assert.equal((await member.query(t.id,{})).total,1);
+  assert.equal((await member.describe(t.id)).canDeleteRecords,false);
+  assert.equal((await new WorksheetPermissions(db,svc.actor).preview(t.id,{target:'ROLE',id:role.id})).total,1);
+  await assert.rejects(roles.replaceWorksheets(role.id,{version:role.version,worksheets:[
+    {tableId:t.id,version:0,rule:{...rule,level:'READER'}}]}),code('COLLAB_ACCESS_CONFLICT'));
+  assert.equal((await roles.detail(role.id)).version,role.version);
+  assert.equal((await db.worksheetRolePolicy.findUniqueOrThrow({where:{tableId:t.id}})).version,1);
+  const duplicate=await roles.create({name:'复制行政主管',copyRoleId:role.id});
+  assert.ok((await db.worksheetRolePolicy.findUniqueOrThrow({where:{tableId:t.id}})).rules[duplicate.id]);
+  assert.equal(await db.userRole.count({where:{roleId:duplicate.id}}),0);
+});
+
+test('application creation permission grants only creation and ordinary new-table defaults', async () => {
+  const { RoleAuthorizationService } = await import('../../app/application/authorization/role-authorization-service');
+  const { AuthorizationContextLoader } = await import('../../app/application/authorization/authorization-context-loader');
+  const { worksheetContext } = await import('../../app/application/collaboration/worksheet-business-grants');
+  const { DriveService } = await import('../../app/application/collaboration/drive-service');
+  const parent=await db.collabBase.findUniqueOrThrow({where:{id:base}});
+  const { ensureModuleWorkspace }=await import('../../app/application/collaboration/module-workspaces');
+  const workspaceId=(await ensureModuleWorkspace(db,parent.workspaceId,'INVENTORY',user)).id;
+  const moduleBase=await svc.createBase(workspaceId,{name:'物品'},key());
+  const module=await svc.createTable(moduleBase.id,{name:'物品',source:'INVENTORY_ITEMS'},key());
+  const roles=new RoleAuthorizationService(db,{actorUserId:user},svc.actor);
+  const role=await roles.create({name:'表格管理员'});
+  await roles.replaceApplications(role.id,{version:role.version,applications:[{workspaceId,canCreate:true,defaultLevel:'READER',version:0}]});
+  const account=await db.user.create({data:{username:key(),password:'unused',userRoles:{create:{roleId:role.id}}}});
+  const actor=await new AuthorizationContextLoader(db).load(account.id);
+  const viewer=new CollaborationService(db,actor);
+  assert.ok((await viewer.listWorkspaces({source:'INVENTORY_ITEMS'})).workspaces.some(w=>w.id===workspaceId));
+  await assert.rejects(viewer.describe(module.id),code('COLLAB_FORBIDDEN'));
+  const created=await new DriveService(db,actor).createDriveBase(workspaceId,{name:'普通物品记录',moduleSource:'INVENTORY_ITEMS',connectBusiness:false},key());
+  const detail=await new CollaborationService(db,await worksheetContext(db,actor,created.tableId)).describe(created.tableId);
+  assert.equal(detail.access.level,3);
+  const policy=await db.worksheetRolePolicy.findUniqueOrThrow({where:{tableId:created.tableId}});
+  assert.equal((policy.rules as Record<string,{level:string}>)[role.id].level,'READER');
+});
+
+test('table import is atomic and idempotent and export follows explicit grants and row filters',async()=>{
+  const {RoleAuthorizationService}=await import('../../app/application/authorization/role-authorization-service');
+  const {AuthorizationContextLoader}=await import('../../app/application/authorization/authorization-context-loader');
+  const {worksheetContext}=await import('../../app/application/collaboration/worksheet-business-grants');
+  const {defaultRule}=await import('../../app/application/collaboration/worksheet-roles');
+  const roles=new RoleAuthorizationService(db,{actorUserId:user},svc.actor);
+  const t=await table('CUSTOM'),title=t.detail.fields[0];
+  const rule={...defaultRule('EDITOR'),copy:true,import:true,remove:false,share:false,
+    business:{permissions:[],scopeIds:[]}};
+  const role=await roles.create({name:'导入测试',worksheets:[{tableId:t.id,version:0,rule}]});
+  const account=await db.user.create({data:{username:key(),password:'unused',userRoles:{create:{roleId:role.id}}}});
+  const actor=await worksheetContext(db,await new AuthorizationContextLoader(db).load(account.id),t.id);
+  const member=new CollaborationService(db,actor);
+  await assert.rejects(member.importRecords(t.id,{schemaVersion:1,records:[{[title.id]:'有效'},{}]},key()));
+  assert.equal((await member.query(t.id,{})).total,0);
+  const command=key(),input={schemaVersion:1,records:[{[title.id]:'一'},{[title.id]:'二'}]};
+  const result=await member.importRecords(t.id,input,command);
+  assert.deepEqual(await member.importRecords(t.id,input,command),result);
+  assert.equal((await member.query(t.id,{})).total,2);
+  const exported=await member.exportRecords(t.id,{config:{filter:{fieldId:title.id,operator:'eq',value:'一'}}});
+  assert.equal(exported.records.length,1);
+  assert.equal(exported.records[0].values[title.id],'一');
 });

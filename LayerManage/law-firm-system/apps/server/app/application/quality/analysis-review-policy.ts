@@ -1,3 +1,4 @@
+import { deliveryModulesEnabled } from '../../domain/module-availability';
 import {
   ReviewEngine,
   reviewReference,
@@ -80,6 +81,7 @@ export async function guardAnalysisApproval(
   if (!(await reviewVisible(db, id, await analysisApprovalScope(db, fresh), engine)))
     sopFail('QUALITY_NOT_FOUND', 404);
   if (action === 'READ') return;
+  if(!deliveryModulesEnabled) sopFail('MODULE_RETIRED',409);
   if (action === 'FORWARD') sopFail('QUALITY_APPROVAL_FIXED', 409);
   const request = await db.analysisCloseRequest.findUniqueOrThrow({
     where: reviewReference(id, engine),

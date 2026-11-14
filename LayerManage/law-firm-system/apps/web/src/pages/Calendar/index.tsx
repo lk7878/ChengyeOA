@@ -1,3 +1,4 @@
+import { appointmentApi } from '@/api/appointment';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Calendar, Checkbox, Empty, Form, Input, Popconfirm, Segmented, Select, Space, Tag, message } from 'antd';
 import dayjs from 'dayjs';
@@ -8,14 +9,14 @@ import Drawer from '@/components/DraggableDrawer';
 import Modal from '@/components/DraggableModal';
 import { get, post, patch, errorMessage, errorStatus } from '@/features/workspaces/api';
 type Person = { id: string; name: string; username: string };
-type Event = { id: string; title: string; description: string; location: string; startAt: string; endAt: string;
+type Event = { type?: 'EVENT'|'VISIT'; appointmentId?: string; canConfirmVisit?: boolean; status?: string; id: string; title: string; description: string; location: string; startAt: string; endAt: string;
   important: boolean; visibility: string; mine: boolean; version: number; ownerId: string; cancelledAt?: string;
   tableId?: string; recordId?: string; recordUrl?: string; myResponse?: string; people?: Person[];
   invitations: { userId: string; status: string }[]; reminders: { minutesBefore: number }[] };
 type Draft = { id?: string; version?: number; title: string; description: string; location: string; startAt: string; endAt: string;
   important: boolean; visibility: string; invitees: string[]; reminders: number[]; tableId?: string; recordId?: string };
 const responses: Record<string,string> = {PENDING:'待回复',ACCEPTED:'已接受',DECLINED:'已拒绝',TENTATIVE:'待定'};
-const scopes: Record<string,string> = {PRIVATE:'仅自己',INVITEES:'发起人与受邀成员',PUBLIC:'全体成员可见'};
+const scopes: Record<string,string> = {PRIVATE:'仅自己',INVITEES:'发起人与受邀成员',PUBLIC:'全体成员可见',BUSINESS:'按客户业务权限'};
 const localTime = (s: string) => dayjs(s).format('YYYY-MM-DDTHH:mm');
 export default function CalendarPage() {
   const [params, setParams] = useSearchParams();
@@ -34,7 +35,7 @@ export default function CalendarPage() {
   const load = useCallback(async () => {
     const n = ++seq.current;
     try {
-      const result = await get<{rows:Event[];truncated:boolean}>('/calendar/events?' + new URLSearchParams({from,to}));
+      const result = await get<{rows:Event[];truncated:boolean}>('/calendar/events?' + new URLSearchParams({from,to,type:params.get('type') || 'ALL'}));
       if (n !== seq.current) return;
       setEvents(result.rows); setTruncated(result.truncated); setError('');
       if (eventId) {
@@ -42,7 +43,7 @@ export default function CalendarPage() {
         if (n === seq.current) setDetail(selected);
       } else setDetail(undefined);
     } catch(e) { if(n === seq.current){ setError(errorMessage(e)); setDetail(undefined); setEvents([]); } }
-  },[from,to,eventId]);
+  },[from,to,eventId,params]);
   useEffect(() => { const initial=setTimeout(()=>void load(),0); const timer = setInterval(() => void load(),5000);
     const currentSequence=seq;
     return () => { currentSequence.current++; clearTimeout(initial); clearInterval(timer); }; },[load]);
@@ -80,20 +81,23 @@ export default function CalendarPage() {
   };
   const onDay = (date: dayjs.Dayjs) => events.filter(e=>dayjs(e.startAt).isBefore(date.add(1,'day').startOf('day')) && dayjs(e.endAt).isAfter(date.startOf('day')));
   const card = (event: Event) => <Button key={event.id} type="text" block style={{height:'auto',textAlign:'left',whiteSpace:'normal'}}
-    onClick={e=>{e.stopPropagation();setParams({event:event.id});}}>
-    {event.important && '★ '}{dayjs(event.startAt).format('HH:mm')} {event.title}
+    onClick={e=>{e.stopPropagation();setParams({...Object.fromEntries(params),event:event.id});}}>
+    {event.type === 'VISIT' && <Tag color="blue">客户到访</Tag>}{event.important && '★ '}{dayjs(event.startAt).format('HH:mm')} {event.title}
     {event.myResponse && <Tag>{responses[event.myResponse]}</Tag>}
   </Button>;
   const days=useMemo(()=>Array.from({length:view==='week'?7:1},(_,i)=>dayjs(from).add(i,'day')),[from,view]);
   return <div className="unified-area-page">
-    <div className="unified-area-heading"><h1>协同日历</h1><Space wrap>
+    <div className="unified-area-heading"><h1>系统日历</h1><Space wrap>
       <Button type="primary" onClick={()=>create(anchor.startOf('day').hour(9).toISOString())}>新建日程</Button>
       <Link to="/notifications">查看邀请与提醒</Link></Space></div>
     <p>记录重要事项，邀请同事参与；站内通知与在线弹窗提醒会发给发起人和已接受邀请的成员。</p>
     {error && <Alert type="error" title={error} action={<Button onClick={()=>void load()}>重试</Button>}/>}
     {truncated && <Alert type="warning" title="此时段超过500项，请切换周或日视图查看完整日程。"/>}
     <Space wrap style={{marginBottom:16}}>
-      <Segmented aria-label="日历视图" value={view} onChange={setView} options={[{value:'day',label:'日'},{value:'week',label:'周'},{value:'month',label:'月'}]}/>
+      <Select aria-label="日程类型" value={params.get('type') || 'ALL'} style={{width:140}}
+        options={[{value:'ALL',label:'全部日程'},{value:'EVENT',label:'日常日程'},{value:'VISIT',label:'客户到访'}]}
+        onChange={type=>setParams({...Object.fromEntries(params),type})}/>
+      <Segmented aria-label="日历视图"  value={view} onChange={setView} options={[{value:'day',label:'日'},{value:'week',label:'周'},{value:'month',label:'月'}]}/>
       <Button onClick={()=>setAnchor(d=>d.subtract(1,view as 'day'|'week'|'month'))}>上一{view==='month'?'月':view==='week'?'周':'日'}</Button>
       <Button onClick={()=>setAnchor(dayjs())}>今天</Button>
       <Button onClick={()=>setAnchor(d=>d.add(1,view as 'day'|'week'|'month'))}>下一{view==='month'?'月':view==='week'?'周':'日'}</Button>
@@ -116,7 +120,12 @@ export default function CalendarPage() {
         <p>地点：{detail.location || '未填写'}</p><p>可见范围：{scopes[detail.visibility]}</p>
         <p style={{whiteSpace:'pre-wrap'}}>{detail.description}</p>
         {detail.recordUrl ? <Link to={detail.recordUrl}>打开关联业务记录</Link> : detail.recordId && <p>关联记录已删除或你无权查看。</p>}
-        <h3>参与成员</h3><p>发起人：{detail.people?.find(p=>p.id===detail.ownerId)?.name || '已离职成员'}</p>
+        {detail.type === 'VISIT' && <Space><Tag>{({PENDING:'待到访',CONFIRMED:'已确认',VISITED:'已到访',CANCELLED:'已取消',RESCHEDULED:'已改期',NOSHOW:'未到访'} as Record<string,string>)[detail.status || '']}</Tag>
+          {detail.canConfirmVisit && <Popconfirm title="确认客户已到访？" onConfirm={async()=>{
+            try { await appointmentApi.visit(detail.appointmentId!); message.success('已确认到访'); await load(); }
+            catch(e) {setError(errorMessage(e));}
+          }}><Button type="primary">确认到访</Button></Popconfirm>}</Space>}
+        {detail.type !== 'VISIT' && <h3>参与成员</h3>}<p>发起人：{detail.people?.find(p=>p.id===detail.ownerId)?.name || '已离职成员'}</p>
         {detail.invitations.map(i=><p key={i.userId}>{detail.people?.find(p=>p.id===i.userId)?.name || '已离职成员'} <Tag>{responses[i.status]}</Tag></p>)}
         <p>提醒：{detail.reminders.length?detail.reminders.map(r=>r.minutesBefore?'提前'+r.minutesBefore+'分钟':'开始时').join('、'):'不提醒'}</p>
         {detail.myResponse && !detail.cancelledAt && <Space wrap>{['ACCEPTED','DECLINED','TENTATIVE'].map(status=><Button key={status}
