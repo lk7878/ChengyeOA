@@ -1,0 +1,219 @@
+{
+  "task": "20261114 Word 第1至5点实际运行系统复核及第4点权限调整",
+  "verifiedAt": "2026-11-15T01:10:52.451388+08:00",
+  "baselineCommit": "32f1598",
+  "environment": {
+    "entry": "http://43.136.135.233",
+    "method": "通过正常登录后的公开入口 API 执行真实操作；权限预览使用产品自带 MEMBER 只读模式",
+    "database": "chengye_oa at localhost:55432",
+    "backend": "127.0.0.1:7001",
+    "frontend": "127.0.0.1:3000",
+    "testDatabaseUsed": false
+  },
+  "checks": [
+    {
+      "requirement": 1,
+      "result": "线上API实测通过",
+      "evidence": [
+        "菜单新增、改名、删除均保存并读回",
+        "验收节点使用空分组，不改变既有可见菜单和路由",
+        "恢复原始默认菜单状态"
+      ]
+    },
+    {
+      "requirement": 2,
+      "result": "线上核心移动实测通过",
+      "evidence": [
+        "独立验收工作表由低值易耗品移动至行政事务",
+        "表ID、字段ID/类型、记录ID/内容、视图保持一致",
+        "源列表移除、目标列表出现"
+      ],
+      "limits": [
+        "该移动样本未包含自动化规则，未在真实业务自动化上执行迁移"
+      ]
+    },
+    {
+      "requirement": 3,
+      "result": "线上API实测通过",
+      "evidence": [
+        "真实跟进客户查询返回2个候选",
+        "五个自动回填字段与来源值一致（核验记录不保存客户内容）",
+        "关联时修改被后端 MEDICAL_LINKED_FIELD_READONLY 拒绝",
+        "取消关联后字段清空并可手动编辑",
+        "关联记录删除撤销后ID和快照字段全部恢复"
+      ]
+    },
+    {
+      "requirement": 4,
+      "result": "发现实际配置不符，按用户确认修正后复核通过",
+      "cause": [
+        "负责人任命已存在，但该角色8类业务范围仍为全所及下属部门",
+        "原有工作表未启用新增部门行范围"
+      ],
+      "userDecision": "调整为大数据中心及下属部门",
+      "changes": {
+        "role": "大数据中心主管",
+        "roleId": "6a2c8d96-5714-4605-a3e5-e6c14fb4582b",
+        "organizationId": "20b19143-7292-4ed3-9d9c-0ac64ed6530a",
+        "organization": "总所下的大数据中心（已任命沈红梅为负责人）",
+        "includeDescendants": true,
+        "scopeId": "9f34751b-f06b-46ec-8c6d-27e0365c8185",
+        "businessScopeBindings": 8,
+        "existingWorksheets": 8,
+        "worksheetRows": "SUBDEPARTMENTS",
+        "globalPermissionCodesUnchanged": true,
+        "globalFieldPermissionsUnchanged": true
+      },
+      "evidence": [
+        "独立验收样本ALL范围可见2条，DEPARTMENT和SUBDEPARTMENTS可见本人1条、排除部门外1条",
+        "8张原可访问工作表实际返回记录均满足当前部门范围",
+        "33张原禁止访问的工作表仍禁止访问",
+        "有部门外记录的表，其记录详情直接请求同样被拦截",
+        "真实授权上下文已无原全所范围绑定"
+      ],
+      "counts": [
+        {
+          "name": "客户记录",
+          "before": 4,
+          "after": 2,
+          "outsideDetailDenied": true
+        },
+        {
+          "name": "客户跟进记录表",
+          "before": 2,
+          "after": 1,
+          "outsideDetailDenied": true
+        },
+        {
+          "name": "张恒溢律师客资表",
+          "before": 0,
+          "after": 0,
+          "outsideDetailDenied": false
+        },
+        {
+          "name": "李辉律师客资表",
+          "before": 1,
+          "after": 0,
+          "outsideDetailDenied": true
+        },
+        {
+          "name": "案件管理表",
+          "before": 1,
+          "after": 0,
+          "outsideDetailDenied": true
+        },
+        {
+          "name": "病例评估表",
+          "before": 0,
+          "after": 0,
+          "outsideDetailDenied": false
+        },
+        {
+          "name": "签约转化表",
+          "before": 0,
+          "after": 0,
+          "outsideDetailDenied": false
+        },
+        {
+          "name": "谈案记录",
+          "before": 1,
+          "after": 0,
+          "outsideDetailDenied": true
+        }
+      ],
+      "limits": [
+        "该部门目前仅沈红梅有有效任职，未用真实其他员工或子部门样本验证跨员工共享；未修改组织任命进行模拟"
+      ]
+    },
+    {
+      "requirement": 5,
+      "result": "线上API实测通过",
+      "evidence": [
+        "个人目录创建文件夹、上传文本文件、下载内容一致",
+        "子文件单独分享不能绕过无权限父目录",
+        "父目录允许后与我共享可见",
+        "父目录READER与子文件MANAGER取交集，最终只读",
+        "父目录DENY使子文件不可见",
+        "创建者保留访问权，替换文件后下载字节一致"
+      ],
+      "limits": [
+        "本次真实分享对象为内部用户；部门和角色分享、浏览器目录批量上传未做点击验收"
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "path": "/src/features/navigation/catalog.ts",
+      "status": 200,
+      "markers": [
+        "承业中心",
+        "承业空间",
+        "承业协作"
+      ],
+      "etag": "W/\"4179-zQby2/M6zoRvZVvXtF793nujaPE\""
+    },
+    {
+      "path": "/src/components/Layout/index.tsx",
+      "status": 200,
+      "markers": [
+        "BusinessNavigation"
+      ],
+      "etag": "W/\"5c73-Op9DnXuJh5ecwzhsMHQy4b20bts\""
+    },
+    {
+      "path": "/src/pages/NavigationManagement.tsx",
+      "status": 200,
+      "markers": [
+        "菜单管理",
+        "新增节点"
+      ],
+      "etag": "W/\"254f-OEhj9AlJjynUPD8EC7cd6L5czfY\""
+    },
+    {
+      "path": "/src/features/workspaces/MoveTable.tsx",
+      "status": 200,
+      "markers": [
+        "move-preview",
+        "移动工作表"
+      ],
+      "etag": "W/\"16d1-ShnaZ2DFWz5EZmjAkFh7Iv6x8eA\""
+    },
+    {
+      "path": "/src/features/workspaces/MedicalCustomerSelect.tsx",
+      "status": 200,
+      "markers": [
+        "medical-customers"
+      ],
+      "etag": "W/\"fc2-SucCBy0CgTw049L/Gy012REnPYw\""
+    },
+    {
+      "path": "/src/pages/SecurityRole/ApplicationPermissions.tsx",
+      "status": 200,
+      "markers": [
+        "SUBDEPARTMENTS",
+        "本人及下属部门"
+      ],
+      "etag": "W/\"5c1c-ve4tvEPZx7fVLdXzzWfuSJVw5CQ\""
+    },
+    {
+      "path": "/src/features/drive/PersonalFiles.tsx",
+      "status": 200,
+      "markers": [
+        "上传文件夹",
+        "分享与权限"
+      ],
+      "etag": "W/\"4c07-8PqSbTo8t8t2vmMMRuB0Q7JDXl4\""
+    }
+  ],
+  "uiLimitation": "IAB浏览器访问该IP返回 net::ERR_BLOCKED_BY_CLIENT；未将API结果冒称为登录后页面点击验收。前端部署依据公开入口实际返回的模块内容核对。",
+  "cleanup": {
+    "acceptanceWorksheetsRemoved": 3,
+    "personalFileNodesRemoved": 2,
+    "storageContentRemoved": true,
+    "defaultMenuRestored": true,
+    "businessRecordsModified": false,
+    "auditLogsRetained": true
+  },
+  "rollbackSnapshot": "/opt/oa-system/backups/oa-department-permissions-before-20261115.json",
+  "sourceCodeChanged": false
+}
