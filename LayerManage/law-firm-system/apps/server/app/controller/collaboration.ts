@@ -1,3 +1,4 @@
+import { medicalOptions, medicalCustomer } from '../application/collaboration/medical-assessment';
 import { WorksheetPermissions } from '../application/collaboration/worksheet-permissions';
 import { isHrKind } from '../application/collaboration/hr-worksheets';
 import { canReadHrPrivate } from '../application/collaboration/hr-privacy';
@@ -45,6 +46,18 @@ export default class CollaborationController extends Controller {
   async contractChoices() {
     this.respond(await this.collaborationService().contractChoices(this.ctx.query));
   }
+  async medicalCustomers(){
+    this.respond(await medicalOptions(this.ctx.prisma,this.ctx.state.authorization,this.ctx.params.tableId,String(this.ctx.query.keyword??'').slice(0,100)));
+  }
+  async medicalCustomer(){
+    const {table,fields}=await this.collaborationService().tableAccess(this.ctx.params.tableId);
+    if(table.followSupportKind!=='MEDICAL_ASSESSMENT')fail('COLLAB_INVALID_SOURCE');
+    const source=await medicalCustomer(this.ctx.prisma,this.ctx.state.authorization,String(this.ctx.request.body.value));
+    this.respond(Object.fromEntries(fields.filter(f=>f.options&&typeof f.options==='object'&&!Array.isArray(f.options)&&f.options.medicalAutofill).map(f=>[f.id,source[(f.options as {medicalAutofill:string}).medicalAutofill]])));
+  }
+  async moveTargets(){this.respond(await this.collaborationService().tableMoveTargets(this.ctx.params.tableId));}
+  async previewMove(){this.respond(await this.collaborationService().previewTableMove(this.ctx.params.tableId,this.ctx.request.body));}
+  async moveTable(){this.respond(await this.collaborationService().moveTable(this.ctx.params.tableId,this.ctx.request.body,this.key()));}
   async importRecords() { this.respond(await this.collaborationService().importRecords(this.ctx.params.tableId,this.ctx.request.body,this.key())); }
   async exportRecords() { this.respond(await this.collaborationService().exportRecords(this.ctx.params.tableId,this.ctx.request.body)); }
   async recordOperations() {

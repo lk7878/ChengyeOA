@@ -1,8 +1,13 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import Modal from './DraggableModal';
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); Modal.destroyAll(); });
+afterEach(async () => {
+  cleanup();
+  await act(async () => { Modal.destroyAll(); });
+  await waitFor(() => expect(document.querySelector('.ant-modal-root')).toBeNull());
+  vi.restoreAllMocks(); vi.unstubAllGlobals();
+});
 
 test('title dragging moves the modal, input dragging does not, and reopening resets its position', () => {
   vi.stubGlobal('PointerEvent', MouseEvent);
@@ -25,6 +30,6 @@ test('title dragging moves the modal, input dragging does not, and reopening res
 });
 
 test('static confirm dialogs render the same draggable surface', async () => {
-  Modal.confirm({ title: '确认拖动', content: '确认弹窗内容' });
+  Modal.confirm({ title: '确认拖动', content: '确认弹窗内容',transitionName:'',maskTransitionName:'' });
   await waitFor(() => { expect(document.querySelector('.oa-modal-drag-surface')).toBeTruthy(); });
 });

@@ -118,7 +118,7 @@ test('does not allow an authenticated user to enter password change even with me
   render(<App />);
 
   await waitFor(() => expect(window.location.pathname).toBe('/'));
-  expect(await screen.findByRole('heading', { name: '工作台' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: '承业中心' })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: '修改初始密码' })).not.toBeInTheDocument();
   await waitFor(() => expect(useChallengeStore.getState().token).toBeNull());
 });

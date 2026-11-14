@@ -436,7 +436,7 @@ export default function AdminGovernancePage({ initialOperationId }: { initialOpe
       <div className="governance-heading">
         <div>
           <h1>管理员治理</h1>
-          <p>高风险管理权限与主数据纠正的双人审核工作台</p>
+          <p>高风险管理权限与主数据纠正的双人审核承业中心</p>
         </div>
         {canCreate && (
           <Button

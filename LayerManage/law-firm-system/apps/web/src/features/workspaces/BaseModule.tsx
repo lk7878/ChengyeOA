@@ -51,7 +51,7 @@ export default function BaseModule({ base, onSaved }: { base: Base; onSaved: () 
         <Select
           aria-label="所属业务模块"
           allowClear
-          placeholder="仅在云盘显示"
+          placeholder="仅在承业空间显示"
           style={{ width: '100%' }}
           value={source}
           onChange={setSource}

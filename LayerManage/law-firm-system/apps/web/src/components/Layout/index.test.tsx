@@ -40,9 +40,9 @@ test('uses exactly five global destinations and one contextual directory', () =>
   show('/apps');
   const global = within(screen.getByRole('navigation', { name: '全局导航' }));
   expect(global.getAllByRole('link').map((link) => link.textContent)).toEqual([
-    '工作台',
-    '云盘',
-    '业务应用',
+    '承业中心',
+    '承业空间',
+    '承业协作',
     '数据分析',
     '管理中心',
   ]);

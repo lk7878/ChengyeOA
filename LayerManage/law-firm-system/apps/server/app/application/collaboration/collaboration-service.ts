@@ -1,3 +1,4 @@
+import { prepareMedicalValues } from './medical-assessment';
 import { FIELD_CATALOG } from '../../domain/authorization/field-security-policy';
 import { FieldProjectionService } from '../authorization/field-projection-service';
 import { applicationPolicies, mayCreateInApplication, initializeTablePolicies } from './application-role-policy';
@@ -319,7 +320,7 @@ export class CollaborationService {
          FROM collab_member m WHERE m."workspaceId" = w.id AND (${principalWhere})) AS "_members",
         (SELECT COALESCE(jsonb_agg(to_jsonb(f) ORDER BY f.position), '[]'::jsonb) FROM collab_field f WHERE f."tableId" = t.id AND (${withFields} OR EXISTS (SELECT 1 FROM worksheet_role_policy rp WHERE rp."tableId"=t.id))) AS "_fields",
         ${folderChainSql(Prisma.sql`b.id`)} AS "_folderChain", dn."deletedAt" AS "_driveDeletedAt"
-      FROM collab_table t JOIN collab_base b ON b.id = t."baseId"
+      FROM collab_table t JOIN collab_base b ON b.id = COALESCE(t."originBaseId",t."baseId")
       LEFT JOIN drive_node dn ON dn.id = b.id
       JOIN collab_workspace w ON w.id = b."workspaceId" WHERE t.id = ${tableId}
     `);
@@ -401,6 +402,16 @@ export class CollaborationService {
         if (direct && access.level>=3 && !access.selfOnly && !access.hidden.length && !access.readonly.length &&
             rules.some(r=>r.share!==false && r.rows==='ALL' && (r.level==='MANAGER'||r.level==='OWNER'))) access.canManageAccess=true;
       }
+    }
+    if(definition.originBaseId && definition.originBaseId!==definition.baseId){
+      const destination=await tx.collabBase.findUniqueOrThrow({where:{id:definition.baseId},include:{driveNode:{select:{deletedAt:true}}}});
+      if(destination.driveNode?.deletedAt)fail('COLLAB_FORBIDDEN',403);
+      const root=await this.access(destination.workspaceId,tx);
+      const [location]=await tx.$queryRaw<Array<{chain:FolderAncestor[]}>>(Prisma.sql`SELECT ${folderChainSql(Prisma.sql`${destination.id}`)} AS chain`);
+      const ceiling=await this.restrict(inheritFolders(root,location.chain,principals),destination.accessPolicy,tx,principals);
+      access={...access,level:Math.min(access.level,ceiling.level),canCreate:access.canCreate&&ceiling.canCreate,
+        canManageAccess:access.canManageAccess&&ceiling.canManageAccess,selfOnly:access.selfOnly||ceiling.selfOnly,
+        hidden:[...new Set([...access.hidden,...ceiling.hidden])],readonly:[...new Set([...access.readonly,...ceiling.readonly])]};
     }
     if (retiredSources.includes(definition.source)) {
       if (level > 1) fail('MODULE_RETIRED',409);
@@ -745,8 +756,9 @@ export class CollaborationService {
           for (const table of directory.tables) {
             if (inventoryKind && table.inventoryKind !== inventoryKind) continue;
             const associatedCustomTable =
-              table.source === 'CUSTOM' && directory.base.moduleSource === source && !recordId;
-            if ((table.source !== source && !associatedCustomTable) || table.archived || tables.length >= 200)
+              (table.source === 'CUSTOM'||!!table.originBaseId) && directory.base.moduleSource === source && !recordId;
+            const originalSource=table.source===source && (recordId||!table.originBaseId||directory.base.moduleSource===source);
+            if ((!originalSource && !associatedCustomTable) || table.archived || tables.length >= 200)
               continue;
             if (recordId) {
               try {
@@ -1119,12 +1131,48 @@ export class CollaborationService {
       return { id: base.id };
     });
   }
+  async tableMoveTargets(tableId:string){
+    const initial=await this.tableAccess(tableId,this.db,3);
+    if(!initial.access.canManageAccess)fail('COLLAB_FORBIDDEN',403);
+    const bases=await this.db.collabBase.findMany({where:{id:{not:initial.table.baseId}},include:{workspace:true},orderBy:{name:'asc'},take:500});
+    const targets=[];
+    for(const b of bases){try{const allowed=await this.baseAccess(b.id,this.db,3);if(allowed.access.canManageAccess&&!retiredSources.includes(b.moduleSource??''))targets.push({id:b.id,name:b.name,workspaceName:b.workspace.name,moduleSource:b.moduleSource});}catch(e){if((e as {code:string}).code!=='COLLAB_FORBIDDEN')throw e;}}
+    return targets;
+  }
+  private async moveSnapshot(tableId:string,targetBaseId:string,tx:Tx=this.db){
+    const {table,access}=await this.tableAccess(tableId,tx,3),destination=await this.baseAccess(targetBaseId,tx,3);
+    if(!access.canManageAccess||!destination.access.canManageAccess||table.baseId===targetBaseId||retiredSources.includes(destination.base.moduleSource??''))fail('COLLAB_FORBIDDEN',403);
+    if(await tx.collabTable.count({where:{baseId:targetBaseId,name:table.name}}))fail('COLLAB_TABLE_NAME_CONFLICT',409);
+    const identity={tableId,sourceBaseId:table.baseId,targetBaseId,tableVersion:table.schemaVersion,accessVersion:table.accessVersion,destinationVersion:destination.base.version,destinationAccessVersion:destination.base.accessVersion};
+    return {table,access,destination,previewToken:createHash('sha256').update(JSON.stringify(identity)).digest('hex')};
+  }
+  async previewTableMove(tableId:string,raw:unknown){
+    const v=exact(raw,['targetBaseId']),s=await this.moveSnapshot(tableId,text(v.targetBaseId));
+    return {previewToken:s.previewToken,sourceBaseId:s.table.baseId,targetBaseId:s.destination.base.id,targetName:s.destination.base.name,
+      fields:await this.db.collabField.count({where:{tableId}}),records:await this.db.collabRecord.count({where:{tableId}}),views:await this.db.collabView.count({where:{tableId}}),rules:await this.db.collabRule.count({where:{tableId}})};
+  }
+  async moveTable(tableId:string,raw:unknown,key:unknown){
+    const v=exact(raw,['targetBaseId','previewToken']),targetBaseId=text(v.targetBaseId),initial=await this.moveSnapshot(tableId,targetBaseId);
+    return this.write(key,['table.move',tableId,v],async tx=>{
+      const currentBase=await tx.collabBase.findUniqueOrThrow({where:{id:initial.table.baseId}});
+      for(const id of [...new Set([initial.access.workspaceId,currentBase.workspaceId,initial.destination.base.workspaceId])].sort())await this.lock(tx,id);
+      await tx.$queryRaw`SELECT id FROM collab_table WHERE id=${tableId} FOR UPDATE`;
+      const current=await this.moveSnapshot(tableId,targetBaseId,tx);
+      if(current.previewToken!==text(v.previewToken))fail('COLLAB_DIRECTORY_CONFLICT',409);
+      await tx.collabTable.update({where:{id:tableId},data:{baseId:targetBaseId,originBaseId:current.table.originBaseId??current.table.baseId,
+        position:await tx.collabTable.count({where:{baseId:targetBaseId}}),accessVersion:{increment:1}}});
+      await tx.operationLog.create({data:{userId:this.actor.userId,action:'WORKSHEET_MOVE',targetType:'COLLAB_TABLE',targetId:tableId,
+        oldValues:JSON.stringify({baseId:current.table.baseId}),newValues:JSON.stringify({baseId:targetBaseId,originBaseId:current.table.originBaseId??current.table.baseId})}});
+      await this.event(tx,current.table.baseId,'access.updated',tableId);await this.event(tx,targetBaseId,'access.updated',tableId);
+      return {id:tableId,baseId:targetBaseId,moduleSource:current.destination.base.moduleSource};
+    });
+  }
   async listTables(baseId: string, tx: Tx = this.db) {
     const { base, access } = await this.baseAccess(baseId, tx);
     const tables = await tx.collabTable.findMany({
       where: { baseId },
       orderBy: [{ position: 'asc' }, { id: 'asc' }],
-      select: { id: true, name: true, source: true, lifecycleKind: true, inventoryKind: true, position: true, schemaVersion: true, archived: true },
+      select: { id: true, name: true, source: true, originBaseId:true, lifecycleKind: true, inventoryKind: true, position: true, schemaVersion: true, archived: true },
     });
     const visible: Array<(typeof tables)[number] & { canManage: boolean; canDelete: boolean }> = [];
     for (const table of tables) {
@@ -1299,6 +1347,7 @@ export class CollaborationService {
         } else if (template === lawyerProspectTemplate) {
           await tx.collabField.createMany({ data: lawyerProspectFields().map(f => ({...f, tableId: table.id})) });
         } else if (followSupportKinds.includes(template as FollowSupportKind)) {
+          await tx.collabTable.update({where:{id:table.id},data:{followSupportKind:template}});
           await tx.collabField.createMany({ data: followSupportFields(template as FollowSupportKind).map(f => ({...f, tableId: table.id})) });
         } else if (lifecycleKinds.includes(template as LifecycleKind)) {
           this.lifecycle().authorize(template);
@@ -1476,6 +1525,7 @@ export class CollaborationService {
           data: {
             baseId: table.baseId,
             lifecycleKind: table.lifecycleKind,
+            followSupportKind:table.followSupportKind,originBaseId:table.originBaseId,
             inventoryKind: table.inventoryKind,
             name: text(input.name),
             createdBy: this.actor.userId,
@@ -1918,6 +1968,8 @@ export class CollaborationService {
     }
     for (const rec of projected) {
       const row=rec as typeof rec & {readonlyFields?:string[];displayValues?:Record<string,string>};
+      const medicalLink=fields.find(f=>object(f.options).medicalRelation);
+      if(medicalLink&&row.values[medicalLink.id])row.readonlyFields=[...(row.readonlyFields??[]),...fields.filter(f=>object(f.options).medicalAutofill).map(f=>f.id)];
       for (const f of fields) {
         const mode = recordFieldLevel(access,row.id,f.id);
         if (mode<3) row.readonlyFields=[...new Set([...(row.readonlyFields||[]),f.id])];
@@ -1926,6 +1978,11 @@ export class CollaborationService {
           if (lifecycleKey(f)==='upstreamId') delete row.lifecycle;
           if (mode===0) delete row.values[f.id]; else row.values[f.id]='******';
         }
+      }
+      if (medicalLink && row.values[medicalLink.id] && recordFieldLevel(access,row.id,medicalLink.id)>=2 && !access.masked?.includes(medicalLink.id)) {
+        const name=fields.find(f=>object(f.options).medicalAutofill==='customerName');
+        const label=name && recordFieldLevel(access,row.id,name.id)>=2 && !access.masked?.includes(name.id) ? row.values[name.id] : null;
+        row.displayValues={...row.displayValues,[medicalLink.id]:label?String(label):'已关联客户'};
       }
     }
     return projected;
@@ -2519,6 +2576,9 @@ export class CollaborationService {
         const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
         const input = object(raw);
         let before: ObjectValue = {};
+        const medicalLink=table.followSupportKind==='MEDICAL_ASSESSMENT'&&fields.find(f=>object(f.options).medicalRelation);
+        const changedFields=[...new Set([...Object.keys(object(input.values??{})),
+          ...(medicalLink&&Object.hasOwn(object(input.values??{}),medicalLink.id)?fields.filter(f=>object(f.options).medicalAutofill).map(f=>f.id):[])])];
         if (recordId) {
           const rows =
             table.source === 'CUSTOM'
@@ -2528,10 +2588,9 @@ export class CollaborationService {
                 );
           if (!rows.length) fail('COLLAB_NOT_FOUND', 404);
           before = Object.fromEntries(
-            Object.keys(object(input.values ?? {})).map((id) => [id, object(rows[0].values)[id] ?? null]),
+            changedFields.map((id) => [id, object(rows[0].values)[id] ?? null]),
           );
         }
-        const changedFields = Object.keys(object(input.values ?? {}));
         if (!recordId && access.add === false) fail('COLLAB_FORBIDDEN',403);
         if (recordId) await this.checkRowWrite(table,access,tx,recordId,changedFields,input.archived === true ? 'remove' : 'edit');
         const saved = await this.mutateRecord(tableId, recordId, raw, key, tx);
@@ -2549,6 +2608,8 @@ export class CollaborationService {
               orderBy: { createdAt: 'desc' },
             })
           : null;
+        const savedValues=medicalLink ? (await tx.collabRecord.findUniqueOrThrow({where:{id:saved.id}})).values : null;
+        const afterValues=savedValues ? Object.fromEntries(changedFields.map(id=>[id,object(savedValues)[id]??null])) : input.values??{};
         const operation = await tx.collabRecordOperation.create({
           data: {
             tableId,
@@ -2556,7 +2617,7 @@ export class CollaborationService {
             actorId: this.actor.userId,
             kind: input.archived === true ? 'DELETE' : recordId ? 'UPDATE' : 'CREATE',
             before: json(before),
-            after: json({ values: hrValues(fields,input.values ?? {},true), predecessorId: predecessor?.id ?? null }),
+            after: json({ values: hrValues(fields,afterValues,true), predecessorId: predecessor?.id ?? null }),
             expectedVersion: saved.version,
             schemaVersion: table.schemaVersion,
           },
@@ -2791,19 +2852,13 @@ export class CollaborationService {
         }
         await this.event(tx, table.baseId, 'record.restored', operation.recordId);
       } else {
-        const result = await this.mutateRecord(
-          tableId,
-          operation.recordId,
-          {
-            ...(deleting
-              ? { archived: true }
-              : { values: hrValues(table.fields,direction === 'undo' ? operation.before : object(operation.after).values,false) }),
-            version: operation.expectedVersion,
-            schemaVersion: operation.schemaVersion,
-          },
-          key,
-          tx,
-        );
+        const restoreInput={
+          ...(deleting?{archived:true}:{values:hrValues(table.fields,direction==='undo'?operation.before:object(operation.after).values,false)}),
+          version:operation.expectedVersion,schemaVersion:operation.schemaVersion,
+        };
+        const result=table.followSupportKind==='MEDICAL_ASSESSMENT'&&!deleting
+          ? await this.saveRecordInTransaction(tableId,operation.recordId,restoreInput,key,tx,true)
+          : await this.mutateRecord(tableId,operation.recordId,restoreInput,key,tx);
         version = result.version;
       }
       if (!deleting) await this.checkRowWrite(table,access,tx,operation.recordId,Object.keys(object(object(operation.after).values ?? {})),restoring ? 'add' : 'edit');
@@ -3196,6 +3251,7 @@ export class CollaborationService {
     raw: unknown,
     key: unknown,
     transaction?: Tx,
+    restoreMedicalSnapshot=false,
   ) {
     const input = exact(raw, ['values', 'version', 'schemaVersion', 'archived']);
     const initial = await this.tableAccess(tableId, transaction ?? this.db, 2, false, false);
@@ -3220,12 +3276,13 @@ export class CollaborationService {
         if (recordId && !previous) fail('COLLAB_NOT_FOUND', 404);
         if (previous && previous.version !== integer(input.version))
           fail('COLLAB_RECORD_CONFLICT', 409, { recordId, version: previous.version });
+        const prepared = table.followSupportKind==='MEDICAL_ASSESSMENT' ? await prepareMedicalValues(tx as PrismaClient,this.actor,table.fields,input.values??{},previous?.values,restoreMedicalSnapshot) : input.values??{};
         const next = await this.values(
           tx,
           tableId,
           fields,
           access,
-          input.values ?? {},
+          prepared,
           previous ? hrValues(table.fields,previous.values,false) : {},
           !previous,
         );
@@ -3264,7 +3321,7 @@ export class CollaborationService {
           await tx.operationLog.create({ data: { userId: this.actor.userId, action: input.archived ? 'LIFECYCLE_DELETE' : previous ? 'LIFECYCLE_UPDATE' : 'LIFECYCLE_CREATE', targetType: 'COLLAB_RECORD', targetId: record.id, newValues: JSON.stringify({ ...lifecycleData, fields: Object.keys(object(input.values ?? {})), version: record.version }) } });
         }
         const changes = Object.fromEntries(
-          Object.keys(object(input.values ?? {})).map((id) => [
+          Object.keys(object(prepared)).map((id) => [
             id,
             { before: previous ? (object(previous.values)[id] ?? null) : null, after: encrypted[id] },
           ]),

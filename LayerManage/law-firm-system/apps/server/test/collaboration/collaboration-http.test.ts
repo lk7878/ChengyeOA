@@ -6000,7 +6000,7 @@ test('global read-only preview uses the target permissions and keeps the adminis
       await drawer.getByRole('combobox').last().click();
       await page.locator('.ant-select-item-option').filter({hasText:'collab-editor'}).click();
       const frame=page.frameLocator('iframe[title="当前页面权限预览"]');
-      await frame.getByRole('heading',{name:'工作台',exact:true}).waitFor();
+      await frame.getByRole('heading',{name:'承业中心',exact:true}).waitFor();
       assert.equal(await frame.getByRole('button',{name:'权限预览',exact:true}).count(),0);
       await page.getByRole('button',{name:'切换预览对象'}).click();
       await drawer.getByRole('combobox').first().click();
@@ -6103,4 +6103,85 @@ test('global read-only preview uses the target permissions and keeps the adminis
       throw error;
     } finally {await browser.close();await vite.close();}
   }
+});
+
+test('November feedback browser: menu labels, personal upload, medical lookup and worksheet move',async()=>{
+  const role=await db.role.create({data:{code:'SYSTEM_SUPER_ADMIN',name:'管理员',type:'SYSTEM'}});
+  await db.userRole.create({data:{userId:owner,roleId:role.id}});
+  const grant=await createApiSession(db,owner,'MFA');
+  const api=(method:'get'|'post'|'put',url:string)=>app.httpRequest()[method]('/api/v1'+url).set('Authorization','Bearer '+grant.token).set('Idempotency-Key',randomUUID());
+  await app.httpRequest().put('/api/v1/navigation-menu').set('Authorization','Bearer '+editorToken).send({version:0,nodes:[]}).expect(403);
+  const follows=(await api('post','/bases/'+baseId+'/tables').send({name:'客户跟进记录表',source:'FOLLOWS'}).expect(200)).body.data;
+  const medical=(await api('post','/bases/'+baseId+'/tables').send({name:'病例评估表',template:'MEDICAL_ASSESSMENT'}).expect(200)).body.data;
+  const org=(await db.collabWorkspace.findUniqueOrThrow({where:{id:workspaceId}})).organizationId;
+  const lead=await db.lead.create({data:{leadNo:randomUUID(),name:'浏览器客户',phone:'13800000000',phoneHash:randomUUID(),branchId:org,createdBy:owner}});
+  await db.leadFollow.create({data:{leadId:lead.id,type:'PHONE',content:'测试跟进',createdBy:owner}});
+  const target=(await api('post','/workspaces/'+workspaceId+'/bases').send({name:'行政事务目标目录'}).expect(200)).body.data;
+  if(process.env.COLLAB_BROWSER_REHEARSAL!=='true')return;
+  const root=path.resolve(process.cwd(),'../web'),load=new Function('url','return import(url)');
+  const {chromium,expect:browserExpect}=await load(pathToFileURL(path.join(root,'node_modules/@playwright/test/index.mjs')).href);
+  const {createServer:startVite}=await load(pathToFileURL(path.join(root,'node_modules/vite/dist/node/index.js')).href);
+  const vite=await startVite({root,configFile:path.join(root,'vite.config.ts'),cacheDir:path.join(root,'node_modules/.vite-november-feedback'),define:{'process.env.NODE_ENV':JSON.stringify('development')},server:{fs:{allow:[root,path.resolve(root,'../server/app/domain/workflow')]},host:'127.0.0.1',port:0,proxy:{'/api':{target:origin,changeOrigin:true}}}});
+  await vite.listen();const browser=await chromium.launch({headless:true,channel:process.env.COLLAB_BROWSER_CHANNEL||undefined});
+  const page=await browser.newPage({viewport:{width:1440,height:1000}});const address=vite.resolvedUrls.local[0];
+  try{
+    await page.addInitScript('window.unifiedTestSession='+JSON.stringify({mode:'AUTHENTICATED',token:grant.token,csrfToken:'test',expiresIn:900,user:{id:owner,username:'collab-owner',name:'验收管理员',roles:[],permissions:[]}}));
+    await page.route((url:URL)=>url.origin===new URL(address).origin,async(route:any)=>{if(route.request().frame()!==page.mainFrame()||route.request().resourceType()!=='document')return route.continue();const response=await route.fetch();await route.fulfill({response,body:(await response.text()).replace('/src/main.tsx','/e2e/unified-harness.tsx')});});
+    await page.goto(address+'admin/navigation');
+    await page.getByRole('heading',{name:'菜单管理',exact:true}).waitFor();
+    await page.getByText('跟进工作表',{exact:true}).click();
+    await page.getByRole('textbox',{name:'展示名称'}).fill('客户跟进验收');
+    const menuSaved=page.waitForResponse((r:any)=>r.url().endsWith('/api/v1/navigation-menu')&&r.request().method()==='PUT');
+    await page.getByRole('button',{name:'保存菜单',exact:true}).click();assert.equal((await menuSaved).status(),200);
+    await page.goto(address+'apps');
+    await page.getByRole('link',{name:'承业中心',exact:true}).waitFor();
+    const nav=page.getByRole('navigation',{name:'当前区域目录'});
+    await nav.getByRole('link',{name:'客户跟进验收',exact:true}).waitFor();
+    assert.equal(await nav.getByRole('link',{name:'客户跟进验收',exact:true}).getAttribute('href'),'/leads/follows');
+    await page.screenshot({path:'/tmp/oa-feedback-navigation.png',fullPage:true});
+    await page.goto(address+'workspaces?scope=mine');
+    const files=page.getByRole('region',{name:'个人文件'});
+    await files.getByRole('button',{name:'上传文件',exact:true}).waitFor();
+    await files.locator('input[type=file][multiple]').first().setInputFiles({name:'人工验收.txt',mimeType:'text/plain',buffer:Buffer.from('人工验收文件')});
+    await files.getByText('人工验收.txt',{exact:true}).waitFor();
+    const fileRow=files.getByRole('row').filter({hasText:'人工验收.txt'});
+    await fileRow.getByRole('button',{name:'分享与权限'}).click();
+    const share=page.getByRole('dialog',{name:'分享与权限 · 人工验收.txt'});
+    await share.getByRole('combobox',{name:'搜索分享对象'}).fill('collab-editor');
+    await page.locator('.ant-select-dropdown:visible').getByText('collab-editor（用户）',{exact:true}).click();
+    await share.getByRole('button',{name:'保存分享',exact:true}).click();
+    await share.waitFor({state:'hidden'});
+    const stored=await db.personalFile.findFirstOrThrow({where:{name:'人工验收.txt'}});
+    await app.httpRequest().get('/api/v1/personal-files/'+stored.id+'/download').set('Authorization','Bearer '+editorToken).expect(200);
+    await page.locator('.ant-drawer-content-wrapper').waitFor({state:'hidden'});
+    await page.screenshot({path:'/tmp/oa-feedback-personal-files.png',fullPage:true});
+    await page.goto(address+'leads/follows?'+new URLSearchParams({base:baseId,table:medical.id}));
+    await page.getByRole('button',{name:'添加记录',exact:true}).click();
+    const record=page.getByRole('dialog',{name:'新增记录',exact:true});
+    await record.getByRole('textbox',{name:'ID',exact:true}).fill('BROWSER-001');
+    await record.getByRole('combobox',{name:'关联客户',exact:true}).fill('浏览器客户');
+    await page.locator('.ant-select-dropdown:visible').getByText('浏览器客户 · 客户跟进记录表',{exact:true}).click();
+    await browserExpect(record.getByRole('textbox',{name:'患者姓名',exact:true})).toHaveValue('浏览器客户');
+    assert.equal(await record.getByRole('textbox',{name:'患者姓名',exact:true}).inputValue(),'浏览器客户');
+    assert.equal(await record.getByRole('textbox',{name:'患者姓名',exact:true}).isDisabled(),true);
+    const saved=page.waitForResponse((r:any)=>r.url().endsWith('/tables/'+medical.id+'/records')&&r.request().method()==='POST');
+    await record.getByRole('button',{name:/^保\s*存$/}).click();assert.equal((await saved).status(),200);await record.waitFor({state:'hidden'});
+    await page.getByRole('button',{name:'移动工作表',exact:true}).click();
+    const move=page.getByRole('dialog',{name:'移动工作表',exact:true});
+    await move.getByRole('combobox',{name:'目标目录'}).click();
+    await page.locator('.ant-select-dropdown:visible').getByText('接口工作区 / 行政事务目标目录',{exact:true}).click();
+    await move.getByRole('button',{name:'预览移动',exact:true}).click();
+    await move.getByRole('button',{name:'确认移动',exact:true}).click();
+    await move.waitFor({state:'hidden'});
+    await page.waitForURL((url:URL)=>url.searchParams.get('base')===target.id);
+    await page.getByText('实时同步已连接',{exact:true}).waitFor();
+    assert.equal((await db.collabTable.findUniqueOrThrow({where:{id:medical.id}})).baseId,target.id);
+    assert.equal(await db.collabRecord.count({where:{tableId:medical.id}}),1);
+    await page.screenshot({path:'/tmp/oa-feedback-medical-moved.png',fullPage:true});
+    await page.goto(address+'leads/follows?'+new URLSearchParams({base:baseId,table:medical.id}));
+    await page.waitForURL((url:URL)=>url.searchParams.get('base')===target.id);
+    await page.getByRole('columnheader',{name:/患者姓名/}).waitFor();
+    assert.equal(await db.leadFollow.count({where:{leadId:lead.id}}),1);void follows;
+  }catch(error){await writeFile('/tmp/oa-feedback-browser-error.txt',await page.locator('body').ariaSnapshot());await page.screenshot({path:'/tmp/oa-feedback-browser-error.png',fullPage:true});throw error;}
+  finally{await browser.close();await vite.close();}
 });

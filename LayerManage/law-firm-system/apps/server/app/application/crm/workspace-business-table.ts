@@ -347,6 +347,7 @@ export class WorkspaceBusinessTable {
         permissions,
         result.records.length,
         'workspace.leads',
+        typeof this.db.$transaction === 'function' ? undefined : this.db,
       );
     }
     // Reference labels are projected only for the already-authorized result and visible link field.

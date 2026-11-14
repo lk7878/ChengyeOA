@@ -76,7 +76,7 @@ test('support templates persist every field and keep editing, batch deletion, re
   for (const kind of followSupportKinds) {
     const table = await svc.createTable(base, { name: kind, template: kind }, key());
     const detail = await svc.describe(table.id);
-    assert.equal(detail.fields.length, kind === 'MEDICAL_ASSESSMENT' ? 21 : 36);
+    assert.equal(detail.fields.length, kind === 'MEDICAL_ASSESSMENT' ? 22 : 36);
     assert.deepEqual(
       detail.fields.map((f) => f.name),
       followSupportFields(kind).map((f) => f.name),
@@ -94,7 +94,7 @@ test('support templates persist every field and keep editing, batch deletion, re
     const values: Record<string, unknown> = {};
     for (const f of detail.fields.filter((f) => f.writable)) {
       values[f.id] =
-        f.type === 'USER'
+        f.options.medicalRelation ? null : f.type === 'USER'
           ? employee
           : f.type === 'BOOLEAN'
             ? true
@@ -286,7 +286,8 @@ test('standardization reuses existing records and IDs, retires obsolete fields a
   );
   const detail = await svc.describe(table.id);
   assert.equal(detail.table.name, '病例评估表');
-  assert.equal(detail.fields.length, 21);
+  assert.equal(detail.fields.length, 22);
+  assert.equal(detail.table.followSupportKind, 'MEDICAL_ASSESSMENT');
   assert.equal(detail.fields[0].id, first.id);
   assert.equal((await svc.record(table.id, row.id)).record.values[first.id], '旧ID');
   assert.equal((await db.collabField.findUniqueOrThrow({ where: { id: old.id } })).archived, true);

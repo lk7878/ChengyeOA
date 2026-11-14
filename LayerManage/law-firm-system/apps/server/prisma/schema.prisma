@@ -176,6 +176,7 @@ model ProfessionalTeamMember {
 // ==================== 用户/权限模块 ====================
 
 model User {
+  personalFiles PersonalFile[]
   assessments SatisfactionAssessment[] @relation("AssessmentCreator")
   specialAnalyses SpecialAnalysis[] @relation("AnalysisCreator")
   analysisRevisions AnalysisRevision[] @relation("AnalysisRevisionCreator")
@@ -1750,7 +1751,8 @@ model CollabBase {
   name          String
   version       Int              @default(1)
   workspace     CollabWorkspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  tables        CollabTable[]
+  tables        CollabTable[] @relation("CurrentWorksheetBase")
+  originTables  CollabTable[] @relation("OriginalWorksheetBase")
   events        CollabEvent[]
   presence      CollabPresence[]
 
@@ -1830,6 +1832,8 @@ model WorksheetRolePolicy {
 }
 
 model CollabTable {
+  followSupportKind String?
+  originBaseId String?
   rolePolicy WorksheetRolePolicy?
   inventoryKind String?
   lifecycleKind String?
@@ -1844,7 +1848,8 @@ model CollabTable {
   archived      Boolean           @default(false)
   createdBy     String
   createdAt     DateTime          @default(now())
-  base          CollabBase        @relation(fields: [baseId], references: [id], onDelete: Cascade)
+  originBase    CollabBase?       @relation("OriginalWorksheetBase", fields: [originBaseId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  base          CollabBase        @relation("CurrentWorksheetBase", fields: [baseId], references: [id], onDelete: Cascade)
   fields        CollabField[]
   views         CollabView[]
   extensions    CollabExtension[]
@@ -2719,4 +2724,31 @@ model RoleApplicationPolicy {
   version Int @default(1)
   @@id([roleId,workspaceId])
   @@map("role_application_policy")
+}
+
+model NavigationMenu {
+  id String @id @default("business")
+  version Int @default(1)
+  nodes Json
+  updatedAt DateTime @updatedAt
+  @@map("navigation_menu")
+}
+
+model PersonalFile {
+  id String @id @default(uuid())
+  ownerId String
+  parentId String?
+  name String
+  kind String
+  storageKey String?
+  size Int @default(0)
+  accessPolicy Json
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  owner User @relation(fields:[ownerId],references:[id],onDelete:Restrict,onUpdate:NoAction)
+  parent PersonalFile? @relation("PersonalFileTree",fields:[parentId],references:[id],onDelete:Restrict,onUpdate:NoAction)
+  children PersonalFile[] @relation("PersonalFileTree")
+  @@index([ownerId,parentId], map: "personal_file_owner_parent")
+  @@map("personal_file")
 }

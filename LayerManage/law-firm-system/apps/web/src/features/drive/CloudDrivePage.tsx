@@ -1,3 +1,4 @@
+import PersonalFiles from './PersonalFiles';
 import Modal from '@/components/DraggableModal';
 import { moduleOptions, isBusinessSource } from '../crm/business-sources';
 import { useUnifiedShell } from '../navigation/shell-context';
@@ -485,7 +486,7 @@ export default function CloudDrivePage() {
       <header className="drive-header">
         <Space>
           {!unifiedShell && <Button onClick={() => navigate('/')}>OA</Button>}
-          <h1>云盘</h1>
+          <h1>承业空间</h1>
         </Space>
         <Space wrap>
           {canCreateWorkspace && <Button onClick={() => openDialog('workspace')}>创建工作区</Button>}
@@ -614,6 +615,7 @@ export default function CloudDrivePage() {
               }
             />
           )}
+          {!parentId&&['mine','shared'].includes(scope)&&<PersonalFiles key={scope} scope={scope as 'mine'|'shared'}/>}
           <p className="drive-caption">
             {search
               ? '搜索结果'

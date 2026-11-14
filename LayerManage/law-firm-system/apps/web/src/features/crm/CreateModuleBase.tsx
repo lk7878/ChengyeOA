@@ -135,7 +135,7 @@ export default function CreateModuleBase({
               创建本模块工作区（{parent.name}）
             </Button>
           ))}
-        {!workspaces.length && <p>暂无可访问的工作区，请先从云盘创建工作区或联系负责人授权。</p>}
+        {!workspaces.length && <p>暂无可访问的工作区，请先从承业空间创建工作区或联系负责人授权。</p>}
       </Modal>
     </>
   );

@@ -1,3 +1,4 @@
+import MoveTable from '@/features/workspaces/MoveTable';
 import BulkTransfer from '@/features/workspaces/BulkTransfer';
 import AfterSalesStatusAction from '@/features/workspaces/AfterSalesStatusAction';
 import RowComments from '@/features/workspaces/RowComments';
@@ -238,8 +239,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       .then((r) => {
         if (!alive) return;
         if (r.table.baseId !== baseId) {
-          setQueryError('数据表不属于当前应用');
-          setDetail(undefined);
+          if(!r.table.baseId){setQueryError('数据表目录不可用');return;}
+          const next=new URLSearchParams(params);next.set('base',r.table.baseId);setParams(next,{replace:true});
           return;
         }
         if (!draftRef.current) setDetail(r);
@@ -683,6 +684,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
     setBusy(true);
     setSaveState('保存中');
     const changed = changedValues(editing.row?.values, editing.values);
+    const medicalLink=fields.find(f=>f.options.medicalRelation);
+    if(medicalLink&&editing.values[medicalLink.id])for(const f of fields.filter(f=>f.options.medicalAutofill))delete changed[f.id];
     try {
       const input = {
         values: changed,
@@ -960,7 +963,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               )
             }
           >
-            {businessMode ? '选择业务工作表' : '承业 · 云盘'}
+            {businessMode ? '选择业务工作表' : '承业 · 承业空间'}
           </button>
           {base && (
             <>
@@ -985,7 +988,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                 else open();
               }}
             >
-              在云盘中打开
+              在承业空间中打开
             </Button>
           )}
           {base && baseAccess && baseAccess.level >= 3 && <BaseModule base={base} onSaved={refresh} />}
@@ -1125,6 +1128,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   </Dropdown>
                 </div>
                 <div className="workspace-toolbar">
+                  {detail.access.level>=3&&detail.access.canManageAccess&&<MoveTable tableId={tableId} disabled={configDirty||inlineDirty||!!editing}/>}
                   <BulkTransfer detail={detail} config={config} viewId={view?.id} onImported={refresh} superAdmin={!!useAuthStore.getState().authorization?.isSystemSuperAdmin}/>
                   <Button
                     type="primary"
@@ -1830,7 +1834,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               {(editing.field ? [editing.field] : fields).map((f) => (
                 <Form.Item key={f.id} label={fieldLabel(f)} required={f.required && f.writable && editing.row?.writable !== false} extra={fieldHint(f)}>
                   <FieldInput
-                    onPreview={values=>setEditing(old=>old?{...old,preview:values}:old)}
+                    onPreview={values=>setEditing(old=>old?(f.options.medicalRelation?{...old,values:{...old.values,...values}}:{...old,preview:values}):old)}
                     displayText={editing.preview && f.options.lifecycleKey ? undefined : (editing.detail?.record ?? editing.row)?.displayValues?.[f.id]}
                     field={f}
                     value={
@@ -1842,13 +1846,13 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     directory={directory}
                     tableId={tableId}
                     disabled={
-                      !f.writable ||
-                      (editing.detail?.record ?? editing.row)?.readonlyFields?.includes(f.id) ||
+                      !f.writable || (!!f.options.medicalAutofill&&!!editing.values[fields.find(f=>f.options.medicalRelation)?.id??'']) ||
+                      ((!f.options.medicalAutofill||f.options.conditionalField)&&(editing.detail?.record ?? editing.row)?.readonlyFields?.includes(f.id)) ||
                       (editing.detail?.record.writable ?? editing.row?.writable) === false ||
                       busy
                     }
                     onChange={(value) =>
-                      setEditing((old) => (old ? { ...old, values: { ...old.values, [f.id]: value } } : old))
+                      setEditing((old) => (old ? { ...old, values: { ...old.values,...(f.options.medicalRelation&&!value?Object.fromEntries(fields.filter(f=>f.options.medicalAutofill).map(f=>[f.id,null])):{}), [f.id]: value } } : old))
                     }
                   />
                 </Form.Item>

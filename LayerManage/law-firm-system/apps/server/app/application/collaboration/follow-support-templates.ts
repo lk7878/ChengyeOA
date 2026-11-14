@@ -6,6 +6,7 @@ type Definition = [string, string, string?];
 const definitions: Record<FollowSupportKind, Definition[]> = {
   MEDICAL_ASSESSMENT: [
     ['ID', 'TEXT'],
+    ['关联客户','TEXT'],
     ['患者姓名', 'TEXT'],
     ['委托人', 'TEXT'],
     ['微信名', 'TEXT'],
@@ -74,6 +75,9 @@ export function followSupportFields(kind: FollowSupportKind) {
   return definitions[kind].map(([name, type, contents], position) => {
     const options: Record<string, Prisma.InputJsonValue | undefined> =
       position === 0 ? { primary: true } : {};
+    const medicalKeys:Record<string,string>={'患者姓名':'customerName','微信名':'wechat','抖音号':'douyinName','联系电话':'phone','地区':'region'};
+    if(kind==='MEDICAL_ASSESSMENT'&&medicalKeys[name])options.medicalAutofill=medicalKeys[name];
+    if(name==='关联客户')options.medicalRelation=true;
     if (type.endsWith('_SELECT'))
       options.choices = (contents ? contents.split('|') : []).map((name) => ({ id: name, name }));
     if (type === 'RELATION') options.targetSource = contents;

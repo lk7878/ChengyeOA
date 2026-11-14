@@ -8,7 +8,7 @@ import type { Field, Filter, Option } from '@/features/workspaces/types';
 export const presetNames: Record<string,string> = {OWNER:'所有者',MANAGER:'管理员',EDITOR:'编辑者',READER:'阅读者'};
 export type TableOption = {id:string;name:string;base:{id:string;name:string;workspace:{name:string}}};
 type Mode = 'EDIT'|'READ'|'MASK'|'HIDDEN';
-type Rule = { level:string;rows:'ALL'|'SELF'|'FILTER';filter?: Filter;viewIds?:string[];fields:Record<string,Mode>;
+type Rule = { level:string;rows:'ALL'|'SELF'|'DEPARTMENT'|'SUBDEPARTMENTS'|'FILTER';filter?: Filter;viewIds?:string[];fields:Record<string,Mode>;
   add:boolean;remove:boolean;analytics:boolean;copy:boolean;automate:boolean };
 type Settings = {version:number;views:Option[];fields:Field[];rules:Record<string,Rule>};
 const levels = [{value:'MANAGER',label:'可管理'},{value:'EDITOR',label:'可编辑'},{value:'READER',label:'仅可阅读'},{value:'DENY',label:'无权限'}];
@@ -63,7 +63,7 @@ function RuleEditor({role,table,superAdmin,onPreview}:{role:string;table:string;
     {settings&&rule&&<Form layout="vertical" disabled={busy}>
       <Form.Item label="表级权限"><Radio.Group options={levels} value={rule.level} onChange={e=>change({level:e.target.value})}/></Form.Item>
       <Form.Item label="记录范围"><Select value={rule.rows} disabled={rule.level==='DENY'} onChange={rows=>change({rows})} options={[
-        {value:'ALL',label:'全部授权记录'},{value:'SELF',label:'仅本人创建'},{value:'FILTER',label:'满足以下条件'}]}/></Form.Item>
+        {value:'ALL',label:'全部授权记录'},{value:'SELF',label:'仅本人创建'},{value:'DEPARTMENT',label:'本人及所在部门'},{value:'SUBDEPARTMENTS',label:'本人及下属部门（负责人）'},{value:'FILTER',label:'满足以下条件'}]}/></Form.Item>
       {rule.rows==='FILTER'&&<FilterEditor fields={settings.fields} value={rule.filter} onChange={filter=>change({filter})}/>}
       <Form.Item label="可见视图">
         <Checkbox checked={!rule.viewIds} onChange={e=>change({viewIds:e.target.checked?undefined:settings.views.map(v=>v.id)})}>全部可用视图</Checkbox>

@@ -9,8 +9,8 @@ export async function officeTemplate(db: DB) {
   const row = await db.officeRoleTemplate.findUnique({ where: { id: 'basic' } });
   return { version: row?.version ?? 1, permissionCodes: (row?.permissionCodes ?? basicOfficeCodes) as string[],
     capabilities: [
-      '工作台及本人通知', '本人日程管理、公开和受邀日程查看', '发起开放申请、查看本人相关审批、处理分配给本人的审批任务',
-      '查看已获授权的云盘及多维表格、搜索筛选和个人视图', '个人资料、账号安全及本人权限查询',
+      '承业中心及本人通知', '本人日程管理、公开和受邀日程查看', '发起开放申请、查看本人相关审批、处理分配给本人的审批任务',
+      '查看已获授权的承业空间及多维表格、搜索筛选和个人视图', '个人资料、账号安全及本人权限查询',
     ] };
 }
 export async function saveOfficeTemplate(db: PrismaClient, userId: string, raw: unknown) {
@@ -18,7 +18,7 @@ export async function saveOfficeTemplate(db: PrismaClient, userId: string, raw: 
   if (!Array.isArray(input.permissionCodes) || input.permissionCodes.some(c=>typeof c !== 'string' || !basicOfficeCodes.includes(c))) authorizationInputError();
   const codes = [...new Set(input.permissionCodes as string[])];
   return db.$transaction(async tx=>{
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended('office-role-template',0))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('office-role-template',0))`;
     const old = await officeTemplate(tx);
     if (integer(input.version) !== old.version) fail('COLLAB_ACCESS_CONFLICT',409);
     await tx.officeRoleTemplate.upsert({where:{id:'basic'},create:{id:'basic',permissionCodes:codes,version:old.version+1},
@@ -33,7 +33,7 @@ export async function applyOfficeTemplate(db: PrismaClient, userId: string, raw:
   if (!Array.isArray(input.roles) || !input.roles.length || input.roles.length>100 || typeof input.apply!=='boolean') authorizationInputError();
   const roles=input.roles.map(item=>{const v=exact(item,['id','version']); if(typeof v.id!=='string') authorizationInputError(); return {id:v.id,version:integer(v.version)};});
   return db.$transaction(async tx=>{
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended('office-role-template',0))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('office-role-template',0))`;
     const template=await officeTemplate(tx);
     if(integer(input.templateVersion)!==template.version) fail('COLLAB_ACCESS_CONFLICT',409);
     const result=[];

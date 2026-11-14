@@ -15,6 +15,7 @@ export interface Field extends Option {
     choices?: Option[];
     targetTableId?: string;
     targetSource?: 'LEADS' | 'CHANNELS';
+    medicalRelation?:boolean; medicalAutofill?:string;
     primary?: boolean;
     helpText?: string;
     maskDisplay?: boolean;

@@ -95,3 +95,15 @@ test('HR navigation requires its own permission rather than inventory access',()
  expect(canOpen(hr,{...summary,permissions:['inventory.read','menu.inventory']})).toBe(false);
  expect(canOpen(hr,{...summary,permissions:['hr.worksheet.read']})).toBe(true);
 });
+
+test('branding changes labels while every original global route remains unchanged',async()=>{
+  const {areas}=await import('./catalog');
+  expect(areas.slice(0,3).map(a=>[a.title,a.path])).toEqual([['承业中心','/'],['承业空间','/workspaces'],['承业协作','/apps']]);
+  const {defaultMenu,menuTree}=await import('./menu-store');
+  const defaults=defaultMenu();
+  expect(defaults.some(n=>n.target==='/cases')).toBe(true);
+  const filtered=menuTree(defaults,new Set(['/cases']));
+  expect(filtered.flatMap(n=>n.children).map(n=>n.target)).toEqual(['/cases']);
+  const service=readFileSync(resolve('../server/app/application/collaboration/navigation-menu.ts'),'utf8');
+  for(const node of defaults.filter(n=>n.target))expect(service).toContain("'"+node.target+"'");
+});

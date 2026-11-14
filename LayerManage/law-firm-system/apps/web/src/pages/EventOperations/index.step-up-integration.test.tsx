@@ -6,7 +6,7 @@ import { eventOperationsApi } from '@/features/event-operations/api';
 import { useAuthStore } from '@/stores/authStore';
 import EventOperationsPage from './index';
 
-vi.mock('@/api/auth', () => ({ authApi: { stepUp: vi.fn() } }));
+vi.mock('@/api/auth', () => ({ authApi: { stepUp: vi.fn(), mfaStatus: vi.fn(), sessions: vi.fn() } }));
 vi.mock('@/features/event-operations/api', () => ({ eventOperationsApi: {
   summary: vi.fn(), list: vi.fn(), detail: vi.fn(), subscriptions: vi.fn(), retry: vi.fn(),
 } }));
@@ -44,6 +44,8 @@ beforeEach(() => {
     list: [delivery], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
   } } as never);
   vi.mocked(eventOperationsApi.detail).mockResolvedValue({ code: 200, message: 'OK', data: detail } as never);
+  vi.mocked(authApi.mfaStatus).mockResolvedValue({code:200,message:'OK',data:{enabled:true}} as never);
+  vi.mocked(authApi.sessions).mockResolvedValue({code:200,message:'OK',data:[{current:true,assuranceLevel:'MFA'}]} as never);
   vi.mocked(authApi.stepUp).mockResolvedValue({
     code: 200, message: 'OK', data: { stepUpToken: 'fresh-one-time-token', expiresIn: 300 },
   });

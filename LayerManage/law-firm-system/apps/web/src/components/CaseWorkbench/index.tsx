@@ -38,7 +38,7 @@ function LiveWorkbench() {
   const end = () => { gesture.current = null; };
   const fullscreen = maximized || narrow;
   return <>
-    {open && <section ref={windowElement} tabIndex={-1} className="case-workbench" role="dialog" aria-label="智慧办案浮动工作台" aria-modal="false" style={{
+    {open && <section ref={windowElement} tabIndex={-1} className="case-workbench" role="dialog" aria-label="智慧办案浮动承业中心" aria-modal="false" style={{
       display: minimized ? 'none' : 'flex', left: fullscreen ? 8 : box.x, top: fullscreen ? 8 : box.y,
       width: fullscreen ? 'calc(100vw - 16px)' : box.width, height: fullscreen ? 'calc(100dvh - 16px)' : box.height,
     }}>

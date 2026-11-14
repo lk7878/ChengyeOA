@@ -114,6 +114,21 @@ export default (app: Application) => {
   router.post('/api/v1/intelligence/events', controller.intelligence.events);
 
   // 健康检查
+  router.get('/api/v1/tables/:tableId/medical-customers',controller.collaboration.medicalCustomers);
+  router.post('/api/v1/tables/:tableId/medical-customer',controller.collaboration.medicalCustomer);
+  router.get('/api/v1/personal-files',controller.personalFile.index);
+  router.post('/api/v1/personal-files',controller.personalFile.create);
+  router.get('/api/v1/personal-files/people',controller.personalFile.people);
+  router.put('/api/v1/personal-files/:id/content',controller.personalFile.replace);
+  router.get('/api/v1/personal-files/:id/download',controller.personalFile.download);
+  router.get('/api/v1/personal-files/:id/access',controller.personalFile.access);
+  router.put('/api/v1/personal-files/:id/access',controller.personalFile.share);
+  router.patch('/api/v1/personal-files/:id',controller.personalFile.rename);
+  router.get('/api/v1/tables/:tableId/move-targets',controller.collaboration.moveTargets);
+  router.post('/api/v1/tables/:tableId/move-preview',controller.collaboration.previewMove);
+  router.post('/api/v1/tables/:tableId/move',controller.collaboration.moveTable);
+  router.get('/api/v1/navigation-menu', controller.navigation.index);
+  router.put('/api/v1/navigation-menu', controller.navigation.save);
   router.get('/api/health', controller.home.index);
 
   // 认证模块（不需要 JWT）

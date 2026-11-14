@@ -33,7 +33,7 @@ export function tableBusinessCapabilities(table: Pick<CollabTable,'source'|'inve
 
 export async function worksheetNavigationGrants(db:DB, actor:AuthorizationContext, roleIds:string[]) {
   if(actor.isSystemSuperAdmin || !roleIds.length) return actor;
-  const policies = await db.worksheetRolePolicy.findMany({where:{table:{archived:false}},include:{table:{select:{source:true,inventoryKind:true}}}});
+  const policies = await db.worksheetRolePolicy.findMany({where:{table:{archived:false}},include:{table:{select:{source:true,inventoryKind:true,originBaseId:true,base:{select:{moduleSource:true}}}}}});
   const grants:EffectiveGrant[]=[];
   for(const policy of policies) {
     if(retiredSources.includes(policy.table.source)) continue;
@@ -42,7 +42,7 @@ export async function worksheetNavigationGrants(db:DB, actor:AuthorizationContex
     for(const roleId of roleIds) {
       const rule=rules[roleId];
       if(!rule?.business || rule.level==='DENY') continue;
-      for(const code of capabilities.basic) {
+      for(const code of [...new Set([...capabilities.basic,...(policy.table.originBaseId&&policy.table.base.moduleSource?tableBusinessCapabilities({source:policy.table.base.moduleSource,inventoryKind:null}).basic:[])])]) {
         const p=PERMISSION_CATALOG.find(p=>p.code===code)!;
         grants.push({sourceType:'ROLE',sourceId:'worksheet:'+policy.tableId+':'+roleId,sourceRoleId:roleId,
           permissionCode:p.code,resource:p.resource,scopeIds:[],validUntil:null});

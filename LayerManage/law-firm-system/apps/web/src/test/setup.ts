@@ -1,11 +1,12 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
-import { cleanup, configure } from '@testing-library/react';
+import { act, cleanup, configure } from '@testing-library/react';
 
 configure({ asyncUtilTimeout: 5000 });
 
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  // Flush scheduled React work before JSDOM tears down window.
+  await act(async () => { cleanup(); });
   localStorage.clear();
 });
 

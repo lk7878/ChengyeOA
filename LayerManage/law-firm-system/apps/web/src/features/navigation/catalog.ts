@@ -3,9 +3,9 @@ import { isAuthorizationSummaryExpired } from '../authorization/api';
 import type { AuthorizationSummary, PermissionCode } from '../authorization/types';
 
 export const areas = [
-  { id: 'home', title: '工作台', path: '/', description: '待办、通知与常用入口' },
-  { id: 'drive', title: '云盘', path: '/workspaces', description: '组织资源与多维表格' },
-  { id: 'apps', title: '业务应用', path: '/apps', description: '客户经营、签约交付与业务办理' },
+  { id: 'home', title: '承业中心', path: '/', description: '待办、通知与常用入口' },
+  { id: 'drive', title: '承业空间', path: '/workspaces', description: '组织资源与多维表格' },
+  { id: 'apps', title: '承业协作', path: '/apps', description: '客户经营、签约交付与业务办理' },
   { id: 'analytics', title: '数据分析', path: '/analytics', description: '经营、绩效与数据质量' },
   { id: 'admin', title: '管理中心', path: '/admin', description: '组织、人员、授权与系统治理' },
 ] as const;
@@ -29,6 +29,7 @@ const lead: PermissionCode[] = ['menu.lead_crm', 'lead.read'];
 const customer: PermissionCode[] = ['menu.customer', 'customer.read'];
 const contract: PermissionCode[] = ['menu.contract', 'contract.read'];
 export const entries: NavigationEntry[] = [
+  {path:'/admin/navigation',title:'菜单管理',area:'admin',group:'系统配置',superAdminOnly:true},
   {path:'/analytics/dashboards',title:'可视化仪表盘',area:'analytics',group:'自助分析'},
   {path:'/cases/:id/assessments',title:'百分制满意度',area:'apps',group:'质量管理',required:['quality.assessment.read','case.read'],hidden:true,parent:'/cases'},
   {path:'/quality/special-analyses',title:'专项分析',area:'apps',group:'质量管理',required:['menu.quality','quality.analysis.read','case.read']},
@@ -49,9 +50,9 @@ export const entries: NavigationEntry[] = [
   {path:'/sop/instances/new',title:'启动SOP',area:'apps',group:'案件交付',required:['sop.instance.start'],hidden:true,parent:'/sop/tasks'},
   {path:'/sop/instances/:id',title:'SOP流程',area:'apps',group:'案件交付',required:['sop.instance.read'],hidden:true,parent:'/sop/tasks'},
   { path:'/admin/sop-templates', title:'SOP模板', area:'admin', group:'流程与质检配置', required:['menu.sop_templates','sop.template.read'] },
-  { path: '/', title: '工作台', area: 'home', group: '常用' },
-  { path: '/workspaces', title: '云盘', area: 'drive', group: '资源' },
-  { path: '/apps', title: '业务应用', area: 'apps', group: '全部应用' },
+  { path: '/', title: '承业中心', area: 'home', group: '常用' },
+  { path: '/workspaces', title: '承业空间', area: 'drive', group: '资源' },
+  { path: '/apps', title: '承业协作', area: 'apps', group: '全部应用' },
   { path: '/analytics', title: '数据分析', area: 'analytics', group: '全部分析' },
   { path: '/admin', title: '管理中心', area: 'admin', group: '全部管理' },
   { path: '/approvals', title: '审批中心', area: 'home', group: '待办与通知', required: ['approval.read'] },

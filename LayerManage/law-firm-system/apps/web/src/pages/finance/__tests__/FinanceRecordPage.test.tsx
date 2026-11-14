@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { ConfigProvider } from 'antd';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, expect, test, vi } from 'vitest';
 import FinanceRecordPage from '../FinanceRecordPage';
@@ -11,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   costUpdate: vi.fn(),
   refundDetail: vi.fn(),
   refundApprove: vi.fn(),
-  run: vi.fn(),
 }));
 vi.mock('@/api/payment', () => ({ paymentApi: { detail: mocks.paymentDetail } }));
 vi.mock('@/api/refund', () => ({ refundApi: { detail: mocks.refundDetail, approve: mocks.refundApprove } }));
@@ -19,8 +19,6 @@ vi.mock('@/api/cost', () => ({
   COST_CATEGORIES: ['OFFICE'],
   costApi: { detail: mocks.costDetail, create: mocks.costCreate, update: mocks.costUpdate },
 }));
-vi.mock('@/features/auth/useStepUp', () => ({ useStepUp: () => ({ run: mocks.run, dialogProps: {} }) }));
-vi.mock('@/features/auth/components/StepUpDialog', () => ({ default: () => null }));
 vi.mock('@/features/crm/BusinessWorkspacePage', () => ({ BusinessTableLinks: () => null }));
 vi.mock('@/features/workspaces/api', () => ({
   get: vi.fn(async (url: string) =>
@@ -81,11 +79,11 @@ beforeEach(() => {
 });
 function open(kind: 'cost' | 'payment' | 'refund') {
   return render(
-    <MemoryRouter initialEntries={['/record/' + kind + '-1']}>
+    <ConfigProvider theme={{token:{motion:false}}}><MemoryRouter initialEntries={['/record/' + kind + '-1']}>
       <Routes>
         <Route path="/record/:id" element={<FinanceRecordPage kind={kind} />} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter></ConfigProvider>,
   );
 }
 test('background refresh preserves cost draft and version captured when the editor opened', async () => {
@@ -114,20 +112,16 @@ test('a denied detail refresh clears cached financial data', async () => {
   expect(screen.queryByText('123.45')).not.toBeInTheDocument();
 });
 test('refund approval binds the displayed version and cancellation leaves the action available', async () => {
-  mocks.run.mockRejectedValue(new Error('STEP_UP_CANCELLED'));
   open('refund');
   fireEvent.click(await screen.findByRole('button', { name: '审批通过' }));
-  fireEvent.click((await screen.findByRole('dialog')).querySelector('button.ant-btn-primary')!);
-  await waitFor(() =>
-    expect(mocks.run).toHaveBeenCalledWith(
-      expect.objectContaining({
-        purpose: 'REFUND_APPROVE',
-        target: { refundRequestId: 'refund-1', expectedVersion: 4 },
-      }),
-    ),
-  );
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /取\s*消|Cancel/ }));
   expect(mocks.refundApprove).not.toHaveBeenCalled();
-  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '审批通过' }));
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '确认办理' }));
+  await waitFor(() => expect(mocks.refundApprove).toHaveBeenCalledWith('refund-1', {
+    expectedVersion: 4, comment: undefined,
+  }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
 test('a lost create response retains the decimal payload and the same persisted request key', async () => {
   mocks.costCreate.mockRejectedValueOnce(new Error('NETWORK_UNKNOWN'));
@@ -154,14 +148,15 @@ test('a lost create response retains the decimal payload and the same persisted 
 });
 
 
-test('leaving a refund detail during identity verification prevents the later approval mutation', async () => {
-  mocks.run.mockImplementation(() => new Promise(() => {}));
+test('leaving a refund detail while approval is pending ignores the late response', async () => {
+  let resolve: (value: unknown) => void = () => undefined;
+  mocks.refundApprove.mockImplementation(() => new Promise(done => { resolve = done; }));
   const view = open('refund');
   fireEvent.click(await screen.findByRole('button', { name: '审批通过' }));
-  fireEvent.click((await screen.findByRole('dialog')).querySelector('button.ant-btn-primary')!);
-  await waitFor(() => expect(mocks.run).toHaveBeenCalled());
-  const request = mocks.run.mock.calls[0][0];
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '确认办理' }));
+  await waitFor(() => expect(mocks.refundApprove).toHaveBeenCalledOnce());
   view.unmount();
-  expect(() => request.mutate('late-token')).toThrow('STEP_UP_CANCELLED');
-  expect(mocks.refundApprove).not.toHaveBeenCalled();
+  await act(async () => { resolve({data:{...row,id:'refund-1',status:'APPROVED',version:5}}); });
+  expect(screen.queryByText('退款减免详情')).not.toBeInTheDocument();
+  expect(mocks.refundApprove).toHaveBeenCalledOnce();
 });

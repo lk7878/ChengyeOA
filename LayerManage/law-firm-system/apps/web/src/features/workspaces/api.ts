@@ -20,6 +20,9 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  COLLAB_INVALID_NAVIGATION:'菜单节点配置无效，请检查父节点、层级或页面绑定。',
+  COLLAB_TABLE_NAME_CONFLICT:'目标目录已有同名工作表，请先调整名称。',
+  MEDICAL_LINKED_FIELD_READONLY:'客户信息由关联的跟进记录回填，不能直接修改；请先清空关联。',
   COMMENT_MENTION_FORBIDDEN: '被提及的成员没有查看本行的权限，请重新选择。',
   COMMENT_VERSION_CONFLICT: '评论已被修改，请刷新后重新编辑。当前输入已保留。',
   CALENDAR_NOT_FOUND: '日程不存在或你没有查看权限。',

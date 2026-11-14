@@ -7,7 +7,7 @@ import type { Directory } from '../workspaces/types';
 vi.mock('../workspaces/api', () => ({ post: vi.fn(), errorMessage: () => '失败', errorStatus: () => 500 }));
 
 test('permanent deletion requires an impact preview followed by explicit confirmation', async () => {
-  vi.mocked(post).mockResolvedValue({ previewToken: 'a'.repeat(64), affected: { folders: 1, bases: 2 }, workspace: { name: '云盘' }, fromPath: [{ name: '待删除' }] });
+  vi.mocked(post).mockResolvedValue({ previewToken: 'a'.repeat(64), affected: { folders: 1, bases: 2 }, workspace: { name: '承业空间' }, fromPath: [{ name: '待删除' }] });
   const saved = vi.fn();
   render(<DriveLifecycle action="PURGE" item={{ id: 'folder', name: '待删除', parentId: null, path: [] }} folders={[]} directory={{ users: [], positions: [], organizations: [], teams: [] } as unknown as Directory} onClose={vi.fn()} onSaved={saved} />);
   expect(screen.getByText('彻底删除后无法恢复')).toBeInTheDocument();

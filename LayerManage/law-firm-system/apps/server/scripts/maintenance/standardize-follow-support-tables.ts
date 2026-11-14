@@ -49,6 +49,7 @@ export async function standardizeFollowSupportTables(db: PrismaClient, actorId: 
         const changed =
           !previous ||
           previous.name !== followSupportNames[kind] ||
+          previous.followSupportKind !== kind ||
           desired.some(
             ({ spec, old }) =>
               !old ||
@@ -136,7 +137,7 @@ export async function standardizeFollowSupportTables(db: PrismaClient, actorId: 
           }
           await tx.collabTable.update({
             where: { id: table.id },
-            data: { name: followSupportNames[kind], schemaVersion: { increment: 1 } },
+            data: { name: followSupportNames[kind], followSupportKind: kind, schemaVersion: { increment: 1 } },
           });
           await tx.operationLog.create({
             data: {

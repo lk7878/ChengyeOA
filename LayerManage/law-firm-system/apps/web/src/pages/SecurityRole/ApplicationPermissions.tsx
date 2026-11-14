@@ -6,7 +6,7 @@ import { errorMessage, get } from '@/features/workspaces/api';
 import type { Field, Filter } from '@/features/workspaces/types';
 import { previewEvent } from './WorksheetPermissions';
 
-export type TableRule = {level:string;rows:'ALL'|'SELF'|'FILTER';filter?:Filter;fields:Record<string,string>;viewIds?:string[];
+export type TableRule = {level:string;rows:'ALL'|'SELF'|'DEPARTMENT'|'SUBDEPARTMENTS'|'FILTER';filter?:Filter;fields:Record<string,string>;viewIds?:string[];
   add:boolean;remove:boolean;copy:boolean;analytics:boolean;automate:boolean;share?:boolean;import?:boolean;
   business?:{permissions:string[];scopeIds:string[]}};
 export type WorksheetChange = {tableId:string;version:number;rule:TableRule};
@@ -51,6 +51,7 @@ export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,s
       if(!old.business && old.level==='DENY') rule.fields={...Object.fromEntries(config.fields.filter(f=>f.options?.hrSensitive || ['phone','wechat','intake.customerPhone'].includes(String(f.options?.businessKey))).map(f=>[f.id,'MASK'])),...rule.fields};
       if(!old.business) rule.business={permissions:[],scopeIds:config.capabilities.scoped?['worksheet:self']:[]};
       const business=patch.business ?? rule.business!;
+      if(patch.rows&&['DEPARTMENT','SUBDEPARTMENTS'].includes(patch.rows)&&config.capabilities.scoped)business.scopeIds=['ALL'];
       rule.business={...business,permissions:[...new Set([
         ...config.capabilities.basic,...(writable?config.capabilities.edit:[]),
         ...business.permissions.filter(code=>!config.capabilities.basic.includes(code)&&!config.capabilities.edit.includes(code)),
@@ -62,7 +63,7 @@ export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,s
     onChange(next);
   };
   const t=tables.find(t=>t.id===editing),s=editing?settings[editing]:undefined,r=editing?ruleFor(editing):undefined;
-  const scopeLabel=(id:string)=>{const rule=ruleFor(id);if(rule.rows==='FILTER')return '自定义条件（高级）';if(rule.rows==='SELF')return '本人创建';
+  const scopeLabel=(id:string)=>{const rule=ruleFor(id);if(rule.rows==='FILTER')return '自定义条件（高级）';if(rule.rows==='SELF')return '本人创建';if(rule.rows==='DEPARTMENT')return '本人及所在部门';if(rule.rows==='SUBDEPARTMENTS')return '本人及下属部门（负责人）';
     if(!rule.business)return '沿用现有业务数据范围';
     if(!settings[id]?.capabilities.scoped)return '全部授权记录';
     return rule.business.scopeIds.map(id=>id==='ALL'?'全公司':scopes.find(s=>s.id===id)?.name || id).join('、') || '未授权记录';};
@@ -117,7 +118,7 @@ export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,s
             onChange={mode=>change([t.id],{fields:{...r.fields,[f.id]:mode}})}/>},
         ]}/>
         <Collapse style={{marginTop:16}} items={[{key:'advanced',label:'高级设置 · 自定义条件及共享视图',children:<>
-          <Form.Item label="记录条件"><Select value={r.rows} options={[{value:'ALL',label:'不追加行条件'},{value:'SELF',label:'本人创建的记录'},{value:'FILTER',label:'自定义条件'}]}
+          <Form.Item label="记录条件"><Select value={r.rows} options={[{value:'ALL',label:'不追加行条件'},{value:'SELF',label:'本人创建的记录'},{value:'DEPARTMENT',label:'本人及所在部门'},{value:'SUBDEPARTMENTS',label:'本人及下属部门（负责人）'},{value:'FILTER',label:'自定义条件'}]}
             onChange={rows=>change([t.id],{rows})}/></Form.Item>
           {r.rows==='FILTER'&&<FilterEditor fields={s.fields} value={r.filter} onChange={filter=>change([t.id],{filter})}/>}
           <Checkbox checked={!r.viewIds} onChange={e=>change([t.id],{viewIds:e.target.checked?undefined:s.views.map(v=>v.id)})}>全部可用共享视图</Checkbox>

@@ -1,10 +1,12 @@
+import BusinessNavigation from '@/features/navigation/BusinessNavigation';
+import { defaultMenu, useMenuStore } from '@/features/navigation/menu-store';
 import { inPreviewFrame } from '@/features/authorization/preview-frame';
 import PermissionPreview from '@/pages/SecurityRole/PermissionPreview';
 import Modal from '@/components/DraggableModal';
 import LiveNotifications from '@/features/notifications/LiveNotifications';
 import AppearanceSettings from '@/features/appearance/AppearanceSettings';
 import { businessSources } from '@/features/crm/business-sources';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Alert, Avatar, Breadcrumb, Button, Dropdown, Empty, Input, Result, Spin } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
 import {
@@ -57,6 +59,9 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   const [search, setSearch] = useState('');
   const { userInfo, authorization, authorizationStatus, ensureAuthorization, logout } = useAuthStore();
   useNavigationAuthorization();
+  const {config:menuConfig,load:loadMenu}=useMenuStore();
+  useEffect(()=>{if(authorizationStatus==='ready')void loadMenu().catch(()=>undefined);},[authorizationStatus,loadMenu]);
+  const labelFor=(path:string,fallback:string)=>(menuConfig?.nodes??defaultMenu()).find(n=>n.target===path)?.label??fallback;
   const current = findEntry(legacyRedirects[pathname] || pathname);
   const area = areas.find((item) => item.id === current?.area) || areas[0];
   const available = visibleEntries(authorization, area.id).filter((item) => item.path !== area.path);
@@ -69,12 +74,12 @@ export default function MainLayout({ children }: { children: ReactNode }) {
         <Link
           key={item.id}
           to={item.path}
-          aria-label={item.title}
+          aria-label={labelFor(item.path,item.title)}
           aria-current={item.id === current?.area && !current.global ? 'page' : undefined}
           onClick={closeNavigation}
         >
           <span aria-hidden="true">{icons[item.id]}</span>
-          <span>{item.title}</span>
+          <span>{labelFor(item.path,item.title)}</span>
         </Link>
       ))}
     </nav>
@@ -84,7 +89,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
       <Link className="unified-context-home" to={area.path} onClick={closeNavigation}>
         {area.title}
       </Link>
-      {groups.map((group) => (
+      {area.id==='apps'?<BusinessNavigation paths={available.map(e=>e.path)} current={current?.parent||current?.path} onNavigate={closeNavigation}/>:groups.map((group) => (
         <section key={group}>
           <h2>{group}</h2>
           {available
@@ -96,7 +101,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
                 aria-current={(current?.parent || current?.path) === item.path ? 'page' : undefined}
                 onClick={closeNavigation}
               >
-                {item.title}
+                {labelFor(item.path,item.title)}
               </Link>
             ))}
         </section>
@@ -123,20 +128,20 @@ export default function MainLayout({ children }: { children: ReactNode }) {
       />
     </div>
   ) : !current ? (
-    <Result status="404" title="页面不存在" extra={<Link to="/">返回工作台</Link>} />
+    <Result status="404" title="页面不存在" extra={<Link to="/">返回承业中心</Link>} />
   ) : !canOpen(current, authorization) ? (
     <Result
       status="403"
       title="无权访问此页面"
       subTitle="请联系管理员核对岗位与访问权限。"
-      extra={<Link to="/">返回工作台</Link>}
+      extra={<Link to="/">返回承业中心</Link>}
     />
   ) : (
     children
   );
   const searchItems = entries.filter(
     (item) =>
-      !item.hidden && canOpen(item, authorization) && (item.title + item.group).includes(search.trim()),
+      !item.hidden && canOpen(item, authorization) && (labelFor(item.path,item.title) + item.group).includes(search.trim()),
   );
   return (
     <UnifiedShellContext.Provider value={true}>
@@ -161,7 +166,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
             <Breadcrumb
               items={[
                 { title: <Link to={area.path}>{area.title}</Link> },
-                ...(current && current.path !== area.path ? [{ title: current.title }] : []),
+                ...(current && current.path !== area.path ? [{ title: labelFor(current.path,current.title) }] : []),
               ]}
             />
           </div>
@@ -274,7 +279,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
           <div className="unified-search-results">
             {searchItems.map((item) => (
               <Link key={item.path} to={item.path} onClick={() => setSearchOpen(false)}>
-                {item.title}
+                {labelFor(item.path,item.title)}
                 <small>
                   {item.global ? '全局工具' : areas.find((value) => value.id === item.area)?.title} ·{' '}
                   {item.group}

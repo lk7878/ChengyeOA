@@ -1,3 +1,4 @@
+import { departmentCreatorPredicate } from './department-scope';
 import { CollabField, Prisma } from '@prisma/client';
 import type { Access } from './collaboration-service';
 import { boolean, choice, exact, fail, filterSql, object, type Filter } from './collaboration-policy';
@@ -10,7 +11,7 @@ export type TableRule = {
   share?: boolean;
   import?: boolean;
   level: keyof typeof levels;
-  rows: 'ALL' | 'SELF' | 'FILTER';
+  rows: 'ALL' | 'SELF' | 'DEPARTMENT' | 'SUBDEPARTMENTS' | 'FILTER';
   filter?: Filter;
   viewIds?: string[];
   fields: Record<string, typeof modes[number]>;
@@ -24,7 +25,7 @@ export function defaultRule(role: TableRule['level']): TableRule {
 export function parseRule(raw: unknown, fields: CollabField[], sharedViews: string[]): TableRule {
   const v = exact(raw, ['level','rows','filter','viewIds','fields','add','remove','analytics','copy','automate','business','share','import']);
   const level = choice(v.level, ['DENY','READER','EDITOR','MANAGER']) as TableRule['level'];
-  const rows = choice(v.rows,['SELF','ALL','FILTER']) as TableRule['rows'];
+  const rows = choice(v.rows,['SELF','ALL','DEPARTMENT','SUBDEPARTMENTS','FILTER']) as TableRule['rows'];
   if (rows === 'FILTER') {
     if (!v.filter) fail('COLLAB_INVALID_FILTER');
     filterSql(v.filter, fields.filter(f => !object(f.options).hrSensitive && !object(f.options).maskDisplay), 'user', null);
@@ -76,7 +77,7 @@ export function recordFieldLevel(access: Access, id:string, field:string) {
 export function rowPredicate(rules: TableRule[] | undefined, fields: CollabField[], user: string, employee: string | null) {
   if (!rules || rules.some(r => r.rows === 'ALL')) return Prisma.sql`TRUE`;
   if (!rules.length) return Prisma.sql`FALSE`;
-  return Prisma.sql`(${Prisma.join(rules.map(r => r.rows === 'SELF' ? Prisma.sql`r."createdBy"=${user}` :
+  return Prisma.sql`(${Prisma.join(rules.map(r => ['DEPARTMENT','SUBDEPARTMENTS'].includes(r.rows) ? departmentCreatorPredicate(user,employee,r.rows==='SUBDEPARTMENTS') : r.rows === 'SELF' ? Prisma.sql`r."createdBy"=${user}` :
     filterSql(r.filter, fields, user, employee)), ' OR ')})`;
 }
 export function ruleAllowsWrite(r: TableRule, fieldIds: string[], action: 'edit'|'add'|'remove') {

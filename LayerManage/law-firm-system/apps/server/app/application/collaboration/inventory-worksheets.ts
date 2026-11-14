@@ -126,6 +126,11 @@ export async function seedInventorySummary(tx: Prisma.TransactionClient, tableId
       });
   }
 }
+// Moving a worksheet changes its directory, not the source group used by its formulas.
+const inventorySourceGroup = (table: CollabTable): Prisma.CollabTableWhereInput => {
+  const sourceBaseId = table.originBaseId ?? table.baseId;
+  return { OR: [{ originBaseId: sourceBaseId }, { originBaseId: null, baseId: sourceBaseId }] };
+};
 /** SQL projection computes totals in the same snapshot as filtering/pagination, never from cached sums. */
 export async function inventorySummarySql(
   tx: Prisma.TransactionClient,
@@ -141,7 +146,7 @@ export async function inventorySummarySql(
   const total = fields.find((f) => object(f.options).inventoryKey === '领用数量');
   if (!name || !total) fail('COLLAB_FIELD_UNAVAILABLE', 403);
   const tables = await tx.collabTable.findMany({
-    where: { baseId: table.baseId, inventoryKind: table.inventoryKind === 'OFFICE_SUMMARY' ? 'OFFICE_REGISTER' : 'INVENTORY_REGISTER', archived: false },
+    where: { ...inventorySourceGroup(table), inventoryKind: table.inventoryKind === 'OFFICE_SUMMARY' ? 'OFFICE_REGISTER' : 'INVENTORY_REGISTER', archived: false },
   });
   const branches: Prisma.Sql[] = [];
   if (!tables.length) fail('COLLAB_INVENTORY_REGISTER_REQUIRED');
@@ -197,7 +202,7 @@ async function officeStockSql(
   if (!computed.length) return Prisma.sql`SELECT r.* FROM collab_record r WHERE r."tableId"=${table.id}`;
   if (!name) fail('COLLAB_FIELD_UNAVAILABLE', 403);
   const sources = await tx.collabTable.findMany({ where: {
-    baseId: table.baseId, archived: false, inventoryKind: { in: ['OFFICE_INBOUND', 'OFFICE_OUTBOUND'] },
+    ...inventorySourceGroup(table), archived: false, inventoryKind: { in: ['OFFICE_INBOUND', 'OFFICE_OUTBOUND'] },
   } });
   const branches: Prisma.Sql[] = [];
   for (const kind of ['OFFICE_INBOUND', 'OFFICE_OUTBOUND']) {
