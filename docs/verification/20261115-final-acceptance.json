@@ -1,0 +1,117 @@
+{
+  "task": "20261114 人工反馈六项最终复核",
+  "verifiedAt": "2026-11-15T01:48:08.563592+08:00",
+  "checkpointCommit": "3bb250b",
+  "previousAcceptanceCommit": "5f31f17",
+  "applicationStatus": "六项需求对应功能已实现；本轮发现并修正目标目录名称搜索遗漏。验收范围和代理限制见下文。",
+  "environments": {
+    "publicEntry": "http://43.136.135.233",
+    "sameRunningFrontend": "http://localhost:3000",
+    "sameRunningBackend": "127.0.0.1:7001",
+    "liveDatabase": "chengye_oa at localhost:55432",
+    "isolatedTestServerUsed": false
+  },
+  "newFix": {
+    "file": "LayerManage/law-firm-system/apps/web/src/features/workspaces/MoveTable.tsx",
+    "cause": "Select 默认匹配 option.value（内部目录ID），输入“行政”无法找到“行政事务”。",
+    "change": "showSearch.optionFilterProp 设置为 label，以工作区和目录的显示名称匹配。",
+    "verification": "在实际公网页面输入“行政”出现“行政事务 / 行政事务”，预览并成功移动；公开入口返回的最新模块也包含修复。"
+  },
+  "requirements": [
+    {
+      "number": 1,
+      "verified": [
+        "实际公网页面菜单树可折叠",
+        "管理中心菜单管理：新增、改名、保存、刷新后保留、删除",
+        "原有19个节点及原始默认菜单状态已恢复"
+      ],
+      "result": "通过"
+    },
+    {
+      "number": 2,
+      "verified": [
+        "实际公网页面执行低值易耗品→行政事务移动并跳转到目标路由",
+        "验收表含2字段、1记录、1视图、1自动化配置和行列权限",
+        "真实数据库逐项比较字段、视图、记录、自动化配置及 WorksheetRolePolicy 内容与ID完全一致"
+      ],
+      "result": "通过",
+      "scope": "验证自动化配置保留；使用停用规则，未执行真实业务自动化任务。"
+    },
+    {
+      "number": 3,
+      "verified": [
+        "实际公网页面客户模糊搜索返回匹配候选",
+        "关联后5项字段均禁用",
+        "清空关联后5项字段均清空并启用，可手动新增记录",
+        "标准Chromium连接同一实际运行服务，行内保存PATCH返回200，删除后撤销恢复修改内容",
+        "上一轮公网API已确认五字段来源一致、后端只读约束及关联快照删除撤销"
+      ],
+      "result": "功能验证通过；公网浏览器PATCH受本机代理限制，未冒称该链路通过"
+    },
+    {
+      "number": 4,
+      "verified": [
+        "实际运行服务和真实数据库上的独立组织/账号样本：负责人可见本人、同部门、子部门3条，排除部门外记录",
+        "DEPARTMENT仅返回本人及同部门2条",
+        "取消负责人任命立即仅剩本人1条",
+        "更换负责人，新负责人自动可见部门及子部门3条，不配置员工ID列表",
+        "子部门员工任职结束后立即降至2条",
+        "实际沈红梅账号复核：8张工作表启用SUBDEPARTMENTS，33张原拒绝访问的表仍拒绝访问；原全所范围未恢复"
+      ],
+      "result": "通过",
+      "scope": "模拟任命变化仅发生在明确标记的独立验收组织，未改动真实组织任命。"
+    },
+    {
+      "number": 5,
+      "verified": [
+        "实际公网页面上传包含子目录的文件夹，保留根文件与子文件层级",
+        "页面搜索并选择内部业务角色分享",
+        "真实权限预览：子文件角色分享不能绕过私有父目录；父目录按部门授权后共享可见且只读",
+        "上一轮实际公网API已验证禁止优先、权限交集、内容替换和下载一致性"
+      ],
+      "result": "通过"
+    },
+    {
+      "number": 6,
+      "verified": [
+        "实际公网登录后全局导航显示承业中心、承业空间、承业协作",
+        "实际页面可进入对应区域，仍使用原有 /、/workspaces、/apps 路径",
+        "导航相关回归测试通过"
+      ],
+      "result": "通过"
+    }
+  ],
+  "networkDiagnostic": {
+    "publicBrowserFailure": "PATCH net::ERR_EMPTY_RESPONSE / Axios ERR_NETWORK",
+    "evidence": [
+      "内置浏览器与标准Chromium均复现",
+      "Chromium NetLog显示公网请求使用验收机系统HTTP代理 127.0.0.1:15732；localhost属于原有直连列表",
+      "完全相同请求通过Node HTTP直达公网入口返回200",
+      "同一实际运行服务 localhost:3000 的标准Chromium页面完成行内保存、删除和撤销，PATCH返回200"
+    ],
+    "conclusion": "失败定位在验收机代理路径，应用接口和同部署页面功能通过；未修改或关闭系统代理，未把公网浏览器PATCH链路记为通过。"
+  },
+  "checks": {
+    "frontendBuild": "npm run build 通过（含TypeScript检查）",
+    "focusedTests": "23 tests passed across navigation/catalog and workspaces/GridCell",
+    "gitDiffCheck": "通过",
+    "publicHealth": 200,
+    "publicFixModule": "已核对最新返回内容"
+  },
+  "cleanup": {
+    "acceptanceWorksheetsRemoved": 3,
+    "syntheticWorkspaceRemoved": 1,
+    "syntheticOrganizationsRemoved": 3,
+    "syntheticUsersAndEmployeesRemoved": 4,
+    "personalFileNodesAndStorageRemoved": 4,
+    "defaultMenuRestored": true,
+    "businessRecordsChanged": false,
+    "realOrganizationAppointmentsChanged": false,
+    "auditLogsRetained": true
+  },
+  "evidence": [
+    "20261115-final/navigation.jpg",
+    "20261115-final/moved-worksheet.jpg",
+    "20261115-final/medical-inline-undo.jpg"
+  ]
+}

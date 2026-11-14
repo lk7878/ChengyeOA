@@ -12,7 +12,7 @@ export default function MoveTable({tableId,disabled}:{tableId:string;disabled?:b
       else{const moved=await post<{baseId:string;moduleSource:string}>('/tables/'+tableId+'/move',{targetBaseId:target,previewToken:preview.previewToken});setOpen(false);message.success('工作表已移动');navigate((isBusinessSource(moved.moduleSource)?businessSources[moved.moduleSource].path:'/workspaces')+'?'+new URLSearchParams({base:moved.baseId,table:tableId}));}
     }catch(e){setError(errorMessage(e));setPreview(undefined);}finally{setBusy(false);}}}>
       <p>原记录、字段、视图、角色行列权限和自动化保留。原权限边界与目标目录权限取交集，目标目录未授权的成员将无法访问。</p>
-      <Select aria-label="目标目录" showSearch style={{width:'100%'}} value={target} options={targets.map(t=>({value:t.id,label:t.workspaceName+' / '+t.name}))} onChange={v=>{setTarget(v);setPreview(undefined);}}/>
+      <Select aria-label="目标目录" showSearch={{optionFilterProp:'label'}} style={{width:'100%'}} value={target} options={targets.map(t=>({value:t.id,label:t.workspaceName+' / '+t.name}))} onChange={v=>{setTarget(v);setPreview(undefined);}}/>
       {preview&&<Alert type="info" title={`将保留 ${preview.fields} 个字段、${preview.records} 条表内记录、${preview.views} 个视图及 ${preview.rules} 个自动化规则。关联业务记录继续使用原数据。`}/>}
       {error&&<Alert type="error" title={error}/>}
     </Modal></>;
