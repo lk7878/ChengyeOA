@@ -1,0 +1,131 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: chengye_oa_test
+          POSTGRES_USER: chengye_test
+          POSTGRES_PASSWORD: chengye_test_local_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chengye_test -d chengye_oa_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://chengye_test:chengye_test_local_only@localhost:5432/chengye_oa_test?schema=public
+      DATABASE_URL_TEST: postgresql://chengye_test:chengye_test_local_only@localhost:5432/chengye_oa_test?schema=public
+      ALLOW_TEST_DB_RESET: 'true'
+      ALLOW_SUPER_ADMIN_RECOVERY: 'false'
+      JWT_SECRET: 01234567890123456789012345678901
+      APP_KEYS: first-32-character-application-key,second-32-character-app-key
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan repository for secrets
+        run: >-
+          docker run --rm -v "$PWD:/repo"
+          ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          detect --source=/repo --config=/repo/.gitleaks.toml --no-banner --redact --no-git
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+          cache-dependency-path: |
+            LayerManage/law-firm-system/package-lock.json
+            LayerManage/law-firm-system/apps/server/package-lock.json
+            LayerManage/law-firm-system/apps/web/package-lock.json
+      - name: Prove Gitleaks placeholder semantics
+        run: npm --prefix LayerManage/law-firm-system/apps/server run check:gitleaks-semantics
+      - name: Install dependencies
+        working-directory: LayerManage/law-firm-system
+        run: npm run setup
+      - name: Apply canonical migrations
+        working-directory: LayerManage/law-firm-system/apps/server
+        run: npx prisma migrate deploy
+      - name: Reject Prisma schema and migration drift
+        working-directory: LayerManage/law-firm-system/apps/server
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+      - name: Assert empty application tables
+        working-directory: LayerManage/law-firm-system
+        run: npm run db:assert-empty
+      - name: Verify repository and bootstrap contracts
+        working-directory: LayerManage/law-firm-system
+        run: npm run verify
+      - name: Rebuild empty test database
+        working-directory: LayerManage/law-firm-system
+        run: npm run db:reset:test
+      - name: Reassert rebuilt database is empty
+        working-directory: LayerManage/law-firm-system
+        run: npm run db:assert-empty
+      - name: Reject generated drift
+        run: git diff --exit-code
+
+  dependency-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+          cache-dependency-path: |
+            LayerManage/law-firm-system/package-lock.json
+            LayerManage/law-firm-system/apps/server/package-lock.json
+            LayerManage/law-firm-system/apps/web/package-lock.json
+      - name: Install root dependencies
+        working-directory: LayerManage/law-firm-system
+        run: npm ci
+      - name: Install server dependencies
+        working-directory: LayerManage/law-firm-system/apps/server
+        run: npm ci
+      - name: Install web dependencies
+        working-directory: LayerManage/law-firm-system/apps/web
+        run: npm ci
+      - name: Validate dependency policy
+        working-directory: LayerManage/law-firm-system
+        run: npm run security:policy:validate
+      - name: Enforce production dependency gate
+        working-directory: LayerManage/law-firm-system
+        run: npm run security:audit:prod
+      - name: Enforce complete dependency gate
+        if: always()
+        working-directory: LayerManage/law-firm-system
+        run: npm run security:audit:all
+      - name: Generate CycloneDX SBOMs
+        if: always()
+        working-directory: LayerManage/law-firm-system
+        run: npm run security:sbom
+      - name: Upload dependency security evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-security-${{ github.sha }}
+          path: LayerManage/law-firm-system/var/security
+          retention-days: 14
+          if-no-files-found: error
+
+  windows-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+          cache-dependency-path: LayerManage/law-firm-system/apps/server/package-lock.json
+      - name: Install server test dependencies
+        working-directory: LayerManage/law-firm-system/apps/server
+        run: npm ci
+      - name: Exercise Windows ZIP builder
+        working-directory: LayerManage/law-firm-system/apps/server
+        run: npx tsx --test --test-force-exit test/build/distribution-inputs.test.ts

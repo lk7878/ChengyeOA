@@ -1,0 +1,96 @@
+> 历史快照：2026-11-06 对齐前的文档，仅用于需求编号及设计演进追溯，不定义当前实现。当前基线见 [Spec 总纲](../../../README.md)。原文来自 Git dcf8447d；本快照调整相对链接并规范化行尾空白。
+
+---
+id: FTN-002
+title: 状态机与业务字典
+source: PRD §10
+status: draft
+implements:
+design_refs: [docs/专项设计/状态机与业务字典设计.md]
+last_updated: 2026-07-28
+---
+
+# FTN-002 状态机与业务字典
+
+## 1. 契约概述
+
+源 PRD §10 状态机要求。本契约定义承业 OA 系统中所有具有状态流转的业务对象的状态定义、状态机规则及业务字典编码约束，作为各业务模块「状态机」段的统一引用源。状态机不独立成业务 SPEC，散落在各业务 SPEC 内落地，本契约仅提供横切的契约定义与规则边界。
+
+## 2. 契约定义
+
+源 PRD §10 状态机要求。
+
+| 对象 | 状态 |
+|---|---|
+| Lead | 新线索、已分配、已联系、已初筛、已邀约、已到访、已首签、未成交、二次营销、已转客户 |
+| Appointment | 待确认、已确认、已到访、爽约、取消、改期 |
+| Negotiation | 待谈案、谈案中、待首签、已首签、未签、待复盘 |
+| Contract | 草稿、审批中、待签署、已签署、生效中、已终止、已作废 |
+| PaymentPlan | 待收、部分收款、已收清、逾期、已取消 |
+| Payment | 待确认、已确认、已冲销、已退款 |
+| AnalysisEngagement | 待材料、材料收集中、待分析、分析中、待目标对齐、已完成、已终止 |
+| MatterAnalysisReport | 草稿、待审核、需修改、已通过、已归档 |
+| Matter | 待建档、在办、暂停、结案、归档 |
+| MatterTask | 待办、处理中、待审核、已完成、已取消、逾期 |
+| AudioRecording | 已登记、上传中、已上传、转写中、转写完成、提取完成、人工确认、失败 |
+| SatisfactionSurvey | 待发送、已发送、已回收、低满意度分析中、已关闭 |
+| EventDelivery | 待投递、投递中、已成功、待重试、已失败、人工处理 |
+| ApprovalInstance | 草稿、审批中、已通过、已拒绝、已撤回、已取消 |
+| ApprovalTask | 待处理、已同意、已拒绝、已转交、已超时、已取消 |
+| Notification | 待发送、已发送、发送失败、已读、已处理 |
+| CallbackAction | 待响应、已响应、响应失败、已转异步处理 |
+| ConfigVersion | 草稿、待审核、已发布、已停用、已归档、已回滚 |
+| AdminOperationReview | 待审核、已通过、已拒绝、待复核、已复核、已撤销 |
+| DataInterventionRequest | 草稿、待审核、已通过、执行中、已完成、执行失败、已回滚 |
+
+## 3. 规则与边界
+
+源 PRD §10 状态机规则：
+
+1. 状态流转必须通过服务方法完成，记录操作人、时间、前状态、后状态和原因。
+2. 禁止前端直接提交任意目标状态。
+3. 作废、终止、退款、客户合并、合同删除等高风险动作必须走审批或二次确认。
+4. 所有枚举字典必须有编码、名称、排序、启用状态和适用范围。
+5. 配置、管理员审核和数据干预必须使用独立状态机，禁止通过通用编辑接口绕过审核直接生效。
+
+## 4. 被引用模块
+
+以下业务模块的「状态机」段引用本契约（凡涉及状态流转的对象均依赖本契约的状态定义与规则）：
+
+- MOD-004 线索销转（Lead / Appointment / Negotiation 状态流转）
+- MOD-006 合同财务（Contract / PaymentPlan / Payment 状态流转）
+- MOD-008 案件交付与质控（Matter / MatterTask / MatterAnalysisReport / AnalysisEngagement 状态流转）
+- MOD-002 系统配置中心（ConfigVersion / AdminOperationReview / DataInterventionRequest 独立状态机）
+- MOD-013 自动化、通知、审批与审计（EventDelivery / ApprovalInstance / ApprovalTask / Notification / CallbackAction 状态流转）
+- MOD-009 满意度、复购与转介绍（SatisfactionSurvey 状态流转）
+- MOD-010 AI、录音与文件（AudioRecording 状态流转）
+
+## 5. 验收要求
+
+源 PRD §14 中与本契约相关的状态机验收条目：
+
+1. §14.1 通用验收要求-状态机验收：允许流转、禁止流转、撤销/作废、异常提示。
+2. §14.1 通用验收要求-页面验收：列表、筛选、详情、新增、编辑、状态流转、空状态、错误状态。
+3. §14.1 通用验收要求-接口验收：参数校验、权限校验、数据范围、分页、错误码、审计记录。
+4. §3.3.6 闭环验收：所有关键状态变化均可从业务对象、事件日志、审批任务和审计日志还原完整过程。
+5. §14.2 端到端验收链路：上述链路的关键状态变化均能在 EventLog 中查询到事件，在 EventDelivery 中查询到投递结果。
+6. §14.2 端到端验收链路：重复提交合同生效、重复确认收款、重复处理审批任务时，系统应通过幂等机制避免重复生成应收、案件、通知或统计。
+7. §14.2 端到端验收链路：系统管理员发起合同/收款/案件状态干预后，系统在超级管理员审核通过前不得修改业务数据；通过后保留前后快照和完整审计链路。
+
+## 6. 追溯
+- 专项设计: docs/专项设计/状态机与业务字典设计.md
+- 落地 SPEC: 待立项（状态机散落在各业务 SPEC 内落地，无独立状态机 SPEC）
+- 主要代码: 无（状态机编码散落在各业务模块应用服务与领域服务内）
+- 测试: 无
+
+
+### SOP/质检规划记录（2026-09-16，实施现状见下）
+
+模板、实例、节点、提交审核、问题单与专项分析各独立状态；逾期为计算标记，资料默认不强制，自审/旧回调/取消后推进被拒绝。质检不自动改变Case生命周期。编码与动作约束见增量规格§7，尚未实施。 [SPEC-SOP-QC-20260916](../../../../superpowers/specs/2026-09-16-sop-quality-control.md)。
+
+
+### SOP/质检实施现状（2026-09-17）
+
+SQ1–SQ6状态与受控动作已实现。物理CaseTask初始状态为PENDING（规格逻辑NOT_STARTED），审批退回为CHANGES_REQUESTED；实例ACTIVE/PAUSED/COMPLETED/CANCELLED，终态与原结案分离。提交版本不可覆盖，原审批同步失败不虚假完成；问题OPEN/IN_PROGRESS/PENDING_VERIFY/CLOSED/CANCELLED，专项OPEN/ANALYZING/PENDING_CLOSE/CLOSED。前期接续只保存关系，不移动来源、不代填状态。
+
+实现与验证见[SQ阶段计划](../../../../superpowers/plans/2026-09-16-sop-quality-control.md)及[验收追溯](../../../../superpowers/reports/2026-09-17-sop-quality-acceptance.md)。SQ7最终运行结果以验收记录为准。

@@ -1,0 +1,1 @@
+ALTER TABLE "user" ADD COLUMN "appearance" JSONB NOT NULL DEFAULT '{}';

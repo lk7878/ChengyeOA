@@ -1,0 +1,352 @@
+.collab-workspace,
+.collab-workspace * {
+  box-sizing: border-box;
+}
+.collab-workspace {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+}
+.workspace-status {
+  margin-top: auto;
+  flex-shrink: 0;
+}
+.collab-workspace {
+  height: 100vh;
+  background: #fff;
+  color: #263044;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 14px;
+}
+.workspace-top {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid #e7eaf0;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.workspace-home {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  color: inherit;
+}
+.workspace-divider,
+.workspace-muted {
+  color: #7a8495;
+}
+.workspace-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.workspace-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: #f8f9fb;
+  border-right: 1px solid #e7eaf0;
+}
+.workspace-directory {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 14px 10px;
+  gap: 12px;
+}
+.workspace-table-list {
+  flex: 1;
+  overflow: auto;
+}
+.workspace-table-item {
+  display: flex;
+  align-items: center;
+  margin: 4px 0;
+  border-radius: 6px;
+}
+.workspace-table-item.selected {
+  background: #edf3ff;
+  color: #245cdd;
+}
+.workspace-table-item > button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 12px 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.workspace-table-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  font-weight: 600;
+}
+.workspace-views {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #e7eaf0;
+  padding: 0 14px;
+}
+.workspace-views .ant-tabs {
+  flex: 1;
+  min-width: 0;
+}
+.workspace-views .ant-tabs-nav {
+  margin: 0;
+}
+.workspace-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e7eaf0;
+}
+.workspace-grid {
+  overflow: auto;
+  min-height: 200px;
+  flex: 1;
+}
+.workspace-main > .ant-spin-nested-loading {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.workspace-cell {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 4px 8px;
+  color: inherit;
+  cursor: cell;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-cell:focus-visible,
+.workspace-table-item button:focus-visible {
+  outline: 2px solid #245cdd;
+  outline-offset: -2px;
+}
+.workspace-field-heading {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.workspace-grid .ant-table-cell {
+  padding: 0 !important;
+  border-right: 1px solid #e7eaf0;
+}
+.workspace-grid .ant-table-thead .ant-table-cell {
+  padding: 10px 8px !important;
+  background: #f8f9fb;
+}
+.workspace-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 18px;
+  border-top: 1px solid #e7eaf0;
+  color: #667085;
+}
+.workspace-empty {
+  margin: auto;
+  padding: 48px 16px;
+}
+.workspace-home-content {
+  padding: 30px;
+  overflow: auto;
+}
+.workspace-home-content section {
+  padding: 20px 0;
+  border-bottom: 1px solid #e7eaf0;
+}
+.workspace-home-content h1 {
+  font-size: 24px;
+}
+.workspace-home-content h2 {
+  font-size: 18px;
+}
+.workspace-filter-group {
+  border-left: 2px solid #e1e6ee;
+  padding: 12px;
+  margin: 12px 0;
+}
+.workspace-filter-line {
+  margin: 10px 0;
+}
+.workspace-field-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf0f5;
+}
+.workspace-field-row small {
+  display: block;
+  color: #778195;
+}
+.workspace-history {
+  border-top: 1px solid #e7eaf0;
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+}
+.workspace-history small {
+  color: #667085;
+}
+.workspace-conflict {
+  background: #fffaeb;
+  border: 1px solid #f6da8a;
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 12px;
+}
+.workspace-board {
+  display: flex;
+  gap: 16px;
+  padding: 20px;
+  align-items: flex-start;
+}
+.workspace-board section {
+  width: 270px;
+  flex-shrink: 0;
+  background: #f5f7fa;
+  padding: 12px;
+  border-radius: 8px;
+}
+.workspace-board h3 {
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+.workspace-board section > button {
+  background: white;
+  border: 1px solid #e4e8ef;
+  border-radius: 6px;
+  padding: 14px;
+  display: block;
+  text-align: left;
+  width: 100%;
+  margin: 8px 0;
+  cursor: pointer;
+}
+.workspace-board button span {
+  display: block;
+  color: #667085;
+  margin-top: 8px;
+}
+.workspace-mobile-nav {
+  display: none;
+}
+@media (max-width: 1023px) {
+  .workspace-sidebar {
+    display: none;
+  }
+  .workspace-mobile-nav {
+    display: inline-flex;
+  }
+  .workspace-top {
+    padding: 10px;
+  }
+  .workspace-toolbar {
+    gap: 5px;
+  }
+  .workspace-toolbar .ant-btn {
+    padding: 4px 8px;
+  }
+  .workspace-status {
+    font-size: 12px;
+  }
+  .workspace-heading {
+    padding: 10px;
+  }
+  .workspace-home-content {
+    padding: 16px;
+  }
+}
+@media (max-width: 480px) {
+  .workspace-top > .ant-space:last-child {
+    width: 100%;
+    overflow: auto;
+  }
+  .workspace-views {
+    padding: 0 8px;
+  }
+  .workspace-top .ant-btn {
+    font-size: 12px;
+  }
+}
+
+.workspace-cell-editor {
+  padding: 4px;
+  min-width: 150px;
+}
+.workspace-cell-editor > .ant-space {
+  margin-top: 4px;
+}
+
+.workspace-group {
+  border: 0;
+  background: transparent;
+  color: #344054;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  padding: 10px 8px;
+  white-space: normal;
+}
+.workspace-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 16px;
+}
+.workspace-column-order {
+  margin-bottom: 20px;
+}
+.workspace-cell:focus-visible {
+  outline: 2px solid #3370ff;
+  outline-offset: -2px;
+}
+
+.workspace-table-drag {
+  flex: 0 0 22px;
+  border: 0;
+  background: transparent;
+  color: #667085;
+  cursor: grab;
+  padding: 8px 2px;
+}
+.workspace-table-drag:disabled {
+  cursor: default;
+  opacity: 0.4;
+}

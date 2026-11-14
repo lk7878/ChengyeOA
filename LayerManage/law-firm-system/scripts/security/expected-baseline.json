@@ -1,0 +1,30 @@
+{
+  "server": {
+    "production": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 0,
+      "low": 0
+    },
+    "development": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 0,
+      "low": 0
+    }
+  },
+  "web": {
+    "production": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 0,
+      "low": 0
+    },
+    "development": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 0,
+      "low": 0
+    }
+  }
+}

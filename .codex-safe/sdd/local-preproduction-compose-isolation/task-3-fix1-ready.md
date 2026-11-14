@@ -1,0 +1,25 @@
+# Isolated Initializer Launch Readiness
+
+- status: ISOLATED_INITIALIZER_READY
+- SPEC_COMPLIANCE: PASS
+- TASK_QUALITY: PASS
+- Critical: 0
+- Important: 0
+- Minor: 0
+- LAUNCH_READINESS: READY
+- historicalSingleFailureHandling: SUFFICIENT
+- freshFocusedTotal: 12
+- freshFocusedPassed: 12
+- rootFreshFullTotal: 110
+- rootFreshFullPassed: 110
+- rootFreshFullFailed: 0
+- offlineLoaderStatus: READY
+- fixedToolchainReady: 1
+- productionMode: 1
+- workerDisabled: 1
+- defaultVolumeUserTablesPreserved: 87
+- LIVE_ISOLATED_RESOURCES_CREATED: 0
+- LIVE_DOCKER_OPERATIONS: 0
+- LIVE_DATABASE_OPERATIONS: 0
+- LIVE_INITIALIZER_RUNS: 0
+- OPERATOR_SECRET_INPUT_REQUESTED: 0

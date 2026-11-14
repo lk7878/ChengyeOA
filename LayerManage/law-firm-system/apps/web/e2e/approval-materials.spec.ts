@@ -1,0 +1,50 @@
+import { test, expect } from '@playwright/test';
+import ExcelJS from 'exceljs';
+import { Document, Paragraph, Packer, Table, TableRow, TableCell } from 'docx';
+import mammoth from 'mammoth';
+
+test.use({ channel: 'msedge', viewport: { width: 1440, height: 1000 } });
+const pageUrl = 'http://localhost:3000/e2e/approval-materials.html';
+test.afterEach(async ({ page }, info) => { if (info.status !== info.expectedStatus) console.log('Editor failure:', await page.locator('body').innerText()); });
+
+test('browser XLSX preview, search, edit, insert/delete and saved workbook agree', async ({ page }) => {
+  const workbook = new ExcelJS.Workbook(); workbook.addWorksheet('工资').addRows([['姓名', '工资'], ['张三', 8000], ['李四', 7000]]);
+  await page.goto(pageUrl); await page.waitForFunction(() => !!window.mountApprovalEditor);
+  await page.evaluate(base64 => window.mountApprovalEditor('工资.xlsx', base64), Buffer.from(await workbook.xlsx.writeBuffer()).toString('base64'));
+  await expect(page.getByRole('textbox', { name: '工资 B2', exact: true })).toHaveValue('8000', { timeout: 15000 });
+  await page.getByRole('textbox', { name: '工资 B2', exact: true }).fill('8500');
+  await page.getByRole('textbox', { name: '搜索文档内容' }).fill('张三');
+  await expect(page.getByRole('textbox', { name: '工资 A3', exact: true })).toHaveCount(0);
+  await page.getByRole('textbox', { name: '搜索文档内容' }).clear();
+  await page.getByRole('spinbutton', { name: '操作行号' }).fill('3');
+  await page.getByRole('button', { name: '插入行', exact: true }).click();
+  await page.getByRole('textbox', { name: '工资 A3', exact: true }).fill('王五');
+  await page.getByRole('textbox', { name: '工资 B3', exact: true }).fill('9000');
+  await page.getByRole('spinbutton', { name: '操作行号' }).fill('4');
+  await page.getByRole('button', { name: '删除行', exact: true }).click();
+  await page.getByRole('button', { name: '保存修改版为附件' }).click();
+  await page.waitForFunction(() => !!window.savedApprovalFile);
+  const saved = await page.evaluate(() => window.savedApprovalFile!);
+  const result = new ExcelJS.Workbook(); await result.xlsx.load(Buffer.from(saved.base64, 'base64'));
+  expect(result.worksheets[0].getCell('B2').value).toBe(8500); expect(result.worksheets[0].getCell('A3').value).toBe('王五');
+  expect(result.worksheets[0].getCell('A4').value).toBeNull();
+  await page.screenshot({ path: test.info().outputPath('xlsx-editor.png'), fullPage: true });
+});
+test('browser DOCX preview and basic text/table editing export a readable Word file', async ({ page }) => {
+  const file = await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('请假申请'), new Table({ rows: [new TableRow({ children: [new TableCell({ children: [new Paragraph('张三')] }), new TableCell({ children: [new Paragraph('2天')] })] })] })] }] }));
+  await page.goto(pageUrl); await page.waitForFunction(() => !!window.mountApprovalEditor);
+  await page.evaluate(base64 => window.mountApprovalEditor('请假.docx', base64), file.toString('base64'));
+  await expect(page.getByText('请假申请', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '编辑正文与表格' }).click();
+  await page.getByRole('textbox', { name: '段落 1', exact: true }).fill('年假申请');
+  await page.getByRole('textbox', { name: '表格 2 行 1 列 2', exact: true }).fill('3天');
+  await page.getByRole('button', { name: '添加表格行', exact: true }).click();
+  await page.getByRole('textbox', { name: '表格 2 行 2 列 1', exact: true }).fill('备注');
+  await page.getByRole('textbox', { name: '表格 2 行 2 列 2', exact: true }).fill('交接已完成');
+  await page.getByRole('button', { name: '保存修改版为附件' }).click();
+  await page.waitForFunction(() => !!window.savedApprovalFile);
+  const saved = await page.evaluate(() => window.savedApprovalFile!);
+  const result = await mammoth.extractRawText({ buffer: Buffer.from(saved.base64, 'base64') });
+  expect(result.value).toContain('年假申请'); expect(result.value).toContain('3天'); expect(result.value).toContain('交接已完成');
+  await page.screenshot({ path: test.info().outputPath('docx-editor.png'), fullPage: true });
+});

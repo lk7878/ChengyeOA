@@ -1,0 +1,44 @@
+/LawLink/
+/LexNebulis/
+/.worktrees/
+
+**/node_modules/
+**/dist/
+**/coverage/
+**/.cache/
+**/.tmp/
+**/.hermes/
+**/run/
+**/logs/
+**/*.log
+
+**/.env
+**/.env.*
+!**/.env.example
+
+**/*.db
+**/*.db-journal
+**/*.sqlite
+**/*.sqlite3
+**/var/migration/
+**/var/backup/
+**/backups/
+
+/LayerManage/law-firm-system/apps/server/public/
+/LayerManage/law-firm-system/var/security/
+**/*.exe
+**/*.zip
+**/*.7z
+**/*.msi
+
+# Local Git metadata backups and private uploaded material
+/.git-migration-owner-backup-*/
+/LayerManage/law-firm-system/apps/server/var/storage/
+
+# Machine-specific Harness connector settings
+/LayerManage/law-firm-system/integrations/harness/config.local.json
+
+# Generated standalone intelligence browser assets
+/LayerManage/law-firm-system/apps/web/public/intelligence/
+/LayerManage/law-firm-system/var/intelligence*/
+/LayerManage/law-firm-system/var/collaboration-evidence/

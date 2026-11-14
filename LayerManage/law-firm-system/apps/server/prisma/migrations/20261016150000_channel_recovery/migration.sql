@@ -1,0 +1,1 @@
+ALTER TABLE channel ADD COLUMN "deletedAt" TIMESTAMP(3);

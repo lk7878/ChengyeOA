@@ -1,0 +1,34 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "vite": {
+      "name": "vite",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        {
+          "source": 1123527,
+          "name": "vite",
+          "dependency": "vite",
+          "url": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
+          "severity": "high",
+          "range": "<8.1.4"
+        }
+      ],
+      "effects": [],
+      "range": "<8.1.4",
+      "nodes": ["node_modules/vite"],
+      "fixAvailable": true
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 1,
+      "critical": 0,
+      "total": 1
+    }
+  }
+}

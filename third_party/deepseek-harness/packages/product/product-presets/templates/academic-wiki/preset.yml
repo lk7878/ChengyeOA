@@ -1,0 +1,3 @@
+name: __PRESET_NAME__
+description: 标准 Agent 工具与 Wiki 学术检索；按知识库配置进行混合检索、编译知识导航和原文补查，由会话模型综合回答。
+order: 2

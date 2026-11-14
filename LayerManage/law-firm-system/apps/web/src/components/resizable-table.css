@@ -1,0 +1,8 @@
+.resizable-table .ant-table-container table { min-width: 0 !important; }
+.resizable-table .ant-table-cell { overflow-wrap: anywhere; }
+.resizable-column-title { display: block; padding-right: 10px; }
+.column-resize-handle { position: absolute; top: 0; right: -4px; bottom: 0; width: 10px; cursor: col-resize; touch-action: none; user-select: none; z-index: 4; }
+.column-resize-handle::after { content: ''; position: absolute; width: 2px; right: 4px; top: 18%; bottom: 18%; background: #b8c3d2; }
+.column-resize-handle:hover::after, .column-resize-handle:focus-visible::after { background: #1677ff; width: 3px; }
+.column-resize-handle:focus-visible { outline: 2px solid #1677ff; outline-offset: -2px; }
+.table-resizing { user-select: none; cursor: col-resize; }

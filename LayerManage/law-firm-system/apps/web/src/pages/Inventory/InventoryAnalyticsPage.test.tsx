@@ -1,0 +1,34 @@
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { MemoryRouter } from 'react-router';
+import InventoryAnalyticsPage from './InventoryAnalyticsPage';
+import { inventoryApi } from '@/api/inventory';
+import { downloadBlob } from '@/api/approval-materials';
+import { useAuthStore } from '@/stores/authStore';
+vi.mock('@/api/inventory',()=>({inventoryApi:{list:vi.fn(),export:vi.fn(),dashboard:vi.fn()}}));
+vi.mock('@/api/approval-materials',()=>({downloadBlob:vi.fn()}));
+beforeEach(()=>{
+  useAuthStore.setState({hasPermission:()=>true});
+  vi.mocked(inventoryApi.list).mockResolvedValue({code:200,message:'success',data:{total:1,list:[{id:'g',itemName:'档案袋',quantity:'10',count:1,unit:'—'}]}});
+  vi.mocked(inventoryApi.export).mockResolvedValue({code:200,message:'success',data:{fileName:'统计.csv',csv:'物品,数量\n档案袋,10'}});
+});
+afterEach(()=>{cleanup();vi.resetAllMocks();});
+test.each([['customized-statistics','CUSTOMIZED'],['office-statistics','OFFICE']])('statistics page %s queries worksheets, reapplies filters, resets and exports the same scope',async(section,kind)=>{
+  render(<MemoryRouter initialEntries={['/inventory/'+section]}><InventoryAnalyticsPage/></MemoryRouter>);
+  await screen.findByText('档案袋');
+  expect(inventoryApi.list).toHaveBeenLastCalledWith(expect.objectContaining({view:'worksheet-statistics',kind}));
+  expect(screen.queryByRole('link',{name:'档案袋'})).toBeNull();
+  fireEvent.change(screen.getByLabelText('物品查询'),{target:{value:'张三'}});
+  fireEvent.change(screen.getByLabelText('开始日期'),{target:{value:'2026-11-05'}});
+  fireEvent.click(screen.getByRole('button',{name:/查\s*询/}));
+  await waitFor(()=>expect(inventoryApi.list).toHaveBeenLastCalledWith(expect.objectContaining({keyword:'张三',from:'2026-11-05'})));
+  const count=vi.mocked(inventoryApi.list).mock.calls.length;
+  fireEvent.click(screen.getByRole('button',{name:/查\s*询/}));
+  await waitFor(()=>expect(vi.mocked(inventoryApi.list).mock.calls.length).toBeGreaterThan(count));
+  fireEvent.click(screen.getByRole('button',{name:'导出当前筛选'}));
+  await waitFor(()=>expect(downloadBlob).toHaveBeenCalled());
+  expect(inventoryApi.export).toHaveBeenLastCalledWith(expect.objectContaining({view:'worksheet-statistics',kind,keyword:'张三',from:'2026-11-05'}));
+  fireEvent.click(screen.getByRole('button',{name:/重\s*置/}));
+  await waitFor(()=>expect(inventoryApi.list).toHaveBeenLastCalledWith(expect.not.objectContaining({keyword:'张三'})));
+  expect(screen.getByLabelText('物品查询')).toHaveValue('');
+});

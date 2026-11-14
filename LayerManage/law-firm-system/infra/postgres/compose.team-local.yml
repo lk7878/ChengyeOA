@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?required}
+      POSTGRES_USER: ${POSTGRES_USER:?required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_TEST_DB: ${POSTGRES_TEST_DB:?required}
+      POSTGRES_TEST_USER: ${POSTGRES_TEST_USER:?required}
+      POSTGRES_TEST_PASSWORD: ${POSTGRES_TEST_PASSWORD:?required}
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - team_postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+volumes:
+  team_postgres_data:

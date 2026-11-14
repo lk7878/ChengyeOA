@@ -1,0 +1,63 @@
+# Event Center production rollout status
+
+- phase: env_gate_v2
+- status: BLOCKED
+- presentCount: 0
+- requiredCount: 6
+- nodeEnvProduction: false
+- workerDisabled: false
+- alertCodes: ENV_REQUIRED_MISSING, ENV_NOT_PRODUCTION, WORKER_NOT_DISABLED
+- utcStart: 2026-07-25T10:18:31.2921999Z
+- utcEnd: 2026-07-25T10:18:31.3082019Z
+- elapsedSeconds: 0.012
+
+- phase: toolchain_gate
+- status: READY
+- nodeVersionOk: true
+- npmVersionOk: true
+- alertCodes: NONE
+- utcStart: 2026-07-25T10:16:12.4067495Z
+- utcEnd: 2026-07-25T10:16:18.1392879Z
+- elapsedSeconds: 5.727
+
+- phase: production_actions
+- status: NOT_STARTED
+- connected: false
+- preflightCount: 0
+- drainCount: 0
+- canaryCount: 0
+- remoteMutationCount: 0
+- alertCodes: PREREQUISITE_GATE_BLOCKED
+
+- phase: task_4_final_verification
+- status: BLOCKED
+- testFileCount: 16
+- testPassCount: 245
+- testFailCount: 0
+- astErrorCount: 0
+- criticalFindingCount: 0
+- importantFindingCount: 0
+- minorFindingCount: 1
+- productionConnectionCount: 0
+- projectCommandCount: 0
+- remoteMutationCount: 0
+- utcStart: 2026-07-26T05:09:46.3789718Z
+- utcEnd: 2026-07-26T05:09:46.3789718Z
+- elapsedSeconds: 0
+- alertCodes: TOOLCHAIN_VERSION_MISMATCH
+
+- phase: operator_process_prelaunch_gate
+- status: BLOCKED
+- presentCount: 0
+- requiredCount: 6
+- nodeEnvProduction: 0
+- workerDisabled: 0
+- nodeVersionOk: 0
+- npmVersionOk: 0
+- productionConnectionCount: 0
+- projectCommandCount: 0
+- remoteMutationCount: 0
+- utcStart: 2026-07-26T08:15:43.0919703Z
+- utcEnd: 2026-07-26T08:15:43.5124220Z
+- elapsedSeconds: 0
+- alertCodes: ENV_REQUIRED_MISSING,NODE_ENV_NOT_PRODUCTION,EVENT_WORKER_NOT_DISABLED,TOOLCHAIN_VERSION_MISMATCH

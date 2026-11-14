@@ -1,0 +1,33 @@
+.event-operations-page { width: 100%; min-width: 0; }
+.event-operations-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.event-operations-heading h1 { margin: 0; font-size: 24px; line-height: 1.35; }
+.event-operations-heading p { margin: 6px 0 0; color: rgba(0, 0, 0, .55); }
+.event-observability { margin-bottom: 16px; }
+.event-observability-status-copy { margin: 0 0 6px; }
+.event-observability-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.event-observability-alerts { margin: 10px 0 0; padding-left: 22px; }
+.event-observability-alerts li + li { margin-top: 6px; }
+.event-observability-grid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
+.event-observability-grid > [role="listitem"] { min-width: 0; }
+.event-observability-grid .ant-statistic-content { overflow-wrap: anywhere; }
+.event-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.event-summary-grid .event-summary-wide { grid-column: span 2; }
+.event-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.event-filters select { min-width: 140px; height: 32px; padding: 0 10px; border: 1px solid #d9d9d9; border-radius: 6px; background: #fff; }
+.event-filters .ant-input { width: 220px; }
+.event-detail-section { margin-top: 18px; }
+.event-attempt-list { margin: 0; padding-left: 22px; }
+.event-attempt-list li { margin-bottom: 12px; }
+.event-safe-error { overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .event-observability-grid { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+  .event-summary-grid { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+  .event-operations-page .ant-table-wrapper { max-width: 100%; overflow: hidden; }
+  .event-filters .ant-input, .event-filters select { flex: 1 1 180px; width: auto; }
+}
+@media (max-width: 600px) {
+  .event-observability-grid { grid-template-columns: 1fr; }
+  .event-summary-grid { grid-template-columns: 1fr; }
+  .event-summary-grid .event-summary-wide { grid-column: span 1; }
+  .event-operations-heading { flex-direction: column; }
+}

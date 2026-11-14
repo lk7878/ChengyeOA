@@ -1,0 +1,352 @@
+﻿律师智慧管理系统｜团队源码安装部署手册
+源码 f2491689 · 2026-11-07
+
+01｜适用范围与阅读顺序
+====================================
+适用源码：ChengyeOA-source-20261107-f2491689.zip，提交f2491689。手册版本：2026-11-07。
+面向拿到源码的团队开发人员和部署人员。首次在Windows电脑上启动，请顺序完成第02～09节；正式服务器部署另读第10～13节。
+本次交付的是源码，不是免安装软件。需联网下载依赖，配置PostgreSQL，创建自己的超级管理员。源码包不带当前开发机账号、数据库、会话、附件、知识库资料或模型密钥。
+重要区别：源码内包含标准字段和相关实现，但数据库里人工建立的角色、授权、工作表、审批流程及字段配置不等于源码。需要完整复制现有使用效果时，应另外做经授权的数据迁移；不要以测试seed代替现有库迁移。
+当前智慧办案采用服务器工作区、管理员统一配置模型。旧README、旧桌面规格中的“个人本机材料”“个人模型配置”不是现行部署依据。
+本手册以代码核对及配套脚本隔离验证为依据；没有在全新Windows电脑、Linux生产服务器上重新完成整套安装验收，不代表所有目标环境均已通过。
+
+02｜准备电脑和工具
+====================================
+推荐开发电脑：Windows 11 x64，16GB内存起步，32GB更适合完整Harness构建；为源码、依赖、容器及构建预留30GB以上空间。首次安装下载量和时间取决于网络。
+安装Node.js 22.20或以上的22.x版本。不要直接按旧.nvmrc安装22.14，也不要自动换成24/26等其他主版本。OA要求22.x，智能模块对最低次版本另有要求。
+安装Git for Windows；ZIP本身不含Git历史，但开发工具链可能调用Git。安装Docker Desktop，启动后使用Linux containers；按Docker官方文档完成WSL2前置条件。如组织已有PostgreSQL 16，可跳过Docker并按第05节替代路线建库。
+在新的PowerShell窗口运行：
+```powershell
+node --version
+npm.cmd --version
+git --version
+docker version
+docker compose version
+npm.cmd install --global pnpm@11.7.0
+pnpm.cmd --version
+```
+通过标准：Node为v22.x且次版本≥20；pnpm为11.7.0；Docker同时能显示Client与Server，compose可执行。安装后命令仍找不到时，关闭并重开终端。
+PowerShell下优先用npm.cmd/pnpm.cmd，避免npm.ps1执行策略阻止。不要为此全局关闭安全策略。安装源使用官方渠道；不要关闭TLS证书校验来处理下载失败。
+Docker Desktop官方安装说明：https://docs.docker.com/desktop/setup/install/windows-install/
+Node下载及版本：https://nodejs.org/en/download
+pnpm安装说明：https://pnpm.io/installation
+
+03｜解压、校验和目录定位
+====================================
+建议解压到D:/ChengyeOA，避免过长路径和同步盘。最终应看到D:/ChengyeOA/LayerManage，不要误进入重复嵌套的ChengyeOA/ChengyeOA目录。
+使用本轮“with-guide”压缩包时，说明和team-deployment脚本已经在包内。若仍使用旧源码包，把配套team-deployment目录复制到源码根目录，与LayerManage同级。
+压缩包旁.sha256文件提供整个包的SHA-256。先计算并与文件内容比较：
+```powershell
+Get-FileHash -Algorithm SHA256 'C:/收到文件/ChengyeOA-source-20261107-f2491689-with-guide.zip'
+```
+目录职责：
+• LayerManage/law-firm-system：OA主项目。
+• integrations/intelligence：智慧办案、知识库适配及构建脚本。
+• third_party/deepseek-harness：上游源码及独立pnpm依赖，不可漏传。
+• docs/spec：当前规格及历史差异。
+• team-deployment：本手册配套的全新本地配置生成脚本。
+以下定义$oaRoot只是当前终端变量；新开终端需要重新定义：
+```powershell
+$oaRoot = 'D:/ChengyeOA/LayerManage/law-firm-system'
+Set-Location $oaRoot
+Test-Path ./package.json
+Test-Path ../../integrations/intelligence/package.json
+Test-Path ../../third_party/deepseek-harness/package.json
+```
+三个检查都应为True。不要只把apps/server和apps/web复制出去，智能适配器会按完整仓库相对位置寻找模块。
+
+04｜为全新本地环境生成配置
+====================================
+仅适用：新解压目录、没有现存.env、没有需要复用的旧数据库。已有配置、旧数据库迁移、生产环境请跳过本节，由负责人配置。
+从源码根目录执行：
+```powershell
+Set-Location 'D:/ChengyeOA'
+node ./team-deployment/init-local.cjs
+if ($LASTEXITCODE -ne 0) { throw '配置生成失败，请先解决报错' }
+```
+脚本只创建3个文件，不启动服务、不操作数据库、不打印密钥：
+• apps/server/.env：本地连接、随机JWT/APP密钥、32字节Base64 MFA密钥。
+• infra/postgres/.env：与后端一致的随机数据库密码。
+• infra/postgres/compose.team-local.yml：只向127.0.0.1开放55432的本地PostgreSQL。
+上述路径均在LayerManage/law-firm-system下。脚本拒绝覆盖其中任意已有文件；若中途写文件失败，先检查已生成文件，不要直接删除密钥再重跑。
+脚本将LOCAL_PASSWORD_LOGIN设为false，保留正式管理员改密/MFA流程；不自动生成超级管理员登录密码。当前数据库与密钥应成套保管，不能随意重生成MFA密钥。
+不要把生成的.env、数据库密码、模型Key加入Git或再次分享给其他人。每位成员使用自己生成的配置。
+如果曾用相同Compose项目创建过数据库卷，新.env不会自动更改卷中的数据库密码。请复用原有配置或创建经确认的独立环境，不要为解决密码错误删除已有数据库卷。
+
+05｜启动PostgreSQL数据库
+====================================
+本节主路线使用第04节生成的Compose配置。每次使用相同-p、--env-file和-f参数；不要与仓库原db:up混用，否则会启动另一组配置。
+```powershell
+Set-Location 'D:/ChengyeOA/LayerManage/law-firm-system'
+docker compose -p chengye-team-local --env-file infra/postgres/.env -f infra/postgres/compose.team-local.yml up -d postgres
+if ($LASTEXITCODE -ne 0) { throw '数据库容器启动失败' }
+docker compose -p chengye-team-local --env-file infra/postgres/.env -f infra/postgres/compose.team-local.yml ps
+docker compose -p chengye-team-local --env-file infra/postgres/.env -f infra/postgres/compose.team-local.yml exec -T postgres pg_isready -U chengye_app -d chengye_oa
+```
+预期：容器状态healthy，pg_isready显示accepting connections。第一次初始化还会创建独立chengye_oa_test测试库；不得把测试库连接指向业务库。
+失败时查看最近日志：
+```powershell
+docker compose -p chengye-team-local --env-file infra/postgres/.env -f infra/postgres/compose.team-local.yml logs --tail 100 postgres
+```
+替代路线——已有PostgreSQL 16：由数据库管理员创建chengye_oa及独立chengye_oa_test、各自登录账号和随机密码，再从apps/server/.env.example复制为.env并补全所有必填项。使用实际主机/端口，例如5432，而不是照搬55432。密码含特殊字符时在连接URL中正确百分号编码。不要用运行账号连接其他团队正式数据库。
+同一台机器上多套开发环境需采用不同Compose项目名、宿主端口、数据卷和对应DATABASE_URL，避免相互影响。
+
+06｜安装依赖和构建智慧办案
+====================================
+在OA主目录执行。遇到失败先停止，不跳到下一步；成功安装通常不会显示一个“系统已安装”页面。
+```powershell
+Set-Location 'D:/ChengyeOA/LayerManage/law-firm-system'
+npm.cmd run setup
+if ($LASTEXITCODE -ne 0) { throw 'OA依赖安装失败' }
+$env:DSH_CLIENT_COMMIT_HASH = (Get-Content ../../third_party/deepseek-harness.source.json -Raw | ConvertFrom-Json).sourceHead
+npm.cmd run setup:intelligence
+if ($LASTEXITCODE -ne 0) { throw '智能模块依赖安装或构建失败' }
+```
+setup安装OA根目录、后端、前端锁定依赖，并生成Prisma Client。
+源码ZIP没有.git目录；Harness构建会读取Git提交元数据，因此必须在构建终端设置上面的DSH_CLIENT_COMMIT_HASH。该值来自包内来源清单，不是秘密，也不需要重新git init伪造历史。以后新开终端执行build、build:web、verify或setup:intelligence前，也要先设置它。
+setup:intelligence安装智能适配层及Harness依赖，校验9267个上游快照文件，再构建Host和浏览器资源。首次较慢；不要中途关闭终端，也不要把Windows node_modules复制到Linux。
+构建后检查：
+```powershell
+Test-Path ./apps/server/node_modules/.prisma/client
+Test-Path ./apps/web/public/intelligence
+```
+应为True。只启动OA而跳过智能模块构建，会导致智慧办案资源缺失或503。
+仓库自带锁文件应保留；安装失败不要先删锁文件或执行npm audit fix --force。若依赖要求编译原生扩展，再依据具体错误安装对应平台编译工具。
+
+07｜迁移表结构与创建首个管理员
+====================================
+仅对本次准备的全新数据库顺序执行：
+```powershell
+Set-Location 'D:/ChengyeOA/LayerManage/law-firm-system'
+npm.cmd run db:deploy
+if ($LASTEXITCODE -ne 0) { throw '迁移失败，停止初始化' }
+npm.cmd run db:assert-empty
+if ($LASTEXITCODE -ne 0) { throw '数据库不是可初始化的空库，停止' }
+npm.cmd run system:bootstrap
+if ($LASTEXITCODE -ne 0) { throw '初始化未完成，请核对提示' }
+```
+db:deploy执行已提交Prisma迁移；不使用migrate dev、db push或reset绕过迁移失败。
+bootstrap必须在可交互终端执行，依次提示：Root organization name（总所名称）、Super-admin username（可填admin）、Temporary password（隐藏输入）、密码确认、确认短语INITIALIZE 数据库名。本地默认数据库名为chengye_oa，应逐字按终端提示输入。
+没有通用默认admin密码，登录密码就是本次设置的临时密码。临时密码不得写入命令参数、脚本、截图或聊天。管理员用户名建议admin，以符合项目现有主管理员使用约定。
+返回码：0成功；2输入/交互不符合要求；3已初始化；4数据不一致；5连接或迁移状态错误。返回3不代表要清库重做，已有系统应直接启动并用已有账号登录。
+若恢复已有数据库：恢复数据及匹配密钥→确认连接目标→检查迁移状态→备份→db:deploy；跳过db:assert-empty及bootstrap。迁移失败保留日志和失败状态，先定位，不反复盲试。
+
+08｜启动OA及首次登录
+====================================
+开发模式需要两个长期打开的PowerShell终端。
+终端A：
+```powershell
+Set-Location 'D:/ChengyeOA/LayerManage/law-firm-system'
+npm.cmd run dev:server
+```
+终端B：
+```powershell
+Set-Location 'D:/ChengyeOA/LayerManage/law-firm-system'
+npm.cmd run dev:web
+```
+第三个终端检查健康：
+```powershell
+Invoke-RestMethod 'http://localhost:7001/api/health'
+```
+应返回code=200，data.status=healthy，data.database=available。它只证明OA和数据库连通，不代表智慧办案、OCR全部可用。
+浏览器访问http://localhost:3000。使用bootstrap账号及临时密码，按界面强制修改密码、绑定TOTP验证器、保存恢复码。电脑与手机时间应自动同步。
+固定使用localhost入口，不要随意换成127.0.0.1或局域网IP，否则可能与CORS/可信来源不一致。Vite若因3000占用改到3001，先处理端口冲突，不要忽略来源配置继续登录。
+开发服务不建议直接暴露给公网或当作正式团队服务器。正式访问使用第11节HTTPS方案。
+全新系统应由管理员检查组织、人员、角色、业务工作表和审批模板。源码没有携带旧库中的人工配置；需要原配置时使用经审核的数据迁移。
+退出开发服务：在A/B终端分别Ctrl+C。第二天启动时先确保Docker及数据库正常，再执行相同两条dev命令；不需要重复安装依赖、迁移或bootstrap。
+
+09｜配置智慧办案、知识库和OCR
+====================================
+管理员登录后打开顶栏智慧办案，在左下角“AI模型配置”填写HTTPS Base URL、模型名称、API Key；点击测试连通性，成功后再点击保存。测试不会自动保存。
+要求OpenAI Chat Completions兼容接口、流式输出及工具调用。Base URL不是完整/chat/completions地址；错误模型名、余额不足、证书问题或代理拦截可能导致失败。管理员保存后普通用户无需单独填Key。
+在角色与权限中授予“智慧办案”，再把角色分配给目标账号；需要查知识库的账号还需“知识库”权限。模型管理权限与普通使用权限分开。
+模型API是外部服务：必要的对话、文本和知识库引用会按需发送给配置的供应商。连通性测试也可能产生少量费用。未配置模型时OA基础业务仍可使用。
+知识库导入和编译由管理员维护。智慧办案页面的组织模型配置不会自动替代知识库编译所用部署配置；知识库需按integrations/intelligence/README.md配置CHENGYE_MODEL_API_KEY及相应模型变量，且不要将Key放进前端环境变量。
+服务器空间默认位于LayerManage/law-firm-system/var/intelligence；可在后端环境中设置CHENGYE_INTELLIGENCE_DATA_DIR为独立绝对路径。修改后需迁移旧目录并重启，不是只换变量即可读取旧数据。
+原件上限200MB、按4MB分片上传；账号默认2GB容量，可恢复删除的文件仍计入。文本解析有限时和页数上限，上传成功不代表任何格式均能成功解析。
+OCR为可选增强：部署独立Python环境、PaddleOCR和所需模型；设置CHENGYE_OCR_PYTHON、CHENGYE_OCR_MODEL_CACHE及CHENGYE_OCR_DEVICE。不同平台依赖需实测，本手册不提供未经验证的一键pip组合。未部署OCR时先用TXT/DOCX或带文本层PDF验收，扫描图片另验收。
+最低验收：管理员测试并保存→普通获权用户发消息→上传一个测试文档并引用→生成草稿确认后保存→刷新、重启后记录存在→另一账号不能读取其材料。不要为验证而调用真实案件资料。
+
+10｜生产部署前置准备
+====================================
+推荐先建立预发布环境。初期可按8核、32GB、独立SSD数据盘规划；实际容量需要压测。若用Linux x64，需要在该平台重新安装与构建依赖；当前主要验证环境是Windows，Linux生产链路须单独验收。
+生产拓扑：HTTPS反向代理→单个OA实例/单个Worker→PostgreSQL及持久附件；智慧办案、知识库由OA管理子进程。不部署未经验证的多副本，不让多个实例共同写SQLite目录。
+保留完整源码/运行目录，例如/srv/chengye/current/ChengyeOA，不能只复制apps/server/dist。进程工作目录固定为该目录下LayerManage/law-firm-system/apps/server。
+生产变量需独立生成并注入，下面仅为字段清单，不是可直接使用的秘密：
+```text
+NODE_ENV=production
+EGG_SERVER_ENV=prod
+PORT=7001
+DATABASE_URL=postgresql://生产账号:编码后的密码@内网地址:5432/生产库?schema=public
+JWT_SECRET=至少32字符的随机值
+APP_KEYS=两个各至少24字符的随机值,以逗号分隔
+MFA_ENCRYPTION_KEY_V1=32随机字节的标准Base64
+CORS_ALLOWED_ORIGINS=https://oa.example.com
+LOCAL_PASSWORD_LOGIN=false
+ALLOW_SUPER_ADMIN_RECOVERY=false
+EVENT_WORKER_ENABLED=false
+CHENGYE_INTELLIGENCE_DATA_DIR=/srv/chengye/data/intelligence
+```
+迁移旧系统时MFA_ENCRYPTION_KEY_V1必须使用旧数据对应版本；模型加密主密钥也需要一起迁移。数据库口令、APP/JWT密钥是否轮换由上线计划决定，不能全部盲目重生成。
+生产变量不要直接使用生成的本地.env。运行账号权限最小化，密钥文件限定服务账号读取。数据库仅内网开放，运维入口限制来源；不开放3000、7001和数据库到公网。
+系统有些附件按process.cwd()/var/storage存储。把apps/server/var/storage通过受控目录挂载或符号链接指向持久盘，并固定WorkingDirectory。intelligence单独配置目录。测试环境若从其他工作目录运行过，要核对真实旧目录后再迁移。
+生产需要开机启动、崩溃重启、日志轮转、磁盘告警和证书续期；Docker Desktop不是Windows Server的生产数据库方案，选择受支持的PostgreSQL服务或托管数据库。
+
+11｜正式构建、静态页面与HTTPS
+====================================
+先在隔离构建环境完成安装及检查，保持锁文件不变：
+```text
+cd /srv/chengye/current/ChengyeOA/LayerManage/law-firm-system
+npm run setup
+export DSH_CLIENT_COMMIT_HASH=de7a38d80872e54a8ba9ea4093f2d8183a6401d8
+npm run setup:intelligence
+npm run verify
+```
+verify包含lint/typecheck/test/build等；数据库测试必须使用独立测试目标。不要为了运行verify把测试连接指向正式库。仅需构建时npm run build；verify已构建成功则无需重复。
+上面的来源哈希对应本次包中third_party/deepseek-harness.source.json的sourceHead；更换源码包时以新清单为准。PowerShell用第06节的$env写法，Linux shell用export；构建元数据不是运行密钥。
+前端正式输出在apps/web/dist。当前web构建脚本不会自动把它复制到server/public；本方案由Nginx直接提供apps/web/dist，因此不要只启动7001后期待自动出现完整首页。
+后端输出在apps/server/dist。正式迁移在维护窗口、备份后只执行一次npm run db:deploy。首次空库才另执行bootstrap；迁移命令也须显式获得正确的DATABASE_URL，systemd环境文件不会自动传给当前shell。
+下面为Nginx配置示例，部署人员必须替换域名、证书和路径，证书由组织实际申请配置：
+```nginx
+server {
+    listen 80;
+    server_name oa.example.com;
+    return 301 https://$host$request_uri;
+}
+server {
+    listen 443 ssl;
+    server_name oa.example.com;
+    ssl_certificate /etc/chengye/tls/fullchain.pem;
+    ssl_certificate_key /etc/chengye/tls/privkey.pem;
+    root /srv/chengye/current/ChengyeOA/LayerManage/law-firm-system/apps/web/dist;
+    index index.html;
+    client_max_body_size 32m;
+    location /api/ {
+        proxy_pass http://127.0.0.1:7001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1000s;
+        proxy_send_timeout 1000s;
+    }
+    location /intelligence/ {
+        add_header Cache-Control "no-cache" always;
+        try_files $uri =404;
+    }
+    location / {
+        add_header Cache-Control "no-cache" always;
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+proxy_pass后没有额外路径，保留/api前缀；32MB只覆盖接口/分片请求上限，不改变OA业务模块自身附件限制。代理不记录请求正文或认证头。
+配置后由运维执行nginx -t，成功后再reload。HTTPS域名必须与CORS_ALLOWED_ORIGINS完全一致。生产认证Cookie要求Secure，因此仅HTTP地址不能替代正式验收。
+Nginx官方代理说明：https://nginx.org/en/docs/http/ngx_http_proxy_module.html
+
+12｜进程托管、事件任务与重启
+====================================
+Windows源码部署可先在生产配置环境中使用：
+```powershell
+Set-Location 'D:/ChengyeOA/LayerManage/law-firm-system'
+npm.cmd --prefix apps/server start
+npm.cmd --prefix apps/server stop
+```
+这两条分别是启动/停止命令，不要连续执行后误认为服务仍运行。start采用单Worker后台模式，但不自动注册Windows开机服务；长期运行需运维配置受管服务及重启策略。开发模式仍使用dev命令。
+Linux可用systemd以前台模式托管，以下模板须按实际Node路径、服务用户及目录调整：
+```ini
+[Unit]
+Description=Chengye OA
+Wants=network-online.target
+After=network-online.target
+[Service]
+Type=simple
+User=chengye
+Group=chengye
+WorkingDirectory=/srv/chengye/current/ChengyeOA/LayerManage/law-firm-system/apps/server
+EnvironmentFile=/etc/chengye/oa.env
+ExecStart=/usr/bin/node node_modules/egg-scripts/bin/egg-scripts.js start dist --workers=1 --port=7001 --title=law-firm-server
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=90
+UMask=0077
+[Install]
+WantedBy=multi-user.target
+```
+前台模式不加--daemon；不能把后台npm start套进Type=simple后当作可靠监管。/usr/bin/node需替换为已验证Node22的绝对路径，避免服务启动时使用另一版本。让服务账号可以读程序、写持久目录及日志/run目录。
+将模板保存为/etc/systemd/system/chengye-oa.service后，由运维执行systemctl daemon-reload、systemctl enable --now chengye-oa，再检查status与journalctl。模板尚未在目标Linux主机现场验收。
+生产事件Worker必须显式配置。先EVENT_WORKER_ENABLED=false，检查后台预检；按项目事件运行手册执行一次受控drain并确认第二次无重复工作，再设true并正常重启，观察15分钟canary。不要另启动第二个OA副本当事件Worker。
+相关命令在apps/server目录：npm run events:check -- --mode=preflight；npm run events:drain；npm run events:check -- --mode=canary。它们同样需要正确的环境变量。
+不能一直保持false就宣布上线完成：审批超时、通知及相关扫描依赖事件机制，应实际验证定时提醒。具体约束见docs/superpowers/runbooks/reliable-event-center-outbox.md。
+重启后分别检查/api/health、首页、审批提醒及智慧办案。智慧办案在途任务可能标记中断，不会自动重放模型调用。
+
+13｜数据迁移、备份和升级
+====================================
+要保留当前系统成果，需交付与同一时间点匹配的：PostgreSQL备份、OA附件目录、整个intelligence目录（包括wiki、case-server与credentials.key）、匹配MFA密钥及部署配置。它们不能放进通用源码包，应按组织授权用独立加密渠道迁移。
+当前智慧办案组织配置在case-server/model-settings.sqlite，主密钥在case-server/credentials.key；每账号目录还有workspace.sqlite、材料和引擎目录。只备份PostgreSQL会漏掉这些数据。
+推荐维护窗口：停止新任务和写入→正常停止OA及智能子进程→pg_dump -Fc备份业务库→复制完整持久文件目录→记录版本/时间/校验和→安全保管匹配密钥→启动服务。不要在SQLite写入时只复制单个.sqlite并漏掉WAL。
+本地数据库备份示例（只写备份，不删除业务数据）：
+```powershell
+Set-Location 'D:/ChengyeOA/LayerManage/law-firm-system'
+New-Item -ItemType Directory -Force ./var/backup | Out-Null
+docker compose -p chengye-team-local --env-file infra/postgres/.env -f infra/postgres/compose.team-local.yml exec -T postgres pg_dump -U chengye_app -d chengye_oa -Fc -f /tmp/chengye-backup.dump
+if ($LASTEXITCODE -ne 0) { throw '数据库备份失败' }
+$backupName = 'chengye-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.dump'
+docker compose -p chengye-team-local --env-file infra/postgres/.env -f infra/postgres/compose.team-local.yml cp postgres:/tmp/chengye-backup.dump "./var/backup/$backupName"
+if ($LASTEXITCODE -ne 0) { throw '备份文件复制失败' }
+```
+不要用旧PowerShell文本重定向处理二进制dump。以上仅数据库部分，还必须备份附件、intelligence及密钥。恢复先在独立数据库和目录演练，不直接覆盖当前可用系统。
+数据库恢复用pg_restore，目标库名、权限、主密钥须核对。已有业务备份恢复后不执行“空库断言”；历史备份演练文档中针对空库的步骤不能原样用于有业务的数据。
+建议每日一致性备份、独立加密副本、30天保留，并定期演练恢复；实际RPO/RTO由业务要求和演练确定。代码升级先预发布验证，再备份、停止旧写入者、迁移、启动及验收。Git回退不等于数据库/文件格式可安全降级。
+日常停止本地数据库可用相同Compose参数加stop；down默认不删除命名卷，但本手册不要求执行。不要运行down -v、数据库reset或删除var目录来“重启”。
+PostgreSQL恢复参考：https://www.postgresql.org/docs/16/backup.html
+
+14｜常见问题对照
+====================================
+命令找不到 / npm.ps1被阻止：重开终端检查PATH，使用npm.cmd；不要全局关闭执行策略。
+Node版本不兼容：node --version确认22.20+的22.x；where.exe node检查是否有多个版本。旧.nvmrc的22.14不足以覆盖当前智能集成要求。
+Docker无法连接daemon：启动Docker Desktop，确认WSL2/Linux容器环境；docker version应有Server。
+55432/7001/3000端口占用：使用Get-NetTCPConnection -LocalPort 55432,7001,3000 -ErrorAction SilentlyContinue查看，再识别进程；不要直接杀死不明数据库服务。
+数据库密码错误：检查后端.env与Compose.env是否同一批；旧数据卷不会随新.env自动改密码。找回原配置或交由数据库管理员处理。
+Prisma P1001或健康503：先检查数据库healthy、连接主机/端口和运行账户，再查迁移状态。不要重置数据库。
+MFA_ENCRYPTION_KEY_V1报错：必须是32字节的标准Base64，不能用任意32字符文字。旧库务必恢复匹配密钥。
+bootstrap返回3：系统已经初始化；改用已有账号登录。返回4：保留现场并检查一致性，禁止清表强行初始化。
+首次登录要求改密/MFA：正常安全流程，不是安装失败；按界面完成并保存恢复码。
+登录403或CSRF来源错误：确保实际地址与CORS_ALLOWED_ORIGINS一致，生产必须HTTPS；检查是否意外打开3001或127.0.0.1。
+首页404 / Frontend not built：开发模式访问3000；生产检查Nginx root是否apps/web/dist以及SPA回退。当前构建不会自动拷贝到后端public。
+智慧办案503“智能模块尚未部署”：检查完整仓库目录结构和setup:intelligence输出；不能仅复制后端dist。
+Snapshot differs：源码/换行符与Harness来源清单不匹配；重新使用原始包核验，不修改清单绕过校验。
+fatal: not a git repository（构建阶段）：ZIP不带.git；按第06节在当前构建终端设置DSH_CLIENT_COMMIT_HASH后重试，不能只在另一个终端设置。
+智慧办案无模型或普通账号看不到入口：管理员测试后必须保存，再核对menu.smart_case及角色分配；知识库访问另需权限。
+AI响应不流式 / 代理超时：核对Nginx缓冲、超时、供应商兼容性；不要把一次HTTP200当完整工具调用验收。
+扫描PDF无法识别：先验证OCR环境；纯文本PDF可走普通解析。文件上传成功与解析成功分别检查。
+定时通知不触发：检查EVENT_WORKER_ENABLED、events:check及实际任务条件，不能仅看首页可用。
+依赖下载/原生构建失败：检查官方源连通性、平台架构和编译工具；不要删锁文件、关闭TLS或复制异平台node_modules。
+运行中内存/磁盘不足：记录具体进程与目录，检查AI并发、解析及日志/备份增长；不要删除未知.bin、SQLite或持久目录。
+
+15｜交付与验收清单
+====================================
+□ 源码ZIP哈希一致；完整OA、integrations、third_party和许可证均保留。
+□ Node22.20+、pnpm11.7.0、PostgreSQL16；依赖和智能模块构建成功。
+□ 所有命令在正确目录执行，未覆盖既有配置或数据库。
+□ 数据库健康、迁移成功；新库只bootstrap一次；管理员完成改密与MFA。
+□ 登录退出、角色授权、客户/合同/案件工作表及关联数据正常。
+□ 审批提交、审核、抄送、业务回写、评论@与日历提醒按授权正常。
+□ 管理员AI测试并保存；普通获权用户可用；不同账号材料隔离。
+□ 上传、解析、下载和刷新/服务重启后恢复均正常；OCR另列验收。
+□ 生产HTTPS、服务托管、单Worker、事件canary、磁盘/日志告警有效。
+□ 已备份数据库、文件和配套密钥，并在隔离环境恢复验证。
+□ 留存实际发布提交、Node补丁版本、依赖锁文件、域名、数据目录和运维负责人；不把秘密写入验收报告。
+
+文档依据（相对于源码根目录）：
+integrations/intelligence/README.md
+docs/spec/reference/SMART-CASE-SERVER.md
+LayerManage/law-firm-system/docs/DEPLOY.md
+LayerManage/law-firm-system/apps/server/config/env.ts
+docs/superpowers/runbooks/system-bootstrap-and-super-admin-recovery.md
+docs/superpowers/runbooks/reliable-event-center-outbox.md
+本手册不替代实际目标服务器的上线验收；本次没有改变当前运行系统、模型配置或业务数据。

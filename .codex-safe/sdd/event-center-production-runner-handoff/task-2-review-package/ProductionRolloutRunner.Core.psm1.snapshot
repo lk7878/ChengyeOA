@@ -1,0 +1,559 @@
+Set-StrictMode -Version Latest
+
+function Test-AddressLikeScheme {
+    param([string]$Value)
+
+    return $Value -match '(?i)\b[a-z][a-z0-9+.-]*:'
+}
+
+function Assert-SafeRecordText {
+    param([object]$Value)
+
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value) -or (Test-AddressLikeScheme -Value ([string]$Value))) {
+        throw 'SAFE_RECORD_INVALID'
+    }
+}
+
+function Assert-SafeStatusRecord {
+    param([System.Collections.IDictionary]$Record)
+
+    $allowedKeys = @('phase', 'status', 'boundedCounts', 'alertCodes', 'utcStart', 'utcEnd', 'elapsedSeconds')
+    if ($null -eq $Record -or $Record.Count -ne $allowedKeys.Count) {
+        throw 'SAFE_RECORD_INVALID'
+    }
+
+    foreach ($key in $allowedKeys) {
+        if (-not $Record.Contains($key)) {
+            throw 'SAFE_RECORD_INVALID'
+        }
+    }
+
+    Assert-SafeRecordText -Value $Record['phase']
+    Assert-SafeRecordText -Value $Record['status']
+
+    $counts = $Record['boundedCounts']
+    if ($counts -isnot [System.Collections.IDictionary]) {
+        throw 'SAFE_RECORD_INVALID'
+    }
+    foreach ($countKey in $counts.Keys) {
+        Assert-SafeRecordText -Value $countKey
+        $countValue = $counts[$countKey]
+        if (($countValue -isnot [int]) -and ($countValue -isnot [long]) -and ($countValue -isnot [uint32]) -and ($countValue -isnot [uint64])) {
+            throw 'SAFE_RECORD_INVALID'
+        }
+        if ([decimal]$countValue -lt 0) {
+            throw 'SAFE_RECORD_INVALID'
+        }
+    }
+
+    $alerts = $Record['alertCodes']
+    if ($alerts -is [string] -or $null -eq $alerts) {
+        throw 'SAFE_RECORD_INVALID'
+    }
+    foreach ($alertCode in $alerts) {
+        if ([string]$alertCode -notmatch '^[A-Z0-9_]+$') {
+            throw 'SAFE_RECORD_INVALID'
+        }
+    }
+
+    foreach ($timeKey in @('utcStart', 'utcEnd')) {
+        $parsedTime = [datetime]::MinValue
+        if (-not [datetime]::TryParse([string]$Record[$timeKey], [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsedTime) -or $parsedTime.Kind -ne [DateTimeKind]::Utc) {
+            throw 'SAFE_RECORD_INVALID'
+        }
+    }
+
+    $elapsedSeconds = $Record['elapsedSeconds']
+    if (($elapsedSeconds -isnot [int]) -and ($elapsedSeconds -isnot [long]) -and ($elapsedSeconds -isnot [uint32]) -and ($elapsedSeconds -isnot [uint64])) {
+        throw 'SAFE_RECORD_INVALID'
+    }
+    if ([decimal]$elapsedSeconds -lt 0) {
+        throw 'SAFE_RECORD_INVALID'
+    }
+}
+
+function Test-ProductionEnvironmentGate {
+    param([hashtable]$Environment)
+
+    $requiredNames = @('DATABASE_URL', 'JWT_SECRET', 'APP_KEYS', 'MFA_ENCRYPTION_KEY_V1', 'CORS_ALLOWED_ORIGINS', 'EVENT_WORKER_ENABLED')
+    $presentCount = 0
+    foreach ($name in $requiredNames) {
+        if ($Environment.ContainsKey($name) -and -not [string]::IsNullOrWhiteSpace([string]$Environment[$name])) {
+            $presentCount++
+        }
+    }
+
+    $nodeEnvProduction = $Environment.ContainsKey('NODE_ENV') -and ([string]$Environment['NODE_ENV'] -ceq 'production')
+    $workerDisabled = $Environment.ContainsKey('EVENT_WORKER_ENABLED') -and ([string]$Environment['EVENT_WORKER_ENABLED'] -ceq 'false')
+    $alertCodes = @()
+    if ($presentCount -ne $requiredNames.Count) {
+        $alertCodes += 'ENV_REQUIRED_MISSING'
+    }
+    if (-not $nodeEnvProduction) {
+        $alertCodes += 'NODE_ENV_NOT_PRODUCTION'
+    }
+    if (-not $workerDisabled) {
+        $alertCodes += 'EVENT_WORKER_NOT_DISABLED'
+    }
+
+    return [pscustomobject][ordered]@{
+        Status = if ($alertCodes.Count -eq 0) { 'READY' } else { 'NOT_READY' }
+        PresentCount = $presentCount
+        RequiredCount = $requiredNames.Count
+        NodeEnvProduction = $nodeEnvProduction
+        WorkerDisabled = $workerDisabled
+        AlertCodes = $alertCodes
+    }
+}
+
+function Test-ProductionEvidenceReceipt {
+    param(
+        [pscustomobject]$Receipt,
+        [datetime]$NowUtc,
+        [timespan]$MaxAge
+    )
+
+    $requiredNames = @('schemaVersion', 'backup', 'isolatedRestorePoint', 'allWorkersDisabled', 'serverWebSameRelease', 'governanceApproval', 'verifiedAtUtc')
+    $actualNames = @($Receipt.PSObject.Properties.Name)
+    if ($actualNames.Count -ne $requiredNames.Count -or @($actualNames | Where-Object { $_ -cnotin $requiredNames }).Count -ne 0 -or @($requiredNames | Where-Object { $_ -cnotin $actualNames }).Count -ne 0) {
+        return [pscustomobject][ordered]@{ Status = 'INVALID'; AlertCodes = @('RECEIPT_FIELDS_INVALID') }
+    }
+    $schemaVersion = $Receipt.schemaVersion
+    $integralSchemaTypes = @([sbyte], [byte], [int16], [uint16], [int32], [uint32], [int64], [uint64])
+    if ($null -eq $schemaVersion -or ($integralSchemaTypes -notcontains $schemaVersion.GetType()) -or ([decimal]$schemaVersion -ne 1)) {
+        return [pscustomobject][ordered]@{ Status = 'INVALID'; AlertCodes = @('RECEIPT_SCHEMA_INVALID') }
+    }
+    foreach ($field in @('backup', 'isolatedRestorePoint', 'allWorkersDisabled', 'serverWebSameRelease', 'governanceApproval')) {
+        if ([string]$Receipt.$field -cne 'VERIFIED') {
+            return [pscustomobject][ordered]@{ Status = 'INVALID'; AlertCodes = @('RECEIPT_VERIFICATION_INVALID') }
+        }
+    }
+    if (($Receipt.verifiedAtUtc -isnot [datetime]) -or $Receipt.verifiedAtUtc.Kind -ne [DateTimeKind]::Utc) {
+        return [pscustomobject][ordered]@{ Status = 'INVALID'; AlertCodes = @('RECEIPT_TIME_INVALID') }
+    }
+    if ($Receipt.verifiedAtUtc -gt $NowUtc) {
+        return [pscustomobject][ordered]@{ Status = 'INVALID'; AlertCodes = @('RECEIPT_TIME_FUTURE') }
+    }
+
+    $effectiveMaxAge = [timespan]::FromMinutes(30)
+    if ($MaxAge -lt $effectiveMaxAge) {
+        $effectiveMaxAge = $MaxAge
+    }
+    if (($NowUtc - $Receipt.verifiedAtUtc) -gt $effectiveMaxAge) {
+        return [pscustomobject][ordered]@{ Status = 'INVALID'; AlertCodes = @('RECEIPT_EXPIRED') }
+    }
+    return [pscustomobject][ordered]@{ Status = 'VALID'; AlertCodes = @() }
+}
+
+function Assert-SafePhysicalPath {
+    param(
+        [string]$SafeRoot,
+        [string]$ParentPath,
+        [string]$TargetPath
+    )
+
+    $rootItem = Get-Item -LiteralPath $SafeRoot -Force
+    if (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'SAFE_STATUS_PATH_INVALID'
+    }
+
+    $relativeParent = $ParentPath.Substring($SafeRoot.Length).TrimStart([char[]]'\\/')
+    $currentPath = $SafeRoot
+    foreach ($component in $relativeParent.Split([char[]]'\\/', [System.StringSplitOptions]::RemoveEmptyEntries)) {
+        $currentPath = [System.IO.Path]::Combine($currentPath, $component)
+        $componentItem = Get-Item -LiteralPath $currentPath -Force
+        if (($componentItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'SAFE_STATUS_PATH_INVALID'
+        }
+    }
+
+    $targetItem = Get-Item -LiteralPath $TargetPath -Force -ErrorAction SilentlyContinue
+    if ($null -ne $targetItem -and (($targetItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw 'SAFE_STATUS_PATH_INVALID'
+    }
+}
+
+function Write-SafeStatusTemporaryFile {
+    param(
+        [string]$TemporaryPath,
+        [string]$Content
+    )
+
+    [System.IO.File]::WriteAllText($TemporaryPath, $Content, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Move-SafeStatusFirstWrite {
+    param(
+        [string]$TemporaryPath,
+        [string]$TargetPath
+    )
+
+    [System.IO.File]::Move($TemporaryPath, $TargetPath)
+}
+
+function Replace-SafeStatusExistingTarget {
+    param(
+        [string]$TemporaryPath,
+        [string]$TargetPath,
+        [string]$BackupPath
+    )
+
+    try {
+        [System.IO.File]::Replace($TemporaryPath, $TargetPath, $BackupPath)
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function New-SafeStatusRecord {
+    param(
+        [string]$Phase,
+        [string]$Status,
+        [hashtable]$BoundedCounts,
+        [string[]]$AlertCodes,
+        [datetime]$UtcStart,
+        [datetime]$UtcEnd
+    )
+
+    if ($UtcStart.Kind -ne [DateTimeKind]::Utc -or $UtcEnd.Kind -ne [DateTimeKind]::Utc -or $UtcEnd -lt $UtcStart) {
+        throw 'SAFE_RECORD_INVALID'
+    }
+    $record = [ordered]@{
+        phase = $Phase
+        status = $Status
+        boundedCounts = $BoundedCounts
+        alertCodes = @($AlertCodes)
+        utcStart = $UtcStart.ToString('o')
+        utcEnd = $UtcEnd.ToString('o')
+        elapsedSeconds = [long][math]::Floor(($UtcEnd - $UtcStart).TotalSeconds)
+    }
+    Assert-SafeStatusRecord -Record $record
+    return $record
+}
+
+function Write-SafeStatusRecord {
+    param(
+        [string]$Path,
+        [hashtable]$Record
+    )
+
+    Assert-SafeStatusRecord -Record $Record
+    $safeRoot = [System.IO.Path]::GetFullPath('D:\2_test\16_ChengyeOA\.codex-safe').TrimEnd('\')
+    $targetPath = [System.IO.Path]::GetFullPath($Path)
+    $rootPrefix = $safeRoot + [System.IO.Path]::DirectorySeparatorChar
+    if (-not $targetPath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'SAFE_STATUS_PATH_INVALID'
+    }
+    $parentPath = [System.IO.Path]::GetDirectoryName($targetPath)
+    if (-not (Test-Path -LiteralPath $parentPath -PathType Container)) {
+        throw 'SAFE_STATUS_PATH_INVALID'
+    }
+    Assert-SafePhysicalPath -SafeRoot $safeRoot -ParentPath $parentPath -TargetPath $targetPath
+
+    $targetExists = Test-Path -LiteralPath $targetPath -PathType Leaf
+    $jsonLine = $Record | ConvertTo-Json -Compress -Depth 4
+    $temporaryPath = Join-Path $parentPath ('.' + [System.IO.Path]::GetRandomFileName() + '.tmp')
+    $backupPath = Join-Path $parentPath ('.' + [System.IO.Path]::GetRandomFileName() + '.bak')
+    try {
+        $existingContent = if ($targetExists) { [System.IO.File]::ReadAllText($targetPath) } else { '' }
+        $newContent = if ([string]::IsNullOrEmpty($existingContent)) { $jsonLine + [Environment]::NewLine } else { $existingContent.TrimEnd("`r", "`n") + [Environment]::NewLine + $jsonLine + [Environment]::NewLine }
+        Write-SafeStatusTemporaryFile -TemporaryPath $temporaryPath -Content $newContent
+        if ($targetExists) {
+            if (-not (Replace-SafeStatusExistingTarget -TemporaryPath $temporaryPath -TargetPath $targetPath -BackupPath $backupPath)) {
+                throw 'SAFE_STATUS_WRITE_FAILED'
+            }
+        }
+        else {
+            Move-SafeStatusFirstWrite -TemporaryPath $temporaryPath -TargetPath $targetPath
+        }
+    }
+    catch {
+        throw 'SAFE_STATUS_WRITE_FAILED'
+    }
+    finally {
+        foreach ($artifactPath in @($temporaryPath, $backupPath)) {
+            try {
+                if ([System.IO.File]::Exists($artifactPath)) {
+                    [System.IO.File]::Delete($artifactPath)
+                }
+            }
+            catch {
+            }
+        }
+    }
+}
+
+function ConvertFrom-StrictEventFields {
+    param(
+        [string]$Text,
+        [string]$Prefix,
+        [string[]]$RequiredFields,
+        [string]$FailureCode
+    )
+
+    if ([string]::IsNullOrEmpty($Text) -or $Text.IndexOfAny([char[]]"`r`n") -ge 0 -or -not $Text.StartsWith($Prefix + ' ', [System.StringComparison]::Ordinal)) {
+        throw $FailureCode
+    }
+
+    $body = $Text.Substring($Prefix.Length + 1)
+    if ([string]::IsNullOrEmpty($body)) {
+        throw $FailureCode
+    }
+
+    $fields = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)
+    foreach ($part in $body.Split(';')) {
+        $match = [regex]::Match($part, '\A([^=;]+)=([^=;]+)\z')
+        if (-not $match.Success) {
+            throw $FailureCode
+        }
+        $name = $match.Groups[1].Value
+        if ($fields.ContainsKey($name)) {
+            throw $FailureCode
+        }
+        $fields.Add($name, $match.Groups[2].Value)
+    }
+
+    if ($fields.Count -ne $RequiredFields.Count) {
+        throw $FailureCode
+    }
+    foreach ($requiredField in $RequiredFields) {
+        if (-not $fields.ContainsKey($requiredField)) {
+            throw $FailureCode
+        }
+    }
+    return $fields
+}
+
+function ConvertTo-NonNegativeEventInteger {
+    param([string]$Value, [string]$FailureCode)
+
+    if ($Value -notmatch '\A(0|[1-9][0-9]*)\z') {
+        throw $FailureCode
+    }
+    $parsed = [long]0
+    if (-not [long]::TryParse($Value, [System.Globalization.NumberStyles]::None, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$parsed)) {
+        throw $FailureCode
+    }
+    return $parsed
+}
+
+function ConvertFrom-EventCheckSummary {
+    param([string]$Text, [string]$ExpectedMode)
+
+    $failureCode = 'EVENT_CHECK_SUMMARY_INVALID'
+    $requiredFields = @('mode', 'status', 'undispatched', 'oldestUndispatchedSeconds', 'dueBacklog', 'oldestDueBacklogSeconds', 'manual', 'processing', 'expiredProcessing', 'staleExpiredProcessing', 'leaseLost15m', 'alertCodes', 'evaluatedAt')
+    $fields = ConvertFrom-StrictEventFields -Text $Text -Prefix 'Event observability:' -RequiredFields $requiredFields -FailureCode $failureCode
+    if ($ExpectedMode -cnotin @('preflight', 'canary') -or $fields['mode'] -cne $ExpectedMode -or $fields['status'] -cnotin @('READY', 'DEGRADED', 'BLOCKED')) {
+        throw $failureCode
+    }
+
+    $counts = @{}
+    foreach ($name in @('undispatched', 'oldestUndispatchedSeconds', 'dueBacklog', 'oldestDueBacklogSeconds', 'manual', 'processing', 'expiredProcessing', 'staleExpiredProcessing', 'leaseLost15m')) {
+        $counts[$name] = ConvertTo-NonNegativeEventInteger -Value $fields[$name] -FailureCode $failureCode
+    }
+
+    $alertCodes = @()
+    if ($fields['alertCodes'] -cne 'none') {
+        foreach ($code in $fields['alertCodes'].Split(',')) {
+            if ($code -cnotmatch '\A[A-Z0-9_]+\z') {
+                throw $failureCode
+            }
+            $alertCodes += $code
+        }
+    }
+
+    $evaluatedAtUtc = [datetime]::MinValue
+    if (-not [datetime]::TryParse($fields['evaluatedAt'], [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$evaluatedAtUtc) -or $evaluatedAtUtc.Kind -ne [DateTimeKind]::Utc) {
+        throw $failureCode
+    }
+
+    return [pscustomobject][ordered]@{
+        Mode = $fields['mode']
+        Status = $fields['status']
+        Undispatched = $counts['undispatched']
+        OldestUndispatchedSeconds = $counts['oldestUndispatchedSeconds']
+        DueBacklog = $counts['dueBacklog']
+        OldestDueBacklogSeconds = $counts['oldestDueBacklogSeconds']
+        Manual = $counts['manual']
+        Processing = $counts['processing']
+        ExpiredProcessing = $counts['expiredProcessing']
+        StaleExpiredProcessing = $counts['staleExpiredProcessing']
+        LeaseLost15m = $counts['leaseLost15m']
+        AlertCodes = @($alertCodes)
+        EvaluatedAtUtc = $evaluatedAtUtc
+    }
+}
+
+function ConvertFrom-EventDrainSummary {
+    param([string]$Text)
+
+    $failureCode = 'EVENT_DRAIN_SUMMARY_INVALID'
+    $requiredFields = @('dispatched', 'claimed', 'succeeded', 'retryScheduled', 'manual', 'leaseLost', 'status')
+    $fields = ConvertFrom-StrictEventFields -Text $Text -Prefix 'Event drain:' -RequiredFields $requiredFields -FailureCode $failureCode
+    if ($fields['status'] -cnotin @('complete', 'manual_attention_required')) {
+        throw $failureCode
+    }
+
+    $counts = @{}
+    foreach ($name in @('dispatched', 'claimed', 'succeeded', 'retryScheduled', 'manual', 'leaseLost')) {
+        $counts[$name] = ConvertTo-NonNegativeEventInteger -Value $fields[$name] -FailureCode $failureCode
+    }
+
+    return [pscustomobject][ordered]@{
+        Dispatched = $counts['dispatched']
+        Claimed = $counts['claimed']
+        Succeeded = $counts['succeeded']
+        RetryScheduled = $counts['retryScheduled']
+        Manual = $counts['manual']
+        LeaseLost = $counts['leaseLost']
+        Status = $fields['status']
+    }
+}
+
+function Invoke-RunnerPrivateProcess {
+    param(
+        [string]$FilePath,
+        [string[]]$ArgumentList,
+        [string]$WorkingDirectory
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.Arguments = [string]::Join(' ', $ArgumentList)
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.CreateNoWindow = $true
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    [void]$process.Start()
+    $standardOutput = $process.StandardOutput.ReadToEnd()
+    $standardError = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    return [pscustomobject]@{ ExitCode = $process.ExitCode; StdOut = $standardOutput; StdErr = $standardError }
+}
+
+function Get-SafeRunnerResult {
+    param([string]$AlertCode)
+
+    return [pscustomobject][ordered]@{ Status = 'BLOCKED'; AlertCodes = @($AlertCode) }
+}
+
+function Get-EventExitAlertCode {
+    param([int]$ExitCode, [bool]$IsDrain)
+
+    if ($ExitCode -eq 0) { return $null }
+    if (($IsDrain -and $ExitCode -eq 4) -or (-not $IsDrain -and $ExitCode -in @(3, 4))) { return $null }
+    switch ($ExitCode) {
+        2 { return 'CONFIG_INVALID' }
+        5 { return 'MIGRATION_OR_DATABASE_UNAVAILABLE' }
+        70 { return 'UNCLASSIFIED_FAILURE' }
+        default { return 'COMMAND_EXIT_UNRECOGNIZED' }
+    }
+}
+
+function Invoke-SafeNativeCommand {
+    param([string]$CommandKind, [string]$Mode, [string]$WorkspaceRoot)
+
+    $isDrain = $false
+    switch ($CommandKind) {
+        'source-check' {
+            if ($Mode -cnotin @('preflight', 'canary')) { throw 'SAFE_COMMAND_INVALID' }
+            $filePath = 'npm.cmd'
+            $argumentList = @('run', 'events:check', '--', '--mode', $Mode)
+        }
+        'portable-check' {
+            if ($Mode -cne 'preflight') { throw 'SAFE_COMMAND_INVALID' }
+            $filePath = 'apps\dist\law-firm-system\law-firm-system.exe'
+            $argumentList = @('events:check', '--mode', 'preflight')
+        }
+        'source-drain' {
+            if (-not [string]::IsNullOrEmpty($Mode)) { throw 'SAFE_COMMAND_INVALID' }
+            $isDrain = $true
+            $filePath = 'npm.cmd'
+            $argumentList = @('run', 'events:drain')
+        }
+        default { throw 'SAFE_COMMAND_INVALID' }
+    }
+
+    try {
+        $processResult = Invoke-RunnerPrivateProcess -FilePath $filePath -ArgumentList $argumentList -WorkingDirectory $WorkspaceRoot
+        $exitCode = [int]$processResult.ExitCode
+        $standardOutput = [string]$processResult.StdOut
+    }
+    catch {
+        return Get-SafeRunnerResult -AlertCode 'COMMAND_LAUNCH_FAILED'
+    }
+
+    try {
+        if ($isDrain) {
+            $summary = ConvertFrom-EventDrainSummary -Text $standardOutput
+        }
+        else {
+            $summary = ConvertFrom-EventCheckSummary -Text $standardOutput -ExpectedMode $Mode
+        }
+    }
+    catch {
+        return Get-SafeRunnerResult -AlertCode 'FORMATTER_OUTPUT_INVALID'
+    }
+
+    $exitAlertCode = Get-EventExitAlertCode -ExitCode $exitCode -IsDrain $isDrain
+    if ($null -ne $exitAlertCode) {
+        if ($isDrain) {
+            $summary | Add-Member -NotePropertyName AlertCodes -NotePropertyValue @($exitAlertCode)
+        }
+        else {
+            $summary.Status = 'BLOCKED'
+            $summary.AlertCodes = @($exitAlertCode)
+        }
+        if ($isDrain) { $summary.Status = 'BLOCKED' }
+        return $summary
+    }
+
+    $expectedStatus = if ($isDrain) {
+        if ($exitCode -eq 0) { 'complete' } else { 'manual_attention_required' }
+    }
+    else {
+        if ($exitCode -eq 0) { 'READY' } elseif ($exitCode -eq 3) { 'DEGRADED' } else { 'BLOCKED' }
+    }
+    if ($summary.Status -cne $expectedStatus) {
+        return Get-SafeRunnerResult -AlertCode 'FORMATTER_STATUS_MISMATCH'
+    }
+    if ($isDrain) {
+        $summary | Add-Member -NotePropertyName AlertCodes -NotePropertyValue @()
+    }
+    return $summary
+}
+
+function Test-ExactToolchainVersion {
+    param([object]$Result, [string]$ExpectedVersion)
+
+    try {
+        return ([int]$Result.ExitCode -eq 0) -and ([string]$Result.StdOut -cmatch ('\A' + [regex]::Escape($ExpectedVersion) + '(?:\r?\n)?\z'))
+    }
+    catch {
+        return $false
+    }
+}
+
+function Test-PinnedToolchain {
+    param([string]$WorkspaceRoot)
+
+    $nodeResult = $null
+    $npmResult = $null
+    try { $nodeResult = Invoke-RunnerPrivateProcess -FilePath 'node.exe' -ArgumentList @('-v') -WorkingDirectory $WorkspaceRoot } catch { }
+    try { $npmResult = Invoke-RunnerPrivateProcess -FilePath 'npm.cmd' -ArgumentList @('--version') -WorkingDirectory $WorkspaceRoot } catch { }
+    $nodeVersionOk = Test-ExactToolchainVersion -Result $nodeResult -ExpectedVersion 'v22.14.0'
+    $npmVersionOk = Test-ExactToolchainVersion -Result $npmResult -ExpectedVersion '10.9.2'
+    return [pscustomobject][ordered]@{
+        Status = if ($nodeVersionOk -and $npmVersionOk) { 'READY' } else { 'BLOCKED' }
+        NodeVersionOk = $nodeVersionOk
+        NpmVersionOk = $npmVersionOk
+        AlertCodes = if ($nodeVersionOk -and $npmVersionOk) { @() } else { @('TOOLCHAIN_VERSION_MISMATCH') }
+    }
+}
+
+Export-ModuleMember -Function Test-ProductionEnvironmentGate, Test-ProductionEvidenceReceipt, New-SafeStatusRecord, Write-SafeStatusRecord, ConvertFrom-EventCheckSummary, ConvertFrom-EventDrainSummary, Invoke-SafeNativeCommand, Test-PinnedToolchain

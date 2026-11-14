@@ -1,0 +1,38 @@
+﻿OA系统源码交接说明
+版本：f2491689（2026-11-07）
+
+本包供团队阅读、开发和构建，包含当前已提交源码，不包含Git历史。
+包含：OA前后端、Prisma数据库结构与迁移、spec、测试与部署资料、智慧办案集成、Harness源码快照、锁文件和第三方许可。
+不包含：node_modules、构建输出、实际.env、生产密钥、数据库及备份、用户材料、会话数据、运行日志。测试夹具和.env.example属于源码的一部分，不是正式配置。
+
+先阅读：
+1. docs/spec/README.md：OA规格入口。
+2. integrations/intelligence/README.md：现行智慧办案安装与部署。
+3. docs/spec/reference/SMART-CASE-SERVER.md：服务器工作区、统一模型与权限。
+4. LayerManage/law-firm-system/docs/DEPLOY.md：OA部署步骤。
+
+重要：根README及早期文档仍有本机/浏览器存储的历史描述。智慧办案当前以以上服务器工作区规格为准：材料和会话存服务器，管理员统一配置模型，普通用户按OA授权使用。当前固定单个OA实例、单个Worker。
+
+开发环境：Node 22.20或以上的22.x、npm、pnpm 11.7.0、PostgreSQL 16。
+请解压到较短目录，例如D:/ChengyeOA；保留全部目录结构。不要将Windows的node_modules复制到Linux。
+
+安装（在ChengyeOA/LayerManage/law-firm-system目录执行；Windows可使用npm.cmd）：
+  npm run setup
+  npm run setup:intelligence
+按apps/server/.env.example自行准备开发配置，生成独立密钥并连接自己的数据库。
+只对全新空库执行：
+  npm run db:deploy
+  npm run db:assert-empty
+  npm run system:bootstrap
+已有数据库必须先备份并按DEPLOY.md升级，不重复bootstrap，不执行reset或测试seed。
+开发服务分别在两个终端启动：
+  npm run dev:server
+  npm run dev:web
+前端默认http://localhost:3000。正式构建使用npm run build；生产部署另按部署文档执行。
+
+这不是可直接双击运行的安装包，也不自带当前测试账号或业务数据；接手者需要安装依赖并配置数据库。OCR需额外部署Python/PaddleOCR与模型。
+保留third_party下的许可证及来源说明。请在团队内部分享此包；若需要对外再分发，请自行核对许可与组织规定。
+
+文件校验：SOURCE-FILES.sha256列出源码和本说明的SHA-256；压缩包旁的.sha256文件用于核验整个ZIP。
+
+新增详细手册：先打开根目录OA系统安装部署说明.html。无Git历史的ZIP构建时，务必按第06节设置DSH_CLIENT_COMMIT_HASH；全新本地配置脚本在team-deployment目录。

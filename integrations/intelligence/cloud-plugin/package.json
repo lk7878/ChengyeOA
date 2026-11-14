@@ -1,0 +1,6 @@
+{
+  "name": "@chengyeoa/harness-cloud", "version": "1.2.0", "private": true, "type": "module",
+  "main": "index.mjs",
+  "exports": { ".": "./index.mjs", "./tools": "./tools.mjs", "./package.json": "./package.json", "./cordis.patch.yml": "./cordis.patch.yml" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}

@@ -1,0 +1,18 @@
+# Preserve the formal Product Profile, but do not offer a second local Wiki.
+# All maintenance stays in the OA cloud Wiki; the local tool is read-only.
+- id: product-knowledge
+  disabled: true
+- insert:
+    - id: chengye-desktop-knowledge
+      name: '@chengyeoa/harness-desktop-tools'
+    - id: baiyou-agent-presets
+      name: __LAWYER_REGISTRY__
+      config:
+        default: lawyer
+        includeShippedRoot: false
+        includeUserRoot: false
+        roots:
+          - path: __LAWYER_PRESET_ROOT__
+            trust: system
+- id: agent-presets
+  disabled: true
