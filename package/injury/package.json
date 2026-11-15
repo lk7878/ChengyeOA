@@ -1,0 +1,9 @@
+{
+  "name": "injury-preset",
+  "private": true,
+  "type": "module",
+  "description": "百佑智业损伤鉴定助手 preset 本地依赖（模板填报）",
+  "dependencies": {
+    "jszip": "^3.10.1"
+  }
+}

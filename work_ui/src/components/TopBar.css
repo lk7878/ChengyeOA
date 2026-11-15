@@ -1,0 +1,105 @@
+.wb-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 64px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
+  flex: 0 0 auto;
+}
+
+.wb-topbar__title h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.wb-topbar__title p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.wb-topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wb-topbar__balance {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2, rgba(0, 0, 0, 0.04));
+  min-width: 88px;
+}
+.wb-topbar__balance[data-tone='low'] .wb-topbar__balanceValue {
+  color: var(--dsw-alias-state-warning, #c2410c);
+}
+.wb-topbar__balanceLabel {
+  font-size: 10px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.wb-topbar__balanceValue {
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--ds-font-family-code);
+  color: var(--dsw-alias-label-primary);
+}
+
+.wb-topbar__user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 8px;
+  padding-left: 14px;
+  border-left: 1px solid var(--dsw-alias-border-l2);
+}
+
+.wb-topbar__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--dsw-alias-state-business-tertiary);
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.wb-topbar__userMeta {
+  line-height: 1.2;
+}
+
+.wb-topbar__userName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.wb-topbar__userRole {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.wb-topbar__logout {
+  margin-left: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.wb-topbar__logout:hover {
+  color: var(--dsw-alias-label-primary);
+}

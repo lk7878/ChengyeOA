@@ -1,0 +1,10 @@
+{
+  "harness": "39163dd30f703a79079e2d2446545cff3c453738",
+  "legal-skills": "5e39b9c30cc66ece89ff64cdafbeddde80c6b507",
+  "claude-for-legal": "4a6c651889c97cc9140580363c73e0eb17379c2b",
+  "providedPlugins": {
+    "dsh-file-convert": "f8dd9b04e64b8b6a5f12714eafee5f3b09f864be",
+    "dsh-free-web-search": "354b95a87fcc34233966047d18bb57375120ea3e",
+    "dsh-mask": "ebdc8b9623f2cf75bd9e1cda50e507be6012324c"
+  }
+}

@@ -1,0 +1,211 @@
+.wb-accounts {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 20px 24px 24px;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.wb-accounts__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+
+.wb-accounts__search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 320px;
+  max-width: 420px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-tertiary);
+}
+.wb-accounts__search input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+}
+.wb-accounts__clear {
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+}
+
+.wb-accounts__filters {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+.wb-accounts__filter {
+  border: none;
+  background: transparent;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.wb-accounts__filter:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+.wb-accounts__filter.is-active {
+  background: var(--dsw-alias-state-business-tertiary);
+  color: var(--dsw-alias-state-business-primary);
+  font-weight: 500;
+}
+
+.wb-accounts__table {
+  flex: 1 1 auto;
+  overflow: auto;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+.wb-accounts__table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.wb-accounts__table th {
+  text-align: left;
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-overlay);
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.wb-accounts__table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-primary);
+  vertical-align: middle;
+}
+.wb-accounts__table tr:last-child td {
+  border-bottom: none;
+}
+.wb-accounts__table tr:hover td {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.wb-accounts__colAction {
+  width: 80px;
+  text-align: right !important;
+}
+
+.wb-accounts__user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wb-accounts__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--dsw-alias-state-business-tertiary);
+  color: var(--dsw-alias-state-business-primary);
+  font-weight: 600;
+}
+.wb-accounts__name {
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+.wb-accounts__email {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.wb-accounts__mono {
+  font-family: var(--ds-font-family-code);
+  color: var(--dsw-alias-label-secondary);
+}
+.wb-accounts__roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wb-accounts__emptyRow {
+  text-align: center;
+  color: var(--dsw-alias-label-tertiary);
+  padding: 40px 0;
+}
+
+.wb-accounts__roleGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.wb-accounts__role {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+}
+.wb-accounts__role input {
+  accent-color: var(--dsw-alias-state-business-primary);
+}
+.wb-accounts__role.is-on {
+  border-color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-state-business-tertiary);
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.wb-accounts__banner {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fde8e8;
+  color: #b42318;
+  font-size: 13px;
+}
+
+.wb-sharing__intro {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-secondary);
+}
+.wb-sharing__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.wb-sharing__username {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.wb-sharing__hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}

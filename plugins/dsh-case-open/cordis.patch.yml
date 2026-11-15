@@ -1,0 +1,4 @@
+# 浏览器半侧读取 #session= 并打开对应对话；宿主半侧仅占 Loader 条目。
+- insert:
+    - id: dsh-case-open
+      name: dsh-case-open

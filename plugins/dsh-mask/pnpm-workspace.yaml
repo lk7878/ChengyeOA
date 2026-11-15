@@ -1,0 +1,67 @@
+# Nearest-workspace root for this standalone plugin package. This file makes
+# pnpm treat dsh-mask as an independent workspace when the repository is
+# checked out inside another pnpm workspace, such as a deepseek-harness
+# checkout (which is where this repo lives during development).
+packages:
+  - .
+
+# pnpm >= 10 defaults autoInstallPeers to false; the composition/lifecycle
+# suites mount the real dsh-commands/dsh-tools runtimes, whose harness peers
+# (dsh-attachment, dsh-brand, dsh-typert-protocol, ...) must resolve.
+autoInstallPeers: true
+
+minimumReleaseAgeExclude:
+  - '@deepseek-ai/cosmokit@1.8.3'
+  - '@deepseek-ai/dsh-agent@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-attachment@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-brand@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-commands@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-llm@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-session-projection@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-session@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-storage-domain@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-storage-json@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-storage@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-system-prompt@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-timeout@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-tools@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-typert-protocol@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-util-crypto@0.1.2-alpha.3'
+  - '@deepseek-ai/dsh-util-values@0.1.2-alpha.3'
+  - '@deepseek-ai/schemastery@3.18.2'
+  - '@deepseek-ai/dsh-agent@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-attachment@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-brand@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-commands@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-llm@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-session@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-storage-domain@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-storage-json@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-storage@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-system-prompt@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-timeout@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-tools@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-typert-protocol@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-util-crypto@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-util-values@0.1.2-alpha.5'
+  - '@deepseek-ai/dsh-agent@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-attachment@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-brand@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-commands@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-llm@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-session@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-storage-domain@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-storage-json@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-storage@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-system-prompt@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-timeout@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-tools@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-typert-protocol@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-util-crypto@0.1.2-rc.1'
+  - '@deepseek-ai/dsh-util-values@0.1.2-rc.1'
+
+# The exact rc pins are published inside the 24h minimum-release-age
+# window by design; the zero-age override keeps fresh installs (local and
+# CI frozen-lockfile) deterministic when pnpm's lockfile policy re-checks.
+minimumReleaseAge: 0
+verifyDepsBeforeRun: false

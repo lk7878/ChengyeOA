@@ -1,0 +1,572 @@
+{
+  "date": "2026-11-15",
+  "total": 2371,
+  "passed": 2252,
+  "failed": 93,
+  "skipped": 26,
+  "followupCounts": {
+    "baseline_also_fails": 89,
+    "isolated_rerun_7_pass": 1,
+    "fixed_targeted_pass": 3
+  },
+  "failures": [
+    {
+      "number": 3,
+      "name": "meets scaled authorization, hierarchy, pagination, recursion, and trace targets",
+      "file": "test/acceptance/spec-004-acceptance.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 4,
+      "name": "enforces branch and team union, detail parity, field projection, L4 purpose, and audit hygiene",
+      "file": "test/acceptance/spec-004-acceptance.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 5,
+      "name": "expires and revokes grants immediately while preserving history and trace provenance",
+      "file": "test/acceptance/spec-004-acceptance.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 11,
+      "name": "password change, enrollment, TOTP login, refresh rotation, HIGH step-up, and logout form one revocable flow",
+      "file": "test/acceptance/spec-006-acceptance.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 18,
+      "name": "guarded PostgreSQL rehearsal covers preflight, drain, canary, failure, quarantine, and rollback",
+      "file": "test/acceptance/spec-008-acceptance.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 19,
+      "name": "guarded rehearsal main completes an injected short window with only redacted evidence",
+      "file": "test/acceptance/spec-008-acceptance.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 31,
+      "name": "browser fixture rejects missing credentials and every non-test database URL before connecting",
+      "file": "test/admin-governance/browser-fixture.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 54,
+      "name": "catalog is requester-role filtered and expands only stable confirmation tokens",
+      "file": "test/admin-governance/governance-query-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 76,
+      "name": "requires JWT and governance permissions, with role-filtered catalogs",
+      "file": "test/app/admin-governance-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 78,
+      "name": "creates, lists, shows, reviews, and hides scopes through thin APIs",
+      "file": "test/app/admin-governance-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 80,
+      "name": "rejects an administrator session when no verified factor exists",
+      "file": "test/app/administrator-mfa-guard.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 81,
+      "name": "rejects a password-only administrator session when a factor exists",
+      "file": "test/app/administrator-mfa-guard.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 83,
+      "name": "fails closed when an ordinary user is promoted during a password session",
+      "file": "test/app/administrator-mfa-guard.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 117,
+      "name": "forced change rejects confirmation mismatch, weak password, and password reuse without writes",
+      "file": "test/app/auth.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 118,
+      "name": "forced change updates credentials and audit atomically, then continues to mandatory MFA enrollment",
+      "file": "test/app/auth.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 121,
+      "name": "a failed challenge issuance emits no temporary credential or successful-login state",
+      "file": "test/app/auth.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 122,
+      "name": "a failed forced-change audit rolls back password and version without returning a token",
+      "file": "test/app/auth.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 136,
+      "name": "creates and versions a business role through strict DTOs without leaking secrets",
+      "file": "test/app/authorization-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 157,
+      "name": "rejects authenticated users without case.file permissions",
+      "file": "test/app/case-file-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 158,
+      "name": "creates intake and contract attachment above 1MB together and downloads the original bytes",
+      "file": "test/app/case-file-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 159,
+      "name": "uploads, lists, downloads, and deletes a case file end to end",
+      "file": "test/app/case-file-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 160,
+      "name": "carries case file validation and not-found error codes",
+      "file": "test/app/case-file-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 163,
+      "name": "creates contracts from all four source types",
+      "file": "test/app/contract-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 191,
+      "name": "protects all query routes and exposes only safe operations views",
+      "file": "test/app/event-operations-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 192,
+      "name": "returns an authorized READY observability summary as an additive safe field",
+      "file": "test/app/event-operations-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 196,
+      "name": "requires effective super-admin, bearer authority, and the exact generic Step-Up grant",
+      "file": "test/app/event-operations-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 198,
+      "name": "generic Step-Up rejects unknown purposes and malformed targets as stable 400 before TOTP use",
+      "file": "test/app/event-operations-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 235,
+      "name": "requires an administrator without a factor to enroll before creating a session",
+      "file": "test/app/mfa-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 237,
+      "name": "enrolls an administrator and requires MFA on the next login",
+      "file": "test/app/mfa-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 238,
+      "name": "returns MFA status and regenerates recovery codes with target-bound step-up",
+      "file": "test/app/mfa-management-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 239,
+      "name": "disables ordinary-user MFA but rejects administrator disable without consuming the grant",
+      "file": "test/app/mfa-management-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 277,
+      "name": "creates, approves, executes a REFUND end to end with sweep-back",
+      "file": "test/app/refund-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 278,
+      "name": "creates, approves, executes a WAIVER end to end with plan decrement",
+      "file": "test/app/refund-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 284,
+      "name": "requires target-bound step-up to revoke another session",
+      "file": "test/app/session-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 285,
+      "name": "step-up logout-all can explicitly preserve the current session",
+      "file": "test/app/session-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 286,
+      "name": "issues a session-bound step-up token through an authenticated CSRF-protected API",
+      "file": "test/app/step-up-api.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 293,
+      "name": "cannot grant a role to the current first super-admin through self-modification",
+      "file": "test/app/trust-root-guard.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 297,
+      "name": "exposes no physical delete endpoint for the SYSTEM_SUPER_ADMIN role",
+      "file": "test/app/trust-root-guard.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 300,
+      "name": "cannot grant SYSTEM_SUPER_ADMIN through the role-grant endpoint",
+      "file": "test/app/trust-root-guard.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 304,
+      "name": "user creation rejects invalid usernames and weak passwords through shared validation",
+      "file": "test/app/trust-root-guard.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 315,
+      "name": "super admin resets a plain user password, forces change and revokes sessions",
+      "file": "test/app/user-password-reset.test.ts",
+      "followup": "isolated_rerun_7_pass"
+    },
+    {
+      "number": 487,
+      "name": "event-services-factory wires approval-timeout scanOnce into the worker tick listener",
+      "file": "test/approval/approval-timeout-scanner.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 594,
+      "name": "catalog contains every unique immutable permission code exactly once",
+      "file": "test/authorization/permission-catalog.test.ts",
+      "followup": "fixed_targeted_pass"
+    },
+    {
+      "number": 666,
+      "name": "repository exposes one Prisma source and no write bootstrap commands",
+      "file": "test/ci/baseline-contract.test.ts",
+      "followup": "fixed_targeted_pass"
+    },
+    {
+      "number": 804,
+      "name": "PostgreSQL initializer is executable in the Git index",
+      "file": "test/ci/distribution-config-contract.test.ts",
+      "followup": "fixed_targeted_pass"
+    },
+    {
+      "number": 819,
+      "name": "exposes protected versioned deletion and removes obsolete employee update routes",
+      "file": "test/ci/spec-003-router-contract.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 825,
+      "name": "removes physical role deletion and history-destroying replacement routes",
+      "file": "test/ci/spec-004-router-contract.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 827,
+      "name": "removes the temporary master-data gate after formal authorization coverage",
+      "file": "test/ci/spec-004-router-contract.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 954,
+      "name": "SSE delivers real changes and revokes an already connected member without broadcasting values",
+      "file": "test/collaboration/collaboration-http.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1090,
+      "name": "standard fields synchronize case data and refund attachment lookup enforces parent field permissions",
+      "file": "test/collaboration/lifecycle-worksheet.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1099,
+      "name": "module creation connects real sources atomically and keeps business connection owner-only",
+      "file": "test/collaboration/module-sharing.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1105,
+      "name": "new role accounts: create/read/share with explicit branch=true",
+      "file": "test/collaboration/new-account-business.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1106,
+      "name": "new role accounts: create/read/share with explicit branch=false",
+      "file": "test/collaboration/new-account-business.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1129,
+      "name": "mixed core and extension filters sort, page and group authorized rows in the database",
+      "file": "test/collaboration/workspace-extensions.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1130,
+      "name": "position, creator, action and hidden field constraints also guard extension history and linked files",
+      "file": "test/collaboration/workspace-extensions.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1136,
+      "name": "batch extensions share one transaction and preserve business action boundaries",
+      "file": "test/collaboration/workspace-extensions.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1181,
+      "name": "guards test Prisma helpers and truncates every application table",
+      "file": "test/config/unittest-database.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1352,
+      "name": "PERMISSION_CODES matches the current catalog baseline (189)",
+      "file": "test/contract/permission-catalog-contract.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1504,
+      "name": "recordFollow rejects an unknown type, empty content, extra keys or a bad nextTime without persisting",
+      "file": "test/crm/lead-follow-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1585,
+      "name": "applies every migration cleanly against the test database",
+      "file": "test/db/contract-migration-rehearsal.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1592,
+      "name": "applies every migration cleanly against the test database",
+      "file": "test/db/lead-crm-migration-rehearsal.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1597,
+      "name": "uses PostgreSQL and retains exactly 68 current models",
+      "file": "test/db/schema-contract.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1598,
+      "name": "adds the SPEC-002 trust-root schema",
+      "file": "test/db/schema-contract.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1606,
+      "name": "maps every current money field to numeric 18,2",
+      "file": "test/db/schema-contract.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1630,
+      "name": "adds exactly one additive event worker runtime status migration",
+      "file": "test/db/spec-008-event-observability-migration-contract.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 1765,
+      "name": "four independent clients converge 200 events over 60 injected one-second waves",
+      "file": "test/events/event-observability-load.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2036,
+      "name": "PERMISSION_CODES matches the current catalog baseline (146)",
+      "file": "test/finance/permission-catalog-finance.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2207,
+      "name": "SQ5 79 triggers once while 80 and null do not; original stars remain untouched",
+      "file": "test/quality/analysis-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2208,
+      "name": "SQ5 corrections preserve low-score facts even when delivery is out of order",
+      "file": "test/quality/analysis-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2209,
+      "name": "SQ5 original approval rejects then closes a new frozen analysis revision",
+      "file": "test/quality/analysis-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2210,
+      "name": "SQ5 changed frozen content rolls back approval and completes after repair",
+      "file": "test/quality/analysis-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2211,
+      "name": "SQ5 analysis authors cannot review and concurrent close cannot create duplicate approvals",
+      "file": "test/quality/analysis-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2212,
+      "name": "SQ5 current read scope, revoked reviewer and generic apply cannot bypass managed close",
+      "file": "test/quality/analysis-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2213,
+      "name": "SQ5 registered dispatcher and worker deliver persisted assessments exactly once",
+      "file": "test/quality/analysis-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2214,
+      "name": "SQ5 assessment handler rollback retries without orphan analysis or duplicate changes",
+      "file": "test/quality/analysis-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2215,
+      "name": "managed visual timeout reminders do not auto-approve and respect revoked access",
+      "file": "test/quality/analysis-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2216,
+      "name": "SQ5 quality metrics intersect current case scope and omit unauthorized businesses",
+      "file": "test/quality/analysis-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2227,
+      "name": "SQ5 closed-case remediation notifications remain actionable and skip stale or revoked recipients",
+      "file": "test/quality/quality-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2251,
+      "name": "all persisted SDD reports, closeout reports, and handoffs pass the documentation leakage scan",
+      "file": "test/security/persisted-documentation-leakage.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2279,
+      "name": "SQ5 reminders are off by default and deduplicate configured delivery",
+      "file": "test/sop/execution-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2280,
+      "name": "SQ5 reschedule, pause and revocation suppress stale reminder delivery",
+      "file": "test/sop/execution-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2281,
+      "name": "SQ5 assignment change event uses current task version and recipient scope",
+      "file": "test/sop/execution-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2285,
+      "name": "SQ6 frozen pre-case materials use real SourceFile references and tampering fails original approval sync",
+      "file": "test/sop/source-context.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2286,
+      "name": "SQ6 MEDICAL full chain preserves original conversion, contract and task histories through return and approval",
+      "file": "test/sop/source-context.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2287,
+      "name": "SQ6 EXECUTION full chain preserves original conversion, contract and task histories through return and approval",
+      "file": "test/sop/source-context.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2288,
+      "name": "SQ6 CRIMINAL full chain preserves original conversion, contract and task histories through return and approval",
+      "file": "test/sop/source-context.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2291,
+      "name": "SQ6 pre-case reminder uses source state and does not require a fabricated Case",
+      "file": "test/sop/source-context.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2295,
+      "name": "submission freezes material and report; original approval return then new revision completes the gate",
+      "file": "test/sop/submission-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2296,
+      "name": "self review, missing material and incomplete checklist cannot be bypassed",
+      "file": "test/sop/submission-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2297,
+      "name": "paused business targets roll back the decision; a new decision after resume completes",
+      "file": "test/sop/submission-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2298,
+      "name": "waiting review assignment, withdrawal and expert guidance preserve distinct history",
+      "file": "test/sop/submission-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2299,
+      "name": "material drift rolls back approval and does not complete the node",
+      "file": "test/sop/submission-service.test.ts",
+      "followup": "baseline_also_fails"
+    },
+    {
+      "number": 2300,
+      "name": "revoking the reviewer permission blocks a decision even with an old service context",
+      "file": "test/sop/submission-service.test.ts",
+      "followup": "baseline_also_fails"
+    }
+  ]
+}

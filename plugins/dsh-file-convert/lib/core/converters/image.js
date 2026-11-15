@@ -1,0 +1,79 @@
+import fs from 'node:fs/promises';
+import sharp from 'sharp';
+import { writeFileAtomic } from '../utils/write-file.js';
+import { convertError } from '../errors.js';
+const IMAGE_INPUTS = ['png', 'jpg', 'webp', 'svg'];
+const IMAGE_OUTPUTS = ['png', 'jpg', 'webp'];
+/**
+ * All raster↔raster pairs plus SVG rasterization, backed by sharp/libvips
+ * (prebuilt npm binaries - no system dependencies).
+ */
+export class ImageConverter {
+    id = 'image';
+    concurrency = 4;
+    binaryDeps = [];
+    capabilities = IMAGE_INPUTS.flatMap((from) => IMAGE_OUTPUTS.filter((to) => to !== from).map((to) => ({ from, to })));
+    async convert(req, ctx) {
+        const started = Date.now();
+        if (ctx.signal?.aborted) {
+            return { ok: false, input: req.input, from: req.from, to: req.to, error: convertError('cancelled', 'Conversion cancelled.') };
+        }
+        try {
+            const bytesIn = (await fs.stat(req.input)).size;
+            // density only affects vector input (SVG): 72 renders at the SVG's own
+            // pixel size; a higher dpi option upscales. Rasters ignore it.
+            // A hostile SVG can declare enormous dimensions - clamp the raster to
+            // the pixel budget before decoding.
+            let density = req.options.dpi ?? 72;
+            const maxOutputPixels = ctx.limits?.maxOutputPixels;
+            if (req.from === 'svg' && maxOutputPixels) {
+                const meta = await sharp(req.input).metadata();
+                const factor = density / 72;
+                const pixels = (meta.width ?? 1000) * factor * ((meta.height ?? 1000) * factor);
+                if (pixels > maxOutputPixels) {
+                    const shrink = Math.sqrt(maxOutputPixels / pixels);
+                    density = Math.max(1, Math.floor(density * shrink));
+                }
+            }
+            const pipeline = sharp(req.input, { density });
+            const { quality, background } = req.options;
+            let out;
+            if (req.to === 'jpg') {
+                out = pipeline
+                    .flatten({ background: background ?? '#ffffff' }) // jpg has no alpha channel
+                    .jpeg({ quality: quality ?? 85 });
+            }
+            else if (req.to === 'webp') {
+                out = pipeline.webp({ quality: quality ?? 85 });
+            }
+            else {
+                out = pipeline.png();
+            }
+            const buffer = await out.toBuffer();
+            await writeFileAtomic(req.output, buffer);
+            const bytesOut = buffer.length;
+            return {
+                ok: true,
+                input: req.input,
+                output: req.output,
+                from: req.from,
+                to: req.to,
+                bytesIn,
+                bytesOut,
+                durationMs: Date.now() - started,
+                warnings: [],
+            };
+        }
+        catch (err) {
+            return {
+                ok: false,
+                input: req.input,
+                from: req.from,
+                to: req.to,
+                error: convertError('conversion_failed', `Failed to convert ${req.from} → ${req.to}`, {
+                    detail: err instanceof Error ? err.message : String(err),
+                }),
+            };
+        }
+    }
+}

@@ -1,0 +1,1 @@
+export function BrandMark({size=32}:{size?:number}){return <span aria-hidden style={{display:'grid',placeItems:'center',width:size,height:size,borderRadius:9,background:'#3370ff',color:'#fff',fontSize:Math.round(size*.625),flexShrink:0}}>承</span>}

@@ -1,0 +1,85 @@
+.wb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  padding: 0 14px;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+  white-space: nowrap;
+}
+
+.wb-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.wb-btn--md {
+  height: 36px;
+}
+
+.wb-btn--sm {
+  height: 28px;
+  font-size: 12px;
+  line-height: 18px;
+  padding: 0 10px;
+  border-radius: 8px;
+}
+
+.wb-btn--block {
+  width: 100%;
+}
+
+.wb-btn__icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+}
+
+.wb-btn--primary {
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-button-primary-foreground);
+}
+.wb-btn--primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.wb-btn--ghost:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.wb-btn--ghost:active:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.wb-btn--outline {
+  border: 1px solid var(--dsw-alias-border-l3);
+  background: transparent;
+}
+.wb-btn--outline:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.wb-btn--toolbar {
+  background: var(--dsw-alias-button-tool-bar-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+.wb-btn--toolbar:hover:not(:disabled) {
+  background: var(--dsw-alias-button-tool-bar-hover);
+}
+
+.wb-btn--danger {
+  color: var(--dsw-alias-state-error-primary);
+}
+.wb-btn--danger:hover:not(:disabled) {
+  background: var(--dsw-static-red-50);
+}

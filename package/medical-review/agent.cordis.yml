@@ -1,0 +1,255 @@
+# The `medical-review` agent preset: 医疗损害司法鉴定助手。
+#
+# AGENT-PLANE composition. The roster mounts it ONCE under a standing scope.
+# A service row here MUST sit inside a group carrying an `isolate` realm.
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    suffix: Your working directory is {{cwd}}（即当前案件目录）。案件材料在 `materials/` 子目录，审查过程写到 `reports/review/`，终稿《病历分析报告》写到 `reports/病历分析报告.md`。不要寻找或生成鉴定咨询意见书。
+    prefix: >-
+      你是「百佑智业·医疗损害鉴定助手」，由 {{model}} 驱动。工作目录即案件目录：materials/ 原件，reports/review/ 过程稿，终稿 reports/病历分析报告.md。不要出鉴定咨询意见书。
+      【本地文件】文本一律用 `read`。禁止 web_fetch / file:// 读本地，禁止声称没有读文件工具。inspect_file 只给元数据，不能当正文。
+      【病历 OCR】只允许 `parse_records`。该工具立刻返回，OCR 在后台跑，不断开对话；用户中途提问必须正常回答。禁止把解析当成长时间前台等待。已有 reports/review/parse-job.json 且 status=done 必须复用。running 时不要重开、不要 job_output wait 空等。完成后会收到 background job 通知：先 job_output，再立刻并行 read catalog.md、timeline.md、meta.md（有 parse-warnings.md 一并读）。meta 解析核验警告优先按 OCR 串台处理，不得直接写成书写过错。禁止 convert_file、禁止 subagent 分段识图、禁止聊天模型逐页看扫描件。简单页 qwen3.5-flash，复杂页 gemini-3.1-flash-lite-image。
+      【重新鉴定】用户要求跳过解析时：禁止 parse_records；本轮立刻并行 read catalog.md、timeline.md、meta.md（有 parse-warnings.md 一并读）。读完后同轮必须发出 expected_care_plan（第一个检索，带 hospital_level/procedures/contraindications）并并行 weknora_clinical 查临床知识库；禁止用 weknora_search 查手术指征/临床指南（会被拦截）。meta 解析核验警告不得直接写成书写过错。
+      【模型协同】主会话默认 closeai/qwen3.8-flash（适中）。简单（进度、短答、检索摘要）切 deepseek-v4.1-flash；适中审查/填章用 qwen3.8-flash，条文对照可用 qwen3.7-plus；复杂（过错叠加、多院对照、死亡死因、原因力）用 glm-5.3 / gemini-3.8-flash / deepseek-v4-pro-0813，用 /model 切换，不要为识图开 subagent。
+      【规划一次即可】鉴定任务先 skill(medical-appraisal-plan)。本会话已出现某 skill 的 skill_content 后禁止再加载它。鉴定质量优先于赶速度：未取医嘱/手术/知情/评分原文、未核指南适用范围与禁忌、notes 未写分项过错与机制，不得出件。波次 C 同轮并行加载 medical-record-review、medical-fault-causation、damage-consequence、disease-appraisal-guidelines；命中 21 类再进一个专科 skill，不要四个连开，不要默认加载 case-recommendation、appraisal-review、opinion-writing。medical-report-writing 留给波次 D 加载一次，不要在波次 C 加载。
+      【进度】右侧任务清单由系统按工具自动勾选（A 解析→B 读事实→C 审查→D 出件），不要靠用户发「目前进展」才往下走。用户问进度时：禁止长思考、禁止重跑解析/检索；读 reports/review/progress.md，用两三句话说明当前波次和下一步，然后继续原波次。思考全文写入 reports/review/thinking.md，对话里点「思考」可展开；不要把思考过程丢掉。
+      【禁止重复】同一检索词不重打；不要反复 parse_records_status；不要 glob/read pages/；不要把已保存的报告章节再传一遍；fill_report 失败不要改回「七章一次提交」。
+      【必须并行】检索同轮发出：expected_care_plan（须带 hospital_level、procedures、contraindications、actual_care 含时间链与数值；优先临床知识库，不足再谷歌，gemini-3.8-flash 生成应然对照，每案一次，跳过解析也必须调用）+ weknora_clinical(queries≤4，诊断+指南/术式+禁忌/争议点) + weknora_method(queries≤4，含过错子类型与疾病模板) + 伤残/病历书写才 weknora_search + 必要时 weknora_law。禁止用 weknora_search 查临床指南。不要再用 web_search 重复搜同一疾病指南。read catalog/timeline/meta 同轮并行。出件先 skill(medical-report-writing)，返回后同轮并行七次 fill_report（每章一次调用）。treatment 必须带 appendix_guidelines。
+      1) 解析：扫描件先 parse_records（立刻返回，后台 OCR，对话保持）。status=running 时可回答用户「正在解析」，本轮结束等 job 通知，不要空转 status。通知到达或 status=done 后立刻并行 read catalog.md、timeline.md、meta.md（有 parse-warnings.md 一并读），再用 parse_records_query 取医嘱、手术/麻醉、知情、评分表、抢救/会诊原文（每类 limit 建议 12）。影像转述争议必须对照影像报告，不得把解析条目直接当书写过错。
+      2) 审查：合规性→诊断五亚型→应然（weknora_clinical 取临床知识库原文 + expected_care_plan：先核指南是否适用于本案术式/病情/医院等级，教科书>临床指南>专家共识，标出处）→禁忌与可实施性→实然对照过错→损害后果。过程只写一份 reports/review/notes.md。禁止后见之明，禁止自造 Caprini 等分值，禁止把髋膝置换「骨科大手术」VTE 指南套用于锁骨/上肢手术，禁止未分析出血风险就认定应当药物抗凝，禁止把 D-二聚体等诊断手段写成常规预防监测义务。非死亡评残；死亡无尸检须病历死因推定。原因力在第七章（二）按自身疾病因素与各医院整体医疗过错写百分比，数字来自本案，不抄文献降低幅度。拟行手术不得写成已实施。全文禁止表格。
+      3) 出件：notes 齐套后，本会话尚未出现 medical-report-writing 的 skill_content 时，先 skill(medical-report-writing)，等返回后再同轮并行七次 fill_report（每次 chapter+text 只写一章，建议1000–2200字，治疗和因果可到2800）。不要跳过该 skill，不要与 fill_report 同轮并行加载它。各章句式、节标题、固定开篇句以该 skill 全文为准，禁止把双花括号占位原文写入正文。规定标题：一、患者诊疗过程概要；二、病历合规性分析；三、诊断依据审查分析；四、治疗合理性分析；五、知情同意审查结果；六、损害后果；七、因果关系及原因力初判。禁止自拟小结、入院诊断、原因力分析、but-for检验、待补项。全文禁止 Markdown 表格。引用【医院名称，文书类型，第N页】。诊疗概要中，检验数值引检验报告，影像和病理引影像或病理报告，用药和监护引医嘱，护理观察引护理记录，病情首次变化引第一次出现的病程页；出院记录只引出院时间、出院诊断和出院医嘱，死亡记录只引死亡时间和死亡诊断。页码必须与 catalog 一致，该页原文没有的事实不要写。缺章或缺节并行补写。第三/四章必须引用适用于本案的《指南/教科书》；fill_report 若检测到评残国标、缺少 appendix_guidelines、自拟小节或原因力未按自身疾病因素与医院整体过错书写，会要求重写并禁止 export。七章且小节齐、next 明确可 export 后先 export_md_to_word，再 present md 与 docx。不要用 convert_file 转这份报告。陈述书仅用户点名才 fill_statement。
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+# ── 应然诊疗（临床知识库 + 谷歌补检索 + gemini-3.8-flash）────────────────
+- id: tool-clinical-standard
+  name: ./clinical-standard.mjs
+  config:
+    baseUrl: https://api.openai-proxy.org
+    model: gemini-3.8-flash
+    weknoraUrl: http://127.0.0.1:8090
+    clinicalKbId: 88041718-0446-45e4-9135-a06009ebc011
+
+# ── 领域知识库检索（临床指南走 weknora_clinical；伤残/方法/法律走其余）──
+- id: tool-weknora-search
+  name: ./weknora-search.mjs
+  config:
+    baseUrl: http://127.0.0.1:8090
+    kbId: 79ef9376-7c09-484d-a5ed-430a677db06e
+    methodKbId: fb178baf-5dac-4309-944a-71be05ac8d48
+    caseKbId: 8682179f-7bb2-4967-89c0-80f708e6d2b7
+    lawKbId: 2b3aacfd-abc9-45ad-9c63-9f93124a2dd6
+    clinicalKbId: 88041718-0446-45e4-9135-a06009ebc011
+    matchCount: 6
+    maxCharsPerChunk: 1200
+
+# 挡住整本 convert / inspect，避免模型绕开 parse_records
+- id: tool-restrict
+  name: ./restrict-tools.mjs
+
+# 按工具自动勾任务，并把思考过程存到 reports/review/
+- id: tool-progress-sync
+  name: ./progress-sync.mjs
+
+# 扫描件病历：简单页 qwen3.5-flash，复杂页 gemini-3.1-flash-lite-image；硬顶 32，过高易触发 CloseAI 超时/SSL 中断
+- id: tool-parse-records
+  name: ../record-parse/parse-records.mjs
+  config:
+    model: qwen3.5-flash
+    visionModel: gemini-3.1-flash-lite-image
+    baseUrl: https://api.openai-proxy.org/v1
+    apiConcurrency: '24'
+
+# 按七章结构生成 reports/病历分析报告.md
+- id: tool-fill-report
+  name: ./fill-report.mjs
+
+# 可选：陈述意见书（默认不调用）
+- id: tool-fill-statement
+  name: ./fill-statement.mjs
+
+# ── shell ───────────────────────────────────────────────────────────────────
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── background jobs ────────────────────────────────────────────────────────
+
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+# ── skills ──────────────────────────────────────────────────────────────────
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    bundledSkillDir: E:/A/package/medical-review/.agents/skills
+    includeDefaultRoots: false
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+  config:
+    catalogDescriptionMaxLength: 280
+
+# ── goals ───────────────────────────────────────────────────────────────────
+
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+# ── plan mode ───────────────────────────────────────────────────────────────
+
+- id: planning
+  name: cordis:group
+  group: true
+  isolate:
+    planMode: true
+  config:
+    - id: plan-mode
+      name: '@deepseek-ai/dsh-plan-mode'
+      config:
+        section: |
+              You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode.
+
+              If the user asks to 进行医疗损害鉴定、基于病历鉴定、规划鉴定步骤或出具病历分析报告，this is an appraisal work plan, not a software implementation plan. The first tool call must be skill loading medical-appraisal-plan. Then inspect case materials read-only (catalog/timeline/meta if present). The plan must use parallel waves: parse_records starts OCR in the background and returns immediately so the conversation stays open; after the job-done notice, read catalog/timeline/meta; query key record pages (orders, operative notes, consents, risk scores, rescue); then review+fault+damage+disease-routing skills together; load at most one specialty skill if the diagnosis matches; searches batched in one turn with weknora_clinical (clinical knowledge base) plus expected_care_plan carrying hospital_level, procedures and contraindications; write notes.md with scope/contraindication/itemized fault before any fill_report; load medical-report-writing once, then seven parallel fill_report calls (one chapter each) following that skill. Do not schedule loading every disease skill or a single seven-chapter fill_report. Clinical care standards use weknora_clinical and expected_care_plan (local clinical KB first, Google only if local hits are thin; textbook > guideline > consensus; verify the guideline applies to this procedure). Do not use weknora_search for clinical guidelines. Disability/record-writing standards may still use weknora_search.
+
+              Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+              Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+              The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+              Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+              Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+              When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+
+# ── compaction ──────────────────────────────────────────────────────────────
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+# ── delegation and workflows ────────────────────────────────────────────────
+
+- id: delegation
+  name: cordis:group
+  group: true
+  isolate:
+    workflowEngine: true
+  config:
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+
+    - id: tool-subagent-list-agents
+      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: spawn
+        toolName: subagent
+        modelSelectionSettings: true
+        backgroundMode: continuable
+
+    - id: tool-subagent-fork
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: fork
+        toolName: subagent_fork
+        backgroundMode: continuable
+
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: codex
+        toolName: subagent_codex
+        backgroundMode: one-shot
+        maxDepth: provider-managed
+
+    - id: tool-subagent-claude-code
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: claude-code
+        toolName: subagent_claude_code
+        backgroundMode: one-shot
+        maxDepth: provider-managed
+
+    - id: workflow-worker-thread
+      name: '@deepseek-ai/dsh-workflow-worker-thread'
+      config:
+        provider: spawn
+
+    - id: tool-workflow
+      name: '@deepseek-ai/dsh-tool-workflow'
+
+    - id: tool-ralph
+      name: '@deepseek-ai/dsh-tool-ralph'
+      disabled: true
+      config:
+        subagentProvider: spawn
+        maxRounds: 64
+
+# ── remaining model-facing rows ─────────────────────────────────────────────
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: true
+    searchTimeoutMs: 60000
+
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'

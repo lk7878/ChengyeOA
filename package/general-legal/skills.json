@@ -1,0 +1,58 @@
+[
+  {
+    "id": "legal-research",
+    "label": "法律检索",
+    "source": "legal-skills/skills/legal/法规案例检索",
+    "commit": "5e39b9c30cc66ece89ff64cdafbeddde80c6b507",
+    "license": "MIT"
+  },
+  {
+    "id": "contract-review",
+    "label": "合同审查",
+    "source": "legal-skills/skills/legal/合同审查",
+    "commit": "5e39b9c30cc66ece89ff64cdafbeddde80c6b507",
+    "license": "MIT"
+  },
+  {
+    "id": "defense-preparation",
+    "label": "应诉准备",
+    "source": "legal-skills/skills/legal/庭前准备",
+    "commit": "5e39b9c30cc66ece89ff64cdafbeddde80c6b507",
+    "license": "MIT"
+  },
+  {
+    "id": "jurisdiction-analysis",
+    "label": "管辖分析",
+    "source": "legal-skills/skills/legal/立案管理",
+    "commit": "5e39b9c30cc66ece89ff64cdafbeddde80c6b507",
+    "license": "MIT"
+  },
+  {
+    "id": "evidence-organization",
+    "label": "证据整理",
+    "source": "legal-skills/skills/legal/调查取证与证据管理",
+    "commit": "5e39b9c30cc66ece89ff64cdafbeddde80c6b507",
+    "license": "MIT"
+  },
+  {
+    "id": "document-drafting",
+    "label": "法律文书起草",
+    "source": "legal-skills/skills/legal/诉讼文书起草",
+    "commit": "5e39b9c30cc66ece89ff64cdafbeddde80c6b507",
+    "license": "MIT"
+  },
+  {
+    "id": "document-review",
+    "label": "文书复核",
+    "source": "legal-skills/skills/legal/法律文书出稿前审查",
+    "commit": "5e39b9c30cc66ece89ff64cdafbeddde80c6b507",
+    "license": "MIT"
+  },
+  {
+    "id": "fact-timeline",
+    "label": "事实与时间线整理",
+    "source": "claude-for-legal/litigation-legal/skills/chronology",
+    "commit": "4a6c651889c97cc9140580363c73e0eb17379c2b",
+    "license": "Apache-2.0"
+  }
+]

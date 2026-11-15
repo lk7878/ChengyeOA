@@ -1,0 +1,53 @@
+import type { Context } from '@deepseek-ai/cordis';
+import z from '@deepseek-ai/schemastery';
+import { parseTimeRange, approximateTimeRange } from './engines/index.js';
+export { parseTimeRange, approximateTimeRange };
+export { FREE_SEARCH_NS, ALL_ENGINES, FREE_ENGINES } from './constants.js';
+export type { EngineId, EngineTestFn } from './constants.js';
+export declare const name = "web-search-free";
+export declare const inject: string[];
+interface PluginConfig {
+    provider?: string;
+    cache?: boolean;
+    cacheTtl?: number;
+    lang?: string;
+    region?: string;
+    bingMarket?: string;
+    searxngInstances?: string[];
+    platforms?: string[];
+    exaApiKey?: string;
+    tavilyApiKey?: string;
+    keenableApiKey?: string;
+    perplexityApiKey?: string;
+    deepseekApiKey?: string;
+}
+export declare const Config: z<Schemastery.ObjectS<{
+    provider: z<string, string>;
+    cache: z<boolean, boolean>;
+    cacheTtl: z<number, number>;
+    lang: z<string, string>;
+    region: z<string, string>;
+    bingMarket: z<string, string>;
+    searxngInstances: z<string[], string[]>;
+    platforms: z<string[], string[]>;
+    exaApiKey: z<string, string>;
+    tavilyApiKey: z<string, string>;
+    keenableApiKey: z<string, string>;
+    perplexityApiKey: z<string, string>;
+    deepseekApiKey: z<string, string>;
+}>, Schemastery.ObjectT<{
+    provider: z<string, string>;
+    cache: z<boolean, boolean>;
+    cacheTtl: z<number, number>;
+    lang: z<string, string>;
+    region: z<string, string>;
+    bingMarket: z<string, string>;
+    searxngInstances: z<string[], string[]>;
+    platforms: z<string[], string[]>;
+    exaApiKey: z<string, string>;
+    tavilyApiKey: z<string, string>;
+    keenableApiKey: z<string, string>;
+    perplexityApiKey: z<string, string>;
+    deepseekApiKey: z<string, string>;
+}>>;
+export declare function apply(ctx: Context, config?: PluginConfig): void;

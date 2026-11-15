@@ -1,0 +1,2 @@
+import type { SearchResult } from './common.js';
+export declare function searchDeepSeekOfficial(query: string, maxResults: number, apiKey: string, signal?: AbortSignal): Promise<SearchResult>;

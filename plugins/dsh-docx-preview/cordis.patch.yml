@@ -1,0 +1,4 @@
+# 挂到 web 组合：宿主半侧空 apply；浏览器半侧注册 docx 预览器。
+- insert:
+    - id: dsh-docx-preview
+      name: dsh-docx-preview

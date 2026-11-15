@@ -1,0 +1,145 @@
+[
+  {
+    "source_id": "S01",
+    "project": "2022SFJD 011",
+    "relative_original": "参考答案2022\\道路交通事故信号灯指示状态鉴定.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\参考答案2022\\道路交通事故信号灯指示状态鉴定.pdf",
+    "copy": "references/sources/参考答案2022/道路交通事故信号灯指示状态鉴定.pdf",
+    "pages": 7,
+    "sha256": "7e6293b98c1eff9db1220c23e61428218c77bfcc4f2797178d6b94fd5494d838",
+    "text_copy": "references/source-text/01.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  },
+  {
+    "source_id": "S02",
+    "project": "2022SFJD 010",
+    "relative_original": "参考答案2022\\道路交通事故车辆速度鉴定（EDR）.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\参考答案2022\\道路交通事故车辆速度鉴定（EDR）.pdf",
+    "copy": "references/sources/参考答案2022/道路交通事故车辆速度鉴定（EDR）.pdf",
+    "pages": 9,
+    "sha256": "03c648cbd28b63439d0584c925d5aa85bf6e77b23a3c89639926a470e52a4ee3",
+    "text_copy": "references/source-text/02.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  },
+  {
+    "source_id": "S03",
+    "project": "2025 AFS-33",
+    "relative_original": "参考答案2025\\道路交通事故交通行为方式鉴定.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\参考答案2025\\道路交通事故交通行为方式鉴定.pdf",
+    "copy": "references/sources/参考答案2025/道路交通事故交通行为方式鉴定.pdf",
+    "pages": 12,
+    "sha256": "3beea40946b2b954f33f2ea3110c0f694081858c596caf9f33caeb37c3eb6d82",
+    "text_copy": "references/source-text/03.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  },
+  {
+    "source_id": "S04",
+    "project": "2025 AFS-32",
+    "relative_original": "参考答案2025\\道路交通事故痕迹鉴定.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\参考答案2025\\道路交通事故痕迹鉴定.pdf",
+    "copy": "references/sources/参考答案2025/道路交通事故痕迹鉴定.pdf",
+    "pages": 2,
+    "sha256": "8812bd7fedfd0d60083db66291c97897a345e2477c706c60aeb7df6032ddf117",
+    "text_copy": "references/source-text/04.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  },
+  {
+    "source_id": "S05",
+    "project": "2025 AFS-31",
+    "relative_original": "参考答案2025\\道路交通事故车辆速度鉴定（EDR）.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\参考答案2025\\道路交通事故车辆速度鉴定（EDR）.pdf",
+    "copy": "references/sources/参考答案2025/道路交通事故车辆速度鉴定（EDR）.pdf",
+    "pages": 4,
+    "sha256": "b26bf6e48e92cd3a73bfe91febbd3e2d88d6e51972fb7b4b66eaa43502e4c55e",
+    "text_copy": "references/source-text/05.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  },
+  {
+    "source_id": "S06",
+    "project": "2025 AFS-30",
+    "relative_original": "参考答案2025\\道路交通事故车辆速度鉴定（力学及视频）.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\参考答案2025\\道路交通事故车辆速度鉴定（力学及视频）.pdf",
+    "copy": "references/sources/参考答案2025/道路交通事故车辆速度鉴定（力学及视频）.pdf",
+    "pages": 5,
+    "sha256": "1387f7558664fb10f19e29819efb38868d6729afda4153d78eb24f66e75f5d08",
+    "text_copy": "references/source-text/06.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  },
+  {
+    "source_id": "S07",
+    "project": "2023 AFS-29",
+    "relative_original": "标准答案2023\\交通行为方式.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\标准答案2023\\交通行为方式.pdf",
+    "copy": "references/sources/标准答案2023/交通行为方式.pdf",
+    "pages": 2,
+    "sha256": "0a2a09f327aff180f7b1e1f16711a9b1e0cdc0aca258afd73e911b23306114ff",
+    "text_copy": "references/source-text/07.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  },
+  {
+    "source_id": "S08",
+    "project": "2023 AFS-28",
+    "relative_original": "标准答案2023\\痕迹.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\标准答案2023\\痕迹.pdf",
+    "copy": "references/sources/标准答案2023/痕迹.pdf",
+    "pages": 2,
+    "sha256": "26d03aa9c31b2d5814f5d2b3d943be3a2a3ec1934b81000775ac44ff157a785f",
+    "text_copy": "references/source-text/08.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  },
+  {
+    "source_id": "S09",
+    "project": "2023 AFS-26",
+    "relative_original": "标准答案2023\\车速（力学及视频）.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\标准答案2023\\车速（力学及视频）.pdf",
+    "copy": "references/sources/标准答案2023/车速（力学及视频）.pdf",
+    "pages": 8,
+    "sha256": "2f60363a536b9fe7e7ceab3801ed12ee274bfc02074aee3dfa1a84dad21c82e2",
+    "text_copy": "references/source-text/09.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  },
+  {
+    "source_id": "S10",
+    "project": "2024 AFS-32",
+    "relative_original": "答案2024\\道路交通事故信号灯指示状态鉴定.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\答案2024\\道路交通事故信号灯指示状态鉴定.pdf",
+    "copy": "references/sources/答案2024/道路交通事故信号灯指示状态鉴定.pdf",
+    "pages": 6,
+    "sha256": "cb3b5a540076fcd43c53ef6a653afdaafcf6c8136169221ff947fdd43e285b14",
+    "text_copy": "references/source-text/10.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  },
+  {
+    "source_id": "S11",
+    "project": "2024 AFS-31",
+    "relative_original": "答案2024\\道路交通事故痕迹鉴定.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\答案2024\\道路交通事故痕迹鉴定.pdf",
+    "copy": "references/sources/答案2024/道路交通事故痕迹鉴定.pdf",
+    "pages": 1,
+    "sha256": "91eb9fc5e52ec8a43a68eb9eeaf670e58602ce03c7899f7faf0ac56eb102ffaf",
+    "text_copy": "references/source-text/11.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  },
+  {
+    "source_id": "S12",
+    "project": "2024 AFS-30",
+    "relative_original": "答案2024\\道路交通事故车辆速度鉴定（EDR）.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\答案2024\\道路交通事故车辆速度鉴定（EDR）.pdf",
+    "copy": "references/sources/答案2024/道路交通事故车辆速度鉴定（EDR）.pdf",
+    "pages": 5,
+    "sha256": "1d4adf4fccdab5da64f2dc23395f0ae2c68c5d545624ba66b68492b39a20462f",
+    "text_copy": "references/source-text/12.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  },
+  {
+    "source_id": "S13",
+    "project": "2024 AFS-29",
+    "relative_original": "答案2024\\道路交通事故车辆速度鉴定（力学及视频）.pdf",
+    "original_path": "E:\\医学教科书\\交通事故\\标准\\标准答案\\答案2024\\道路交通事故车辆速度鉴定（力学及视频）.pdf",
+    "copy": "references/sources/答案2024/道路交通事故车辆速度鉴定（力学及视频）.pdf",
+    "pages": 7,
+    "sha256": "90d44b1d33646ad3ab6a5da210c6501431bb0fd977e29d59a16162e0fe82a864",
+    "text_copy": "references/source-text/13.txt",
+    "reading_note": "正文全量检索；部分关键公式、图示、矛盾段落已目视复核，非全部图中数据已独立验证"
+  }
+]

@@ -1,0 +1,38 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {mkdtemp,rm,writeFile,mkdir} from 'node:fs/promises'
+import path from 'node:path'
+import {tmpdir} from 'node:os'
+import {KnowledgePublication} from '../src/knowledge-publication.js'
+test('pending, rejected and indexing knowledge never reaches retrieval; ACL and withdrawal rechecked',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'oa-kb-test-'));const seen=[]
+ const service=new KnowledgePublication(dir,{nativeApi:async(route,options)=>{seen.push(options?.body);return {data:[{knowledge_id:'ready',content:'published'},{knowledge_id:'pending',content:'private'},{knowledge_id:'rejected',content:'private'}]}}})
+ try{service.acl.update(data=>{data.kb={name:'脱敏测试库',readers:['reader'],reviewers:['reviewer']}})
+ service.store.update(data=>{for(const [id,status]of [['ready','PUBLISHED'],['pending','INDEXING'],['rejected','REJECTED']])data[id]={id,kbId:'kb',owner:'author',nativeId:id,status}})
+ const result=await service.search('kb','reader',[],'test');assert.deepEqual(result.data.map(v=>v.content),['published']);assert.deepEqual(seen[0].knowledge_ids,['ready']);
+ await assert.rejects(service.search('kb','other',[],'test'));assert.throws(()=>service.withdraw('ready',{id:'reviewer',permissions:[]}));
+ service.withdraw('ready',{id:'reviewer',permissions:['knowledge.review']});assert.deepEqual((await service.search('kb','reader',[],'test')).data,[])
+ assert.equal(service.list({id:'reader',permissions:[]}).length,0);assert.equal(service.list({id:'reviewer',permissions:['knowledge.review']}).length,3)
+ }finally{await rm(dir,{recursive:true,force:true})}
+})
+test('review requires all checks and failed native import never claims published',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'oa-kb-test-'));const service=new KnowledgePublication(dir,{nativeApi:async()=>{throw Error('native unavailable')}})
+ try{service.acl.update(data=>{data.kb={reviewers:['reviewer'],readers:[]}});service.store.update(data=>{data.s={id:'s',kbId:'kb',owner:'author',status:'PENDING',source:{name:'sample.txt'}}});
+ const actor={id:'reviewer',permissions:['knowledge.review']};assert.throws(()=>service.review('s',actor,{decision:'approve',checks:{source:true}}));
+ service.review('s',actor,{decision:'approve',checks:{source:true,quality:true,duplicates:true,privacy:true}});await assert.rejects(service.publish('s',actor));assert.equal(service.store.read().s.status,'APPROVED');
+ }finally{await rm(dir,{recursive:true,force:true})}
+})
+test('reindexing supersedes an older successful completion and ACL revocation blocks in-flight search',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'oa-kb-race-'));let finish;
+ const service=new KnowledgePublication(dir,{nativeApi:()=>new Promise(resolve=>{finish=resolve})});
+ try{service.acl.update(data=>{data.kb={readers:['reader'],reviewers:['reviewer']}});service.store.update(data=>{data.s={id:'s',kbId:'kb',nativeId:'native',status:'INDEXING',revision:0}});
+ const pending=service.publish('s',{id:'reviewer',permissions:['knowledge.review']});service.store.update(data=>{data.s.revision=1});finish({data:{parse_status:'completed'}});assert.equal((await pending).status,'INDEXING');
+ service.store.update(data=>{data.s.status='PUBLISHED'});const search=service.search('kb','reader',[],'test');service.acl.update(data=>{data.kb.readers=[]});finish({data:[{knowledge_id:'native',content:'restricted'}]});await assert.rejects(search)
+ }finally{await rm(dir,{recursive:true,force:true})}
+})
+test('native duplicate imports reuse only byte-identical content in the same library',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'oa-kb-duplicate-'));const content='synthetic duplicate';const{createHash}=await import('node:crypto');const hash=createHash('sha256').update(content).digest('hex');
+ const service=new KnowledgePublication(dir,{nativeApi:async(route,options)=>{if(route.endsWith('/download'))return new Response(content);if(route.endsWith('/knowledge/file'))return {code:'duplicate_file',data:{id:'existing',knowledge_base_id:'kb'}};if(route==='/knowledge/existing')return {data:{parse_status:'completed'}};return {data:[]}}});
+ try{await mkdir(path.join(dir,'submission-files'));await writeFile(path.join(dir,'submission-files','s'),content);service.acl.update(data=>{data.kb={reviewers:['reviewer']}});service.store.update(data=>{data.s={id:'s',kbId:'kb',status:'APPROVED',source:{name:'sample.txt',sha256:hash}}});assert.equal((await service.publish('s',{id:'reviewer',permissions:['knowledge.review']})).nativeId,'existing');assert.equal(service.store.read().s.status,'PUBLISHED')
+ }finally{await rm(dir,{recursive:true,force:true})}
+})

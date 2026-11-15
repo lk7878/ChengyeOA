@@ -1,0 +1,80 @@
+.wb-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.wb-tag__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.wb-tag--neutral {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+.wb-tag--business {
+  background: var(--dsw-alias-state-business-tertiary);
+  color: var(--dsw-alias-state-business-primary);
+}
+.wb-tag--success {
+  background: var(--dsw-alias-state-success-tertiary);
+  color: var(--dsw-alias-state-success-primary);
+}
+.wb-tag--warn {
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--dsw-alias-state-warn-label);
+}
+.wb-tag--error {
+  background: var(--dsw-static-red-100);
+  color: var(--dsw-alias-state-error-primary);
+}
+.wb-tag--info {
+  background: var(--dsw-static-deepseek-50);
+  color: var(--dsw-alias-link);
+}
+
+.wb-stageSelect {
+  position: relative;
+  padding-right: 22px;
+  cursor: pointer;
+}
+.wb-stageSelect select {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  max-width: 7.5em;
+}
+.wb-stageSelect select:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+.wb-stageSelect::after {
+  content: '';
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4px solid currentColor;
+  transform: translateY(-30%);
+  pointer-events: none;
+  opacity: 0.7;
+}

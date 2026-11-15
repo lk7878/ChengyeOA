@@ -1,0 +1,18 @@
+{
+  "name": "case-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "百佑智业鉴定助手 - 案件管理后端：案件 CRUD + 材料上传 + harness 会话桥接",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.4.3",
+    "@fastify/multipart": "^9.4.0",
+    "fastify": "^5.12.8",
+    "mammoth": "^1.12.3",
+    "marked": "^18.0.13"
+  }
+}

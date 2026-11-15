@@ -1,0 +1,29 @@
+# 云上 Caddy：只暴露 80/443。回源到本机 frps 映射的本地端口。
+# 助手与知识库必须用子域名：二者都占用 /api，不能和同源 /api 工作台挤在一起。
+#
+# 替换 {$DOMAIN}（默认可用 sslip.io）。生产请绑自己的域名。
+# 环境变量：DOMAIN=app.example.com  caddy run --config /etc/caddy/Caddyfile
+
+{
+	email {$CADDY_EMAIL:admin@localhost}
+}
+
+{$DOMAIN:162-14-78-238.sslip.io} {
+	encode gzip
+	handle /api/* {
+		reverse_proxy 127.0.0.1:15181
+	}
+	handle {
+		reverse_proxy 127.0.0.1:15180
+	}
+}
+
+ai.{$DOMAIN:162-14-78-238.sslip.io} {
+	encode gzip
+	reverse_proxy 127.0.0.1:13081
+}
+
+kb.{$DOMAIN:162-14-78-238.sslip.io} {
+	encode gzip
+	reverse_proxy 127.0.0.1:18090
+}

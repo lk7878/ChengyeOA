@@ -1,0 +1,10 @@
+/** Initialize only integration settings and explicit super-admin library ACLs. */
+import {createRequire} from 'node:module'
+import {readFile,writeFile,chmod} from 'node:fs/promises'
+import path from 'node:path'
+const root=process.cwd(),oaRoot=process.env.OA_BUSINESS_ROOT,require=createRequire(oaRoot+'/apps/server/package.json'),dotenv=require('dotenv'),envPath=oaRoot+'/apps/server/.env',env=dotenv.parse(await readFile(envPath)),service=dotenv.parse(await readFile(root+'/data/integration/service.env'))
+if(new URL(env.DATABASE_URL).pathname.endsWith('_test'))throw Error('Production OA database expected')
+if(!service.SMART_CASE_CLIENT_SECRET||service.SMART_CASE_CLIENT_SECRET.length<32)throw Error('Private integration secret required')
+let text=await readFile(envPath,'utf8');for(const key of ['SMART_CASE_CLIENT_SECRET','SMART_CASE_PUBLIC_URL']){text=text.replace(new RegExp('^'+key+'=.*\\n?','gm'),'');text+='\n'+key+'='+service[key]+'\n'}await writeFile(envPath,text,{mode:0o600});await chmod(envPath,0o600)
+const {PrismaClient}=require('@prisma/client'),db=new PrismaClient({datasources:{db:{url:env.DATABASE_URL}}})
+try{const now=new Date(),admins=await db.user.findMany({where:{status:'ENABLED',userRoles:{some:{revokedAt:null,validFrom:{lte:now},OR:[{validUntil:null},{validUntil:{gt:now}}],role:{code:'SYSTEM_SUPER_ADMIN',status:'ENABLED'}}}},select:{id:true}});if(!admins.length)throw Error('No enabled super administrator');const aclPath=root+'/data/integration/knowledge-acl.json',acl=JSON.parse(await readFile(aclPath));let initialized=0;for(const lib of Object.values(acl))if(!lib.initializedAt){lib.reviewers=[...new Set([...(lib.reviewers||[]),...admins.map(u=>u.id)])];lib.readers||=[];lib.initializedAt=now.toISOString();lib.initialization='Existing OA system super administrators only';initialized++}await writeFile(aclPath,JSON.stringify(acl,null,2),{mode:0o600});console.log(JSON.stringify({configured:true,initializedLibraries:initialized,adminCount:admins.length}))}finally{await db.$disconnect()}

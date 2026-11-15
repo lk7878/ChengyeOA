@@ -1,0 +1,213 @@
+# The `traffic-accident` agent preset: 道路交通事故鉴定助手。
+#
+# AGENT-PLANE composition. The roster mounts it ONCE under a standing scope.
+# A service row here MUST sit inside a group carrying an `isolate` realm.
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    suffix: Your working directory is {{cwd}}（即当前案件目录）。案件材料在 `materials/` 子目录，咨询意见和审核意见写到 `reports/` 子目录。
+    prefix: >-
+      你是「百佑智业·交通事故鉴定助手」，由 {{model}} 模型驱动，专注于道路交通事故痕迹、车速、事故重建、车辆安全技术、信号灯、交通设施、车辆火灾和交通行为方式鉴定。
+      【模型协同】主会话默认 closeai/qwen3.8-flash。简单问答切 deepseek-v4.1-flash；对照条款、写咨询意见用 qwen3.7-plus 或 qwen3.8-flash；多方法竞合、视频测速、重建与责任边界用 glm-5.3 / gemini-3.8-flash / deepseek-v4-pro-0813（/model 或 subagent）。扫描件用 parse_records，不要整本 convert_file ocr。
+      工作目录就是当前案件目录。材料在 materials/，产出在 reports/。
+      按用户请求分四类，先判断再动手：
+      1) 问条款或方法：先加载一次 skill「traffic-appraisal-plan」。按其中的对照表选定一部主标准，再只加载那一个专项技能，由该技能 weknora_search。选定前不要检索。对话里给意见并标注【出处：《标准名》条款号】。这不是出件。
+      2) 出咨询意见：计划已加载后，再加载「traffic-report-writing」。文书叫「交通事故鉴定咨询意见」，告诉用户这不是司法鉴定意见书，也不替代事故责任认定。能力验证参考答案只作写法范例，不代替主标准，不抄其中的数值和结论。现场图、视频帧和痕迹照片单独成段插入，一段一张，图题写在图片标记里；不要嵌进句子。用户要 Word 时用 export_md_to_word，不要用 convert_file。
+      3) 审核已有鉴定书：加载 skill「traffic-report-review」。一份意见书一份审核意见。没指定审哪一份时先问。不要同时另写咨询意见。
+      4) 案情对话：扫描 PDF/图片先 parse_records；可复制文本的 PDF 才 convert_file。委托事项或检材不足以选定主标准时，用 ask_user，不要下结论。
+      一次只加载一个技术专项。车速、痕迹、图像重建、信号灯、设施、火灾、行为方式不得混成一个结论。页面图片、英文摘要和乱码不能当条款。没有检索到的可读条款不得引用。没有原始数据和命中公式不得计算速度。行为方式不得写成责任比例。
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+# ── 领域知识库检索（WeKnora「标准规范库」）──────────────────────────────────
+
+- id: tool-weknora-search
+  name: ./weknora-search.mjs
+  config:
+    baseUrl: http://127.0.0.1:8090
+    kbId: 79ef9376-7c09-484d-a5ed-430a677db06e
+    matchCount: 8
+    maxCharsPerChunk: 2400
+
+- id: tool-parse-records
+  name: ../record-parse/parse-records.mjs
+  config:
+    model: qwen3.5-flash
+    visionModel: gemini-3.1-flash-lite-image
+    baseUrl: https://api.openai-proxy.org/v1
+    apiConcurrency: '24'
+
+# ── shell ───────────────────────────────────────────────────────────────────
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── background jobs ────────────────────────────────────────────────────────
+
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+# ── skills ──────────────────────────────────────────────────────────────────
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    bundledSkillDir: E:/A/package/traffic-accident/.agents/skills
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+# ── goals ───────────────────────────────────────────────────────────────────
+
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+# ── plan mode ───────────────────────────────────────────────────────────────
+
+- id: planning
+  name: cordis:group
+  group: true
+  isolate:
+    planMode: true
+  config:
+    - id: plan-mode
+      name: '@deepseek-ai/dsh-plan-mode'
+      config:
+        section: |
+              You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+              Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+              The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+              Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+              Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+              When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+
+# ── compaction ──────────────────────────────────────────────────────────────
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+# ── delegation and workflows ────────────────────────────────────────────────
+
+- id: delegation
+  name: cordis:group
+  group: true
+  isolate:
+    workflowEngine: true
+  config:
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+
+    - id: tool-subagent-list-agents
+      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: subagent
+        modelSelectionSettings: true
+        backgroundMode: continuable
+
+    - id: tool-subagent-fork
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: fork
+        toolName: subagent_fork
+        backgroundMode: continuable
+
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: codex
+        toolName: subagent_codex
+        backgroundMode: one-shot
+        maxDepth: provider-managed
+
+    - id: tool-subagent-claude-code
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: claude-code
+        toolName: subagent_claude_code
+        backgroundMode: one-shot
+        maxDepth: provider-managed
+
+    - id: workflow-worker-thread
+      name: '@deepseek-ai/dsh-workflow-worker-thread'
+      config:
+        provider: spawn
+
+    - id: tool-workflow
+      name: '@deepseek-ai/dsh-tool-workflow'
+
+    - id: tool-ralph
+      name: '@deepseek-ai/dsh-tool-ralph'
+      config:
+        subagentProvider: spawn
+        maxRounds: 64
+
+# ── remaining model-facing rows ─────────────────────────────────────────────
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: true
+    searchTimeoutMs: 60000
+
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'

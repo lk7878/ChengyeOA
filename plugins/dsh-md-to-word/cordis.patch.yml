@@ -1,0 +1,9 @@
+- insert:
+    - id: dsh-md-to-word
+      name: dsh-md-to-word
+      config:
+        pythonPath: python
+        outputRoots:
+          - E:/A/cases
+          - E:/A/data
+          - E:/A/reports

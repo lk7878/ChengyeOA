@@ -1,0 +1,42 @@
+{
+	default_sni 162.14.78.238
+}
+
+https://162.14.78.238:10443 {
+	tls internal
+	encode gzip
+	handle /api/* {
+		reverse_proxy 127.0.0.1:15181 {
+			header_up Host {host}
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+	handle {
+		reverse_proxy 127.0.0.1:15180 {
+			header_up Host {host}
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+}
+
+https://162.14.78.238:11443 {
+	tls internal
+	encode gzip
+	reverse_proxy 127.0.0.1:13081 {
+		header_up Host {host}
+		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
+
+https://162.14.78.238:12443 {
+	tls internal
+	encode gzip
+	reverse_proxy 127.0.0.1:18090 {
+		header_up Host {host}
+		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+}

@@ -1,0 +1,32 @@
+{
+  "name": "dsh-md-to-word",
+  "version": "1.0.0",
+  "private": true,
+  "description": "将 Markdown 转为公文排版 Word（.docx）。医疗报告默认导出 reports/病历分析报告.docx。",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "export_cli.py",
+    "requirements.txt",
+    "cordis.patch.yml",
+    "mdtoword",
+    "report_exporter.py"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.2"
+  }
+}

@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install office tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-writer libreoffice-calc libreoffice-impress ghostscript
+          pip3 install pdf2docx
+
+      - name: Install ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y ffmpeg
+
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Smoke test
+        run: npm run smoke
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Pack and inspect the tarball
+        run: |
+          npm pack
+          tar -tzf dsh-file-convert-*.tgz | grep -E "node_modules|\.map$" && exit 1 || true
+          tar -tzf dsh-file-convert-*.tgz | grep -q "cordis.patch.yml"
+          tar -tzf dsh-file-convert-*.tgz | grep -q "lib/index.js"
+      - name: Install the tarball into a fresh project and run a conversion
+        run: |
+          mkdir -p /tmp/pkg-test
+          cd /tmp/pkg-test
+          npm init -y >/dev/null
+          npm install "$GITHUB_WORKSPACE/dsh-file-convert-"*.tgz
+          node --input-type=module -e "
+            import('dsh-file-convert').then(async (m) => {
+              const fs = await import('node:fs/promises')
+              const path = await import('node:path')
+              const os = await import('node:os')
+              const router = m.createRouter()
+              const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pkg-'))
+              const input = path.join(dir, 'a.json')
+              await fs.writeFile(input, '[1,2,3]', 'utf8')
+              const r = await router.convertFile({ input, outputFormat: 'yaml', output: path.join(dir, 'a.yaml') }, { logger: { debug(){}, info(){}, warn(){}, error(){} } })
+              if (!r.ok) throw new Error(r.error.code + ': ' + r.error.message)
+              console.log('packed-package conversion OK')
+            }).catch((e) => { console.error(e); process.exit(1) })
+          "
