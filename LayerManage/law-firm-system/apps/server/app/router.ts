@@ -108,14 +108,29 @@ export default (app: Application) => {
   router.post('/api/v1/tables/:tableId/files', controller.collaboration.upload);
   router.get('/api/v1/tables/:tableId/files/:fileId', controller.collaboration.download);
 
-  router.post('/api/v1/intelligence/knowledge', controller.intelligence.knowledge);
-  router.post('/api/v1/intelligence/desktop-knowledge', controller.intelligence.desktopKnowledge);
-  router.post('/api/v1/intelligence/case', controller.intelligence.caseOperation);
-  router.post('/api/v1/intelligence/events', controller.intelligence.events);
 
   // 健康检查
   router.get('/api/v1/tables/:tableId/medical-customers',controller.collaboration.medicalCustomers);
   router.post('/api/v1/tables/:tableId/medical-customer',controller.collaboration.medicalCustomer);
+  router.post('/api/v1/personal-files/uploads',controller.personalFile.begin);
+  router.get('/api/v1/personal-files/uploads/:id',controller.personalFile.uploadStatus);
+  router.put('/api/v1/personal-files/uploads/:id/chunk',controller.personalFile.chunk);
+  router.post('/api/v1/personal-files/uploads/:id/complete',controller.personalFile.complete);
+  router.get('/api/v1/personal-files/:id/publication',controller.personalFile.publication);
+  router.put('/api/v1/personal-files/:id/publication',controller.personalFile.grantPublication);
+  router.get('/api/v1/personal-files/:id/versions',controller.personalFile.versions);
+  router.get('/api/v1/personal-files/:id/versions/:version/content',controller.personalFile.content);
+  router.get('/api/v1/all-personal-files',controller.personalFile.allFiles);
+  router.get('/api/v1/all-personal-files/:id/versions/:version/content',controller.personalFile.globalContent);
+  router.get('/api/v1/smart-case/config',controller.smartCase.entryConfig);
+  router.post('/api/v1/smart-case/launch',controller.smartCase.launch);
+  router.post('/api/v1/smart-case/exchange',controller.smartCase.exchange);
+  router.get('/api/v1/smart-case/directory',controller.smartCase.directory);
+  router.get('/api/v1/smart-case/me',controller.smartCase.me);
+  router.post('/api/v1/smart-case/logout',controller.smartCase.logout);
+  router.post('/api/v1/smart-case/archive',controller.smartCase.archive);
+  router.get('/api/v1/smart-case/cases',controller.smartCase.cases);
+  router.get('/api/v1/smart-case/cases/:id',controller.smartCase.caseDetail);
   router.get('/api/v1/personal-files',controller.personalFile.index);
   router.post('/api/v1/personal-files',controller.personalFile.create);
   router.get('/api/v1/personal-files/people',controller.personalFile.people);

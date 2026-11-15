@@ -1,8 +1,0 @@
-- id: product-knowledge-context
-  name: '@deepseek-ai/dsh-product-knowledge-context'
-  config:
-    bindings:
-      - role: primary
-        ref: replace-with-knowledge-base-alias
-        revision: latest
-        required: true

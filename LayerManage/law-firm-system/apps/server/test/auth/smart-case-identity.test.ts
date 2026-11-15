@@ -1,0 +1,23 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createHash,randomUUID} from 'node:crypto';
+import {createTestPrisma,clearTestApplicationData} from '../helpers/test-database';
+import {SmartCaseIdentity} from '../../app/application/smart-case/identity';
+import {AuthorizationContextLoader} from '../../app/application/authorization/authorization-context-loader';
+import {SessionAccessClaims} from '../../app/domain/security/token-service';
+const db=createTestPrisma();
+test.before(async()=>{await clearTestApplicationData(db);process.env.SMART_CASE_PUBLIC_URL='http://127.0.0.1:5180';process.env.SMART_CASE_CLIENT_SECRET='s'.repeat(48)});
+test.after(async()=>{await clearTestApplicationData(db);await db.$disconnect()});
+test('one-time PKCE exchange is atomic; OA logout, disable and role revocation invalidate existing subsystem sessions',async()=>{
+ const user=await db.user.create({data:{username:'sso-test',password:'unused',credentialVersion:1}});const role=await db.role.create({data:{name:'测试超级管理员',code:'SYSTEM_SUPER_ADMIN',type:'SYSTEM'}});await db.userRole.create({data:{userId:user.id,roleId:role.id}});
+ const session=await db.authSession.create({data:{userId:user.id,credentialVersion:1,assuranceLevel:'MFA',refreshTokenHash:randomUUID(),expiresAt:new Date(Date.now()+3600000)}});
+ const claims:SessionAccessClaims={userId:user.id,sessionId:session.id,credentialVersion:1,assuranceLevel:'MFA',tokenType:'access'},context=await new AuthorizationContextLoader(db).load(user.id),identity=new SmartCaseIdentity(db),verifier='v'.repeat(64),challenge=createHash('sha256').update(verifier).digest('hex');
+ const issue=await identity.issue(claims,context,challenge),code=new URL(issue.url).searchParams.get('code')!;
+ await assert.rejects(identity.exchange(code,process.env.SMART_CASE_CLIENT_SECRET!,'wrong'));
+ const responses=await Promise.allSettled([identity.exchange(code,process.env.SMART_CASE_CLIENT_SECRET!,verifier),identity.exchange(code,process.env.SMART_CASE_CLIENT_SECRET!,verifier)]);
+ assert.equal(responses.filter(r=>r.status==='fulfilled').length,1);const token=(responses.find(r=>r.status==='fulfilled') as PromiseFulfilledResult<{token:string}>).value.token;
+ assert.equal((await identity.authenticate(token)).userId,user.id);
+ await db.user.update({where:{id:user.id},data:{status:'DISABLED'}});await assert.rejects(identity.authenticate(token));await db.user.update({where:{id:user.id},data:{status:'ENABLED'}});
+ await db.userRole.updateMany({where:{userId:user.id},data:{revokedAt:new Date(),revokedByUserId:user.id,revokeReason:'integration test revocation'}});await assert.rejects(identity.authenticate(token));await db.userRole.updateMany({where:{userId:user.id},data:{revokedAt:null,revokedByUserId:null,revokeReason:null}});
+ await db.authSession.update({where:{id:session.id},data:{revokedAt:new Date()}});await assert.rejects(identity.authenticate(token));
+});

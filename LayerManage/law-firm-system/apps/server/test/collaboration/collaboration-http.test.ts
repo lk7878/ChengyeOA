@@ -1719,13 +1719,11 @@ test(
         'organization.read',
         'menu.security_roles',
         'role.read',
-        'menu.knowledge',
         'menu.smart_case',
       ]);
       const staffRole = await grant(editor, 'UNIFIED_STAFF', [
         'menu.lead_crm',
         'lead.read',
-        'menu.knowledge',
         'menu.smart_case',
       ]);
       const manager = await db.user.create({

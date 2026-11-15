@@ -24,7 +24,6 @@ import {
 import { Link, useLocation } from 'react-router';
 import { PRODUCT_NAME, PRODUCT_TITLE } from '@/product';
 import { useAuthStore } from '@/stores/authStore';
-import { openCaseAssistant } from '@/features/intelligence/desktop';
 import {
   areas,
   canOpen,
@@ -180,21 +179,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
                 setSearchOpen(true);
               }}
             />
-            {toolAllowed('/knowledge') && (
-              <Link className="unified-tool" to="/knowledge">
-                知识库
-              </Link>
-            )}
-            {toolAllowed('/smart-case') && (
-              <Button
-                type="text"
-                aria-label="智慧办案"
-                data-smart-case-launcher
-                onClick={() => void openCaseAssistant()}
-              >
-                智慧办案
-              </Button>
-            )}
+            {toolAllowed('/smart-case') && <Link className="unified-tool" aria-label="智慧办案" to="/smart-case">智慧办案</Link>}
             <Link aria-label="通知中心" title="通知中心" className="unified-notification" to="/notifications">
               <BellOutlined aria-hidden="true" />
             </Link>

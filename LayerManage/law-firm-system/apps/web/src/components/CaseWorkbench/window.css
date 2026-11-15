@@ -1,6 +1,0 @@
-.case-workbench { position:fixed;z-index:1000;flex-direction:column;background:#fff;border:1px solid #d9dce3;border-radius:14px;box-shadow:0 16px 70px #17223c35;overflow:hidden }
-.case-workbench-titlebar { display:flex;align-items:center;justify-content:space-between;height:42px;flex:none;padding:0 8px 0 16px;background:#f5f6f8;border-bottom:1px solid #e8e9ed;cursor:move;touch-action:none;user-select:none;color:#222b3b }
-.case-workbench-titlebar small { margin-left:12px;font-weight:normal;color:#747d8e }.case-workbench-titlebar>div { display:flex;gap:2px }
-.case-workbench-body { flex:1;min-height:0;overflow:hidden }.case-workbench-launcher { position:fixed;right:24px;bottom:24px;z-index:999;height:44px;box-shadow:0 5px 22px #0002 }
-.case-workbench-resize { position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;touch-action:none;background:repeating-linear-gradient(135deg,transparent 0 4px,#9da7b5 4px 5px);clip-path:polygon(100% 0,100% 100%,0 100%) }
-.case-workbench-resize:focus-visible { outline:3px solid #1677ff;clip-path:none }

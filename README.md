@@ -1,19 +1,7 @@
-# 律师智慧管理系统 V1.2.1
+# 律师智慧管理系统
 
-当前已开发成果按 **2026-11-06 / dcf8447d** 对齐到 [Spec 总纲](docs/spec/README.md)：包含同源业务工作表、权限共享、综合行政/人事模板、统一可视化审批、评论与@提醒、协同日历、个人外观和可视化仪表盘。用户已确认功能人工测试完成；本轮文档核对不代替生产发布验收。旧规格冲突和未开放能力见 [差异清单](docs/spec/CHANGES-2026-11-06.md)。下文智能化版本说明保留历史上下文，其状态不能替代当前模块规格。
+OA 业务工程位于 `LayerManage/law-firm-system`。业务、身份、权限及文件规格见 [Spec 总纲](docs/spec/README.md)。
 
-本仓库遵循 Spec 驱动开发，规格索引见 [docs/spec/TRACE.md](docs/spec/TRACE.md)。
+2026-11-15 智能模块改为独立智慧办案子系统：OA 只保留“智慧办案”入口；旧浮动助手、旧知识库入口、旧 Harness 源码快照、专属 API 和运行数据已退出。OA 个人文件新增分片续传、不可变内容版本、明确发布授权及全员只读审计入口。
 
-- `LayerManage/law-firm-system/`：OA 主项目，原有业务、认证、权限与界面。
-- `third_party/deepseek-harness/`：独立维护的 Harness/Wiki 上游源码快照，独立 pnpm 依赖与构建。
-- `integrations/intelligence/`：OA 智能化适配、法律插件、独立知识库界面与浏览器办案工作区。
-
-知识库在云端由管理员维护；律师仅通过 Web 使用。办案材料、会话和成果通过浏览器保存在律师电脑，无需安装客户端服务。管理员部署、模型/OCR 配置、备份及迁移说明见 [智能化适配说明](integrations/intelligence/README.md)。
-
-当前已实施的智能化规格：[SPEC-AI-DECOUPLED-20260912](docs/superpowers/specs/2026-09-12-harness-decoupled.md)。历史 V1.1 外部连接器方案已被替代，历史代码与个人数据仍保留。
-
-智慧办案从右上角（知识库旁）打开原生浮动工作台，可最小化、最大化并在 OA 页面间保持会话。界面规格见 [SPEC-AI-UI-20260912](docs/superpowers/specs/2026-09-12-smart-case-native-ui.md)。
-
-下一版本 **V1.3.0** 正在实施，阶段一桌面基础已完成验证，见 [统一桌面客户端与本地 Harness 规格](docs/superpowers/specs/2026-09-13-unified-desktop-local-harness.md)：OA 业务云端校验保存、Harness 本地工作目录不自动同步、Wiki 云端管理员维护、个人材料通过在线视觉 API 识别，以及用户主动提交选定成果至案件档案。以上 V1.2.1 描述仅代表当前代码；后续开发遵循新规格。
-
-统一桌面开发构建的启动方式见 [桌面说明](integrations/intelligence/desktop/README.md)，源码复用与实际验证见 [阶段一记录](docs/superpowers/plans/2026-09-13-unified-desktop-local-harness.md)。尚未交付独立安装器、助手云端 Wiki 查询及主动归档等后续能力。
+[集成接口与部署说明](docs/smart-case-integration.md) 说明两个项目的边界、运行入口、验收结果和外网切换状态。历史 `docs/superpowers` 智能化方案仅作历史记录，不能作为本次启动或部署指引。

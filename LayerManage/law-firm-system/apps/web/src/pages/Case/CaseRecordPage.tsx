@@ -140,6 +140,7 @@ export default function CaseRecordPage() {
 const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const canSmartCase=useAuthStore(s=>s.hasPermission('menu.smart_case'));
   const ownerId = useAuthStore((s) => s.userInfo?.id);
   const canCreateCustomer = useAuthStore(
     (s) => s.hasPermission('customer.create') && s.hasPermission('menu.customer'),
@@ -689,6 +690,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
       <Space wrap style={{ marginBottom: 16 }}>
         <Link to="/cases">返回案件工作表</Link>
         {id && <BusinessTableLinks source="CASES" recordId={id} />}{id&&canAssessment&&<Link to={"/cases/"+id+"/assessments"}>百分制满意度评估</Link>}
+        {id&&canSmartCase&&<Link to={'/smart-case?caseId='+encodeURIComponent(id)}>智慧办案 · 选择材料</Link>}
         {detail && <Link to={'/finance?caseNo=' + encodeURIComponent(detail.caseNo)}>关联财务</Link>}
       </Space>
       <h1>{id ? '案件详情与交付' : '新建案件'}</h1>

@@ -62,20 +62,11 @@ test('rejects a direct URL even when the menu exists without read permission', (
   expect(screen.getByText('无权访问此页面')).toBeInTheDocument();
   expect(screen.queryByRole('textbox', { name: '业务草稿' })).not.toBeInTheDocument();
 });
-test('authorized tools stay adjacent and no longer launch a separate local workspace', async () => {
-  const openAssistant = vi.fn().mockResolvedValue(undefined);
-  window.chengyeDesktop = { version: 1, openAssistant };
-  useAuthStore.setState({
-    authorization: { ...authorization, menus: ['menu.knowledge', 'menu.smart_case'] },
-  });
+test('OA exposes one smart-case entry and no separate knowledge entry', () => {
+  useAuthStore.setState({authorization: {...authorization, menus:['menu.smart_case']}});
   show('/workspaces');
-  expect(screen.getByRole('link', { name: '知识库' })).toHaveAttribute('href', '/knowledge');
-  fireEvent.click(screen.getByRole('button', { name: '智慧办案' }));
-  expect(openAssistant).not.toHaveBeenCalled();
-  expect(
-    within(screen.getByRole('navigation', { name: '全局导航' })).queryByRole('link', { name: '知识库' }),
-  ).not.toBeInTheDocument();
-  delete window.chengyeDesktop;
+  expect(screen.getByRole('link',{name:'智慧办案'})).toHaveAttribute('href','/smart-case');
+  expect(screen.queryByRole('link',{name:'知识库'})).not.toBeInTheDocument();
 });
 test('authorization failure hides protected content and provides a retry', () => {
   const retry = vi.fn().mockResolvedValue(undefined);

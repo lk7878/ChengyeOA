@@ -1011,7 +1011,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
           {!unifiedShell && (
             <>
               <Button onClick={() => navigate('/notifications')}>通知</Button>
-              <Button onClick={() => navigate('/knowledge')}>知识库</Button>
+              <Button onClick={() => navigate('/smart-case')}>知识库</Button>
             </>
           )}
         </Space>

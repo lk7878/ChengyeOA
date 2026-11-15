@@ -79,7 +79,7 @@ export default (appInfo: EggAppInfo) => {
 
   config.rundir = resolveRunDirectory(appInfo.baseDir);
 
-  config.multipart = { mode: 'stream', fileSize: '10mb', files: 1, whitelist: ['.png', '.jpg', '.jpeg', '.webp', '.pdf', '.xlsx', '.docx'] };
+  config.multipart = { mode: 'stream', fileSize: '10mb', files: 1, whitelist: ['.png', '.jpg', '.jpeg', '.webp', '.pdf', '.xlsx', '.docx', '.bin'] };
 
   // bodyParser 配置
   config.bodyParser = {

@@ -43,6 +43,7 @@ function permission(
 }
 
 export const PERMISSION_CATALOG = Object.freeze([
+  permission('knowledge.review','审核知识投稿','ACTION','workspace','review','HIGH'),
   permission('hr.worksheet.read','查看人力资源表','ACTION','workspace','read','HIGH'),
   permission('hr.worksheet.manage','维护人力资源表','ACTION','workspace','manage','HIGH'),
   permission('hr.worksheet.sensitive','查看及填写人事敏感信息','ACTION','workspace','sensitive','HIGH'),
@@ -90,7 +91,6 @@ export const PERMISSION_CATALOG = Object.freeze([
   permission('channel.update', '编辑渠道', 'ACTION', 'channel', 'update', 'MEDIUM'),
   permission('channel.delete', '删除渠道', 'ACTION', 'channel', 'delete', 'HIGH'),
   permission('workspace.create', '创建多维协作工作区', 'ACTION', 'workspace', 'create', 'MEDIUM'),
-  permission('menu.knowledge', '云端知识库', 'MENU', 'menu', 'view', 'LOW', '/knowledge'),
   permission('menu.smart_case', '智慧办案', 'MENU', 'menu', 'view', 'LOW', '/smart-case'),
   permission('menu.inventory', '物品管理', 'MENU', 'menu', 'view', 'LOW', '/inventory'),
   permission('inventory.read', '查看物品及库存台账', 'ACTION', 'inventory', 'read', 'LOW'),

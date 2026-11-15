@@ -74,6 +74,7 @@ export const FIELD_CODES = [
 export type FieldCode = (typeof FIELD_CODES)[number];
 
 export const PERMISSION_CODES = [
+  'knowledge.review',
   'menu.quality',
   'quality.assessment.read',
   'quality.assessment.record',
@@ -107,7 +108,6 @@ export const PERMISSION_CODES = [
   'channel.update',
   'channel.delete',
   'workspace.create',
-  'menu.knowledge',
   'menu.smart_case',
   'menu.inventory',
   'inventory.read',

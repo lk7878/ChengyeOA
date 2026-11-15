@@ -33,7 +33,7 @@ const EVENT_OPERATION_CODES = [
 ] as const;
 
 test('catalog contains every unique immutable permission code exactly once', () => {
-  assert.equal(PERMISSION_CODES.length, 190);
+  assert.equal(PERMISSION_CODES.length, 199);
   assert.equal(new Set(PERMISSION_CODES).size, PERMISSION_CODES.length);
   assert.equal(PERMISSION_CATALOG.length, PERMISSION_CODES.length);
   assert.deepEqual(
@@ -90,4 +90,10 @@ test('catalog registers every SPEC-005 governance permission on the governance r
     assert.equal(entry.resource, code.startsWith('menu.') ? 'menu' : 'governance');
     assert.equal(entry.status, 'ENABLED');
   }
+});
+
+test('smart case keeps a single OA entry and explicit knowledge review action', () => {
+  assert.ok(PERMISSION_CATALOG.some(p => p.code === 'menu.smart_case' && p.route === '/smart-case'));
+  assert.ok(!PERMISSION_CATALOG.some(p => String(p.code) === 'menu.knowledge'));
+  assert.ok(PERMISSION_CATALOG.some(p => p.code === 'knowledge.review' && p.type === 'ACTION' && p.riskLevel === 'HIGH'));
 });

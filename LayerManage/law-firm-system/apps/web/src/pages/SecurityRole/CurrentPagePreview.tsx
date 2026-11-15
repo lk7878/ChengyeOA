@@ -20,7 +20,7 @@ export default function CurrentPagePreview({subject,name,path}:{subject:string;n
     }});
     setFrame(token);return()=>{registry.delete(token)};
   },[subject,name]);
-  if (/^\/(?:knowledge|smart-case|intelligence|harness|login|security\/account)(?:\/|$)/.test(path))
+  if (/^\/(?:smart-case|login|security\/account)(?:\/|$)/.test(path))
     return <Alert type="info" title="此页面包含个人凭据或外部应用，请选择工作表预览数据权限。" />;
   return frame ? <iframe inert title="当前页面权限预览" name={frame} key={frame+path} src={path}
     style={{border:0,width:'100%',height:'calc(100vh - 82px)',pointerEvents:'none'}}/>:null;

@@ -78,7 +78,6 @@ const messages: Record<string, string> = {
   CASE_IN_USE: '案件已关联财务合同、成本或SOP流程记录，无法删除，请先核查关联记录',
   CASE_STATE_INVALID: '案件已结案或归档，不能修改或删除',
   CASE_NOT_FOUND: '案件不存在或已删除，请刷新列表',
-  HARNESS_TICKET_INVALID: '本机助手授权已失效，请重新连接',
   INVENTORY_NOT_FOUND: '物品不存在，请刷新列表',
   INVENTORY_DISABLED: '该物品已停用，不能登记新的库存变动',
   INVENTORY_QUANTITY_INVALID: '数量须在有效范围内，最多三位小数；入出库数量必须大于零',

@@ -474,14 +474,6 @@ export const entries: NavigationEntry[] = [
     required: ['menu.event_operations', 'event.delivery.read'],
   },
   {
-    path: '/knowledge',
-    title: '知识库',
-    area: 'home',
-    group: '全局工具',
-    required: ['menu.knowledge'],
-    global: true,
-  },
-  {
     path: '/smart-case',
     title: '智慧办案',
     area: 'home',

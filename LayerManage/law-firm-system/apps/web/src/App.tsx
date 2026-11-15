@@ -1,6 +1,5 @@
 import NavigationManagement from './pages/NavigationManagement';
 import RetiredArchives from './pages/RetiredArchives';
-import { inPreviewFrame } from './features/authorization/preview-frame';
 import AnalyticsDesigner from './pages/AnalyticsDesigner';
 import {AssessmentPage,AnalysisPage,QualityMetricsPage} from './pages/Quality/AnalysisPages';
 import {QualityRulesPage,QualityRunsPage,QualityRunPage,QualityInspectionPage,QualityIssuePage} from './pages/Quality';
@@ -9,10 +8,7 @@ import SopTaskPage from './pages/SopExecution/TaskPage';
 import SopInstancePage from './pages/SopExecution/InstancePage';
 import SopTemplatesPage from './pages/SopTemplates';
 import RecordAccessBoundary from './features/crm/RecordAccessBoundary';
-import IntelligencePage from './pages/Intelligence';
-import DesktopKnowledgeBridge from './features/intelligence/DesktopKnowledgeBridge';
-import SmartCaseLauncher from './pages/Intelligence/SmartCaseLauncher';
-import CaseWorkbench from './components/CaseWorkbench';
+import SmartCaseLauncher from './pages/SmartCase';
 import ChineseConfig from './components/ChineseConfig';
 import AppearanceProvider from './features/appearance/AppearanceProvider';
 import React, { useEffect } from 'react';
@@ -129,7 +125,6 @@ function App() {
     <ChineseConfig>
       <AppearanceProvider>
         <BrowserRouter>
-          {!inPreviewFrame && <DesktopKnowledgeBridge />}
           <SessionBootstrap />
         </BrowserRouter>
       </AppearanceProvider>
@@ -155,7 +150,6 @@ function SessionBootstrap() {
 
   return (
     <>
-      <CaseWorkbench />
       <Routes>
         <Route path="/login" element={<LoginRoute />} />
         <Route path="/password-change" element={<PasswordChangeRoute />} />
@@ -457,14 +451,6 @@ function SessionBootstrap() {
             element={
               <AuthorizedPage permission="approval.read">
                 <ApprovalRedirect monitor />
-              </AuthorizedPage>
-            }
-          />
-          <Route
-            path="/knowledge"
-            element={
-              <AuthorizedPage permission="menu.knowledge">
-                <IntelligencePage key="knowledge" feature="knowledge" />
               </AuthorizedPage>
             }
           />

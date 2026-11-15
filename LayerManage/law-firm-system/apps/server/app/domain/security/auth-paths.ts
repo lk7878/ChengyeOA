@@ -1,5 +1,6 @@
 const AUTHENTICATION_PUBLIC_PATHS = new Set([
   '/api/health',
+  '/api/v1/smart-case/exchange',
   '/api/v1/auth/login',
   '/api/v1/auth/refresh',
   '/api/v1/auth/password/forced-change',

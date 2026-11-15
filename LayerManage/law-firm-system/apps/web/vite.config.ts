@@ -18,7 +18,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:7001',
+        target: process.env.OA_API_PROXY || 'http://localhost:7001',
         changeOrigin: true,
       },
     },

@@ -32,7 +32,6 @@ export const PERMISSION_CODES = [
   'channel.update',
   'channel.delete',
   'workspace.create',
-  'menu.knowledge',
   'menu.smart_case',
   'menu.inventory',
   'inventory.read',

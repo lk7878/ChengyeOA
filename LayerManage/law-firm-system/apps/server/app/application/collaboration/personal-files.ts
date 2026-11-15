@@ -1,17 +1,18 @@
-import { randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir,readFile,writeFile,unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Prisma } from '@prisma/client';
 import { CollaborationService,Access } from './collaboration-service';
 import { exact,fail,integer,text } from './collaboration-policy';
 import { resourcePolicy,restrictResourceAccess } from './resource-access';
-const storage=()=>path.resolve(process.cwd(),'var/storage/personal-files');
+const storage=()=>path.resolve(process.env.PERSONAL_FILES_STORAGE_ROOT||path.join(process.cwd(),'var/storage/personal-files'));
 const nameOf=(raw:unknown)=>{const name=text(raw,150);if(/[\\/]/.test(name)||[...name].some(c=>c.charCodeAt(0)<32)||['.','..'].includes(name))fail('COLLAB_INVALID_VALUE');return name;};
 const ownerGrant=(id:string)=>({principalType:'USER',principalId:id,role:'MANAGER',rowScope:'ALL',canCreate:true,hiddenFields:[] as string[],readonlyFields:[] as string[]});
 function fileBytes(name:string,content:unknown){
   if(!/\.(pdf|docx?|xlsx?|pptx?|txt|csv|png|jpe?g|gif|webp|zip|rar|7z)$/i.test(name))fail('COLLAB_FILE_TYPE_UNSUPPORTED');
-  if(typeof content!=='string'||content.length>14*1024*1024||!/^[A-Za-z0-9+/]*={0,2}$/.test(content))fail('COLLAB_INVALID_FILE');
-  const bytes=Buffer.from(content,'base64');if(!bytes.length||bytes.length>10*1024*1024)fail('COLLAB_FILE_TOO_LARGE');
+  if(typeof content!=='string'||!/^[A-Za-z0-9+/]*={0,2}$/.test(content))fail('COLLAB_INVALID_FILE');
+  const bytes=Buffer.from(content,'base64');if(!bytes.length)fail('COLLAB_FILE_TOO_LARGE');
   return bytes;
 }
 export class PersonalFiles extends CollaborationService {
@@ -28,13 +29,21 @@ export class PersonalFiles extends CollaborationService {
     };
     return {rows,resolve};
   }
-  private async require(id:string,level=1,tx:Prisma.TransactionClient=this.db){const s=await this.snapshot(tx),r=s.resolve(id);if(!r||r.access.level<level)fail('COLLAB_FORBIDDEN',403);return r;}
+  protected async require(id:string,level=1,tx:Prisma.TransactionClient=this.db){const s=await this.snapshot(tx),r=s.resolve(id);if(!r||r.access.level<level)fail('COLLAB_FORBIDDEN',403);return r;}
+  protected async snapshotVersion(id:string,tx:Prisma.TransactionClient){
+    const row=await tx.personalFile.findUniqueOrThrow({where:{id}});
+    if(row.kind!=='FILE'||!row.storageKey)fail('COLLAB_NOT_FOUND',404);
+    if(await tx.personalFileVersion.findUnique({where:{fileId_version:{fileId:id,version:row.contentVersion}}}))return;
+    const hash=createHash('sha256');
+    for await(const chunk of createReadStream(path.join(storage(),row.storageKey)))hash.update(chunk);
+    await tx.personalFileVersion.create({data:{fileId:id,version:row.contentVersion,name:row.name,storageKey:row.storageKey,size:row.size,sha256:hash.digest('hex'),source:'existing'}});
+  }
   async list(raw:unknown){
     const v=exact(raw,['scope','parentId']);const scope=v.scope==='shared'?'shared':'mine';const parentId=v.parentId?text(v.parentId):null;
     const s=await this.snapshot();const parent=parentId?s.resolve(parentId):null;if(parentId&&(!parent||parent.row.kind!=='FOLDER'))fail('COLLAB_FORBIDDEN',403);
     return {path:parent?.path??[],canUpload:!parent||parent.access.level>=2,items:s.rows.flatMap(row=>{
       if(parentId?row.parentId!==parentId:scope==='mine'?row.ownerId!==this.actor.userId||!!row.parentId:row.ownerId===this.actor.userId)return [];
-      const v=s.resolve(row.id);return v?[{id:row.id,name:row.name,kind:row.kind,size:row.size,version:row.version,parentId:row.parentId,ownerId:row.ownerId,level:v.access.level,updatedAt:row.updatedAt}]:[];
+      const v=s.resolve(row.id);return v?[{id:row.id,name:row.name,kind:row.kind,size:row.size,contentVersion:row.contentVersion,version:row.version,parentId:row.parentId,ownerId:row.ownerId,level:v.access.level,updatedAt:row.updatedAt}]:[];
     }).sort((a,b)=>a.kind.localeCompare(b.kind)||a.name.localeCompare(b.name))};
   }
   async create(raw:unknown){
@@ -60,18 +69,18 @@ export class PersonalFiles extends CollaborationService {
     const current=await this.require(id,2);if(current.row.kind!=='FILE')fail('COLLAB_INVALID_VALUE');
     const storageKey=randomUUID();await mkdir(storage(),{recursive:true});
     await writeFile(path.join(storage(),storageKey),bytes,{flag:'wx',mode:0o600});
-    let previous:string|null=null;
+
     try{
       const result=await this.db.$transaction(async tx=>{
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('personal-files',0))`;
         const {row}=await this.require(id,2,tx);if(row.version!==integer(v.version))fail('COLLAB_ACCESS_CONFLICT',409);
-        previous=row.storageKey;
-        await tx.personalFile.update({where:{id},data:{name,storageKey,size:bytes.length,version:{increment:1}}});
+        await this.snapshotVersion(id,tx);
+        await tx.personalFile.update({where:{id},data:{name,storageKey,size:bytes.length,contentVersion:{increment:1},version:{increment:1}}});
         await tx.operationLog.create({data:{userId:this.actor.userId,action:'PERSONAL_FILE_REPLACE',targetType:'PERSONAL_FILE',targetId:id,
           oldValues:JSON.stringify({name:row.name,size:row.size}),newValues:JSON.stringify({name,size:bytes.length})}});
         return {version:row.version+1};
       });
-      if(previous&&/^[a-f0-9-]{36}$/.test(previous))await unlink(path.join(storage(),previous)).catch(()=>{});
+
       return result;
     }catch(e){await unlink(path.join(storage(),storageKey)).catch(()=>{});throw e;}
   }

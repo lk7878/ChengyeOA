@@ -1229,7 +1229,7 @@ model CaseFile {
   category   String? // 合同附件 / 收款凭证 / 退款凭证
   fileType   String // MIME 类型
   filePath   String // 相对存储路径 var/storage/case-files/<uuid>
-  fileSize   Int // 字节数
+  fileSize   Float // 字节数
   uploadedBy String
   createdAt  DateTime @default(now())
 
@@ -2741,7 +2741,8 @@ model PersonalFile {
   name String
   kind String
   storageKey String?
-  size Int @default(0)
+  size Float @default(0)
+  contentVersion Int @default(1)
   accessPolicy Json
   version Int @default(1)
   createdAt DateTime @default(now())
@@ -2751,4 +2752,77 @@ model PersonalFile {
   children PersonalFile[] @relation("PersonalFileTree")
   @@index([ownerId,parentId], map: "personal_file_owner_parent")
   @@map("personal_file")
+}
+
+// OA remains authoritative; these records contain no upstream model credentials.
+model SmartCaseCode {
+  hash String @id
+  challenge String
+  userId String
+  sessionId String
+  credentialVersion Int
+  assuranceLevel String
+  expiresAt DateTime
+  @@map("smart_case_code")
+}
+model SmartCaseSession {
+  hash String @id
+  userId String
+  sessionId String
+  credentialVersion Int
+  assuranceLevel String
+  expiresAt DateTime
+  revokedAt DateTime?
+  @@index([userId])
+  @@map("smart_case_session")
+}
+model PersonalFileVersion {
+  id String @id @default(uuid())
+  fileId String
+  version Int
+  name String
+  storageKey String
+  size Float
+  sha256 String
+  source String @default("upload")
+  lineage Json @default("[]")
+  parseStatus String @default("PENDING")
+  createdAt DateTime @default(now())
+  @@unique([fileId,version])
+  @@map("personal_file_version")
+}
+model PersonalFileUpload {
+  id String @id
+  ownerId String
+  name String
+  parentId String?
+  fileId String?
+  expectedVersion Int?
+  lineage Json @default("[]")
+  source String @default("upload")
+  total Float
+  offset Float @default(0)
+  resultId String?
+  resultVersion Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([ownerId])
+  @@map("personal_file_upload")
+}
+model SmartCaseArchive {
+  key String @id
+  ownerId String
+  fileId String
+  fileVersion Int
+  caseId String
+  caseFileId String @unique
+  createdAt DateTime @default(now())
+  @@map("smart_case_archive")
+}
+
+model PersonalFilePublication {
+  fileId String
+  userId String
+  @@id([fileId,userId])
+  @@map("personal_file_publication")
 }
