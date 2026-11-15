@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import { get } from '@/features/workspaces/api';
-import { entries } from './catalog';
+import { areas, entries, type Area } from './catalog';
 export type MenuNode={id:string;label:string;parentId:string|null;target:string|null;position:number};
 export type MenuConfig={version:number;nodes:MenuNode[]|null;targets:string[]};
-export function defaultMenu():MenuNode[]{
-  const items=entries.filter(e=>e.area==='apps'&&!e.hidden&&!e.retired&&e.path!=='/apps');
+export function defaultMenu(area:Area='apps'):MenuNode[]{
+  const home=areas.find(item=>item.id===area)!.path;
+  const items=entries.filter(e=>e.area===area&&!e.hidden&&!e.retired&&e.path!==home);
   return [...new Set(items.map(e=>e.group))].flatMap((group,i)=>[{id:'group-'+i,label:group,parentId:null,target:null,position:i},
     ...items.filter(e=>e.group===group).map((e,j)=>({id:'entry-'+e.path,label:e.title,parentId:'group-'+i,target:e.path,position:j}))]);
 }
