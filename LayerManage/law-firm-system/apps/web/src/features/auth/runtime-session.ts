@@ -12,6 +12,7 @@ type Listener = () => void;
 
 let accessToken: string | null = null;
 let csrfToken: string | null = null;
+let credentialEpoch = 0;
 let refreshRequest: Promise<string> | null = null;
 const listeners = new Set<Listener>();
 
@@ -53,6 +54,7 @@ export const runtimeSession = {
   getCsrfToken: () => csrfToken ?? cookieValue('chengye_csrf'),
 
   setAuthenticated(credentials: RuntimeCredentials): void {
+    credentialEpoch++;
     purgeLegacyStorage();
     accessToken = credentials.token;
     csrfToken = credentials.csrfToken;
@@ -60,6 +62,7 @@ export const runtimeSession = {
   },
 
   clear(): void {
+    credentialEpoch++;
     purgeLegacyStorage();
     accessToken = null;
     csrfToken = null;
@@ -70,12 +73,18 @@ export const runtimeSession = {
   refreshOnce(loader: RefreshLoader = defaultRefresh): Promise<string> {
     if (inPreviewFrame) return Promise.reject(new Error('预览会话不可刷新'));
     if (refreshRequest) return refreshRequest;
+    const startedEpoch = credentialEpoch;
     refreshRequest = loader()
       .then(credentials => {
+        if (credentialEpoch !== startedEpoch) {
+          if (accessToken) return accessToken;
+          throw new Error('SESSION_CHANGED');
+        }
         this.setAuthenticated(credentials);
         return credentials.token;
       })
       .catch(error => {
+        if (credentialEpoch !== startedEpoch && accessToken) return accessToken;
         this.clear();
         throw error;
       })

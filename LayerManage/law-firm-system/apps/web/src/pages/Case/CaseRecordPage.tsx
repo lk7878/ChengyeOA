@@ -690,7 +690,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
       <Space wrap style={{ marginBottom: 16 }}>
         <Link to="/cases">返回案件工作表</Link>
         {id && <BusinessTableLinks source="CASES" recordId={id} />}{id&&canAssessment&&<Link to={"/cases/"+id+"/assessments"}>百分制满意度评估</Link>}
-        {id&&canSmartCase&&<Link to={'/smart-case?caseId='+encodeURIComponent(id)}>智慧办案 · 选择材料</Link>}
+        {id&&canSmartCase&&<Link to={'/smart-case?caseId='+encodeURIComponent(id)} target="_blank" rel="noopener noreferrer">智慧办案 · 选择材料</Link>}
         {detail && <Link to={'/finance?caseNo=' + encodeURIComponent(detail.caseNo)}>关联财务</Link>}
       </Space>
       <h1>{id ? '案件详情与交付' : '新建案件'}</h1>

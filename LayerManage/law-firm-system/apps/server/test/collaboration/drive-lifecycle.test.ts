@@ -40,6 +40,9 @@ test.beforeEach(async () => {
     actors.push(new DriveService(db, context(user.id)));
   }
   [owner, manager, staff] = actors;
+  // Purge tests below exercise the data transaction after the HTTP administrator proof has been checked.
+  owner.verifyPermanentDeletion = async () => {};
+  manager.verifyPermanentDeletion = async () => {};
   workspace = (
     await db.collabWorkspace.create({
       data: {
@@ -460,4 +463,16 @@ test('oversized subtrees fail without partial tombstones or audit writes', async
   await assert.rejects(owner.previewLifecycle(parent, { action: 'TRASH' }), code('DRIVE_SUBTREE_LIMIT'));
   assert.equal(await db.driveNode.count({ where: { deletedAt: { not: null } } }), 0);
   assert.equal(await db.operationLog.count(), audits);
+});
+
+test('data-bearing purge fails closed without verification while empty folders remain deletable', async () => {
+  const doc = await owner.createDriveBase(workspace, { name: 'Protected data' }, key());
+  await apply(doc.id, { action: 'TRASH' });
+  owner.verifyPermanentDeletion = undefined;
+  await assert.rejects(apply(doc.id, { action: 'PURGE' }), code('ADMIN_HIGH_RISK_ONLY'));
+  assert.ok(await db.collabBase.findUnique({ where: { id: doc.id } }));
+  const empty = await folder('Empty directory');
+  await apply(empty, { action: 'TRASH' });
+  await apply(empty, { action: 'PURGE' });
+  assert.equal(await db.driveNode.findUnique({ where: { id: empty } }), null);
 });

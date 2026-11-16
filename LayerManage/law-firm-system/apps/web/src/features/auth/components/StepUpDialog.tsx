@@ -1,4 +1,8 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
+import { authApi } from '@/api/auth';
+import { runtimeSession } from '../runtime-session';
+import type { AuthenticatedData } from '../types';
+import MfaEnrollment from './MfaEnrollment';
 import { Alert, Button, Input, Typography } from 'antd';
 import Modal from '@/components/DraggableModal';
 import type { StepUpPurpose } from '../types';
@@ -32,12 +36,23 @@ function OpenStepUpDialog({
   onRetry,
 }: Omit<StepUpDialogProps, 'open'>) {
   const [code, setCode] = useState('');
+  const [enrollment, setEnrollment] = useState<string | null>(null);
+  const [enrollmentError, setEnrollmentError] = useState<string | null>(null);
+  const complete = useCallback((data: AuthenticatedData) => {
+    runtimeSession.setAuthenticated(data); setEnrollment(null); setCode(''); onRetry?.();
+  }, [onRetry]);
+  const expired = useCallback(() => { setEnrollment(null); setEnrollmentError('绑定已过期，请重新开始'); }, []);
+  const start = async () => {
+    setEnrollmentError(null);
+    try { setEnrollment((await authApi.startMfaEnrollment()).data.challengeToken); }
+    catch { setEnrollmentError('无法开始绑定，请确认管理员权限后重试'); }
+  };
   void purpose;
 
   return (
     <Modal
       open
-      title="再次验证身份"
+      title="管理员操作二次验证"
       zIndex={2000}
       okText="验证并继续"
       cancelText="取消"
@@ -63,36 +78,18 @@ function OpenStepUpDialog({
       {readiness === 'CHECKING' && (
         <Typography.Paragraph role="status">正在检查账号验证状态…</Typography.Paragraph>
       )}
-      {readiness === 'ENROLLMENT_REQUIRED' && (
-        <Alert
-          type="warning"
-          showIcon
-          title="当前账号尚未绑定身份验证器"
-          description={
-            <>
-              请先进入<a href="/security/account">账号安全</a>
-              ，点击“绑定身份验证器”，用手机身份验证器扫码绑定，完成后返回本单据重新审批。
-            </>
-          }
-        />
-      )}
-      {readiness === 'LOGIN_REQUIRED' && (
-        <Alert
-          type="warning"
-          showIcon
-          title="当前登录尚未完成多因素验证"
-          description={
-            <>
-              请退出账号后重新登录，并输入验证器中的验证码，再返回单据审批。
-              <a href="/security/account">查看账号安全设置</a>
-            </>
-          }
-        />
-      )}
+      {readiness === 'ADMIN_REQUIRED' && <Alert type="info" showIcon title="此操作仅限有权限的管理员执行，请联系管理员。普通账号无需绑定验证器。" />}
+      {readiness === 'ENROLLMENT_REQUIRED' && !enrollment && <>
+        <Alert type="info" showIcon title="首次执行管理员高风险操作前，请绑定身份验证器。完成后将返回本次操作，原表单会保留。" />
+        <Button onClick={() => void start()}>在此绑定身份验证器</Button>
+        <Typography.Paragraph type="secondary">如果原验证器已丢失，请通过现有管理员恢复流程处理，不要重复新建账号。</Typography.Paragraph>
+      </>}
+      {enrollmentError && <Alert type="error" title={enrollmentError} />}
+      {enrollment && <MfaEnrollment challengeToken={enrollment} onAuthenticated={complete} onExpired={expired} />}
       {readiness === 'READY' && (
         <Typography.Paragraph type="secondary">
           打开身份验证器中本 OA
-          账号，输入当前六位动态码。刚用于登录或审批的验证码不能重复使用，请等待下一组生成。
+          账号，输入当前六位动态码。刚用于绑定或其他管理操作的验证码不能重复使用，请等待下一组生成。
         </Typography.Paragraph>
       )}
       {error && <Alert role="alert" type="error" showIcon title={error} style={{ marginBottom: 16 }} />}

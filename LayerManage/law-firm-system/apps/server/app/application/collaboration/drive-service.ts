@@ -28,6 +28,7 @@ type Location = { id: string; name: string; kind: string; level: number; selfOnl
 type Resolved = { row: CatalogRow; access: Access; path: Location[] };
 
 export class DriveService extends CollaborationService {
+  verifyPermanentDeletion?: (tx: Tx) => Promise<void>;
   protected async catalog(workspaceId: string, tx: Tx = this.db, includeDeleted = false) {
     const root = await this.access(workspaceId, tx);
     const principals = await this.principals(tx);
@@ -433,6 +434,10 @@ export class DriveService extends CollaborationService {
       await this.lock(tx, initial.source.row.workspaceId);
       const plan = await this.lifecyclePlan(nodeId, input, tx);
       if (plan.public.previewToken !== input.previewToken) fail('DRIVE_PREVIEW_STALE', 409);
+      if (plan.rows.some(row => row.kind === 'BASE')) {
+        if (!this.verifyPermanentDeletion) fail('ADMIN_HIGH_RISK_ONLY', 403);
+        await this.verifyPermanentDeletion(tx);
+      }
       const nodeIds = plan.rows.map(row => row.id);
       const baseIds = plan.rows.flatMap(row => row.baseId ? [row.baseId] : []);
       const tables = await tx.collabTable.findMany({ where: { baseId: { in: baseIds } }, select: { id: true } });

@@ -56,69 +56,31 @@ function setUser(admin: boolean) {
   });
 }
 
-test('shows MFA state, protects administrator MFA, and marks the current session', async () => {
-  setUser(true);
-  render(<SecuritySettingsPage />);
-  expect(await screen.findByText('已启用')).toBeInTheDocument();
-  expect(screen.getByText('剩余恢复码：7')).toBeInTheDocument();
-  expect(screen.getByText('当前会话')).toBeInTheDocument();
-  expect(screen.getByText('管理员必须保持 MFA 启用')).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: '停用 MFA' })).not.toBeInTheDocument();
+
+test('presents password, devices and optional advanced security with no mandatory ordinary-user factor', async () => {
+  setUser(false); render(<SecuritySettingsPage />);
+  expect(await screen.findByText('当前设备')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '修改密码' })).toBeInTheDocument();
+  fireEvent.click(screen.getByText('高级安全设置'));
+  expect(await screen.findByText(/普通账号无需安装验证器/)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '绑定身份验证器' })).not.toBeInTheDocument();
+  expect(document.body.textContent).not.toContain('退费审批等操作');
 });
-
-test('allows an ordinary user to start and complete optional MFA enrollment', async () => {
-  setUser(false);
-  vi.mocked(authApi.mfaStatus).mockResolvedValue({
-    code: 200, message: 'OK', data: { enabled: false, verifiedAt: null, recoveryCodesRemaining: 0 },
-  });
-  render(<SecuritySettingsPage />);
-
+test('logs out another device and other devices with confirmation but without step-up', async () => {
+  setUser(false); render(<SecuritySettingsPage />);
+  fireEvent.click(await screen.findByRole('button', { name: '退出该设备 s2' }));
+  fireEvent.click(await screen.findByRole('button', { name: /退\s*出$/ }));
+  await waitFor(() => expect(authApi.revokeSession).toHaveBeenCalledWith('s2'));
+  fireEvent.click(screen.getByRole('button', { name: '退出其他设备' }));
+  fireEvent.click(await screen.findByRole('button', { name: /退\s*出$/ }));
+  await waitFor(() => expect(authApi.logoutAll).toHaveBeenCalledWith('', true));
+  expect(runStepUp).not.toHaveBeenCalled();
+});
+test('administrator binds in the existing page without resetting authorization or losing context', async () => {
+  setUser(true); vi.mocked(authApi.mfaStatus).mockResolvedValue({ data: { enabled: false } } as never);
+  render(<SecuritySettingsPage />); fireEvent.click(screen.getByText('高级安全设置'));
   fireEvent.click(await screen.findByRole('button', { name: '绑定身份验证器' }));
-  await waitFor(() => expect(authApi.startMfaEnrollment).toHaveBeenCalledOnce());
   fireEvent.click(await screen.findByRole('button', { name: 'complete optional enrollment' }));
-
-  await waitFor(() => expect(useAuthStore.getState().userInfo?.username).toBe('ordinary.mfa'));
-  await waitFor(() => expect(
-    screen.queryByRole('button', { name: 'complete optional enrollment' }),
-  ).not.toBeInTheDocument());
-});
-
-test('requires acknowledgement before regenerating and acknowledging newly displayed recovery codes', async () => {
-  setUser(false);
-  render(<SecuritySettingsPage />);
-  fireEvent.click(await screen.findByRole('button', { name: '重新生成恢复码' }));
-  expect(screen.getByRole('button', { name: '继续生成' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('checkbox', { name: '我知道旧恢复码将立即失效' }));
-  fireEvent.click(screen.getByRole('button', { name: '继续生成' }));
-  await waitFor(() => expect(authApi.regenerateRecoveryCodes).toHaveBeenCalledWith('one-time-grant'));
-  expect(runStepUp.mock.calls[0][0]).toMatchObject({
-    purpose: 'MFA_RECOVERY_CODES_REGENERATE', target: { userId: 'u1' },
-  });
-  expect(await screen.findByText((_, element) => element?.tagName === 'PRE'
-    && Boolean(element.textContent?.includes('AAAA-BBBB-CCCC-DDDD')))).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: '完成' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('checkbox', { name: '我已安全保存这些恢复码' }));
-  expect(screen.getByRole('button', { name: '完成' })).toBeEnabled();
-});
-
-test('binds session revoke and logout-all grants to the intended targets', async () => {
-  setUser(false);
-  render(<SecuritySettingsPage />);
-  fireEvent.click(await screen.findByRole('button', { name: '撤销会话 s2' }));
-  await waitFor(() => expect(authApi.revokeSession).toHaveBeenCalledWith('s2', 'one-time-grant'));
-  fireEvent.click(screen.getByRole('checkbox', { name: '保留当前会话' }));
-  fireEvent.click(screen.getByRole('button', { name: '退出其他会话' }));
-  await waitFor(() => expect(authApi.logoutAll).toHaveBeenCalledWith('one-time-grant', true));
-  expect(runStepUp.mock.calls.map(call => call[0]).map(({ purpose, target }) => ({ purpose, target }))).toEqual([
-    { purpose: 'SESSION_REVOKE', target: { sessionId: 's2' } },
-    { purpose: 'SESSION_REVOKE_ALL', target: { userId: 'u1' } },
-  ]);
-});
-
-
-test('unbound local administrator has an enrollment entry while disabling MFA stays unavailable', async()=>{
- setUser(true);vi.mocked(authApi.mfaStatus).mockResolvedValue({data:{enabled:false,verifiedAt:null,recoveryCodesRemaining:0}} as never);
- render(<SecuritySettingsPage/>);fireEvent.click(await screen.findByRole('button',{name:'绑定身份验证器'}));
- await waitFor(()=>expect(authApi.startMfaEnrollment).toHaveBeenCalledOnce());
- expect(screen.queryByRole('button',{name:'停用 MFA'})).not.toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'complete optional enrollment' })).not.toBeInTheDocument());
+  expect(useAuthStore.getState().authorization?.isSystemSuperAdmin).toBe(true);
 });

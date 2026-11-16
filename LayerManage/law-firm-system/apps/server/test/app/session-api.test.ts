@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHmac, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { PrismaClient } from '@prisma/client';
 import mm from 'egg-mock';
@@ -9,7 +9,6 @@ import { SessionService } from '../../app/application/auth/session-service';
 import { JwtTokenService } from '../../app/domain/security/token-service';
 import { MfaSecretCrypto } from '../../app/domain/security/mfa-factor-crypto';
 import { TotpService } from '../../app/domain/security/totp-service';
-import { decodeBase32 } from '../../app/domain/security/base32';
 
 process.env.EGG_TYPESCRIPT = 'true';
 const app = mm.app();
@@ -29,15 +28,6 @@ interface MfaBrowserSession extends BrowserSession {
   userId: string;
   secret: string;
   sessionId: string;
-}
-
-function totpCode(secret: string): string {
-  const counter = BigInt(Math.floor(Date.now() / 30_000));
-  const message = Buffer.alloc(8);
-  message.writeBigUInt64BE(counter);
-  const digest = createHmac('sha1', decodeBase32(secret)).update(message).digest();
-  const offset = digest[digest.length - 1] & 0x0f;
-  return ((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0');
 }
 
 async function mfaSession(): Promise<MfaBrowserSession> {
@@ -69,20 +59,8 @@ async function mfaSession(): Promise<MfaBrowserSession> {
   };
 }
 
-async function issueStepUp(actor: MfaBrowserSession, purpose: string, target: unknown): Promise<string> {
-  const response = await app.httpRequest().post('/api/v1/auth/step-up')
-    .set('Authorization', `Bearer ${actor.token}`)
-    .set('Origin', origin)
-    .set('X-CSRF-Token', actor.csrfToken)
-    .set('Cookie', actor.cookie)
-    .send({ purpose, target, code: totpCode(actor.secret) })
-    .expect(200);
-  return response.body.data.stepUpToken;
-}
-
 function browserCookie(response: { headers: Record<string, unknown> }): string {
-  const values = response.headers['set-cookie'] as string[];
-  return values.map(value => value.split(';', 1)[0]).join('; ');
+  return (response.headers['set-cookie'] as string[]).map(value => value.split(';', 1)[0]).join('; ');
 }
 
 async function login(): Promise<BrowserSession> {
@@ -155,44 +133,31 @@ test('lists sessions and performs real logout', async () => {
   assert.equal(rejected.body.message, 'SESSION_REVOKED');
 });
 
-test('requires target-bound step-up to revoke another session', async () => {
+test('revokes another owned device without step-up', async () => {
   const actor = await mfaSession();
   const target = await new SessionService(
     prisma, new JwtTokenService('01234567890123456789012345678901'),
   ).create(actor.userId, 'MFA', {});
-  const missing = await app.httpRequest()
-    .delete(`/api/v1/auth/sessions/${target.sessionId}`)
-    .set('Authorization', `Bearer ${actor.token}`)
-    .set('Origin', origin)
-    .set('X-CSRF-Token', actor.csrfToken)
-    .set('Cookie', actor.cookie)
-    .expect(403);
-  assert.equal(missing.body.message, 'STEP_UP_REQUIRED');
-
-  const grant = await issueStepUp(actor, 'SESSION_REVOKE', { sessionId: target.sessionId });
   await app.httpRequest()
     .delete(`/api/v1/auth/sessions/${target.sessionId}`)
     .set('Authorization', `Bearer ${actor.token}`)
     .set('Origin', origin)
     .set('X-CSRF-Token', actor.csrfToken)
-    .set('X-Step-Up-Token', grant)
     .set('Cookie', actor.cookie)
     .expect(200);
   assert.ok((await prisma.authSession.findUniqueOrThrow({ where: { id: target.sessionId } })).revokedAt);
 });
 
-test('step-up logout-all can explicitly preserve the current session', async () => {
+test('logout-all preserves the current device without step-up', async () => {
   const actor = await mfaSession();
   const other = await new SessionService(
     prisma, new JwtTokenService('01234567890123456789012345678901'),
   ).create(actor.userId, 'MFA', {});
-  const grant = await issueStepUp(actor, 'SESSION_REVOKE_ALL', { userId: actor.userId });
   const response = await app.httpRequest()
     .post('/api/v1/auth/logout-all')
     .set('Authorization', `Bearer ${actor.token}`)
     .set('Origin', origin)
     .set('X-CSRF-Token', actor.csrfToken)
-    .set('X-Step-Up-Token', grant)
     .set('Cookie', actor.cookie)
     .send({ preserveCurrent: true })
     .expect(200);

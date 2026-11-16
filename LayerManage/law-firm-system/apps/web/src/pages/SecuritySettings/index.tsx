@@ -1,11 +1,13 @@
-import { businessLabel } from '@/locales/business-labels';
 import Table from '@/components/ResizableTable';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Checkbox, Descriptions, message, Space, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Checkbox, Collapse, message, Popconfirm, Space, Tag, Typography } from 'antd';
 import Modal from '@/components/DraggableModal';
 import { authApi } from '@/api/auth';
+import { requestErrorMessage } from '@/api/errors';
+import ChangePasswordDialog from '@/features/auth/components/ChangePasswordDialog';
 import StepUpDialog from '@/features/auth/components/StepUpDialog';
 import MfaEnrollment from '@/features/auth/components/MfaEnrollment';
+import { runtimeSession } from '@/features/auth/runtime-session';
 import type { AuthenticatedData, MfaStatusView, SessionView } from '@/features/auth/types';
 import { useStepUp } from '@/features/auth/useStepUp';
 import { useAuthStore } from '@/stores/authStore';
@@ -13,222 +15,93 @@ import { useAuthStore } from '@/stores/authStore';
 export default function SecuritySettingsPage() {
   const userId = useAuthStore(state => state.userInfo?.id);
   const authorization = useAuthStore(state => state.authorization);
-  const setAuthenticated = useAuthStore(state => state.setAuthenticated);
   const isAdministrator = Boolean(authorization?.isSystemAdmin || authorization?.isSystemSuperAdmin);
   const stepUp = useStepUp();
   const [status, setStatus] = useState<MfaStatusView | null>(null);
   const [sessions, setSessions] = useState<SessionView[]>([]);
   const [loading, setLoading] = useState(true);
-  const [regenConfirm, setRegenConfirm] = useState(false);
-  const [regenAcknowledged, setRegenAcknowledged] = useState(false);
-  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
-  const [codesSaved, setCodesSaved] = useState(false);
-  const [disableConfirm, setDisableConfirm] = useState(false);
-  const [preserveCurrent, setPreserveCurrent] = useState(false);
-  const [enrollmentChallenge, setEnrollmentChallenge] = useState<string | null>(null);
-
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [codes, setCodes] = useState<string[]>([]);
+  const [saved, setSaved] = useState(false);
+  const [enrollment, setEnrollment] = useState<string | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [mfa, sessionList] = await Promise.all([authApi.mfaStatus(), authApi.sessions()]);
-      setStatus(mfa.data);
-      setSessions(sessionList.data);
-    } catch {
-      message.error('安全设置加载失败');
-    } finally {
-      setLoading(false);
-    }
+      const [mfa, devices] = await Promise.all([authApi.mfaStatus(), authApi.sessions()]);
+      setStatus(mfa.data); setSessions(devices.data);
+    } catch (e) { message.error(requestErrorMessage(e, '账号安全加载失败')); }
+    finally { setLoading(false); }
   }, []);
-
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
-
-  const startEnrollment = async () => {
-    try {
-      const response = await authApi.startMfaEnrollment();
-      setEnrollmentChallenge(response.data.challengeToken);
-    } catch {
-      message.error('无法开始 MFA 绑定，请稍后重试');
-    }
+  const complete = useCallback((data: AuthenticatedData) => {
+    runtimeSession.setAuthenticated(data); setEnrollment(null); void load();
+  }, [load]);
+  const expired = useCallback(() => { setEnrollment(null); message.error('绑定已过期，请重试'); }, []);
+  const start = async () => {
+    try { setEnrollment((await authApi.startMfaEnrollment()).data.challengeToken); }
+    catch (e) { message.error(requestErrorMessage(e, '无法开始绑定')); }
   };
-
-  const completeEnrollment = useCallback((data: AuthenticatedData) => {
-    setAuthenticated(data);
-    setEnrollmentChallenge(null);
-    void load();
-  }, [load, setAuthenticated]);
-
-  const expireEnrollment = useCallback(() => {
-    setEnrollmentChallenge(null);
-    message.error('MFA 绑定已过期，请重新开始');
-  }, []);
-
+  const revoke = async (id?: string) => {
+    try {
+      if (id) await authApi.revokeSession(id); else await authApi.logoutAll('', true);
+      message.success(id ? '该设备已退出' : '其他设备已退出'); await load();
+    } catch (e) { message.error(requestErrorMessage(e, '退出设备失败')); }
+  };
   const regenerate = async () => {
-    if (!userId || !regenAcknowledged) return;
-    setRegenConfirm(false);
-    try {
-      const response = await stepUp.run({
-        purpose: 'MFA_RECOVERY_CODES_REGENERATE',
-        target: { userId },
-        impact: '使全部旧恢复码立即失效并生成一组新恢复码',
-        mutate: token => authApi.regenerateRecoveryCodes(token),
-      });
-      setRecoveryCodes(response.data.recoveryCodes);
-      setCodesSaved(false);
-      setRegenAcknowledged(false);
-      await load();
-    } catch (error) {
-      if ((error as Error).message !== 'STEP_UP_CANCELLED') message.error('恢复码生成失败');
-    }
-  };
-
-  const disableMfa = async () => {
-    if (!userId || isAdministrator) return;
-    setDisableConfirm(false);
-    try {
-      await stepUp.run({
-        purpose: 'MFA_DISABLE_SELF', target: { userId }, impact: '停用当前账号的多因素验证',
-        mutate: token => authApi.disableMfa(token),
-      });
-      message.success('MFA 已停用，其他会话已撤销');
-      await load();
-    } catch (error) {
-      if ((error as Error).message !== 'STEP_UP_CANCELLED') message.error('MFA 停用失败');
-    }
-  };
-
-  const revokeSession = async (sessionId: string) => {
-    try {
-      await stepUp.run({
-        purpose: 'SESSION_REVOKE', target: { sessionId }, impact: `撤销会话 ${sessionId}`,
-        mutate: token => authApi.revokeSession(sessionId, token),
-      });
-      message.success('会话已撤销');
-      await load();
-    } catch (error) {
-      if ((error as Error).message !== 'STEP_UP_CANCELLED') message.error('会话撤销失败');
-    }
-  };
-
-  const logoutAll = async () => {
     if (!userId) return;
     try {
-      await stepUp.run({
-        purpose: 'SESSION_REVOKE_ALL', target: { userId }, impact: preserveCurrent ? '撤销当前会话之外的全部会话' : '撤销当前账号的全部会话',
-        mutate: token => authApi.logoutAll(token, preserveCurrent),
-      });
-      message.success('会话撤销请求已完成');
-      await load();
-    } catch (error) {
-      if ((error as Error).message !== 'STEP_UP_CANCELLED') message.error('批量退出失败');
-    }
+      const result = await stepUp.run({ purpose: 'MFA_RECOVERY_CODES_REGENERATE', target: { userId },
+        impact: '使旧恢复码立即失效并生成新恢复码', mutate: token => authApi.regenerateRecoveryCodes(token) });
+      setCodes(result.data.recoveryCodes); setSaved(false); await load();
+    } catch (e) { if ((e as Error).message !== 'STEP_UP_CANCELLED') message.error(requestErrorMessage(e, '恢复码生成失败')); }
   };
-
   const columns = [
-    {
-      title: '会话', key: 'session', render: (_: unknown, session: SessionView) => <Space>
-        <Typography.Text code>{session.id}</Typography.Text>
-        {session.current && <Tag color="blue">当前会话</Tag>}
-      </Space>,
-    },
-    { title: '验证级别', dataIndex: 'assuranceLevel', render: (value: string) => <Tag>{businessLabel(value)}</Tag> },
+    { title: '登录设备', key: 'device', render: (_: unknown, row: SessionView, index: number) =>
+      row.current ? <Tag color="blue">当前设备</Tag> : <span>其他设备 {index + 1}</span> },
+    { title: '登录时间', dataIndex: 'createdAt', render: (value: string) => new Date(value).toLocaleString() },
     { title: '最近活动', dataIndex: 'lastSeenAt', render: (value: string) => new Date(value).toLocaleString() },
     { title: '网络', dataIndex: 'ipPrefix', render: (value: string | null) => value ?? '未记录' },
-    {
-      title: '操作', key: 'action', render: (_: unknown, session: SessionView) => session.current ? null : (
-        <Button danger aria-label={`撤销会话 ${session.id}`} onClick={() => void revokeSession(session.id)}>撤销</Button>
-      ),
-    },
+    { title: '操作', key: 'action', render: (_: unknown, row: SessionView) => row.current ? null :
+      <Popconfirm title="确认退出该设备？" onConfirm={() => revoke(row.id)} okText="退出" cancelText="取消">
+        <Button danger aria-label={`退出该设备 ${row.id}`}>退出该设备</Button>
+      </Popconfirm> },
   ];
-
-  return (
-    <section>
-      <Typography.Title level={2}>账号安全</Typography.Title>
-      <Space orientation="vertical" size="large" style={{ width: '100%' }}>
-        <Card title="多因素验证" loading={loading}>
-          <Typography.Paragraph>退费审批等操作使用身份验证器中的六位动态验证码。请先在自己的手机身份验证器中绑定本账号；验证码不会显示在 OA 审批页面，也不会通过短信发送。</Typography.Paragraph>
-          {status && <>
-            <Descriptions items={[
-              { key: 'state', label: '状态', children: <Tag color={status.enabled ? 'success' : 'default'}>{status.enabled ? '已启用' : '未启用'}</Tag> },
-              { key: 'codes', label: '恢复码', children: `剩余恢复码：${status.recoveryCodesRemaining}` },
-            ]} />
-            {isAdministrator && <Alert type="info" showIcon title="管理员必须保持 MFA 启用" style={{ marginBottom: 16 }} />}
-            {status.enabled && <Space wrap>
-              <Button aria-label="重新生成恢复码" onClick={() => setRegenConfirm(true)}>重新生成恢复码</Button>
-              {!isAdministrator && <Button danger aria-label="停用 MFA" onClick={() => setDisableConfirm(true)}>停用 MFA</Button>}
-            </Space>}
-            {!status.enabled && (
-              <Button type="primary" aria-label="绑定身份验证器" onClick={() => void startEnrollment()}>
-                绑定身份验证器
-              </Button>
-            )}
-          </>}
-        </Card>
-
-        <Card title="活动会话" loading={loading}>
-          <Table rowKey="id" dataSource={sessions} columns={columns} pagination={false} />
-          <Space style={{ marginTop: 16 }} wrap>
-            <Checkbox checked={preserveCurrent} onChange={event => setPreserveCurrent(event.target.checked)}>保留当前会话</Checkbox>
-            <Button danger aria-label="退出其他会话" onClick={() => void logoutAll()}>退出其他会话</Button>
-          </Space>
-        </Card>
-      </Space>
-
-      {enrollmentChallenge && (
-        <Modal
-          open
-          title="启用多因素验证"
-          footer={null}
-          onCancel={() => setEnrollmentChallenge(null)}
-        >
-          <MfaEnrollment
-            challengeToken={enrollmentChallenge}
-            onAuthenticated={completeEnrollment}
-            onExpired={expireEnrollment}
-          />
-        </Modal>
-      )}
-
-      <Modal
-        open={regenConfirm}
-        title="重新生成恢复码"
-        okText="继续生成"
-        cancelText="取消"
-        okButtonProps={{ disabled: !regenAcknowledged, 'aria-label': '继续生成' }}
-        onCancel={() => { setRegenConfirm(false); setRegenAcknowledged(false); }}
-        onOk={() => void regenerate()}
-      >
-        <Alert type="warning" showIcon title="生成后，全部旧恢复码会立即失效。" />
-        <Checkbox checked={regenAcknowledged} onChange={event => setRegenAcknowledged(event.target.checked)}>
-          我知道旧恢复码将立即失效
-        </Checkbox>
-      </Modal>
-
-      <Modal
-        open={recoveryCodes.length > 0}
-        title="请立即保存新恢复码"
-        okText="完成"
-        okButtonProps={{ disabled: !codesSaved, 'aria-label': '完成' }}
-        cancelButtonProps={{ style: { display: 'none' } }}
-        closable={false}
-        mask={{ closable: false }}
-        onOk={() => { setRecoveryCodes([]); setCodesSaved(false); }}
-      >
-        <Alert type="warning" showIcon title="这些恢复码只显示一次，请离线安全保存。" />
-        <pre>{recoveryCodes.join('\n')}</pre>
-        <Checkbox checked={codesSaved} onChange={event => setCodesSaved(event.target.checked)}>我已安全保存这些恢复码</Checkbox>
-      </Modal>
-
-      <Modal
-        open={disableConfirm}
-        title="确认停用 MFA？"
-        okText="继续停用"
-        okButtonProps={{ danger: true }}
-        onCancel={() => setDisableConfirm(false)}
-        onOk={() => void disableMfa()}
-      >
-        停用后，其他活动会话将被撤销。
-      </Modal>
-      <StepUpDialog {...stepUp.dialogProps} />
-    </section>
-  );
+  return <section>
+    <Typography.Title level={2}>账号安全</Typography.Title>
+    <Space orientation="vertical" size="large" style={{ width: '100%' }}>
+      <Card title="登录密码">
+        <Typography.Paragraph>密码属于您的个人账号，不与角色共用。仅首次登录或管理员重置后需要修改初始密码，不要求每次登录或定期修改。</Typography.Paragraph>
+        <Button onClick={() => setPasswordOpen(true)}>修改密码</Button>
+      </Card>
+      <Card title="登录设备" loading={loading}>
+        <Table rowKey="id" dataSource={sessions} columns={columns} pagination={false} />
+        <Popconfirm title="确认退出其他所有设备？当前设备会保留。" onConfirm={() => revoke()} okText="退出" cancelText="取消">
+          <Button danger style={{ marginTop: 16 }}>退出其他设备</Button>
+        </Popconfirm>
+      </Card>
+      <Collapse items={[{ key: 'advanced', label: '高级安全设置', children: <>
+        <Alert type="info" showIcon title="登录、日常操作和普通审批无需二次验证。只有执行高风险操作的管理员需要绑定身份验证器。" />
+        {!isAdministrator && <Typography.Paragraph>普通账号无需安装验证器；以前的绑定也不会影响正常登录。管理员专属操作请联系管理员处理。</Typography.Paragraph>}
+        {isAdministrator && <>
+          <Typography.Paragraph>二次验证：{status?.enabled ? '已绑定' : '未绑定'}。用于永久销毁数据、关键管理权限变更和高风险治理操作。</Typography.Paragraph>
+          {status?.enabled ? <>
+            <Typography.Paragraph>剩余恢复码：{status.recoveryCodesRemaining}。请离线保存恢复码；验证器丢失时由授权运维人员按现有管理员恢复流程处理。恢复会撤销旧凭据并记录审计。</Typography.Paragraph>
+            <Popconfirm title="重新生成后，旧恢复码将立即失效。确认继续？" onConfirm={regenerate} okText="继续" cancelText="取消">
+              <Button>重新生成恢复码</Button>
+            </Popconfirm>
+          </> : <Button onClick={() => void start()}>绑定身份验证器</Button>}
+        </>}
+      </> }]} />
+    </Space>
+    <ChangePasswordDialog open={passwordOpen} onClose={() => setPasswordOpen(false)} />
+    {enrollment && <Modal open title="绑定管理员二次验证" footer={null} onCancel={() => setEnrollment(null)} destroyOnHidden>
+      {enrollment && <MfaEnrollment challengeToken={enrollment} onAuthenticated={complete} onExpired={expired} />}
+    </Modal>}
+    <Modal open={codes.length > 0} title="请立即保存新恢复码" okText="完成" closable={false} mask={{ closable: false }}
+      cancelButtonProps={{ style: { display: 'none' } }} okButtonProps={{ disabled: !saved }} onOk={() => setCodes([])}>
+      <Alert type="warning" title="这些恢复码只显示一次，请离线安全保存。" />
+      <pre>{codes.join('\n')}</pre><Checkbox checked={saved} onChange={e => setSaved(e.target.checked)}>我已安全保存恢复码</Checkbox>
+    </Modal>
+    <StepUpDialog {...stepUp.dialogProps} />
+  </section>;
 }

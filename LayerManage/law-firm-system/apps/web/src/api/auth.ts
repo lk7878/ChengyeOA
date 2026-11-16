@@ -17,6 +17,11 @@ export const authApi = {
   login: (params: LoginParams) =>
     request.post<ApiResponse<LoginData>>('/v1/auth/login', params, { suppressGlobalError: true }),
 
+  changePassword: (currentPassword: string, password: string, confirmation: string) =>
+    request.post<ApiResponse<{ token: string; csrfToken: string; expiresIn: 900 }>>(
+      '/v1/auth/password/change', { currentPassword, password, confirmation }, { suppressGlobalError: true },
+    ),
+
   forcePasswordChange: (challengeToken: string, password: string, confirmation: string) =>
     request.post<ApiResponse<LoginData>>(
       '/v1/auth/password/forced-change',
@@ -58,10 +63,10 @@ export const authApi = {
     '/v1/auth/mfa/recovery-codes', {}, { headers: { 'X-Step-Up-Token': stepUpToken } },
   ),
   sessions: () => request.get<ApiResponse<SessionView[]>>('/v1/auth/sessions'),
-  revokeSession: (sessionId: string, stepUpToken: string) => request.delete<ApiResponse<null>>(
+  revokeSession: (sessionId: string, stepUpToken = '') => request.delete<ApiResponse<null>>(
     `/v1/auth/sessions/${sessionId}`, { headers: { 'X-Step-Up-Token': stepUpToken } },
   ),
-  logoutAll: (stepUpToken: string, preserveCurrent = false) => request.post<ApiResponse<{ revokedCount: number }>>(
+  logoutAll: (stepUpToken = '', preserveCurrent = true) => request.post<ApiResponse<{ revokedCount: number }>>(
     '/v1/auth/logout-all', { preserveCurrent }, { headers: { 'X-Step-Up-Token': stepUpToken } },
   ),
   stepUp: (purpose: StepUpPurpose, target: unknown, code: string) => request.post<ApiResponse<{

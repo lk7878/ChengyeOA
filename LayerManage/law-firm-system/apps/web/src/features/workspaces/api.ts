@@ -20,6 +20,9 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  ADMIN_HIGH_RISK_ONLY: '此操作仅限有权限的管理员执行，请联系管理员。',
+  STEP_UP_CANCELLED: '已取消操作，数据未变更。',
+  STEP_UP_REQUIRED: '此管理员高风险操作需要二次验证。',
   COLLAB_INVALID_NAVIGATION:'菜单节点配置无效，请检查父节点、层级或页面绑定。',
   COLLAB_TABLE_NAME_CONFLICT:'目标目录已有同名工作表，请先调整名称。',
   MEDICAL_LINKED_FIELD_READONLY:'客户信息由关联的跟进记录回填，不能直接修改；请先清空关联。',

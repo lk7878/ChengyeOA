@@ -5,6 +5,7 @@ import { SecurityError } from '../domain/security/security-errors';
 const COOKIE_MUTATION_PATHS = new Set([
   '/api/v1/auth/refresh',
   '/api/v1/auth/logout',
+  '/api/v1/auth/password/change',
   '/api/v1/auth/logout-all',
   '/api/v1/auth/mfa',
   '/api/v1/auth/mfa/enrollment/start',

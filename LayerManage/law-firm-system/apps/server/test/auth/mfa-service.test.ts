@@ -150,7 +150,7 @@ test('confirms enrollment atomically and returns ten one-time recovery codes', a
   assert.ok(verified.recoveryCodes?.every(code => !JSON.stringify(audit).includes(code)));
 });
 
-test('rejects optional enrollment for an existing factor, administrator, or inactive account', async () => {
+test('rejects existing factors and inactive accounts but allows administrator setup', async () => {
   await beginAndConfirm();
   const existingFactorClaims = await activeClaims(userId, 'MFA');
   await assert.rejects(
@@ -166,10 +166,7 @@ test('rejects optional enrollment for an existing factor, administrator, or inac
   });
   await prisma.userRole.create({ data: { userId: admin.id, roleId: role.id } });
   const adminClaims = await activeClaims(admin.id, 'MFA');
-  await assert.rejects(
-    () => services().mfa.startOptionalEnrollment(adminClaims),
-    hasCode('MFA_INVALID'),
-  );
+  assert.ok((await services().mfa.startOptionalEnrollment(adminClaims)).challengeToken);
 
   const inactive = await prisma.user.create({
     data: { username: `inactive.${randomUUID()}`, password: 'unused' },

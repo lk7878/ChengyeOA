@@ -2,6 +2,18 @@
 
 This runbook is the production operating contract for SPEC-006. It covers the MFA encryption key, synchronized rollout, administrator enrollment, recovery codes, governed and emergency MFA reset, backup/restore, rollback, and key-loss response.
 
+## Current interaction policy (2026-11-15)
+
+Login is password-only for all accounts, including administrators and accounts with an existing TOTP factor. First-login / administrator-reset password changes remain mandatory. The legacy `LOCAL_PASSWORD_LOGIN` setting does not control this policy or bypass high-risk checks.
+
+The account menu retains Appearance and adds an in-page Change Password dialog. Changing a personal password verifies the current password, rotates the current device's credentials atomically, invalidates old credentials and outstanding proofs, and logs out all other devices. Device logout is owner-scoped and CSRF-protected; it does not require a factor. Passwords are per account, never shared by role. No periodic password change is imposed.
+
+Ordinary approvals, individual recoverable worksheet record deletion/undo, and moving a directory into the recycle bin do not require TOTP. The existing record batch-delete endpoint is limited to 100 recoverable rows with per-row access checks and undo history; it does not permanently destroy them and does not require TOTP. Destruction of an entire worksheet or a data-bearing directory is always protected. Permanently destroying a worksheet, purging a directory containing documents, permanently deleting an attachment, creating or deleting roles, changing role permissions or grants, resetting another user's password, changing a department manager, and account/employee bindings require an effective SYSTEM_ADMIN or SYSTEM_SUPER_ADMIN and a fresh action proof. Empty folder removal, role name/description edits, and navigation-only menu changes are excluded. No database-wipe or restore endpoint is added.
+
+High-risk HTTP proofs bind method, path, and a digest of the body/query; existing governance proofs continue to bind their operation and version. A proof lasts five minutes and is single use. Validation never substitutes for the original permission, data-scope, review-identity, version, and audit checks. Password-only sessions can verify a concrete action. Administrators can enroll within the pending action dialog and continue without navigating away; a fresh TOTP period is needed after enrollment because replay protection remains enabled.
+
+Personal files currently have no deletion endpoint. Do not label any existing hard-delete operation as recoverable or add destructive maintenance entry points to implement this policy. Ordinary users receive a contact-administrator message for administrator-only actions. Keep the governed and emergency reset restrictions below; after reset, login remains password-only and the next high-risk action requires re-enrollment.
+
 ## Required Secrets
 
 Production requires `DATABASE_URL`, `JWT_SECRET`, at least two comma-separated `APP_KEYS`, `CORS_ALLOWED_ORIGINS`, and `MFA_ENCRYPTION_KEY_V1`. Generate the MFA key on an approved administrative host without printing or committing the raw bytes:
@@ -49,7 +61,7 @@ An administrator cannot disable their own MFA. Resetting administrator MFA is a 
 
 ## Governed Administrator MFA Reset
 
-Use `ADMIN_MFA_RESET` for normal recovery when another effective super-admin is available. The target must be a different administrator. Approval disables the target factor, invalidates recovery codes, increments credential version, revokes all sessions, and forces enrollment after the next successful password stage.
+Use `ADMIN_MFA_RESET` for normal recovery when another effective super-admin is available. The target must be a different administrator. Approval disables the target factor, invalidates recovery codes, increments credential version, revokes all sessions, and requires re-enrollment before the next high-risk action.
 
 Verify the immutable governance record and the `ADMIN_MFA_RESET` audit before closing the incident. Never include TOTP, MFA, recovery, cookie, authorization, token, or secret fields in the request reason or evidence.
 
@@ -70,7 +82,7 @@ The command uses hidden password input and requires the exact phrase:
 RESET ADMIN MFA <databaseName> <normalizedUsername>
 ```
 
-It fails closed when zero or multiple effective super-admins exist, the target is missing/disabled/locked, the password is wrong, the database confirmation is wrong, or audit persistence fails. Success revokes every session and requires fresh MFA enrollment. Record only the sanitized command reference and audit identity.
+It fails closed when zero or multiple effective super-admins exist, the target is missing/disabled/locked, the password is wrong, the database confirmation is wrong, or audit persistence fails. Success revokes every session; the next high-risk action requires fresh MFA enrollment. Record only the sanitized command reference and audit identity.
 
 For an isolated non-production rehearsal of the same CLI orchestration and real recovery service path, use only the fixed local `chengye_oa_test` target:
 
@@ -85,7 +97,7 @@ The rehearsal creates a disposable sole super-admin, runs `adminMfaResetMain`, v
 
 ## Backup and Restore
 
-Database backups do **not** contain `MFA_ENCRYPTION_KEY_V1`. Back up the database and the versioned secret-manager entry as separate controlled assets. A restore is not usable for MFA login until the exact key version that encrypted its factors is injected into the restored environment.
+Database backups do **not** contain `MFA_ENCRYPTION_KEY_V1`. Back up the database and the versioned secret-manager entry as separate controlled assets. A restore cannot validate high-risk TOTP actions until the exact key version that encrypted its factors is injected into the restored environment.
 
 For every restore rehearsal:
 

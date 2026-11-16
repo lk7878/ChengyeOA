@@ -3,11 +3,12 @@ import test from 'node:test';
 import type { Context } from 'egg';
 import administratorMfaGuard from '../../app/middleware/administratorMfaGuard';
 
-test('administrator password sessions pass the guard only with the explicit local setting', async () => {
+test('ordinary administrator reads do not depend on a development bypass', async () => {
   for (const localPasswordLogin of [undefined, false, true]) {
     let nextCalls = 0;
     const ctx = {
       app: { config: { identitySecurity: { localPasswordLogin } } },
+      method: 'GET', request: { body: {} },
       path: '/api/v1/authorization/me',
       state: {
         authorization: { isSystemSuperAdmin: true },
@@ -16,8 +17,7 @@ test('administrator password sessions pass the guard only with the explicit loca
       prisma: { mfaFactor: { async findFirst() { return null; } } },
     } as unknown as Context;
     const request = administratorMfaGuard()(ctx, async () => { nextCalls++; });
-    if (localPasswordLogin) await request;
-    else await assert.rejects(request, { code: 'MFA_ENROLLMENT_REQUIRED' });
-    assert.equal(nextCalls, localPasswordLogin ? 1 : 0);
+    await request;
+    assert.equal(nextCalls, 1);
   }
 });

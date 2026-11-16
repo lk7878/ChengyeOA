@@ -47,7 +47,7 @@ export default () => async (ctx: Context, next: () => Promise<unknown>) => {
       ctx.body = {
         code: error.httpStatus,
         message: error.code,
-        errors: null,
+        errors: error.details ?? null,
         timestamp: Date.now(),
       };
       return;

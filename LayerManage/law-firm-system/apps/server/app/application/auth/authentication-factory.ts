@@ -15,7 +15,6 @@ interface AuthConfig {
     mfaEncryptionKeys: ReadonlyMap<number, Buffer>;
     trustedOrigins: string[];
     production: boolean;
-    localPasswordLogin?: boolean;
   };
 }
 
@@ -35,7 +34,7 @@ export function createAuthenticationServices(ctx: Context): AuthenticationServic
   const totp = new TotpService();
   const secretCrypto = new MfaSecretCrypto(config.identitySecurity.mfaEncryptionKeys);
   const stepUp = new StepUpService(ctx.prisma, totp, secretCrypto);
-  const sessions = new SessionService(ctx.prisma, tokens, undefined, undefined, stepUp);
+  const sessions = new SessionService(ctx.prisma, tokens);
   const mfa = new MfaService(
     ctx.prisma,
     challenges,
@@ -43,14 +42,10 @@ export function createAuthenticationServices(ctx: Context): AuthenticationServic
     secretCrypto,
     hasher,
     stepUp,
-    undefined,
-    undefined,
-    config.identitySecurity.localPasswordLogin === true,
   );
   return {
     authentication: new AuthenticationService(
-      ctx.prisma, hasher, challenges, mfa, sessions, undefined, undefined,
-      config.identitySecurity.localPasswordLogin === true,
+      ctx.prisma, hasher, challenges, mfa, sessions,
     ),
     challenges,
     mfa,

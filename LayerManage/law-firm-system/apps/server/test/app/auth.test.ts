@@ -328,7 +328,7 @@ test('forced change rejects confirmation mismatch, weak password, and password r
     .expect(400);
   const weak = await app.httpRequest()
     .post('/api/v1/auth/password/forced-change')
-    .send({ challengeToken: token, password: 'password123', confirmation: 'password123' })
+    .send({ challengeToken: token, password: '12345', confirmation: '12345' })
     .expect(400);
   const reused = await app.httpRequest()
     .post('/api/v1/auth/password/forced-change')
@@ -346,19 +346,16 @@ test('forced change rejects confirmation mismatch, weak password, and password r
   assert.equal(await prisma.operationLog.count({ where: { action: 'FORCED_PASSWORD_CHANGE' } }), 0);
 });
 
-test('forced change updates credentials and audit atomically, then continues to mandatory MFA enrollment', async () => {
+test('forced change updates credentials and audit atomically, then logs in without mandatory MFA', async () => {
   const token = await passwordChangeToken();
   const response = await app.httpRequest()
     .post('/api/v1/auth/password/forced-change')
     .send({ challengeToken: token, password: replacementPassword, confirmation: replacementPassword })
     .expect(200);
 
-  assert.equal(response.body.data.mode, 'MFA_ENROLLMENT_REQUIRED');
-  assert.equal(response.body.data.expiresIn, 600);
-  assert.equal(typeof response.body.data.challengeToken, 'string');
-  assert.equal('token' in response.body.data, false);
+  assert.equal(response.body.data.mode, 'AUTHENTICATED');
+  assert.equal(typeof response.body.data.token, 'string');
   assert.equal('refreshToken' in response.body.data, false);
-  assert.equal('user' in response.body.data, false);
   const user = await prisma.user.findUniqueOrThrow({ where: { username: 'root.admin' } });
   assert.equal(user.mustChangePassword, false);
   assert.equal(user.credentialVersion, 2);
@@ -392,8 +389,8 @@ test('forced change updates credentials and audit atomically, then continues to 
     .post('/api/v1/auth/login')
     .send({ username: 'root.admin', password: replacementPassword })
     .expect(200);
-  assert.equal(login.body.data.mode, 'MFA_ENROLLMENT_REQUIRED');
-  assert.equal(await prisma.authSession.count({ where: { userId: user.id } }), 0);
+  assert.equal(login.body.data.mode, 'AUTHENTICATED');
+  assert.equal(await prisma.authSession.count({ where: { userId: user.id } }), 2);
 });
 
 test('one password-change token can commit at most one concurrent forced change', async () => {

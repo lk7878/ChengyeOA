@@ -1,3 +1,5 @@
+import ChangePasswordDialog from '@/features/auth/components/ChangePasswordDialog';
+import HighRiskOperationDialog from '@/features/auth/components/HighRiskOperationDialog';
 import BusinessNavigation from '@/features/navigation/BusinessNavigation';
 import { useMenuLabels } from '@/features/navigation/menu-labels';
 import { menuChangeKey, useMenuStore } from '@/features/navigation/menu-store';
@@ -57,6 +59,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   const [drawer, setDrawer] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [search, setSearch] = useState('');
   const { userInfo, authorization, authorizationStatus, ensureAuthorization, logout } = useAuthStore();
   useNavigationAuthorization();
@@ -156,6 +159,8 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   return (
     <UnifiedShellContext.Provider value={true}>
       {!inPreviewFrame && <LiveNotifications />}
+      <ChangePasswordDialog open={passwordOpen} onClose={() => setPasswordOpen(false)} />
+      <HighRiskOperationDialog />
       {appearanceOpen && <AppearanceSettings key={userInfo?.id} onClose={() => setAppearanceOpen(false)} />}
       <div className={'unified-shell' + (expanded ? ' unified-expanded' : '')}>
         <a className="unified-skip" href="#unified-main">
@@ -191,7 +196,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
                 setSearchOpen(true);
               }}
             />
-            {toolAllowed('/smart-case') && <Link className="unified-tool" aria-label="智慧办案" to="/smart-case">智慧办案</Link>}
+            {toolAllowed('/smart-case') && <Link className="unified-tool" aria-label="智慧办案" to="/smart-case" target="_blank" rel="noopener noreferrer">智慧办案</Link>}
             <Link aria-label="通知中心" title="通知中心" className="unified-notification" to="/notifications">
               <BellOutlined aria-hidden="true" />
             </Link>
@@ -199,6 +204,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
               menu={{
                 items: [
                   { key: 'appearance', label: '外观设置', onClick: () => setAppearanceOpen(true) },
+                  { key: 'password', label: '修改密码', onClick: () => setPasswordOpen(true) },
                   { key: 'account', label: <Link to="/security/account">账号安全</Link> },
                   { key: 'logout', label: '退出登录', onClick: () => { void logout().catch(() => { /* The request interceptor displays the failure; keep the session available for retry. */ }); } },
                 ],

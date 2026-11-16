@@ -20,7 +20,7 @@ const labels: Record<string, string> = {
   PHONE: '电话', CALL: '电话', WECHAT: '微信', EMAIL: '邮件', MEETING: '会议', VISIT: '当面沟通', FACE_TO_FACE: '当面沟通', OTHER: '其他',
   DRAFT: '草稿', TODO: '待办', IN_PROGRESS: '进行中', COMPLETED: '已完成', CLOSED: '已关闭', ARCHIVED: '已归档',
   L1: '一级数据', L2: '二级数据', L3: '三级数据', L4: '四级数据', FORBIDDEN: '禁止访问', SPECIAL_GRANT: '临时特权授权', CUSTOM: '自定义范围',
-  PASSWORD: '密码验证', MFA: '多因素验证', TOTP: '身份验证器', RECOVERY_CODE: '恢复码',
+  PASSWORD: '密码验证', MFA: '二次验证', TOTP: '身份验证器', RECOVERY_CODE: '恢复码',
 };
 export function businessLabel(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';

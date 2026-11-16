@@ -22,6 +22,7 @@ export type LoginData =
   | AuthenticatedData;
 
 export type StepUpPurpose =
+  | 'ADMIN_HIGH_RISK'
   | 'ADMIN_GOVERNANCE_CREATE'
   | 'ADMIN_GOVERNANCE_APPROVE'
   | 'ADMIN_GOVERNANCE_RETRY'
@@ -34,6 +35,7 @@ export type StepUpPurpose =
   | 'REFUND_APPROVE';
 
 export interface MfaStatusView {
+  canManageHighRisk?: boolean;
   enabled: boolean;
   verifiedAt: string | null;
   recoveryCodesRemaining: number;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Checkbox, Input, Spin, Typography } from 'antd';
 import QRCode from 'qrcode';
+import { runtimeSession } from '../runtime-session';
 import { authApi } from '@/api/auth';
 import type { AuthenticatedData } from '../types';
 
@@ -33,7 +34,7 @@ export default function MfaEnrollment({ challengeToken, onAuthenticated, onExpir
       .catch(errorValue => {
         if (!current) return;
         if (isExpired(errorValue)) onExpired();
-        else setError('无法开始 MFA 绑定，请重新登录');
+        else setError('无法开始二次验证绑定，请重试');
       })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
@@ -46,6 +47,7 @@ export default function MfaEnrollment({ challengeToken, onAuthenticated, onExpir
     try {
       const response = await authApi.confirmMfaEnrollment(challengeToken, code);
       if (response.data.mode !== 'AUTHENTICATED') throw new Error('AUTH_STATE_INVALID');
+      runtimeSession.setAuthenticated(response.data);
       setCompleted(response.data);
     } catch (errorValue) {
       if (isExpired(errorValue)) onExpired();
@@ -74,7 +76,7 @@ export default function MfaEnrollment({ challengeToken, onAuthenticated, onExpir
   return (
     <Spin spinning={loading}>
       <Typography.Title level={4}>绑定身份验证器</Typography.Title>
-      <Typography.Paragraph>在手机身份验证器中添加账号，扫描下方二维码或输入密钥，再填写验证器生成的六位验证码。绑定完成后，登录和退费审批均使用该验证器；每次请使用新生成的验证码。</Typography.Paragraph>
+      <Typography.Paragraph>在手机身份验证器中添加账号，扫描下方二维码或输入密钥，再填写验证器生成的六位验证码。仅管理员高风险操作需要二次验证，登录和普通审批不需要验证码；每次验证请使用新生成的验证码。</Typography.Paragraph>
       {error && <Alert role="alert" type="error" title={error} />}
       {qr && <img src={qr} alt="身份验证器二维码" width={220} height={220} />}
       <Typography.Paragraph copyable={{ text: manualKey }}>

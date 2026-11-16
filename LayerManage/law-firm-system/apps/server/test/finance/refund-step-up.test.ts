@@ -342,9 +342,8 @@ test('rejects a stale expectedVersion with 409 before consuming the grant', asyn
   assert.equal(stored.status, 'PENDING');
 });
 
-// ---------- 真实 consumer：digest 绑定（expectedVersion 不符 → STEP_UP_TARGET_MISMATCH 403） ----------
-
-test('real StepUpService consumer binds the digest: matching grant flips, stale target is rejected 403', async () => {
+// Ordinary refund approval no longer issues a legacy REFUND_APPROVE proof.
+test('rejects retired refund proofs while ordinary approval retains business checks and audit', async () => {
   const { userId, actor } = await createRefundActor();
   now = new Date('2099-01-02T03:04:05.000Z');
   await seedMfaFactor(userId);
@@ -353,46 +352,12 @@ test('real StepUpService consumer binds the digest: matching grant flips, stale 
   const contract = await createContractRow(customer.id, userId);
   await createPaymentRow(contract.id, customer.id, userId);
   const refund = await createRefundRow(contract.id, customer.id, userId);
-
-  const stepUp = realStepUpService();
-  const service = refundServiceFor(userId, actor, stepUp);
-
-  // 为正确目标发证：{refundRequestId, expectedVersion: 1} → 同版本消费通过。
-  const matchingToken = (await stepUp.issue(sessionClaims, {
-    purpose: 'REFUND_APPROVE',
-    target: { refundRequestId: refund.id, expectedVersion: refund.version },
-    code: codeAt(now),
-  })).stepUpToken;
-  const view = await service.approveRefundRequest(
-    refund.id,
-    { expectedVersion: refund.version },
-    { claims: sessionClaims, token: matchingToken },
-  );
+  await assert.rejects(() => realStepUpService().issue(sessionClaims, {
+    purpose: 'REFUND_APPROVE', target: { refundRequestId: refund.id, expectedVersion: refund.version }, code: codeAt(now),
+  }), isSecurityError('STEP_UP_INVALID', 403));
+  assert.equal(await prisma.stepUpGrant.count({ where: { userId } }), 0);
+  const view = await refundServiceFor(userId, actor).approveRefundRequest(refund.id, { expectedVersion: refund.version });
   assert.equal(view.status, 'APPROVED');
-  assert.equal(
-    await prisma.eventLog.count({ where: { objectType: 'REFUND_REQUEST', eventType: 'refund.approved' } }),
-    1,
-  );
-
-  // 推进 TOTP 窗口（规避 lastAcceptedCounter 重放拒绝），为异目标版本发证。
-  now = new Date(now.getTime() + 30_000);
-  const secondCustomer = await createCustomerFixture(userId);
-  const secondContract = await createContractRow(secondCustomer.id, userId);
-  await createPaymentRow(secondContract.id, secondCustomer.id, userId);
-  const second = await createRefundRow(secondContract.id, secondCustomer.id, userId);
-  const staleToken = (await stepUp.issue(sessionClaims, {
-    purpose: 'REFUND_APPROVE',
-    target: { refundRequestId: second.id, expectedVersion: 999 },
-    code: codeAt(now),
-  })).stepUpToken;
-  await assert.rejects(
-    () => service.approveRefundRequest(second.id, { expectedVersion: second.version }, {
-      claims: sessionClaims,
-      token: staleToken,
-    }),
-    isSecurityError('STEP_UP_TARGET_MISMATCH', 403),
-  );
-  const stored = await prisma.refundRequest.findUniqueOrThrow({ where: { id: second.id } });
-  assert.equal(stored.status, 'PENDING');
-  assert.equal(stored.version, 1);
+  assert.equal(await prisma.eventLog.count({ where: { objectType: 'REFUND_REQUEST', eventType: 'refund.approved' } }), 1);
+  assert.equal(await prisma.operationLog.count({ where: { targetId: refund.id, action: 'REFUND_APPROVE' } }), 1);
 });

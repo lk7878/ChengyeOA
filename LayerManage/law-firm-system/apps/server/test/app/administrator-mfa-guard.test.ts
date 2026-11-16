@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { PrismaClient } from '@prisma/client';
@@ -58,21 +57,19 @@ test.after(async () => {
   await mm.restore();
 });
 
-test('rejects an administrator session when no verified factor exists', async () => {
+test('allows ordinary reads by administrators without a factor', async () => {
   const user = await createUser();
   await assignAdmin(user.id);
   const credentials = await session(user.id, 'PASSWORD');
-  const response = await authorization(credentials.accessToken).expect(403);
-  assert.equal(response.body.message, 'MFA_ENROLLMENT_REQUIRED');
+  await authorization(credentials.accessToken).expect(200);
 });
 
-test('rejects a password-only administrator session when a factor exists', async () => {
+test('allows ordinary reads by password-only administrators with an old factor', async () => {
   const user = await createUser();
   await assignAdmin(user.id);
   await addVerifiedFactor(user.id);
   const credentials = await session(user.id, 'PASSWORD');
-  const response = await authorization(credentials.accessToken).expect(403);
-  assert.equal(response.body.message, 'MFA_REQUIRED');
+  await authorization(credentials.accessToken).expect(200);
 });
 
 test('allows a verified MFA administrator session and an ordinary password session', async () => {
@@ -85,11 +82,10 @@ test('allows a verified MFA administrator session and an ordinary password sessi
   await authorization((await session(ordinary.id, 'PASSWORD')).accessToken).expect(200);
 });
 
-test('fails closed when an ordinary user is promoted during a password session', async () => {
+test('role promotion does not force login MFA on ordinary reads', async () => {
   const user = await createUser();
   const credentials = await session(user.id, 'PASSWORD');
   await authorization(credentials.accessToken).expect(200);
   await assignAdmin(user.id);
-  const response = await authorization(credentials.accessToken).expect(403);
-  assert.equal(response.body.message, 'MFA_ENROLLMENT_REQUIRED');
+  await authorization(credentials.accessToken).expect(200);
 });

@@ -3,7 +3,7 @@ import { authApi } from '@/api/auth';
 import { requestErrorMessage } from '@/api/errors';
 import type { StepUpPurpose } from './types';
 
-export type StepUpReadiness = 'CHECKING' | 'READY' | 'ENROLLMENT_REQUIRED' | 'LOGIN_REQUIRED' | 'ERROR';
+export type StepUpReadiness = 'CHECKING' | 'READY' | 'ENROLLMENT_REQUIRED' | 'LOGIN_REQUIRED' | 'ADMIN_REQUIRED' | 'ERROR';
 
 export interface WithStepUpInput<T> {
   purpose: StepUpPurpose;
@@ -48,13 +48,10 @@ export function useStepUp() {
     setError(null);
     try {
       const status = await authApi.mfaStatus();
-      const sessions = status.data.enabled ? await authApi.sessions() : undefined;
       if (pendingRef.current !== active) return;
-      const next = !status.data.enabled
-        ? 'ENROLLMENT_REQUIRED'
-        : sessions?.data.some((s) => s.current && s.assuranceLevel === 'MFA')
-          ? 'READY'
-          : 'LOGIN_REQUIRED';
+      const personalMaintenance = ['MFA_DISABLE_SELF', 'MFA_RECOVERY_CODES_REGENERATE'].includes(active.purpose);
+      const next = status.data.canManageHighRisk === false && !personalMaintenance
+        ? 'ADMIN_REQUIRED' : !status.data.enabled ? 'ENROLLMENT_REQUIRED' : 'READY';
       readinessRef.current = next;
       setReadiness(next);
     } catch (e) {
@@ -113,7 +110,7 @@ export function useStepUp() {
         );
         if (['STEP_UP_REQUIRED', 'MFA_REQUIRED', 'MFA_ENROLLMENT_REQUIRED'].includes(responseCode || '')) {
           readinessRef.current =
-            responseCode === 'MFA_ENROLLMENT_REQUIRED' ? 'ENROLLMENT_REQUIRED' : 'LOGIN_REQUIRED';
+            responseCode === 'MFA_ENROLLMENT_REQUIRED' ? 'ENROLLMENT_REQUIRED' : 'ERROR';
           setReadiness(readinessRef.current);
         }
         setLoading(false);
@@ -146,7 +143,7 @@ export function useStepUp() {
     run,
     dialogProps: {
       open: Boolean(pending),
-      purpose: pending?.purpose ?? 'SESSION_REVOKE',
+      purpose: pending?.purpose ?? 'ADMIN_HIGH_RISK',
       impact: pending?.impact ?? '',
       loading,
       error,

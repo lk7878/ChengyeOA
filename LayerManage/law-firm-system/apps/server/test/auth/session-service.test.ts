@@ -10,8 +10,6 @@ import { clearTestApplicationData, createTestPrisma } from '../helpers/test-data
 import { StepUpService } from '../../app/application/auth/step-up-service';
 import { MfaSecretCrypto } from '../../app/domain/security/mfa-factor-crypto';
 import { TotpService } from '../../app/domain/security/totp-service';
-import { createOpaqueToken } from '../../app/domain/security/opaque-token';
-import { digestStepUpTarget, StepUpPurpose } from '../../app/domain/security/step-up-target';
 
 const jwtSecret = '01234567890123456789012345678901';
 const baseTime = new Date('2099-01-02T03:04:05.000Z');
@@ -28,15 +26,6 @@ function service(): SessionService {
     () => new Date(now),
   );
   return new SessionService(prisma, new JwtTokenService(jwtSecret), undefined, () => new Date(now), stepUp);
-}
-
-async function grant(sessionId: string, purpose: StepUpPurpose, target: unknown): Promise<string> {
-  const token = createOpaqueToken();
-  await prisma.stepUpGrant.create({ data: {
-    sessionId, userId, purpose, targetDigest: digestStepUpTarget(purpose, target),
-    tokenHash: hashOpaqueToken(token), createdAt: now, expiresAt: new Date(now.getTime() + 300_000),
-  } });
-  return token;
 }
 
 function hasCode(code: string) {
@@ -138,33 +127,11 @@ test('revokes only a session owned by the authenticated user', async () => {
   assert.ok((await prisma.authSession.findUniqueOrThrow({ where: { id: created.sessionId } })).revokedAt);
 });
 
-test('requires target-bound step-up to revoke another session', async () => {
-  const current = await service().create(userId, 'MFA', {});
-  const target = await service().create(userId, 'MFA', {});
-  const activeClaims = {
-    userId, sessionId: current.sessionId, credentialVersion: 3, assuranceLevel: 'MFA' as const,
-  };
-  await assert.rejects(
-    () => service().revokeOwnedWithStepUp(activeClaims, target.sessionId, ''),
-    hasCode('STEP_UP_REQUIRED'),
-  );
-  const token = await grant(current.sessionId, 'SESSION_REVOKE', { sessionId: target.sessionId });
-  assert.equal(await service().revokeOwnedWithStepUp(activeClaims, target.sessionId, token), true);
-  assert.ok((await prisma.authSession.findUniqueOrThrow({ where: { id: target.sessionId } })).revokedAt);
-});
-
-test('step-up logout-all revokes all sessions or explicitly preserves the current session', async () => {
-  const current = await service().create(userId, 'MFA', {});
-  await service().create(userId, 'MFA', {});
-  const activeClaims = {
-    userId, sessionId: current.sessionId, credentialVersion: 3, assuranceLevel: 'MFA' as const,
-  };
-  const token = await grant(current.sessionId, 'SESSION_REVOKE_ALL', { userId });
-  assert.equal(await service().revokeAllWithStepUp(activeClaims, token, true), 1);
+test('password-only sessions can revoke other devices while preserving the current device', async () => {
+  const current = await service().create(userId, 'PASSWORD', {});
+  await service().create(userId, 'PASSWORD', {});
+  assert.equal(await service().revokeAll(userId, 'USER_LOGOUT_ALL', current.sessionId), 1);
   assert.equal((await prisma.authSession.findUniqueOrThrow({ where: { id: current.sessionId } })).revokedAt, null);
-
-  await service().create(userId, 'MFA', {});
-  const allToken = await grant(current.sessionId, 'SESSION_REVOKE_ALL', { userId });
-  assert.equal(await service().revokeAllWithStepUp(activeClaims, allToken), 2);
-  assert.ok((await prisma.authSession.findUniqueOrThrow({ where: { id: current.sessionId } })).revokedAt);
+  await service().create(userId, 'PASSWORD', {});
+  assert.equal(await service().revokeAll(userId, 'USER_LOGOUT_ALL'), 2);
 });

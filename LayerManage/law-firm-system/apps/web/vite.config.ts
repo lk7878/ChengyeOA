@@ -17,10 +17,18 @@ export default defineConfig({
     allowedHosts: true,
     port: 3000,
     proxy: {
-      '/api': {
-        target: process.env.OA_API_PROXY || 'http://localhost:7001',
+      '/api/health': {
+        target: process.env.OA_API_PROXY || 'http://127.0.0.1:7001',
         changeOrigin: true,
       },
+      '/api/v1': {
+        target: process.env.OA_API_PROXY || 'http://127.0.0.1:7001',
+        changeOrigin: true,
+      },
+      '/api': { target: 'http://127.0.0.1:5180', changeOrigin: false, timeout: 0, proxyTimeout: 0 },
+      '/harness': { target: 'http://127.0.0.1:5180', ws: true, changeOrigin: false, timeout: 0, proxyTimeout: 0 },
+      '/knowledge-native': { target: 'http://127.0.0.1:5180', ws: true, changeOrigin: false, timeout: 0, proxyTimeout: 0 },
+      '/wb': { target: 'http://127.0.0.1:5180', changeOrigin: false },
     },
   },
   test: {

@@ -39,7 +39,7 @@ async function createAdministrator(code: 'SYSTEM_ADMIN' | 'SYSTEM_SUPER_ADMIN') 
   const role = await prisma.role.findUniqueOrThrow({ where: { code } });
   await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
   const secret = new TotpService().generateSecret();
-  const encrypted = new MfaSecretCrypto(new Map([[1, Buffer.from('0123456789abcdef0123456789abcdef')]])).encrypt(secret);
+  const encrypted = new MfaSecretCrypto((app.config as typeof app.config & { identitySecurity: { mfaEncryptionKeys: ReadonlyMap<number, Buffer> } }).identitySecurity.mfaEncryptionKeys).encrypt(secret);
   await prisma.mfaFactor.create({ data: {
     userId: user.id,
     encryptedSecret: encrypted.ciphertext,
@@ -111,10 +111,11 @@ test('requires JWT and governance permissions, with role-filtered catalogs', asy
 
   const systemCatalog = await app.httpRequest().get('/api/v1/admin-governance/catalog').set(bearer(systemToken)).expect(200);
   assert.deepEqual(systemCatalog.body.data.map((entry: { operationType: string }) => entry.operationType), [
+    'SOP_TEMPLATE_PUBLISH', 'SOP_TEMPLATE_DISABLE',
     'MASTER_DATA_STATUS_CORRECTION', 'MASTER_DATA_METADATA_CORRECTION',
   ]);
   const superCatalog = await app.httpRequest().get('/api/v1/admin-governance/catalog').set(bearer(superToken)).expect(200);
-  assert.equal(superCatalog.body.data.length, 9);
+  assert.equal(superCatalog.body.data.length, 11);
 });
 
 test('exposes a governance-only user target version without credential fields', async () => {

@@ -1,19 +1,12 @@
 import assert from 'node:assert/strict';
-import { createHmac, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { Prisma, PrismaClient } from '@prisma/client';
 import mm from 'egg-mock';
-import { SessionService } from '../../app/application/auth/session-service';
-import { decodeBase32 } from '../../app/domain/security/base32';
-import { MfaSecretCrypto } from '../../app/domain/security/mfa-factor-crypto';
-import { JwtTokenService } from '../../app/domain/security/token-service';
-import { TotpService } from '../../app/domain/security/totp-service';
 import { hashPhone } from '../../app/domain/crm/lead-policy';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 import { createApiSession } from '../helpers/auth-session';
 
-const JWT_SECRET = '01234567890123456789012345678901';
-const MFA_KEY = Buffer.from('0123456789abcdef0123456789abcdef');
 
 // SPEC-011 Task 10: refund HTTP API 端到端测试（REFUND/WAIVER create-approve-execute 全链、
 // reject、SPECIAL/CRITICAL refund.approve 缺权实证、错误码透传、404 锁）。
@@ -80,96 +73,6 @@ async function createFinanceSession(options: FinanceSessionOptions): Promise<{ u
 
 function bearer(token: string): { Authorization: string } {
   return { Authorization: `Bearer ${token}` };
-}
-
-/** MFA 会话夹具（Task 7 Step-Up 消费）：同 createFinanceSession 权限/范围装配，但创建
- *  已验证 TOTP 因子 + MFA 会话并返回 secret，供 /v1/auth/step-up 发证。 */
-async function createMfaFinanceSession(options: FinanceSessionOptions): Promise<{
-  userId: string; token: string; csrfToken: string; secret: string;
-}> {
-  const suffix = randomUUID();
-  const user = await prisma.user.create({
-    data: {
-      username: `finance.mfa.${suffix}`,
-      password: 'not-used',
-      employeeId: options.employeeId ?? null,
-    },
-  });
-  const role = await prisma.role.create({
-    data: {
-      name: `FINANCE MFA ${suffix}`,
-      code: `FIN_MFA_${suffix.replaceAll('-', '').slice(0, 20).toUpperCase()}`,
-      type: 'BUSINESS',
-      permissions: {
-        create: options.permissions.map(code => ({ permission: { connect: { code } } })),
-      },
-    },
-  });
-  const scope = options.scope ?? { kind: 'ALL' };
-  const resources = [...new Set(options.permissions.map(code => code.split('.')[0]))];
-  for (const resource of resources) {
-    const dataScope = await prisma.dataScope.create({
-      data: {
-        name: `Scope ${resource} ${suffix}`,
-        scopeType: scope.kind,
-        includeDescendants: scope.kind === 'BRANCH' ? scope.includeDescendants ?? true : false,
-        organizationId: scope.kind === 'BRANCH' || scope.kind === 'ORG' ? scope.organizationId : null,
-        professionalTeamId: scope.kind === 'TEAM' ? scope.professionalTeamId : null,
-      },
-    });
-    await prisma.roleDataScope.create({
-      data: { roleId: role.id, resource, dataScopeId: dataScope.id },
-    });
-  }
-  await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
-  const secret = new TotpService().generateSecret();
-  const encrypted = new MfaSecretCrypto(new Map([[1, MFA_KEY]])).encrypt(secret);
-  await prisma.mfaFactor.create({
-    data: {
-      userId: user.id,
-      type: 'TOTP',
-      encryptedSecret: encrypted.ciphertext,
-      secretIv: encrypted.iv,
-      secretAuthTag: encrypted.authTag,
-      keyVersion: encrypted.keyVersion,
-      verifiedAt: new Date(),
-    },
-  });
-  const credentials = await new SessionService(prisma, new JwtTokenService(JWT_SECRET)).create(
-    user.id, 'MFA', {},
-  );
-  return { userId: user.id, token: credentials.accessToken, csrfToken: credentials.csrfToken, secret };
-}
-
-function totpCode(secret: string): string {
-  const counter = BigInt(Math.floor(Date.now() / 30_000));
-  const message = Buffer.alloc(8);
-  message.writeBigUInt64BE(counter);
-  const digest = createHmac('sha1', decodeBase32(secret)).update(message).digest();
-  const offset = digest[digest.length - 1] & 0x0f;
-  return ((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0');
-}
-
-/** 经 /v1/auth/step-up 发证（CSRF + Origin + Cookie 三件套，沿 admin-governance API 先例）。
- *  重置 lastAcceptedCounter：同一 30s 窗口多次发证会被 TOTP 重放防护拒绝，测试矩阵多证场景
- *  需先清计数器（生产单动作单证不受影响）。 */
-async function issueStepUp(
-  session: { userId: string; token: string; csrfToken: string; secret: string },
-  purpose: string,
-  target: unknown,
-): Promise<string> {
-  await prisma.mfaFactor.updateMany({
-    where: { userId: session.userId, disabledAt: null },
-    data: { lastAcceptedCounter: null },
-  });
-  const response = await app.httpRequest().post('/api/v1/auth/step-up')
-    .set(bearer(session.token))
-    .set('Origin', 'http://localhost:3000')
-    .set('X-CSRF-Token', session.csrfToken)
-    .set('Cookie', `chengye_csrf=${session.csrfToken}`)
-    .send({ purpose, target, code: totpCode(session.secret) })
-    .expect(200);
-  return response.body.data.stepUpToken as string;
 }
 
 const FULL_REFUND_PERMISSIONS = [
@@ -319,7 +222,7 @@ test('rejects authenticated users without refund permissions, including the SPEC
 });
 
 test('creates, approves, executes a REFUND end to end with sweep-back', async () => {
-  const session = await createMfaFinanceSession({ permissions: FULL_REFUND_PERMISSIONS });
+  const session = await createFinanceSession({ permissions: FULL_REFUND_PERMISSIONS });
   const customer = await createCustomerFixture(session.userId);
   const contract = await seedContract({
     customerId: customer.id,
@@ -352,16 +255,10 @@ test('creates, approves, executes a REFUND end to end with sweep-back', async ()
   assert.equal(list.body.data.total, 1);
   assert.equal(list.body.data.list[0].id, refundId);
 
-  // Task 7：refund.approve 真实 Step-Up——先 /v1/auth/step-up 发证（REFUND_APPROVE 目的位，
-  // target 绑定 refundRequestId+expectedVersion），再持证审批。
-  const stepUpToken = await issueStepUp(session, 'REFUND_APPROVE', {
-    refundRequestId: refundId,
-    expectedVersion: created.body.data.version as number,
-  });
+  // Ordinary approvals use the password session and existing action/data permissions.
   const approved = await app.httpRequest()
     .post(`/api/v1/refunds/${refundId}/approve`)
     .set(bearer(session.token))
-    .set('X-Step-Up-Token', stepUpToken)
     .send({ comment: '同意退款', expectedVersion: created.body.data.version as number })
     .expect(200);
   assert.equal(approved.body.data.status, 'APPROVED');
@@ -400,7 +297,7 @@ test('creates, approves, executes a REFUND end to end with sweep-back', async ()
 });
 
 test('creates, approves, executes a WAIVER end to end with plan decrement', async () => {
-  const session = await createMfaFinanceSession({ permissions: FULL_REFUND_PERMISSIONS });
+  const session = await createFinanceSession({ permissions: FULL_REFUND_PERMISSIONS });
   const customer = await createCustomerFixture(session.userId);
   const contract = await seedContract({ customerId: customer.id, createdBy: session.userId });
   const plan = await seedPlan({ contractId: contract.id, createdBy: session.userId });
@@ -414,14 +311,9 @@ test('creates, approves, executes a WAIVER end to end with plan decrement', asyn
   assert.equal(created.body.data.planId, plan.id);
   const refundId = created.body.data.id as string;
 
-  const stepUpToken = await issueStepUp(session, 'REFUND_APPROVE', {
-    refundRequestId: refundId,
-    expectedVersion: created.body.data.version as number,
-  });
   await app.httpRequest()
     .post(`/api/v1/refunds/${refundId}/approve`)
     .set(bearer(session.token))
-    .set('X-Step-Up-Token', stepUpToken)
     .send({ expectedVersion: created.body.data.version as number })
     .expect(200);
   const executed = await app.httpRequest()

@@ -49,7 +49,10 @@ test('issues a session-bound step-up token through an authenticated CSRF-protect
 
   const login = await app.httpRequest().post('/api/v1/auth/login')
     .send({ username: admin.username, password }).expect(200);
-  const challengeToken = login.body.data.challengeToken as string;
+  const start = await app.httpRequest().post('/api/v1/auth/mfa/enrollment/start')
+    .set('Authorization', `Bearer ${login.body.data.token}`).set('Origin', origin)
+    .set('X-CSRF-Token', login.body.data.csrfToken).set('Cookie', browserCookie(login)).expect(200);
+  const challengeToken = start.body.data.challengeToken as string;
   const enrollment = await app.httpRequest().post('/api/v1/auth/mfa/enrollment')
     .send({ challengeToken }).expect(200);
   const secret = enrollment.body.data.secret as string;
@@ -59,7 +62,7 @@ test('issues a session-bound step-up token through an authenticated CSRF-protect
 
   const rejected = await app.httpRequest().post('/api/v1/auth/step-up')
     .set('Authorization', `Bearer ${confirmed.body.data.token}`)
-    .send({ purpose: 'SESSION_REVOKE', target: { sessionId: 'target-session' }, code: totpCode(secret) })
+    .send({ purpose: 'ADMIN_MFA_RESET', target: { targetUserId: 'target-user' }, code: totpCode(secret) })
     .expect(403);
   assert.equal(rejected.body.message, 'CSRF_INVALID');
 
@@ -68,7 +71,7 @@ test('issues a session-bound step-up token through an authenticated CSRF-protect
     .set('Origin', origin)
     .set('X-CSRF-Token', confirmed.body.data.csrfToken)
     .set('Cookie', browserCookie(confirmed))
-    .send({ purpose: 'SESSION_REVOKE', target: { sessionId: 'target-session' }, code: totpCode(secret) })
+    .send({ purpose: 'ADMIN_MFA_RESET', target: { targetUserId: 'target-user' }, code: totpCode(secret) })
     .expect(200);
 
   assert.equal(response.body.data.expiresIn, 300);
@@ -76,7 +79,7 @@ test('issues a session-bound step-up token through an authenticated CSRF-protect
   const grant = await prisma.stepUpGrant.findUniqueOrThrow({
     where: { tokenHash: hashOpaqueToken(response.body.data.stepUpToken) },
   });
-  const session = await prisma.authSession.findFirstOrThrow({ where: { userId: admin.id } });
+  const session = await prisma.authSession.findFirstOrThrow({ where: { userId: admin.id, revokedAt: null } });
   assert.equal(grant.sessionId, session.id);
-  assert.equal(grant.purpose, 'SESSION_REVOKE');
+  assert.equal(grant.purpose, 'ADMIN_MFA_RESET');
 });

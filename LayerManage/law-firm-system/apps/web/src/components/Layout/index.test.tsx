@@ -66,6 +66,7 @@ test('OA exposes one smart-case entry and no separate knowledge entry', () => {
   useAuthStore.setState({authorization: {...authorization, menus:['menu.smart_case']}});
   show('/workspaces');
   expect(screen.getByRole('link',{name:'智慧办案'})).toHaveAttribute('href','/smart-case');
+  expect(screen.getByRole('link',{name:'智慧办案'})).toHaveAttribute('target','_blank');
   expect(screen.queryByRole('link',{name:'知识库'})).not.toBeInTheDocument();
 });
 test('authorization failure hides protected content and provides a retry', () => {

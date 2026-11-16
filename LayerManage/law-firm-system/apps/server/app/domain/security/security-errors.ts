@@ -2,6 +2,8 @@ export type SecurityErrorCode =
   | 'USERNAME_INVALID'
   | 'PASSWORD_INVALID'
   | 'PASSWORD_REUSED'
+  | 'CURRENT_PASSWORD_INVALID'
+  | 'ADMIN_HIGH_RISK_ONLY'
   | 'TOKEN_INVALID'
   | 'SMART_CASE_NOT_CONFIGURED'
   | 'TOKEN_TYPE_INVALID'
@@ -24,6 +26,7 @@ export class SecurityError extends Error {
   constructor(
     public readonly code: SecurityErrorCode,
     public readonly httpStatus = 400,
+    public readonly details?: unknown,
   ) {
     super(code);
     this.name = 'SecurityError';

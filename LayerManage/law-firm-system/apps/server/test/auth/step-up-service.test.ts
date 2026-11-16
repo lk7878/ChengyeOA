@@ -43,7 +43,7 @@ function stepUp(): StepUpService {
   );
 }
 
-async function claims(assuranceLevel: 'PASSWORD' | 'MFA' = 'MFA') {
+async function claims(assuranceLevel: 'PASSWORD' | 'MFA' = 'PASSWORD') {
   const credentials = await new SessionService(
     prisma,
     new JwtTokenService(jwtSecret),
@@ -62,7 +62,7 @@ function hasCode(code: string) {
   return (error: unknown) => error instanceof SecurityError && error.code === code;
 }
 
-const target = { sessionId: 'session-to-revoke' };
+const target = { targetUserId: 'user-to-reset' };
 
 test.before(async () => { prisma = createTestPrisma(); });
 test.beforeEach(async () => {
@@ -71,6 +71,8 @@ test.beforeEach(async () => {
   userId = (await prisma.user.create({
     data: { username: `stepup.${randomUUID()}`, password: 'unused' },
   })).id;
+  const role = await prisma.role.create({ data: { code: 'SYSTEM_ADMIN', name: 'Admin', type: 'SYSTEM' } });
+  await prisma.userRole.create({ data: { userId, roleId: role.id } });
   const encrypted = new MfaSecretCrypto(new Map([[1, key]])).encrypt(secret);
   await prisma.mfaFactor.create({ data: {
     userId,
@@ -84,17 +86,9 @@ test.beforeEach(async () => {
 });
 test.after(async () => { await clearTestApplicationData(prisma); await prisma.$disconnect(); });
 
-test('issues a hashed five-minute grant only from an MFA session', async () => {
-  const passwordClaims = await claims('PASSWORD');
-  await assert.rejects(
-    () => stepUp().issue(passwordClaims, { purpose: 'SESSION_REVOKE', target, code: codeAt(now) }),
-    hasCode('STEP_UP_REQUIRED'),
-  );
-
-  const mfaClaims = await claims('MFA');
-  const issued = await stepUp().issue(mfaClaims, {
-    purpose: 'SESSION_REVOKE', target, code: codeAt(now),
-  });
+test('issues a hashed five-minute action grant from a password-only administrator session', async () => {
+  const mfaClaims = await claims('PASSWORD');
+  const issued = await stepUp().issue(mfaClaims, { purpose: 'ADMIN_MFA_RESET', target, code: codeAt(now) });
   const stored = await prisma.stepUpGrant.findUniqueOrThrow({
     where: { tokenHash: hashOpaqueToken(issued.stepUpToken) },
   });
@@ -107,12 +101,12 @@ test('issues a hashed five-minute grant only from an MFA session', async () => {
 test('consumes a matching grant once inside the protected transaction', async () => {
   const activeClaims = await claims();
   const issued = await stepUp().issue(activeClaims, {
-    purpose: 'SESSION_REVOKE', target, code: codeAt(now),
+    purpose: 'ADMIN_MFA_RESET', target, code: codeAt(now),
   });
   await prisma.$transaction(async tx => {
-    await stepUp().consume(tx, activeClaims, 'SESSION_REVOKE', target, issued.stepUpToken);
+    await stepUp().consume(tx, activeClaims, 'ADMIN_MFA_RESET', target, issued.stepUpToken);
     await tx.operationLog.create({ data: {
-      userId, action: 'PROTECTED_WRITE', targetType: 'AUTH_SESSION', targetId: target.sessionId,
+      userId, action: 'PROTECTED_WRITE', targetType: 'AUTH_SESSION', targetId: target.targetUserId,
     } });
   });
   assert.ok((await prisma.stepUpGrant.findUniqueOrThrow({
@@ -120,7 +114,7 @@ test('consumes a matching grant once inside the protected transaction', async ()
   })).consumedAt);
   await assert.rejects(
     () => prisma.$transaction(tx => stepUp().consume(
-      tx, activeClaims, 'SESSION_REVOKE', target, issued.stepUpToken,
+      tx, activeClaims, 'ADMIN_MFA_RESET', target, issued.stepUpToken,
     )),
     hasCode('STEP_UP_INVALID'),
   );
@@ -129,31 +123,31 @@ test('consumes a matching grant once inside the protected transaction', async ()
 test('rejects cross-session, purpose, target, and expired grant use', async () => {
   const activeClaims = await claims();
   const issued = await stepUp().issue(activeClaims, {
-    purpose: 'SESSION_REVOKE', target, code: codeAt(now),
+    purpose: 'ADMIN_MFA_RESET', target, code: codeAt(now),
   });
   const otherSession = await claims();
   await assert.rejects(
     () => prisma.$transaction(tx => stepUp().consume(
-      tx, otherSession, 'SESSION_REVOKE', target, issued.stepUpToken,
+      tx, otherSession, 'ADMIN_MFA_RESET', target, issued.stepUpToken,
     )),
     hasCode('STEP_UP_INVALID'),
   );
   await assert.rejects(
     () => prisma.$transaction(tx => stepUp().consume(
-      tx, activeClaims, 'SESSION_REVOKE_ALL', { userId }, issued.stepUpToken,
+      tx, activeClaims, 'MFA_RECOVERY_CODES_REGENERATE', { userId }, issued.stepUpToken,
     )),
     hasCode('STEP_UP_PURPOSE_MISMATCH'),
   );
   await assert.rejects(
     () => prisma.$transaction(tx => stepUp().consume(
-      tx, activeClaims, 'SESSION_REVOKE', { sessionId: 'different' }, issued.stepUpToken,
+      tx, activeClaims, 'ADMIN_MFA_RESET', { targetUserId: 'different' }, issued.stepUpToken,
     )),
     hasCode('STEP_UP_TARGET_MISMATCH'),
   );
   now = new Date(now.getTime() + 300_001);
   await assert.rejects(
     () => prisma.$transaction(tx => stepUp().consume(
-      tx, activeClaims, 'SESSION_REVOKE', target, issued.stepUpToken,
+      tx, activeClaims, 'ADMIN_MFA_RESET', target, issued.stepUpToken,
     )),
     hasCode('STEP_UP_EXPIRED'),
   );
@@ -162,10 +156,10 @@ test('rejects cross-session, purpose, target, and expired grant use', async () =
 test('rolls back grant consumption when the protected write fails', async () => {
   const activeClaims = await claims();
   const issued = await stepUp().issue(activeClaims, {
-    purpose: 'SESSION_REVOKE', target, code: codeAt(now),
+    purpose: 'ADMIN_MFA_RESET', target, code: codeAt(now),
   });
   await assert.rejects(() => prisma.$transaction(async tx => {
-    await stepUp().consume(tx, activeClaims, 'SESSION_REVOKE', target, issued.stepUpToken);
+    await stepUp().consume(tx, activeClaims, 'ADMIN_MFA_RESET', target, issued.stepUpToken);
     throw new Error('protected write failed');
   }), /protected write failed/);
   assert.equal((await prisma.stepUpGrant.findUniqueOrThrow({
@@ -178,14 +172,14 @@ test('requires a successful Step-Up after cooldown before resetting failures', a
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     await assert.rejects(
       () => stepUp().issue(activeClaims, {
-        purpose: 'SESSION_REVOKE', target, code: wrongCodeAt(now),
+        purpose: 'ADMIN_MFA_RESET', target, code: wrongCodeAt(now),
       }),
       hasCode('STEP_UP_INVALID'),
     );
   }
   await assert.rejects(
     () => stepUp().issue(activeClaims, {
-      purpose: 'SESSION_REVOKE', target, code: wrongCodeAt(now),
+      purpose: 'ADMIN_MFA_RESET', target, code: wrongCodeAt(now),
     }),
     hasCode('MFA_RATE_LIMITED'),
   );
@@ -195,14 +189,14 @@ test('requires a successful Step-Up after cooldown before resetting failures', a
   assert.deepEqual(blocked.stepUpBlockedUntil, new Date(now.getTime() + 15 * 60 * 1000));
   await assert.rejects(
     () => stepUp().issue(activeClaims, {
-      purpose: 'SESSION_REVOKE', target, code: codeAt(now),
+      purpose: 'ADMIN_MFA_RESET', target, code: codeAt(now),
     }),
     hasCode('MFA_RATE_LIMITED'),
   );
 
   now = new Date(now.getTime() + 15 * 60 * 1000 + 1);
   await stepUp().issue(activeClaims, {
-    purpose: 'SESSION_REVOKE', target, code: codeAt(now),
+    purpose: 'ADMIN_MFA_RESET', target, code: codeAt(now),
   });
   const reset = await prisma.authSession.findUniqueOrThrow({ where: { id: activeClaims.sessionId } });
   assert.equal(reset.stepUpFailedAttempts, 0);
@@ -220,7 +214,7 @@ test('serializes concurrent wrong Step-Up attempts against the same session', as
   const activeClaims = await claims();
   const results = await Promise.allSettled(Array.from({ length: 5 }, () => stepUp().issue(
     activeClaims,
-    { purpose: 'SESSION_REVOKE', target, code: wrongCodeAt(now) },
+    { purpose: 'ADMIN_MFA_RESET', target, code: wrongCodeAt(now) },
   )));
 
   const codes = results.map(result => {
@@ -243,18 +237,18 @@ test('serializes concurrent wrong Step-Up attempts against the same session', as
 test('persists redacted rejection audits for mismatched and expired grant consumption', async () => {
   const activeClaims = await claims();
   const issued = await stepUp().issue(activeClaims, {
-    purpose: 'SESSION_REVOKE', target, code: codeAt(now),
+    purpose: 'ADMIN_MFA_RESET', target, code: codeAt(now),
   });
   await assert.rejects(
     () => prisma.$transaction(tx => stepUp().consume(
-      tx, activeClaims, 'SESSION_REVOKE', { sessionId: 'different' }, issued.stepUpToken,
+      tx, activeClaims, 'ADMIN_MFA_RESET', { targetUserId: 'different' }, issued.stepUpToken,
     )),
     hasCode('STEP_UP_TARGET_MISMATCH'),
   );
   now = new Date(now.getTime() + 300_001);
   await assert.rejects(
     () => prisma.$transaction(tx => stepUp().consume(
-      tx, activeClaims, 'SESSION_REVOKE', target, issued.stepUpToken,
+      tx, activeClaims, 'ADMIN_MFA_RESET', target, issued.stepUpToken,
     )),
     hasCode('STEP_UP_EXPIRED'),
   );

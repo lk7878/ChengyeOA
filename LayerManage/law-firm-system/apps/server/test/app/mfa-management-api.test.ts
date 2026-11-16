@@ -15,7 +15,6 @@ process.env.EGG_TYPESCRIPT = 'true';
 const app = mm.app();
 const origin = 'http://localhost:3000';
 const jwtSecret = '01234567890123456789012345678901';
-const key = Buffer.from('0123456789abcdef0123456789abcdef');
 let prisma: PrismaClient;
 
 interface BrowserIdentity {
@@ -45,7 +44,7 @@ async function identity(administrator = false): Promise<BrowserIdentity> {
     await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
   }
   const secret = new TotpService().generateSecret();
-  const encrypted = new MfaSecretCrypto(new Map([[1, key]])).encrypt(secret);
+  const encrypted = new MfaSecretCrypto((app.config as typeof app.config & { identitySecurity: { mfaEncryptionKeys: ReadonlyMap<number, Buffer> } }).identitySecurity.mfaEncryptionKeys).encrypt(secret);
   await prisma.mfaFactor.create({ data: {
     userId: user.id,
     encryptedSecret: encrypted.ciphertext,

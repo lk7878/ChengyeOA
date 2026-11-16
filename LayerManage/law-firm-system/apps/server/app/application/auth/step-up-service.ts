@@ -31,15 +31,6 @@ export class StepUpService {
     input: IssueStepUpInput,
   ): Promise<{ stepUpToken: string; expiresIn: 300 }> {
     const targetDigest = digestStepUpTarget(input.purpose, input.target);
-    if (claims.assuranceLevel !== 'MFA') {
-      await this.writeIndependentRejection(
-        claims,
-        input.purpose,
-        targetDigest,
-        'ASSURANCE_REQUIRED',
-      );
-      throw new SecurityError('STEP_UP_REQUIRED', 403);
-    }
     const rawToken = createOpaqueToken();
     const now = this.clock();
 
@@ -50,7 +41,6 @@ export class StepUpService {
         !session
         || session.userId !== claims.userId
         || session.credentialVersion !== claims.credentialVersion
-        || session.assuranceLevel !== 'MFA'
         || session.revokedAt
         || session.expiresAt.getTime() <= now.getTime()
       ) {
@@ -64,10 +54,11 @@ export class StepUpService {
         );
       }
 
+      await this.assertActor(tx, claims, input.purpose, now);
       const factor = await activeFactorForUpdate(tx, claims.userId);
       if (!factor?.verifiedAt) {
         return this.rejectIssue(
-          tx, claims, input.purpose, targetDigest, 'FACTOR_REQUIRED', 'STEP_UP_REQUIRED', 403,
+          tx, claims, input.purpose, targetDigest, 'FACTOR_REQUIRED', 'MFA_ENROLLMENT_REQUIRED', 403,
         );
       }
       const match = this.totp.verify(
@@ -146,11 +137,7 @@ export class StepUpService {
     rawToken: string,
   ): Promise<void> {
     const targetDigest = digestStepUpTarget(purpose, target);
-    if (claims.assuranceLevel !== 'MFA') {
-      return this.rejectConsume(
-        claims, purpose, targetDigest, 'ASSURANCE_REQUIRED', 'STEP_UP_REQUIRED', 403,
-      );
-    }
+    await this.assertActor(tx, claims, purpose, this.clock());
     if (typeof rawToken !== 'string' || rawToken.length === 0) {
       return this.rejectConsume(
         claims, purpose, targetDigest, 'TOKEN_REQUIRED', 'STEP_UP_REQUIRED', 403,
@@ -194,6 +181,23 @@ export class StepUpService {
       targetId: grant.id,
       newValues: JSON.stringify({ purpose, targetDigest: grant.targetDigest }),
     });
+  }
+
+  private async assertActor(tx: Prisma.TransactionClient, claims: ActiveSessionClaims, purpose: StepUpPurpose, now: Date) {
+    const session = await tx.authSession.findUnique({ where: { id: claims.sessionId }, include: { user: true } });
+    if (!session || session.userId !== claims.userId || session.revokedAt || session.expiresAt <= now
+      || session.credentialVersion !== claims.credentialVersion || session.user.credentialVersion !== claims.credentialVersion
+      || session.user.status !== 'ENABLED' || session.user.mustChangePassword
+      || (session.user.lockedUntil && session.user.lockedUntil > now)) throw new SecurityError('SESSION_REVOKED', 401);
+    if (['SESSION_REVOKE', 'SESSION_REVOKE_ALL', 'REFUND_APPROVE'].includes(purpose)) throw new SecurityError('STEP_UP_INVALID', 403);
+    // Legacy personal factors may still be maintained, but never gate ordinary work or login.
+    if (['MFA_DISABLE_SELF', 'MFA_RECOVERY_CODES_REGENERATE'].includes(purpose)) return;
+    const admin = await tx.userRole.findFirst({ where: {
+      userId: claims.userId, revokedAt: null, validFrom: { lte: now },
+      OR: [{ validUntil: null }, { validUntil: { gt: now } }],
+      role: { code: { in: ['SYSTEM_ADMIN', 'SYSTEM_SUPER_ADMIN'] }, status: 'ENABLED' },
+    } });
+    if (!admin) throw new SecurityError('ADMIN_HIGH_RISK_ONLY', 403);
   }
 
   private async rejectIssue(

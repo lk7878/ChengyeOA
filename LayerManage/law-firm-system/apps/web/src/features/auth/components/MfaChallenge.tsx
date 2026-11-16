@@ -36,7 +36,7 @@ export default function MfaChallenge({ challengeToken, onAuthenticated, onExpire
 
   return (
     <div>
-      <Typography.Title level={4}>多因素验证</Typography.Title>
+      <Typography.Title level={4}>二次验证</Typography.Title>
       {error && <Alert role="alert" type="error" title={error} />}
       <Input
         aria-label={kind === 'TOTP' ? '六位验证码' : '恢复码'}

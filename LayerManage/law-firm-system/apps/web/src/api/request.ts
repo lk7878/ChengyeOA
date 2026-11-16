@@ -1,3 +1,4 @@
+import { verifyHighRiskRequest, type HighRiskChallenge } from '@/features/auth/high-risk-request';
 import { inPreviewFrame, previewAdapter } from '@/features/authorization/preview-frame';
 import axios, {
   AxiosError,
@@ -12,6 +13,7 @@ import { runtimeSession } from '@/features/auth/runtime-session';
 type AppRequestConfig = AxiosRequestConfig & {
   suppressGlobalError?: boolean;
   _sessionRetry?: boolean;
+  _riskRetry?: boolean;
 };
 
 type RequestInstance = Omit<AxiosInstance, 'delete' | 'get' | 'patch' | 'post' | 'put'> & {
@@ -87,8 +89,18 @@ request.interceptors.response.use(
     if (axios.isCancel(error) || error.code === 'ERR_CANCELED') return Promise.reject(error);
 
     const config = error.config as (InternalAxiosRequestConfig & AppRequestConfig) | undefined;
-    const response = error.response as { status: number; data?: { message?: string } } | undefined;
+    const response = error.response as { status: number; data?: { message?: string; errors?: HighRiskChallenge } } | undefined;
     const code = response?.data?.message;
+    if (code === 'STEP_UP_REQUIRED' && response?.data?.errors?.purpose === 'ADMIN_HIGH_RISK'
+      && config && !config._riskRetry && !inPreviewFrame) {
+      const token = await verifyHighRiskRequest(response.data.errors);
+      config._riskRetry = true;
+      setHeader(config.headers, 'X-Step-Up-Token', token);
+      // Enrollment can rotate credentials while this business request waits in the dialog.
+      setHeader(config.headers, 'Authorization', `Bearer ${runtimeSession.getAccessToken()}`);
+      setHeader(config.headers, 'X-CSRF-Token', runtimeSession.getCsrfToken() || '');
+      return request(config);
+    }
 
     if (
       response?.status === 401
@@ -108,7 +120,7 @@ request.interceptors.response.use(
       }
     }
 
-    if (code === 'SESSION_REVOKED' || code === 'REFRESH_TOKEN_REUSED' || code === 'MFA_REQUIRED') {
+    if (code === 'SESSION_REVOKED' || code === 'REFRESH_TOKEN_REUSED') {
       terminateSession();
     }
 

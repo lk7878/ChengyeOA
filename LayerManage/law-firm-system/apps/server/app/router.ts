@@ -150,6 +150,7 @@ export default (app: Application) => {
   router.post('/api/v1/auth/login', controller.auth.login);
   router.post('/api/v1/auth/refresh', controller.auth.refresh);
   router.post('/api/v1/auth/password/forced-change', controller.auth.forcePasswordChange);
+  router.post('/api/v1/auth/password/change', controller.auth.changePassword);
   router.post('/api/v1/auth/mfa/enrollment', controller.auth.beginMfaEnrollment);
   router.post('/api/v1/auth/mfa/enrollment/confirm', controller.auth.confirmMfaEnrollment);
   router.post('/api/v1/auth/mfa/verify', controller.auth.verifyMfa);

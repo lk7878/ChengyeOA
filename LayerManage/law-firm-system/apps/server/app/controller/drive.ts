@@ -1,3 +1,4 @@
+import { requireHighRiskOperation } from '../application/auth/high-risk-operation';
 import { Controller } from 'egg';
 import { randomUUID } from 'node:crypto';
 import { DriveNavigationService } from '../application/collaboration/drive-navigation-service';
@@ -5,7 +6,9 @@ import { AuthorizationContext } from '../application/authorization/authorization
 
 export default class DriveController extends Controller {
   private drive() {
-    return new DriveNavigationService(this.ctx.prisma, this.ctx.state.authorization as AuthorizationContext);
+    const service = new DriveNavigationService(this.ctx.prisma, this.ctx.state.authorization as AuthorizationContext);
+    service.verifyPermanentDeletion = tx => requireHighRiskOperation(this.ctx, '永久删除目录及其工作表和关联数据', tx);
+    return service;
   }
   private key() {
     return this.ctx.get('idempotency-key');

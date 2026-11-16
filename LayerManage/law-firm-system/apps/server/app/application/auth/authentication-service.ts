@@ -52,8 +52,11 @@ export class AuthenticationService {
     private readonly sessions: SessionService,
     private readonly auditWriter: AuditWriter = writeAuditLog,
     private readonly clock: () => Date = () => new Date(),
-    private readonly localPasswordLogin = false,
-  ) {}
+    _legacyLocalPasswordLogin = false,
+  ) {
+    // Retained only for constructor compatibility; never bypass operation checks.
+    void _legacyLocalPasswordLogin;
+  }
 
   async login(username: string, password: string, metadata: RequestMetadata): Promise<LoginResult> {
     const usernameSnapshot = typeof username === 'string' ? normalizeUsername(username) : '';
@@ -225,27 +228,33 @@ export class AuthenticationService {
     return this.nextAuthenticationState(userId, metadata);
   }
 
+  async changePassword(
+    claims: ActiveSessionClaims, currentPassword: string, password: string,
+    confirmation: string, metadata: RequestMetadata = {},
+  ) {
+    if (typeof currentPassword !== 'string' || typeof password !== 'string'
+      || typeof confirmation !== 'string' || password !== confirmation) {
+      throw new SecurityError('PASSWORD_INVALID');
+    }
+    const user = await this.loadIdentityUser(claims.userId);
+    if (!user || user.credentialVersion !== claims.credentialVersion) throw authenticationFailed();
+    if (!await this.hasher.compare(currentPassword, user.password)) {
+      await this.recordWrongPassword(user.id, user.username, metadata);
+      throw new SecurityError('CURRENT_PASSWORD_INVALID', 403);
+    }
+    validatePassword(password, user.username);
+    if (await this.hasher.compare(password, user.password)) throw new SecurityError('PASSWORD_REUSED');
+    const hash = await this.hasher.hash(password);
+    const credentials = await this.sessions.changePassword(claims, user.password, hash);
+    return { token: credentials.accessToken, refreshToken: credentials.refreshToken,
+      csrfToken: credentials.csrfToken, expiresIn: credentials.expiresIn };
+  }
+
   private async nextAuthenticationState(
     userId: string,
     metadata: RequestMetadata,
   ): Promise<LoginResult> {
-    const [user, factor] = await Promise.all([
-      this.loadIdentityUser(userId),
-      this.prisma.mfaFactor.findFirst({
-        where: { userId, verifiedAt: { not: null }, disabledAt: null },
-        select: { id: true },
-      }),
-    ]);
-    if (!user) throw authenticationFailed();
-    if (this.localPasswordLogin && !factor) return this.completeAuthentication(userId, 'PASSWORD', metadata);
-    if (factor) {
-      const challenge = await this.challenges.issue(userId, 'MFA_VERIFY');
-      return { mode: 'MFA_CHALLENGE_REQUIRED', challengeToken: challenge.token, expiresIn: 300 };
-    }
-    if (isAdministrator(user, this.clock())) {
-      const challenge = await this.challenges.issue(userId, 'MFA_ENROLLMENT');
-      return { mode: 'MFA_ENROLLMENT_REQUIRED', challengeToken: challenge.token, expiresIn: 600 };
-    }
+    // 登录只验证密码；已绑定验证器也仅在管理员高风险操作时使用。
     return this.completeAuthentication(userId, 'PASSWORD', metadata);
   }
 
@@ -379,12 +388,6 @@ function activeRoleAssignments(user: NonNullable<IdentityUser>, now: Date) {
     && userRole.validFrom.getTime() <= now.getTime()
     && (!userRole.validUntil || userRole.validUntil.getTime() > now.getTime())
   ));
-}
-
-function isAdministrator(user: NonNullable<IdentityUser>, now: Date): boolean {
-  return activeRoleAssignments(user, now).some(
-    userRole => userRole.role.code === 'SYSTEM_SUPER_ADMIN' || userRole.role.code === 'SYSTEM_ADMIN',
-  );
 }
 
 function authenticatedUser(user: NonNullable<IdentityUser>, now: Date): AuthenticatedUser {

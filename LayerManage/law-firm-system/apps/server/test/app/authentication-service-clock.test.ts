@@ -185,30 +185,30 @@ test('successful login checks expiry and timestamps the reset after row lock acq
   const result = await harness.service.login('root.admin', 'Correct-Horse-92', {});
 
   assert.equal(result.mode, 'AUTHENTICATED');
-  assert.equal(harness.clockCalls(), 3);
+  assert.equal(harness.clockCalls(), 2);
   assert.equal(harness.updates[0].data.failedLoginCount, 0);
   assert.equal(harness.updates[0].data.lockedUntil, null);
   assert.deepEqual(harness.updates[1].data.lastLoginAt, decisionTime);
   assert.equal(harness.logs[0].data.outcome, 'SUCCESS');
 });
 
-test('administrator MFA stays required by default', async () => {
+test('administrator login is password-only regardless of an existing factor', async () => {
   for (const verifiedFactor of [false, true]) {
     const harness = createHarness({
       passwordMatches: true, failedLoginCount: 0, lockedUntil: null, administrator: true, verifiedFactor,
     });
     const result = await harness.service.login('root.admin', 'Correct-Horse-92', {});
-    assert.equal(result.mode, verifiedFactor ? 'MFA_CHALLENGE_REQUIRED' : 'MFA_ENROLLMENT_REQUIRED');
+    assert.equal(result.mode, 'AUTHENTICATED');
   }
 });
 
-test('local password login preserves the MFA challenge once a factor has been bound', async () => {
+test('legacy local setting has no effect on the password-only login policy', async () => {
   for (const verifiedFactor of [false, true]) {
     const harness = createHarness({
       passwordMatches: true, failedLoginCount: 0, lockedUntil: null,
       administrator: true, verifiedFactor, localPasswordLogin: true,
     });
-    assert.equal((await harness.service.login('root.admin', 'Correct-Horse-92', {})).mode, verifiedFactor ? 'MFA_CHALLENGE_REQUIRED' : 'AUTHENTICATED');
+    assert.equal((await harness.service.login('root.admin', 'Correct-Horse-92', {})).mode, 'AUTHENTICATED');
     if (!verifiedFactor) assert.equal(harness.logs[0].data.outcome, 'SUCCESS');
   }
 });

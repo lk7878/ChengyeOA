@@ -1,6 +1,7 @@
 import { hashPayload } from '../admin-governance/canonical-json';
 
 export const STEP_UP_PURPOSES = Object.freeze([
+  'ADMIN_HIGH_RISK',
   'ADMIN_GOVERNANCE_CREATE',
   'ADMIN_GOVERNANCE_APPROVE',
   'ADMIN_GOVERNANCE_RETRY',
@@ -35,6 +36,10 @@ export function digestStepUpTarget(purpose: StepUpPurpose, raw: unknown): string
 
 function normalizeTarget(purpose: StepUpPurpose, raw: unknown): Record<string, string | number> {
   switch (purpose) {
+    case 'ADMIN_HIGH_RISK': {
+      const value = exactRecord(raw, ['method', 'path', 'payloadHash']);
+      return { method: requiredString(value.method), path: requiredString(value.path), payloadHash: sha256(value.payloadHash) };
+    }
     case 'ADMIN_GOVERNANCE_CREATE': {
       const value = exactRecord(raw, [
         'operationType', 'targetType', 'targetId', 'expectedTargetVersion', 'payloadHash',

@@ -20,5 +20,5 @@ test('accepts only a six-digit TOTP and clears it whenever the dialog closes', (
     <StepUpDialog open purpose="ADMIN_GOVERNANCE_CREATE" impact="提交高风险治理申请" loading={false} onCancel={vi.fn()} onVerify={verify} />,
   );
   expect(screen.getByLabelText('当前六位验证码')).toHaveValue('');
-  expect(screen.getByRole('dialog', { name: '再次验证身份' })).toHaveTextContent('提交高风险治理申请');
+  expect(screen.getByRole('dialog', { name: '管理员操作二次验证' })).toHaveTextContent('提交高风险治理申请');
 });

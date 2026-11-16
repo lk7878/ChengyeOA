@@ -39,8 +39,11 @@ export class MfaService {
     private readonly stepUp: StepUpService,
     private readonly auditWriter: AuditWriter = writeAuditLog,
     private readonly clock: () => Date = () => new Date(),
-    private readonly localPasswordLogin = false,
-  ) {}
+    _legacyLocalPasswordLogin = false,
+  ) {
+    // Retained only for constructor compatibility; never bypass operation checks.
+    void _legacyLocalPasswordLogin;
+  }
 
   async beginEnrollment(challengeToken: string): Promise<{
     secret: string;
@@ -128,7 +131,7 @@ export class MfaService {
       || session.revokedAt
       || session.expiresAt.getTime() <= now.getTime()
       || user.mfaFactors.length > 0
-      || (isAdministrator && !this.localPasswordLogin)
+      || !isAdministrator
     ) {
       throw new SecurityError('MFA_INVALID', 403);
     }

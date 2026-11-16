@@ -76,17 +76,16 @@ test('unbound MFA guides enrollment and never issues a grant or approves', async
   vi.mocked(authApi.mfaStatus).mockResolvedValue({data:{enabled:false}} as never);
   const mutate=vi.fn(); render(<HookHarness mutate={mutate}/>);
   fireEvent.click(screen.getByRole('button',{name:'开始 Step-Up'}));
-  await screen.findByText('当前账号尚未绑定身份验证器');
-  expect(screen.getByRole('link',{name:'账号安全'})).toHaveAttribute('href','/security/account');
+  expect(await screen.findByRole('button',{name:'在此绑定身份验证器'})).toBeInTheDocument();
   expect(screen.queryByLabelText('当前六位验证码')).not.toBeInTheDocument();
   expect(screen.getByRole('button',{name:'验证并继续'})).toBeDisabled();
   expect(authApi.stepUp).not.toHaveBeenCalled();expect(mutate).not.toHaveBeenCalled();
 });
-test('password-only sessions cannot attempt step-up even after a factor exists', async()=>{
+test('password-only sessions can verify a concrete high-risk action without logging in again', async()=>{
   vi.mocked(authApi.sessions).mockResolvedValue({data:[{current:true,assuranceLevel:'PASSWORD'}]} as never);
   render(<HookHarness mutate={vi.fn()}/>);fireEvent.click(screen.getByRole('button',{name:'开始 Step-Up'}));
-  await screen.findByText('当前登录尚未完成多因素验证');
-  expect(screen.getByRole('button',{name:'验证并继续'})).toBeDisabled();
+  expect(await screen.findByLabelText('当前六位验证码')).toBeInTheDocument();
+  expect(authApi.sessions).not.toHaveBeenCalled();
   expect(authApi.stepUp).not.toHaveBeenCalled();
 });
 test('failed preflight stays closed to verification until a successful retry', async()=>{
@@ -103,3 +102,10 @@ test('replayed or expired codes show actionable feedback and never invoke the mu
   await screen.findByText('验证码无效、已过期或已使用，请等待验证器生成新的六位验证码后重试');
   expect(mutate).not.toHaveBeenCalled();
 });
+
+ test('ordinary users are directed to an administrator without an enrollment prompt', async () => {
+  vi.mocked(authApi.mfaStatus).mockResolvedValue({ data: { enabled: false, canManageHighRisk: false } } as never);
+  render(<HookHarness mutate={vi.fn()} />); fireEvent.click(screen.getByRole('button', { name: '开始 Step-Up' }));
+  await screen.findByText(/此操作仅限有权限的管理员执行/);
+  expect(screen.queryByRole('button', { name: '在此绑定身份验证器' })).not.toBeInTheDocument();
+ });

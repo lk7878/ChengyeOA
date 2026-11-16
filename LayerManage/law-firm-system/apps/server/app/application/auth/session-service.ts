@@ -46,8 +46,11 @@ export class SessionService {
     private readonly tokens: JwtTokenService,
     private readonly auditWriter: AuditWriter = writeAuditLog,
     private readonly clock: () => Date = () => new Date(),
-    private readonly stepUp?: Pick<StepUpService, 'consume'>,
-  ) {}
+    _legacyStepUp?: Pick<StepUpService, 'consume'>,
+  ) {
+    // Retained only for constructor compatibility; never bypass operation checks.
+    void _legacyStepUp;
+  }
 
   async create(
     userId: string,
@@ -92,6 +95,38 @@ export class SessionService {
       });
       if (completion) await completion(tx, { id: created.id, userId: created.userId });
       return created;
+    });
+    return this.credentials(session, refreshToken, csrfToken);
+  }
+
+  async changePassword(claims: ActiveSessionClaims, previousHash: string, passwordHash: string): Promise<SessionCredentials> {
+    const now = this.clock();
+    const refreshToken = createOpaqueToken(), csrfToken = createOpaqueToken();
+    const session = await this.prisma.$transaction(async tx => {
+      await lockUser(tx, claims.userId);
+      await lockSession(tx, claims.sessionId);
+      const user = await tx.user.findUnique({ where: { id: claims.userId } });
+      const current = await tx.authSession.findUnique({ where: { id: claims.sessionId } });
+      if (!isActiveUser(user, now) || user.password !== previousHash
+        || user.credentialVersion !== claims.credentialVersion || !current
+        || current.userId !== claims.userId || current.revokedAt
+        || current.credentialVersion !== claims.credentialVersion || current.expiresAt <= now) throw sessionRevoked();
+      const version = user.credentialVersion + 1;
+      await tx.user.update({ where: { id: user.id }, data: {
+        password: passwordHash, credentialVersion: version, passwordChangedAt: now,
+        failedLoginCount: 0, lockedUntil: null,
+      } });
+      await tx.authSession.updateMany({ where: { userId: user.id, id: { not: current.id }, revokedAt: null },
+        data: { revokedAt: now, revokedReason: 'PASSWORD_CHANGED' } });
+      await tx.stepUpGrant.updateMany({ where: { userId: user.id, consumedAt: null }, data: { consumedAt: now } });
+      await tx.authChallenge.updateMany({ where: { userId: user.id, consumedAt: null }, data: { consumedAt: now } });
+      const rotated = await tx.authSession.update({ where: { id: current.id }, data: {
+        credentialVersion: version, assuranceLevel: 'PASSWORD', refreshTokenHash: hashOpaqueToken(refreshToken),
+        previousRefreshTokenHash: null, previousRefreshRotatedAt: null,
+        refreshGeneration: { increment: 1 }, lastSeenAt: now,
+      } });
+      await this.auditWriter(tx, { userId: user.id, action: 'SELF_PASSWORD_CHANGED', targetType: 'USER', targetId: user.id });
+      return rotated;
     });
     return this.credentials(session, refreshToken, csrfToken);
   }
@@ -258,69 +293,6 @@ export class SessionService {
         targetType: 'USER',
         targetId: userId,
         newValues: JSON.stringify({ count: result.count, reason }),
-      });
-      return result.count;
-    });
-  }
-
-  async revokeOwnedWithStepUp(
-    claims: ActiveSessionClaims,
-    sessionId: string,
-    stepUpToken: string,
-  ): Promise<boolean> {
-    if (!this.stepUp) throw new SecurityError('STEP_UP_REQUIRED', 403);
-    const now = this.clock();
-    return this.prisma.$transaction(async tx => {
-      await lockSession(tx, sessionId);
-      const session = await tx.authSession.findUnique({ where: { id: sessionId } });
-      if (!session || session.userId !== claims.userId || session.revokedAt) return false;
-      await this.stepUp!.consume(
-        tx, claims, 'SESSION_REVOKE', { sessionId }, stepUpToken,
-      );
-      await tx.authSession.update({
-        where: { id: sessionId },
-        data: { revokedAt: now, revokedReason: 'USER_SESSION_REVOKE' },
-      });
-      await this.auditWriter(tx, {
-        userId: claims.userId,
-        action: 'AUTH_SESSION_REVOKED',
-        targetType: 'AUTH_SESSION',
-        targetId: sessionId,
-      });
-      return true;
-    });
-  }
-
-  async revokeAllWithStepUp(
-    claims: ActiveSessionClaims,
-    stepUpToken: string,
-    preserveCurrent = false,
-  ): Promise<number> {
-    if (!this.stepUp) throw new SecurityError('STEP_UP_REQUIRED', 403);
-    const now = this.clock();
-    return this.prisma.$transaction(async tx => {
-      await tx.$queryRaw(Prisma.sql`
-        SELECT "id" FROM "auth_session"
-        WHERE "userId" = ${claims.userId} AND "revokedAt" IS NULL
-        ORDER BY "id" FOR UPDATE
-      `);
-      await this.stepUp!.consume(
-        tx, claims, 'SESSION_REVOKE_ALL', { userId: claims.userId }, stepUpToken,
-      );
-      const result = await tx.authSession.updateMany({
-        where: {
-          userId: claims.userId,
-          revokedAt: null,
-          ...(preserveCurrent ? { id: { not: claims.sessionId } } : {}),
-        },
-        data: { revokedAt: now, revokedReason: 'USER_LOGOUT_ALL' },
-      });
-      await this.auditWriter(tx, {
-        userId: claims.userId,
-        action: 'AUTH_SESSIONS_REVOKED',
-        targetType: 'USER',
-        targetId: claims.userId,
-        newValues: JSON.stringify({ count: result.count, preserveCurrent }),
       });
       return result.count;
     });

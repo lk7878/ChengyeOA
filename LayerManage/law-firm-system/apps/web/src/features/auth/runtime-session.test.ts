@@ -37,3 +37,12 @@ test('coalesces concurrent refreshes into one request and clears after terminal 
   expect(runtimeSession.getAccessToken()).toBeNull();
   expect(runtimeSession.getCsrfToken()).toBeNull();
 });
+
+test('a late refresh cannot replace credentials rotated by personal password change', async () => {
+  let resolve!: (value: { token: string; csrfToken: string; expiresIn: number }) => void;
+  const pending = runtimeSession.refreshOnce(() => new Promise(done => { resolve = done; }));
+  runtimeSession.setAuthenticated({ token: 'after-password-change', csrfToken: 'new-csrf', expiresIn: 900 });
+  resolve({ token: 'stale-refresh', csrfToken: 'old-csrf', expiresIn: 900 });
+  expect(await pending).toBe('after-password-change');
+  expect(runtimeSession.getAccessToken()).toBe('after-password-change');
+});

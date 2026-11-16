@@ -71,21 +71,19 @@ test('authenticates an ordinary user without persisting a refresh token in the r
   assert.ok(hasRefreshCookie(response.headers['set-cookie']));
 });
 
-test('requires an administrator without a factor to enroll before creating a session', async () => {
+test('allows administrator login before optional high-risk enrollment', async () => {
   const admin = await prisma.user.findUniqueOrThrow({ where: { id: adminId } });
   const response = await app.httpRequest()
     .post('/api/v1/auth/login')
     .send({ username: admin.username, password })
     .expect(200);
 
-  assert.equal(response.body.data.mode, 'MFA_ENROLLMENT_REQUIRED');
-  assert.equal(response.body.data.expiresIn, 600);
-  assert.equal(typeof response.body.data.challengeToken, 'string');
-  assert.equal(await prisma.authSession.count({ where: { userId: adminId } }), 0);
+  assert.equal(response.body.data.mode, 'AUTHENTICATED');
+  assert.equal(await prisma.authSession.count({ where: { userId: adminId } }), 1);
 });
 
-test('allows an authenticated ordinary user to opt into MFA and revokes the password-only session', async () => {
-  const user = await prisma.user.findFirstOrThrow({ where: { username: { startsWith: 'ordinary.' } } });
+test('allows an authenticated administrator to enroll inline and rotates the password-only session', async () => {
+  const user = await prisma.user.findFirstOrThrow({ where: { id: adminId } });
   const login = await app.httpRequest()
     .post('/api/v1/auth/login')
     .send({ username: user.username, password })
@@ -124,16 +122,19 @@ test('allows an authenticated ordinary user to opt into MFA and revokes the pass
     .post('/api/v1/auth/login')
     .send({ username: user.username, password })
     .expect(200);
-  assert.equal(nextLogin.body.data.mode, 'MFA_CHALLENGE_REQUIRED');
+  assert.equal(nextLogin.body.data.mode, 'AUTHENTICATED');
 });
 
-test('enrolls an administrator and requires MFA on the next login', async () => {
+test('enrolls an administrator while keeping subsequent login password-only', async () => {
   const admin = await prisma.user.findUniqueOrThrow({ where: { id: adminId } });
   const login = await app.httpRequest()
     .post('/api/v1/auth/login')
     .send({ username: admin.username, password })
     .expect(200);
-  const challengeToken = login.body.data.challengeToken as string;
+  const start = await app.httpRequest().post('/api/v1/auth/mfa/enrollment/start')
+    .set('Authorization', `Bearer ${login.body.data.token}`).set('Origin', 'http://localhost:3000')
+    .set('X-CSRF-Token', login.body.data.csrfToken).set('Cookie', cookieHeader(login.headers['set-cookie'])).expect(200);
+  const challengeToken = start.body.data.challengeToken as string;
   const enrollment = await app.httpRequest()
     .post('/api/v1/auth/mfa/enrollment')
     .send({ challengeToken })
@@ -152,13 +153,5 @@ test('enrolls an administrator and requires MFA on the next login', async () => 
     .post('/api/v1/auth/login')
     .send({ username: admin.username, password })
     .expect(200);
-  assert.equal(nextLogin.body.data.mode, 'MFA_CHALLENGE_REQUIRED');
-  const verified = await app.httpRequest()
-    .post('/api/v1/auth/mfa/verify')
-    .send({
-      challengeToken: nextLogin.body.data.challengeToken,
-      credential: { kind: 'TOTP', code: totpCode(enrollment.body.data.secret, new Date(Date.now() + 30_000)) },
-    })
-    .expect(200);
-  assert.equal(verified.body.data.mode, 'AUTHENTICATED');
+  assert.equal(nextLogin.body.data.mode, 'AUTHENTICATED');
 });

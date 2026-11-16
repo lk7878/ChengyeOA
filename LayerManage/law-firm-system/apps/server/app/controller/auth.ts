@@ -89,6 +89,15 @@ export default class AuthController extends Controller {
     respondAuthentication(ctx, data);
   }
 
+  public async changePassword() {
+    const body = this.ctx.request.body as { currentPassword: string; password: string; confirmation: string };
+    const data = await createAuthenticationService(this.ctx).changePassword(
+      this.ctx.state.user, body?.currentPassword, body?.password, body?.confirmation, requestMetadata(this.ctx),
+    );
+    setAuthenticationCookies(this.ctx, data.refreshToken, data.csrfToken);
+    this.ctx.body = { code: 200, message: 'success', data: stripRefreshToken(data) };
+  }
+
   public async me() {
     const { ctx } = this;
     const user = await ctx.prisma.user.findUnique({
@@ -138,10 +147,10 @@ export default class AuthController extends Controller {
   }
 
   public async revokeSession() {
-    const revoked = await createAuthenticationServices(this.ctx).sessions.revokeOwnedWithStepUp(
-      this.ctx.state.user,
+    const revoked = await createAuthenticationServices(this.ctx).sessions.revokeOwned(
+      this.ctx.state.user.userId,
       this.ctx.params.id,
-      this.ctx.get('x-step-up-token').trim(),
+      'USER_SESSION_REVOKE',
     );
     if (!revoked) this.ctx.throw(404, 'SESSION_NOT_FOUND');
     this.ctx.body = { code: 200, message: 'success', data: null };
@@ -150,10 +159,9 @@ export default class AuthController extends Controller {
   public async logoutAll() {
     const body = this.ctx.request.body as { preserveCurrent?: boolean };
     const preserveCurrent = body?.preserveCurrent === true;
-    const revokedCount = await createAuthenticationServices(this.ctx).sessions.revokeAllWithStepUp(
-      this.ctx.state.user,
-      this.ctx.get('x-step-up-token').trim(),
-      preserveCurrent,
+    const revokedCount = await createAuthenticationServices(this.ctx).sessions.revokeAll(
+      this.ctx.state.user.userId, 'USER_LOGOUT_ALL',
+      preserveCurrent ? this.ctx.state.user.sessionId : undefined,
     );
     if (!preserveCurrent) clearAuthenticationCookies(this.ctx);
     this.ctx.body = { code: 200, message: 'success', data: { revokedCount } };
@@ -178,7 +186,7 @@ export default class AuthController extends Controller {
 
   public async mfaStatus() {
     const data = await createAuthenticationServices(this.ctx).mfa.status(this.ctx.state.user.userId);
-    this.ctx.body = { code: 200, message: 'success', data };
+    this.ctx.body = { code: 200, message: 'success', data: { ...data, canManageHighRisk: Boolean(this.ctx.state.authorization?.isSystemAdmin || this.ctx.state.authorization?.isSystemSuperAdmin) } };
   }
 
   public async disableMfa() {
