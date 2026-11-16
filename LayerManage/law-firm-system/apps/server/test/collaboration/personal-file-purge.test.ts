@@ -76,3 +76,36 @@ test('restore and purge serialize: stale deletion cannot remove a restored file'
  if(row){assert.equal(row.deletedAt,null);assert.equal((await readFile(path.join(dir,row.storageKey!))).toString(),'v1');}
  else assert.ok((await db.personalFilePurge.findUniqueOrThrow({where:{fileId:file.id}})).completedAt);
 });
+
+test('bulk purge validates the entire confirmation snapshot before deleting any file',async()=>{
+ const first=await create(),second=await create();
+ const foreign=await other.create({name:'他人.txt',kind:'FILE',content:Buffer.from('other').toString('base64')});
+ await owner.remove({files:[{id:first.id,version:1},{id:second.id,version:1}]});
+ await other.remove({files:[{id:foreign.id,version:1}]});
+ await assert.rejects(owner.purgeMany({files:[{id:first.id,version:2},{id:foreign.id,version:2}]}),/COLLAB_FORBIDDEN/);
+ await assert.rejects(owner.purgeMany({files:[{id:first.id,version:2},{id:second.id,version:1}]}),/COLLAB_ACCESS_CONFLICT/);
+ assert.equal(await db.personalFilePurge.count(),0);assert.equal((await owner.trash()).items.length,2);
+ const before=(await db.personalFile.findUniqueOrThrow({where:{id:first.id}})).storageKey!;
+ assert.equal((await readFile(path.join(dir,before))).toString(),'v1');
+ // A later deletion must not silently join the earlier “empty trash” confirmation.
+ const later=await create();await owner.remove({files:[{id:later.id,version:1}]});
+ const result=await owner.purgeMany({files:[{id:first.id,version:2},{id:second.id,version:2}]});
+ assert.deepEqual(result,{count:2,failed:[]});
+ assert.deepEqual((await owner.trash()).items.map(f=>f.id),[later.id]);
+ assert.equal((await other.trash()).items[0].id,foreign.id);
+});
+
+test('bulk disk cleanup reports partial failure and retries completed items safely',async()=>{
+ const first=await create(),second=await create();
+ const blob=path.join(dir,(await db.personalFile.findUniqueOrThrow({where:{id:first.id}})).storageKey!);
+ await owner.remove({files:[{id:first.id,version:1},{id:second.id,version:1}]});
+ await rm(blob);await mkdir(blob);
+ const files=[{id:first.id,version:2},{id:second.id,version:2}];
+ assert.deepEqual(await owner.purgeMany({files}),{count:1,failed:[first.id]});
+ assert.equal((await owner.trash()).items[0].purging,true);
+ await rm(blob,{recursive:true});
+ assert.deepEqual(await owner.purgeMany({files}),{count:2,failed:[]});
+ assert.equal((await owner.trash()).items.length,0);
+ assert.equal(await db.operationLog.count({where:{action:'PERSONAL_FILE_PURGE'}}),2);
+ await assert.rejects(owner.purgeMany({files:[files[0],files[0]]}),/COLLAB_INVALID_VALUE/);
+});

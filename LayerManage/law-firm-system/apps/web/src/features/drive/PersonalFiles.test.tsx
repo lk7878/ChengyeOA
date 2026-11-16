@@ -10,7 +10,8 @@ vi.mock('@/stores/authStore',()=>({useAuthStore:()=>({userId:'owner',isSystemSup
 vi.mock('@/components/DraggableModal',()=>({DragSurface:({children}:{children:ReactNode})=><>{children}</>,default:(props:ModalProps)=>props.open?<section role="dialog" aria-label={String(props.title)}>{props.children}<button onClick={props.onCancel}>{props.cancelText??'取消'}</button><button disabled={props.confirmLoading} onClick={props.onOk}>{props.okText??'确定'}</button></section>:null}));
 vi.mock('./file-transfer',()=>({uploadFile:vi.fn(),downloadVersion:vi.fn()}));
 const file={id:'deleted-file',name:'待删除.txt',version:4,deletedAt:'2026-11-16'};
-beforeEach(()=>{vi.clearAllMocks();vi.mocked(get).mockImplementation(async(url)=>url==='/personal-files/trash'?{items:[file]}:{items:[],path:[],canUpload:false});vi.mocked(post).mockResolvedValue({ok:true});});
+let trashItems:(typeof file & {purging?:boolean})[]=[];
+beforeEach(()=>{vi.clearAllMocks();trashItems=[file];vi.mocked(get).mockImplementation(async(url)=>url==='/personal-files/trash'?{items:trashItems}:{items:[],path:[],canUpload:false});vi.mocked(post).mockImplementation(async(_url,body)=>{const files=(body as {files:{id:string}[]}).files;trashItems=trashItems.filter(f=>!files.some(r=>r.id===f.id));return {count:files.length,failed:[]};});});
 afterEach(cleanup);
 test('permanent deletion requires explicit confirmation; cancelling does not send a request',async()=>{
  render(<PersonalFiles scope="mine"/>);
@@ -26,7 +27,7 @@ test('permanent deletion requires explicit confirmation; cancelling does not sen
  fireEvent.click(within(trash).getByRole('button',{name:'彻底删除'}));
  confirm=await screen.findByRole('dialog',{name:'确认彻底删除'});
  fireEvent.click(within(confirm).getByRole('button',{name:'彻底删除'}));
- await waitFor(()=>expect(post).toHaveBeenCalledWith('/personal-files/deleted-file/purge',{version:4}));
+ await waitFor(()=>expect(post).toHaveBeenCalledWith('/personal-files/purge',{files:[{id:'deleted-file',version:4}]}));
  await waitFor(()=>expect(within(trash).queryByText(file.name)).not.toBeInTheDocument());
 });
 test('a pending disk cleanup is retryable and cannot be restored',async()=>{
@@ -35,4 +36,28 @@ test('a pending disk cleanup is retryable and cannot be restored',async()=>{
  const trash=await screen.findByRole('dialog',{name:'我的文件回收站'});
  expect(within(trash).getByRole('button',{name:/恢\s*复/})).toBeDisabled();
  expect(within(trash).getByRole('button',{name:'重试彻底删除'})).toBeEnabled();
+});
+
+test('bulk selection submits only checked files after confirmation',async()=>{
+ trashItems=[file,{...file,id:'second',name:'第二份.txt'},{...file,id:'third',name:'保留.txt'}];
+ render(<PersonalFiles scope="mine"/>);fireEvent.click(screen.getByRole('button',{name:'回收站'}));
+ const trash=await screen.findByRole('dialog',{name:'我的文件回收站'});
+ const boxes=within(trash).getAllByRole('checkbox');fireEvent.click(boxes[1]);fireEvent.click(boxes[2]);
+ fireEvent.click(within(trash).getByRole('button',{name:'彻底删除所选（2）'}));
+ const confirm=await screen.findByRole('dialog',{name:'确认彻底删除'});expect(post).not.toHaveBeenCalled();
+ fireEvent.click(within(confirm).getByRole('button',{name:'彻底删除'}));
+ await waitFor(()=>expect(post).toHaveBeenCalledWith('/personal-files/purge',{files:[{id:file.id,version:4},{id:'second',version:4}]}));
+ await waitFor(()=>expect(within(trash).getByText('保留.txt')).toBeInTheDocument());
+});
+test('empty trash confirms the complete refreshed list across table pages',async()=>{
+ trashItems=Array.from({length:11},(_,i)=>({...file,id:'file-'+i,name:'文件'+i+'.txt'}));
+ const expected=trashItems.map(({id,version})=>({id,version}));
+ render(<PersonalFiles scope="mine"/>);fireEvent.click(screen.getByRole('button',{name:'回收站'}));
+ const trash=await screen.findByRole('dialog',{name:'我的文件回收站'});
+ fireEvent.click(within(trash).getByRole('button',{name:'清空回收站'}));
+ const confirm=await screen.findByRole('dialog',{name:'确认清空回收站'});
+ expect(within(confirm).getByText(/共 11 个/)).toBeInTheDocument();expect(post).not.toHaveBeenCalled();
+ fireEvent.click(within(confirm).getByRole('button',{name:'确认清空回收站'}));
+ await waitFor(()=>expect(post).toHaveBeenCalledWith('/personal-files/purge',{files:expected}));
+ await waitFor(()=>expect(within(trash).getByRole('button',{name:'清空回收站'})).toBeDisabled());
 });

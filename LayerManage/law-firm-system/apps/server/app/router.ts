@@ -136,6 +136,7 @@ export default (app: Application) => {
   router.post('/api/v1/personal-files/delete',controller.personalFile.remove);
   router.get('/api/v1/personal-files/trash',controller.personalFile.trash);
   router.post('/api/v1/personal-files/:id/restore',controller.personalFile.restore);
+  router.post('/api/v1/personal-files/purge',controller.personalFile.purgeMany);
   router.post('/api/v1/personal-files/:id/purge',controller.personalFile.purge);
   router.get('/api/v1/personal-files/people',controller.personalFile.people);
   router.put('/api/v1/personal-files/:id/content',controller.personalFile.replace);

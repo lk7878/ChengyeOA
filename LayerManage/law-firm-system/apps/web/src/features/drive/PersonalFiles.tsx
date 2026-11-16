@@ -22,7 +22,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
   const [history,setHistory]=useState<{file:Item;versions:{version:number;name:string;size:number;sha256:string;parseStatus:string;createdAt:string}[]}>();
   const [progress,setProgress]=useState<Record<string,string>>({});
   const [selected,setSelected]=useState<string[]>([]),[deleting,setDeleting]=useState<Item[]>(),[trash,setTrash]=useState<TrashItem[]>();
-  const [purging,setPurging]=useState<TrashItem>();
+  const [purging,setPurging]=useState<{files:TrashItem[];all:boolean}>(),[trashSelected,setTrashSelected]=useState<string[]>([]);
   const [failed,setFailed]=useState<File[]>([]);
   useEffect(()=>{let active=true;void get<typeof data>('/personal-files?'+new URLSearchParams({scope,...(parentId?{parentId}:{})})).then(d=>{if(active){setData(d);setSelected([]);setError('');}}).catch(e=>{if(active){setData(undefined);setError(errorMessage(e));}});return()=>{active=false;};},[scope,parentId,revision]);
   const sharingId=sharing?.id;
@@ -46,7 +46,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
       {data?.canUpload&&<><Button loading={busy} onClick={()=>fileInput.current?.click()}>上传文件</Button><Button disabled={busy} onClick={()=>folderInput.current?.click()}>上传文件夹</Button><Button disabled={busy} onClick={()=>{setName('');setDialog({kind:'folder'});}}>新建文件夹</Button></>}
       <Button disabled={busy} onClick={refresh}>刷新文件</Button>
       <Button danger disabled={busy||!selected.length} onClick={()=>setDeleting((data?.items??[]).filter(i=>selected.includes(i.id)))}>删除所选（{selected.length}）</Button>
-      {scope==='mine'&&<Button disabled={busy} onClick={()=>void get<{items:NonNullable<typeof trash>}>('/personal-files/trash').then(r=>setTrash(r.items)).catch(e=>message.error(errorMessage(e)))}>回收站</Button>}
+      {scope==='mine'&&<Button disabled={busy} onClick={()=>void get<{items:NonNullable<typeof trash>}>('/personal-files/trash').then(r=>{setTrash(r.items);setTrashSelected([]);}).catch(e=>message.error(errorMessage(e)))}>回收站</Button>}
     </Space>
     <p style={{color:'#667085',marginTop:8}}>可在“更多”中更新文件或管理分享。文件更新后保留旧版本，有多个版本时可查看历史版本。拖动表头分隔线可调整列宽，双击恢复默认。</p>
     <input hidden type="file" multiple ref={fileInput} onChange={e=>void upload(e.target.files)}/><input hidden type="file" multiple {...{webkitdirectory:''}} ref={folderInput} onChange={e=>void upload(e.target.files)}/>
@@ -74,13 +74,22 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
       </Space>},
     ]}/>
     <Modal title="确认删除文件" open={!!deleting} confirmLoading={busy} onCancel={()=>setDeleting(undefined)} okText="移入回收站" onOk={async()=>{if(!deleting?.length)return;setBusy(true);try{await post('/personal-files/delete',{files:deleting.map(({id,version})=>({id,version}))});setDeleting(undefined);setHistory(undefined);setSelected([]);refresh();message.success('文件已移入所有者的回收站');}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}><p>将删除以下 {deleting?.length} 个文件。共享访问及任务材料读取将失效，正在引用这些材料的 AI 任务可能中断；已发布的知识快照与正式归档不受影响。文件所有者可从回收站恢复。</p><ul>{deleting?.map(f=><li key={f.id}>{f.name}</li>)}</ul></Modal>
-    <Drawer title="我的文件回收站" open={!!trash} onClose={()=>setTrash(undefined)} width={620}><p>文件可恢复到原目录，并沿用原有分享权限。彻底删除会移除原文件及全部历史版本，无法恢复。</p><Table rowKey="id" dataSource={trash} columns={[{title:'文件名称',dataIndex:'name'},{title:'操作',render:(_,r)=><Space wrap><Button disabled={busy||r.purging} onClick={async()=>{setBusy(true);try{await post('/personal-files/'+r.id+'/restore',{version:r.version});setTrash(p=>p?.filter(i=>i.id!==r.id));refresh();message.success('文件已恢复');}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}>恢复</Button><Button danger disabled={busy} onClick={()=>setPurging(r)}>{r.purging?'重试彻底删除':'彻底删除'}</Button>{r.purging&&<span>清理未完成，无法恢复</span>}</Space>}]}/></Drawer>
-    <Modal title="确认彻底删除" open={!!purging} confirmLoading={busy} closable={!busy} maskClosable={!busy} keyboard={!busy} cancelButtonProps={{disabled:busy}} okButtonProps={{danger:true}} okText="彻底删除" cancelText="取消" onCancel={()=>{if(!busy)setPurging(undefined);}} onOk={async()=>{
-      if(!purging||busy)return;setBusy(true);
-      try{await post('/personal-files/'+purging.id+'/purge',{version:purging.version});setTrash(p=>p?.filter(i=>i.id!==purging.id));setPurging(undefined);refresh();message.success('文件及全部历史版本已彻底删除');}
-      catch(e){message.error(errorMessage(e));setPurging(undefined);try{setTrash((await get<{items:TrashItem[]}>('/personal-files/trash')).items);}catch{message.error('回收站刷新失败，请重新打开后重试');}}
-      finally{setBusy(false);}
-    }}><p>确定彻底删除“{purging?.name}”吗？</p><Alert type="warning" showIcon title="原文件及全部历史版本将被永久删除，无法恢复。"/><p>共享用户和 AI 任务将无法再读取此文件。已单独保存的知识库副本和正式归档文件不受影响。</p></Modal>
+    <Drawer title="我的文件回收站" open={!!trash} onClose={()=>{if(!busy)setTrash(undefined);}} width={620}><p>文件可恢复到原目录，并沿用原有分享权限。彻底删除会移除原文件及全部历史版本，无法恢复。</p>
+      <Space wrap style={{marginBottom:12}}>
+        <Button danger disabled={busy||!trashSelected.length} onClick={()=>setPurging({files:(trash??[]).filter(f=>trashSelected.includes(f.id)),all:false})}>彻底删除所选（{trashSelected.length}）</Button>
+        <Button danger disabled={busy||!trash?.length} onClick={async()=>{setBusy(true);try{const {items}=await get<{items:TrashItem[]}>('/personal-files/trash');setTrash(items);setTrashSelected([]);if(items.length)setPurging({files:items,all:true});else message.info('回收站已为空');}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}>清空回收站</Button>
+      </Space>
+      <Table rowKey="id" dataSource={trash} rowSelection={{selectedRowKeys:trashSelected,onChange:keys=>setTrashSelected(keys.map(String)),getCheckboxProps:()=>({disabled:busy})}} columns={[{title:'文件名称',dataIndex:'name'},{title:'操作',render:(_,r)=><Space wrap><Button disabled={busy||r.purging} onClick={async()=>{setBusy(true);try{await post('/personal-files/'+r.id+'/restore',{version:r.version});setTrash(p=>p?.filter(i=>i.id!==r.id));setTrashSelected(p=>p.filter(id=>id!==r.id));refresh();message.success('文件已恢复');}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}>恢复</Button><Button danger disabled={busy} onClick={()=>setPurging({files:[r],all:false})}>{r.purging?'重试彻底删除':'彻底删除'}</Button>{r.purging&&<span>清理未完成，无法恢复</span>}</Space>}]}/>
+    </Drawer>
+    <Modal title={purging?.all?'确认清空回收站':'确认彻底删除'} open={!!purging} confirmLoading={busy} closable={!busy} maskClosable={!busy} keyboard={!busy} cancelButtonProps={{disabled:busy}} okButtonProps={{danger:true}} okText={purging?.all?'确认清空回收站':'彻底删除'} cancelText="取消" onCancel={()=>{if(!busy)setPurging(undefined);}} onOk={async()=>{
+      if(!purging?.files.length||busy)return;setBusy(true);
+      try{
+        const result=await post<{count:number;failed:string[]}>('/personal-files/purge',{files:purging.files.map(({id,version})=>({id,version}))});
+        setTrash(p=>p?.filter(i=>!purging.files.some(f=>f.id===i.id)||result.failed.includes(i.id)));setPurging(undefined);setTrashSelected(result.failed);refresh();
+        if(result.failed.length)message.warning('已彻底删除 '+result.count+' 个文件，'+result.failed.length+' 个清理未完成，可重试');else message.success('已彻底删除 '+result.count+' 个文件及其全部历史版本');
+      }catch(e){message.error(errorMessage(e));setPurging(undefined);setTrashSelected([]);}
+      finally{try{setTrash((await get<{items:TrashItem[]}>('/personal-files/trash')).items);}catch{message.error('回收站刷新失败，请重新打开后重试');}setBusy(false);}
+    }}><p>{purging?.all?'将清空本次确认的回收站文件':'将彻底删除所选文件'}，共 {purging?.files.length??0} 个：</p><ul>{purging?.files.slice(0,20).map(f=><li key={f.id}>{f.name}</li>)}</ul>{(purging?.files.length??0)>20&&<p>其余 {(purging?.files.length??0)-20} 个文件也将删除。</p>}<Alert type="warning" showIcon title="原文件及全部历史版本将被永久删除，无法恢复。"/><p>共享用户和 AI 任务将无法再读取这些文件。已单独保存的知识库副本和正式归档文件不受影响。确认后新移入回收站的文件不包含在本次删除范围内。</p></Modal>
     <Drawer title={'历史版本 · '+(history?.file.name??'')} open={!!history} onClose={()=>setHistory(undefined)} width={620}><p>更新文件会保留旧版本。已有 AI 任务和已投稿知识继续使用当时选定的版本。</p>{history?.versions.map((v,index)=><section key={v.version} style={{marginBottom:20,paddingBottom:16,borderBottom:'1px solid #e5e8ee'}}><h3>版本 {v.version}{index===0?'（最新）':''}</h3><p>{v.name} · {Math.ceil(v.size/1024)} KB</p><p>保存于：{new Date(v.createdAt).toLocaleString('zh-CN',{hour12:false})}</p><Button onClick={()=>void downloadVersion(history.file.id,v.version,v.name).catch(e=>message.error(errorMessage(e)))}>下载此版本</Button><details style={{marginTop:12}}><summary style={{cursor:'pointer'}}>技术信息</summary><p style={{overflowWrap:'anywhere'}}>文件校验码（SHA-256）：{v.sha256}</p><p>解析状态：{v.parseStatus==='PARSED'?'已解析':'待任务处理'}；模型可读性由任务工具确认。</p></details></section>)}</Drawer>
     <Modal title="更新文件" open={!!replacing} destroyOnHidden confirmLoading={busy} closable={!busy} maskClosable={!busy} keyboard={!busy} cancelButtonProps={{disabled:busy}} okButtonProps={{disabled:!replacing?.upload}} okText="确认更新" cancelText="取消" onCancel={()=>{if(!busy)setReplacing(undefined);}} onOk={async()=>{
       if(!replacing?.upload)return;const {file,upload:next}=replacing;setBusy(true);
