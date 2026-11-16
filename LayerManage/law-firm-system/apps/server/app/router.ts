@@ -127,6 +127,7 @@ export default (app: Application) => {
   router.post('/api/v1/smart-case/exchange',controller.smartCase.exchange);
   router.get('/api/v1/smart-case/directory',controller.smartCase.directory);
   router.get('/api/v1/smart-case/me',controller.smartCase.me);
+  router.get('/api/v1/smart-case/roles',controller.smartCase.roles);
   router.post('/api/v1/smart-case/logout',controller.smartCase.logout);
   router.post('/api/v1/smart-case/archive',controller.smartCase.archive);
   router.get('/api/v1/smart-case/cases',controller.smartCase.cases);
