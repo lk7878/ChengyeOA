@@ -82,8 +82,8 @@ export function strings(value: unknown, max = 200): string[] {
 export function json(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
-export function isSystemField(field: Pick<CollabField, 'type'>): boolean {
-  return ['AUTONUMBER', 'FORMULA', 'CREATED_BY', 'CREATED_AT', 'UPDATED_BY', 'UPDATED_AT'].includes(field.type);
+export function isSystemField(field: Pick<CollabField, 'type'> & { options?: unknown }): boolean {
+  return object(field.options ?? {}).customerRouteKey === true || ['AUTONUMBER', 'FORMULA', 'CREATED_BY', 'CREATED_AT', 'UPDATED_BY', 'UPDATED_AT'].includes(field.type);
 }
 export function validateValue(field: CollabField, value: unknown): unknown {
   if (value === null || value === undefined || value === '') {
@@ -180,7 +180,7 @@ export function optionIds(options: ObjectValue): string[] {
 }
 export function validateOptions(type: string, raw: unknown): ObjectValue {
   const options = exact(raw ?? {}, ['choices', 'targetTableId', 'targetSource', 'primary', 'helpText', 'maskDisplay']);
-  if (options.maskDisplay !== undefined) boolean(options.maskDisplay);
+  if (options.maskDisplay !== undefined) { boolean(options.maskDisplay); options.maskDisplay = false; }
   if (options.primary !== undefined) boolean(options.primary);
   if (options.helpText !== undefined) text(options.helpText, 2000);
   if (['SINGLE_SELECT', 'MULTI_SELECT'].includes(type)) {

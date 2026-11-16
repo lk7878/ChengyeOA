@@ -20,6 +20,9 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  COLLAB_CUSTOMER_ROUTE_UNAVAILABLE: '对应律师客资表或同步字段不可用，客户修改未保存，请联系管理员检查。',
+  COLLAB_CUSTOMER_ROUTE_DUPLICATE: '客资表存在重复客户编号，客户修改未保存，请联系管理员核对。',
+  COLLAB_CUSTOMER_ROUTE_REQUIRED_FIELD: '客资表有无法自动填写的必填字段，客户修改未保存，请联系管理员检查。',
   ADMIN_HIGH_RISK_ONLY: '此操作仅限有权限的管理员执行，请联系管理员。',
   STEP_UP_CANCELLED: '已取消操作，数据未变更。',
   STEP_UP_REQUIRED: '此管理员高风险操作需要二次验证。',

@@ -351,7 +351,7 @@ function fieldColumns(rules: FieldCapability[], setRules: (rules: FieldCapabilit
   };
   return [
     { title: '字段', dataIndex: 'code', render: (value: string, field: FieldCatalogEntry) => <Space wrap><code>{value}</code><Tag>{businessLabel(field.classification)}</Tag></Space> },
-    { title: '读取', render: (_: unknown, field: FieldCatalogEntry) => <Select disabled={!editable} aria-label={`${field.code} 读取级别`} value={get(field).readLevel} style={{ width: 110 }} onChange={readLevel => update(field, { readLevel })} options={['NONE', 'MASKED', 'READ'].map(value => ({ value, label: businessLabel(value) }))} /> },
+    { title: '读取', render: (_: unknown, field: FieldCatalogEntry) => <Select disabled={!editable} aria-label={`${field.code} 读取级别`} value={get(field).readLevel === 'MASKED' ? 'READ' : get(field).readLevel} style={{ width: 110 }} onChange={readLevel => update(field, { readLevel })} options={['NONE', 'READ'].map(value => ({ value, label: businessLabel(value) }))} /> },
     { title: '写入', render: (_: unknown, field: FieldCatalogEntry) => <Switch aria-label={`${field.code} 写入`} disabled={!editable || get(field).readLevel === 'NONE'} checked={get(field).canWrite} onChange={canWrite => update(field, { canWrite })} /> },
     { title: '导出', render: (_: unknown, field: FieldCatalogEntry) => <Switch aria-label={`${field.code} 导出`} disabled={!editable || get(field).readLevel === 'NONE'} checked={get(field).canExport} onChange={canExport => update(field, { canExport })} /> },
   ];

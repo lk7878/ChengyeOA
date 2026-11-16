@@ -126,7 +126,7 @@ test('editing persists every intake field, exact money, customer/lawyer names an
   intakeData.agencyProcedure = '代书';
   delete intakeData.customProcedure;
   const updated = await service.updateCase(id, { customerId, lawyerId, fee: '9999999999999999.99', intakeData, description: '完整描述', version: 1 });
-  assert.deepEqual(updated.intakeData, { ...intakeData, customerPhone: '138****0001' });
+  assert.deepEqual(updated.intakeData, { ...intakeData, customerPhone: '13800000001' });
   assert.equal(updated.fee, '9999999999999999.99');
   assert.equal((await service.getCase(id)).lawyerName, '律师甲');
   for (const keyword of ['字段-contractNumber', '字段-region', '刑事', '客户甲']) assert.equal((await service.listCases({ keyword })).list.some(item => item.id === id), true);

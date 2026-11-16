@@ -866,7 +866,7 @@ test('recycleOverdueLeads rejects a non-positive or non-integer hour window', as
   await assert.rejects(() => service.recycleOverdueLeads(1.5), hasCode('VALIDATION_FAILED'));
 });
 
-test('pool operation views mask L3 fields and audit raw reads with the operation purpose', async () => {
+test('pool operation views show complete L3 fields and audit raw reads with the operation purpose', async () => {
   const { userId, actor } = await createActor();
   const claimer = await createEmployeeFixture('领取人');
   const masked = await seedLead({
@@ -874,9 +874,9 @@ test('pool operation views mask L3 fields and audit raw reads with the operation
   });
 
   const maskedView = await serviceFor(userId, actor, { employeeId: claimer.id }).claimFromPool(masked.id);
-  assert.equal(maskedView.phone, '138****1234');
-  assert.equal(maskedView.wechat, '***');
-  assert.equal(await prisma.operationLog.count({ where: { action: 'READ_L3_FIELDS' } }), 0);
+  assert.equal(maskedView.phone, '13800001234');
+  assert.equal(maskedView.wechat, 'wx-pool-001');
+  assert.ok(await prisma.operationLog.count({ where: { action: 'READ_L3_FIELDS' } }) > 0);
 
   const readRules: AuthorizationContext['fieldRules'] = [{
     sourceRoleId: 'test-role',
@@ -892,7 +892,7 @@ test('pool operation views mask L3 fields and audit raw reads with the operation
   });
   const rawView = await reader.claimFromPool(readable.id);
   assert.equal(rawView.phone, '13900008888');
-  assert.equal(rawView.wechat, '***', 'wechat stays masked without its own READ rule');
+  assert.equal(rawView.wechat, 'wx-pool-002');
 
   const claimAudit = await prisma.operationLog.findFirstOrThrow({
     where: { action: 'READ_L3_FIELDS', targetType: 'LEAD', targetId: readable.id },
@@ -902,7 +902,7 @@ test('pool operation views mask L3 fields and audit raw reads with the operation
   assert.match(claimAudit.newValues ?? '', /lead\.claim/);
   assert.doesNotMatch(claimAudit.newValues ?? '', /13900008888/);
 
-  // recycle 返回视图同样脱敏 + 按操作 purpose 审计。
+  // recycle 返回视图同样明文 + 按操作 purpose 审计。
   const recycledView = await reader.recycle(readable.id);
   assert.equal(recycledView.phone, '13900008888');
   const audits = await prisma.operationLog.findMany({

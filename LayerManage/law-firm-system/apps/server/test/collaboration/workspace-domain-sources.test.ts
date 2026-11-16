@@ -253,12 +253,12 @@ for (const source of ['CUSTOMERS', 'NEGOTIATIONS', 'CONTRACTS'] as DomainSource[
       rejects('COLLAB_FORBIDDEN'),
     );
   });
-test('customer masking, hidden query rejection, creator organization fallback and original SELF scope', async () => {
+test('customer full values, hidden query rejection, creator organization fallback and original SELF scope', async () => {
   const table = (await owner.createTable(base, { name: '客户', source: 'CUSTOMERS' }, key())).id;
   const row = await seed('CUSTOMERS');
   const detail = await staff.describe(table);
   const phone = detail.fields.find((f) => (f.options as { businessKey?: string }).businessKey === 'phone')!;
-  assert.equal((await staff.record(table, row.id)).record.values[phone.id], '138****1234');
+  assert.equal((await staff.record(table, row.id)).record.values[phone.id], '13800001234');
   await assert.rejects(
     staff.query(table, { config: { filter: { fieldId: phone.id, operator: 'contains', value: '138' } } }),
     rejects('COLLAB_SENSITIVE_QUERY_UNSUPPORTED'),

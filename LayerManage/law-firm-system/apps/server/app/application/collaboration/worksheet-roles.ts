@@ -6,6 +6,8 @@ import { boolean, choice, exact, fail, filterSql, object, type Filter } from './
 export const presets = ['OWNER', 'MANAGER', 'EDITOR', 'READER'] as const;
 const levels = { DENY: 0, READER: 1, EDITOR: 2, MANAGER: 3, OWNER: 4 };
 const modes = ['HIDDEN', 'MASK', 'READ', 'EDIT'] as const;
+// Legacy MASK grants retain read-only access, now with full values.
+const modeLevel = (mode: string) => mode === 'MASK' ? 2 : modes.indexOf(mode as typeof modes[number]);
 export type TableRule = {
   business?: {permissions: string[]; scopeIds:string[]};
   share?: boolean;
@@ -28,7 +30,7 @@ export function parseRule(raw: unknown, fields: CollabField[], sharedViews: stri
   const rows = choice(v.rows,['SELF','ALL','DEPARTMENT','SUBDEPARTMENTS','FILTER']) as TableRule['rows'];
   if (rows === 'FILTER') {
     if (!v.filter) fail('COLLAB_INVALID_FILTER');
-    filterSql(v.filter, fields.filter(f => !object(f.options).hrSensitive && !object(f.options).maskDisplay), 'user', null);
+    filterSql(v.filter, fields.filter(f => !object(f.options).hrSensitive), 'user', null);
   }
   let viewIds: string[] | undefined;
   if (v.viewIds !== undefined) {
@@ -62,7 +64,7 @@ export function applyRules(access: Access, rules: TableRule[], fields: CollabFie
   access.automate = access.level >= 2 && readable.some(r => r.automate);
   access.masked = [];
   for (const f of fields) {
-    const permission = Math.max(...readable.map(r => Math.min(levels[r.level] < 2 ? 2 : 3, modes.indexOf(r.fields[f.id] ?? 'EDIT'))));
+    const permission = Math.max(...readable.map(r => Math.min(levels[r.level] < 2 ? 2 : 3, modeLevel(r.fields[f.id] ?? 'EDIT'))));
     if (!permission) access.hidden.push(f.id);
     if (permission === 1) access.masked.push(f.id);
     if (permission < 3) access.readonly.push(f.id);
@@ -72,7 +74,7 @@ export function recordFieldLevel(access: Access, id:string, field:string) {
   const ceiling:number = access.previewCeiling ? recordFieldLevel(access.previewCeiling,id,field) : 3;
   if (!access.scopedRules) return ceiling;
   return Math.min(ceiling, Math.max(0,...access.scopedRules.filter(r=>!r.ids || r.ids.has(id)).map(({rule})=>
-    Math.min(levels[rule.level] < 2 ? 2 : 3, modes.indexOf(rule.fields[field] ?? 'EDIT')))));
+    Math.min(levels[rule.level] < 2 ? 2 : 3, modeLevel(rule.fields[field] ?? 'EDIT')))));
 }
 export function rowPredicate(rules: TableRule[] | undefined, fields: CollabField[], user: string, employee: string | null) {
   if (!rules || rules.some(r => r.rows === 'ALL')) return Prisma.sql`TRUE`;

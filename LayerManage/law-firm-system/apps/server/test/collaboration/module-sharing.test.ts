@@ -1,3 +1,4 @@
+import { retiredSources } from '../../app/domain/module-availability';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
@@ -63,6 +64,10 @@ test('module creation connects real sources atomically and keeps business connec
   for (const source of ['LEADS', 'FOLLOWS', ...Object.keys(domainSources)]) {
     const requestKey = key();
     const input = { name: source, moduleSource: source, connectBusiness: true };
+    if (retiredSources.includes(source)) {
+      await assert.rejects(owner.createDriveBase(workspace, input, requestKey), /MODULE_RETIRED/);
+      continue;
+    }
     const dedicated = ['INVENTORY_STOCKTAKES', 'INVENTORY_MOVEMENTS'].includes(source);
     const targetWorkspace = dedicated ? (await owner.provisionModuleWorkspace(workspace, { source }, key())).id : workspace;
     const result = await owner.createDriveBase(targetWorkspace, input, requestKey);

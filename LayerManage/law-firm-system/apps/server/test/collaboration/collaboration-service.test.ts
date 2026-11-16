@@ -212,7 +212,7 @@ test('live CRM tables intersect business scope, organization and resource permis
   assert.equal(q.total, 1);
   assert.equal(q.records[0].id, mine.id);
   assert.equal(q.groups[0].count, 1);
-  assert.equal(q.records[0].values[field('phone').id], '138****1234');
+  assert.equal(q.records[0].values[field('phone').id], '13800001234');
   assert.equal((await ownerCrm.query(leads, {})).total, 2);
   assert.equal((await editorCrm.query(follows, {})).total, 1);
   const filtered = await ownerCrm.query(leads, {

@@ -1,3 +1,4 @@
+import { syncCustomerSource } from '../collaboration/customer-source-routing';
 import { notifyDeliveryChange } from '../collaboration/delivery-change';
 import { crmTransaction } from '../crm/crm-transaction';
 // SPEC-009 Task 8: customer-service —— 客户主数据 + 联系人（ContactService 内联，决策 15）。
@@ -142,7 +143,7 @@ export class CustomerService {
    * 直建客户（决策 12）：customer.create 权限 → 规范化（电话双写 hash）→ 同事务建档 +
    * customer.created v1（sourceLeadId 恒 null）+ OperationLog。customerNo 碰撞重试一次。
    */
-  async createCustomer(input: CreateCustomerInput): Promise<CustomerView> {
+  async createCustomer(input: CreateCustomerInput, transaction?: Prisma.TransactionClient): Promise<CustomerView> {
     this.authorization.requireAction(this.authorizationContext, 'customer.create');
     assertExactKeys(input, [
       'name',
@@ -172,8 +173,7 @@ export class CustomerService {
 
     for (let attempt = 0; attempt < BUSINESS_NO_RETRY_LIMIT; attempt += 1) {
       try {
-        return await this.prisma
-          .$transaction(async (tx) => {
+        return await crmTransaction(this.prisma, transaction, async (tx) => {
             const customer = await tx.customer.create({
               data: {
                 customerNo: makeBusinessNo('CU'),
@@ -218,7 +218,7 @@ export class CustomerService {
           })
           .then((created) => projectCustomer(created, this.customerFieldPermissions()));
       } catch (error) {
-        if (attempt + 1 < BUSINESS_NO_RETRY_LIMIT && isUniqueConflictOn(error, 'customerNo')) continue;
+        if (!transaction && attempt + 1 < BUSINESS_NO_RETRY_LIMIT && isUniqueConflictOn(error, 'customerNo')) continue;
         throw error;
       }
     }
@@ -313,6 +313,7 @@ export class CustomerService {
           ip: this.actor.ip,
         },
       });
+      await syncCustomerSource(tx, customer.id, this.actor.actorUserId);
       await notifyDeliveryChange(tx, this.actor.actorUserId, customer.id);
       const after = await tx.customer.findUniqueOrThrow({ where: { id: customer.id } });
       return projectCustomer(after, this.customerFieldPermissions());

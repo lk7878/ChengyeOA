@@ -626,7 +626,7 @@ test('contract-to-case lookup uses the canonical case scope and excludes deleted
 test('standard fields synchronize case data and refund attachment lookup enforces parent field permissions', async()=>{
   const {a,r,row,contract,vals,create}=await setup();
   await db.case.update({where:{id:row.id},data:{intakeData:{contractNumber:'CUSTOM-001',signedDate:'2026-10-20T01:30:00.000Z',caseCategory:'民事',agencyProcedure:'["一审","二审"]',handlingLawyer:'张律师'}}});
-  const caseOptions=await svc.lifecycleChoices(a.table.id,{keyword:'CUSTOM-001'});
+  const caseOptions=await svc.lifecycleChoices(a.table.id,{keyword:contract.contractNo});
   assert.equal(caseOptions.rows[0].id,row.id);
   const aField=(k:string)=>a.fields.find(f=>(f.options as Record<string,unknown>).lifecycleKey===k)!;
   const rField=(k:string)=>r.fields.find(f=>(f.options as Record<string,unknown>).lifecycleKey===k)!;
@@ -659,7 +659,7 @@ test('standard fields synchronize case data and refund attachment lookup enforce
   const hidden=(await ordinary.record(r.table.id,refund.id)).record;
   assert.equal(hidden.values[rField('refundReceiptLookup').id],null);
   assert.equal(hidden.values[rField('feeTotalLookup').id],null);
-  assert.equal(hidden.values[rField('customerPhone').id],'138****0001');
+  assert.equal(hidden.values[rField('customerPhone').id],'13800000001');
   await assert.rejects(ordinary.attachment(r.table.id,file.id),/COLLAB_FORBIDDEN/);
   await db.collabMember.update({where:{id:member.id},data:{hiddenFields:[]}});
   await assert.rejects(ordinary.attachment(r.table.id,file.id),/COLLAB_FORBIDDEN/);
@@ -754,5 +754,5 @@ test('linked cases fill authoritative intake; manual cases keep editable values'
   await svc.saveRecord(table.id,manual.id,{schemaVersion:1,version:saved.version,values:{[field('intake.region').id]:null}},key());
   assert.equal((await service.getCase(manual.id)).intakeData.region,undefined);
   const restricted = {...ctx,isSystemSuperAdmin:false};
-  assert.equal((await new CaseService(db,{actorUserId:user},restricted).getCase(linked.id)).intakeData.customerPhone,'138****0001');
+  assert.equal((await new CaseService(db,{actorUserId:user},restricted).getCase(linked.id)).intakeData.customerPhone,'13800000001');
 });

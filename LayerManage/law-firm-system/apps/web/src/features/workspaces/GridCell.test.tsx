@@ -66,11 +66,11 @@ test('changing font and row height preserves the active cell draft and original 
     { values: { f: '外观切换前填写的内容' }, version: 2, schemaVersion: 3 }, expect.any(String)));
 });
 
-test('prospect contact is masked in the grid and edits preserve the actual value', async () => {
+test('legacy prospect contact masking is disabled in the grid and edits preserve the actual value', async () => {
   vi.mocked(patch).mockResolvedValue({ id: 'r', version: 3 });
   render(<GridCell {...props} field={{ ...field, name: '联系方式', options: { maskDisplay: true } }}
     row={{ ...row, values: { f: '13812345678' } }} />);
-  fireEvent.doubleClick(screen.getByRole('button', { name: '联系方式：138****5678' }));
+  fireEvent.doubleClick(screen.getByRole('button', { name: '联系方式：13812345678' }));
   expect(screen.getByLabelText('单元格编辑')).toHaveValue('13812345678');
   fireEvent.change(screen.getByLabelText('单元格编辑'), { target: { value: '13912345678' } });
   fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));

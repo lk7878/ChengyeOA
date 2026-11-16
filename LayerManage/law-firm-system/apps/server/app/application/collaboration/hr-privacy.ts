@@ -37,9 +37,7 @@ export function presentHrValue(actor:AuthorizationContext,field:CollabField,valu
   if(!hrPrivate(field)) return value;
   if(field.type==='FILE') return canReadHrPrivate(actor)?value:[];
   const plain=crypt(field,value,false);
-  if(canReadHrPrivate(actor)||plain==null||plain==='') return plain;
-  const text=String(plain);
-  return object(field.options).hrIdentity&&text.length>=8?text.slice(0,4)+'**********'+text.slice(-4):'******';
+  return plain;
 }
 export function hrAge(fields:CollabField[],values:Record<string,unknown>) {
   const id=fields.find(f=>object(f.options).hrIdentity);

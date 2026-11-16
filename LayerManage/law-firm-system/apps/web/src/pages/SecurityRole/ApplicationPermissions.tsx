@@ -16,7 +16,7 @@ type Settings = {inherited?:{roleId:string;source:string;level:string}[];version
   capabilities:{permissionNames?:Record<string,string>;scopeTypes?:string[];selfMeaning?:string;resource:string|null;basic:string[];edit:string[];scoped:boolean;special:{code:string;name:string}[]}};
 type Scope = {id:string;name:string;scopeType:string};
 const levels=[{value:'DENY',label:'无权限'},{value:'READER',label:'查看'},{value:'EDITOR',label:'编辑'},{value:'MANAGER',label:'管理'}];
-const fieldModes=[{value:'HIDDEN',label:'隐藏'},{value:'MASK',label:'脱敏查看'},{value:'READ',label:'完整查看'},{value:'EDIT',label:'编辑'}];
+const fieldModes=[{value:'HIDDEN',label:'隐藏'},{value:'READ',label:'完整查看'},{value:'EDIT',label:'编辑'}];
 const emptyRule=():TableRule=>({level:'DENY',rows:'ALL',fields:{},add:false,remove:false,copy:false,analytics:true,automate:false,share:false,import:false});
 export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,superAdmin=false}:
   {roleId?:string;changes:WorksheetChange[];onChange:(value:WorksheetChange[])=>void;readOnly?:boolean;superAdmin?:boolean}) {
@@ -51,7 +51,7 @@ export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,s
       const rule={...old,...patch};
       if(patch.level!==undefined) {rule.add=writable; if(!writable){rule.remove=false;rule.import=false;rule.automate=false;}if(level!=='MANAGER')rule.share=false;}
       // Preserve advanced legacy rules until the administrator explicitly edits this table.
-      if(!old.business && old.level==='DENY') rule.fields={...Object.fromEntries(config.fields.filter(f=>f.options?.hrSensitive || ['phone','wechat','intake.customerPhone'].includes(String(f.options?.businessKey))).map(f=>[f.id,'MASK'])),...rule.fields};
+      if(!old.business && old.level==='DENY') rule.fields={...Object.fromEntries(config.fields.filter(f=>f.options?.hrSensitive || ['phone','wechat','intake.customerPhone'].includes(String(f.options?.businessKey))).map(f=>[f.id,'READ'])),...rule.fields};
       if(!old.business) rule.business={permissions:[],scopeIds:config.capabilities.scoped?['worksheet:self']:[]};
       const business=patch.business ?? rule.business!;
       if(patch.rows&&['DEPARTMENT','SUBDEPARTMENTS'].includes(patch.rows)&&config.capabilities.scoped)business.scopeIds=['ALL'];
@@ -117,7 +117,7 @@ export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,s
         <Table rowKey="id" size="small" dataSource={s.fields} pagination={{pageSize:8}} columns={[
           {title:'字段名称',dataIndex:'name'},
           {title:'字段权限',render:(_,f)=><Select aria-label={f.name+'字段权限'} style={{width:130}} options={fieldModes.map(m=>({...m,disabled:m.value==='EDIT'&&!['EDITOR','MANAGER'].includes(r.level)}))}
-            value={r.fields[f.id]||(['EDITOR','MANAGER'].includes(r.level)?'EDIT':'READ')}
+            value={r.fields[f.id]==='MASK'?'READ':r.fields[f.id]||(['EDITOR','MANAGER'].includes(r.level)?'EDIT':'READ')}
             onChange={mode=>change([t.id],{fields:{...r.fields,[f.id]:mode}})}/>},
         ]}/>
         <Collapse style={{marginTop:16}} items={[{key:'advanced',label:'高级设置 · 自定义条件及共享视图',children:<>

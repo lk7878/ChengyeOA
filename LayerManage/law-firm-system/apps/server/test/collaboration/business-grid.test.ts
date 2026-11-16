@@ -899,7 +899,7 @@ test('all worksheet source families describe and query through the common permis
   }
 });
 
-test('central worksheet roles enforce record conditions, masks, read-only convergence, preview and grant union',async()=>{
+test('central worksheet roles enforce record conditions, legacy MASK plaintext, read-only convergence, preview and grant union',async()=>{
   const {WorksheetPermissions}=await import('../../app/application/collaboration/worksheet-permissions');
   const {defaultRule}=await import('../../app/application/collaboration/worksheet-roles');
   const policy=new WorksheetPermissions(db,svc.actor);
@@ -916,17 +916,17 @@ test('central worksheet roles enforce record conditions, masks, read-only conver
   await assert.rejects(policy.change(t.id,{roleId:role,rule,version:0},false),code('COLLAB_ACCESS_CONFLICT'));
   assert.ok((await member.listTables(base)).tables.some(item=>item.id===t.id));
   const data=await member.query(t.id,{});
-  assert.equal(data.total,1); assert.equal(data.records[0].values[secret.id],'******');
+  assert.equal(data.total,1); assert.equal(data.records[0].values[secret.id],'内部资料');
   await assert.rejects(member.record(t.id,blocked.id),code('COLLAB_NOT_FOUND'));
   await assert.rejects(member.saveRecord(t.id,added.id,{values:{[column.id]:'改动'},schemaVersion:2,version:1},key()),code('COLLAB_FORBIDDEN'));
   const preview=await policy.preview(t.id,{target:'MEMBER',id:account.id});
-  assert.equal(preview.canDelete,false);assert.equal(preview.total,1);assert.equal(preview.records[0].values[secret.id],'******');
+  assert.equal(preview.canDelete,false);assert.equal(preview.total,1);assert.equal(preview.records[0].values[secret.id],'内部资料');
   const role2=(await db.role.create({data:{code:key(),name:'业务编辑',type:'BUSINESS'}})).id;
   await db.userRole.create({data:{userId:account.id,roleId:role2}});
   await policy.change(t.id,{roleId:role2,rule:{...defaultRule('EDITOR'),rows:'FILTER',filter:{fieldId:column.id,operator:'eq',value:'私有'}},version:1},false);
   const merged=await member.query(t.id,{});
   assert.equal(merged.total,2);
-  assert.equal(merged.records.find(r=>r.id===added.id)?.values[secret.id],'******');
+  assert.equal(merged.records.find(r=>r.id===added.id)?.values[secret.id],'内部资料');
   assert.equal(merged.records.find(r=>r.id===blocked.id)?.values[secret.id],'私有资料');
   const v=t.detail.views[0].id;
   await policy.change(t.id,{roleId:role,rule:{...rule,viewIds:[v]},version:2},false);
@@ -957,7 +957,7 @@ test('private worksheet preset preview applies saved row and field rules within 
   const preview = await policy.preview(t.id, subject);
   assert.equal(preview.total, 1);
   assert.equal(preview.records[0].values[title.id], '公开');
-  assert.equal(preview.records[0].values[secret.id], '******');
+  assert.equal(preview.records[0].values[secret.id], '公开');
   assert.equal(preview.canEdit, false);
   const outsider = new WorksheetPermissions(db, { ...svc.actor, userId: key(), employeeId: null });
   await assert.rejects(outsider.preview(t.id, subject), code('WORKSHEET_PREVIEW_VIEWER_DENIED'));

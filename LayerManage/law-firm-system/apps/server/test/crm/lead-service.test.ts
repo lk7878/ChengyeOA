@@ -609,15 +609,15 @@ test('SELF and BRANCH scopes union: own assigned leads plus all in-branch leads'
   await assert.rejects(() => scoped.getLead(outOfBoth.id), hasCode(LEAD_NOT_FOUND));
 });
 
-test('lead projection masks phone and wechat without L3 READ field permission', async () => {
+test('lead projection shows complete authorized phone and wechat', async () => {
   const { userId, actor } = await createActor();
   const { lead } = await serviceFor(userId, actor).createLead(
     leadInput({ phone: '13800001234', wechat: 'wx-lead-001' }),
   );
 
   const masked = await serviceFor(userId, actor).getLead(lead.id);
-  assert.equal(masked.phone, '138****1234');
-  assert.equal(masked.wechat, '***');
+  assert.equal(masked.phone, '13800001234');
+  assert.equal(masked.wechat, 'wx-lead-001');
 
   const readable = await serviceFor(userId, actor, {
     fieldRules: [
@@ -632,16 +632,16 @@ test('lead projection masks phone and wechat without L3 READ field permission', 
     ],
   }).getLead(lead.id);
   assert.equal(readable.phone, '13800001234');
-  assert.equal(readable.wechat, '***', 'wechat stays masked without its own READ rule');
+  assert.equal(readable.wechat, 'wx-lead-001');
 });
 
 test('getLead writes READ_L3_FIELDS authorization audit only when raw L3 phone is disclosed', async () => {
   const { userId, actor } = await createActor();
   const { lead } = await serviceFor(userId, actor).createLead(leadInput());
 
-  // 脱敏输出不触发 L3 明文审计。
+  // 默认明文读取同样触发 L3 审计。
   await serviceFor(userId, actor).getLead(lead.id);
-  assert.equal(await prisma.operationLog.count({ where: { action: 'READ_L3_FIELDS' } }), 0);
+  assert.ok(await prisma.operationLog.count({ where: { action: 'READ_L3_FIELDS' } }) > 0);
 
   const reader = serviceFor(userId, actor, {
     fieldRules: [

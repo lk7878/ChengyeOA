@@ -9,7 +9,7 @@ import {
 
 test('classifies every current sensitive and forbidden employee/user field', () => {
   assert.equal(fieldPolicy('employee', 'phone').classification, 'L3');
-  assert.equal(fieldPolicy('employee', 'phone').defaultReadLevel, 'MASKED');
+  assert.equal(fieldPolicy('employee', 'phone').defaultReadLevel, 'READ');
   assert.equal(fieldPolicy('employee', 'idCard').classification, 'L4');
   assert.equal(fieldPolicy('employee', 'idCard').defaultReadLevel, 'NONE');
   assert.equal(fieldPolicy('user', 'password').classification, 'FORBIDDEN');
@@ -17,25 +17,25 @@ test('classifies every current sensitive and forbidden employee/user field', () 
   assert.ok(FIELD_CATALOG.some(item => item.code === 'professional_team.categoryCode'));
 });
 
-test('uses deterministic masks without exposing short originals', () => {
-  assert.equal(maskField('employee.phone', '13800001234'), '138****1234');
-  assert.equal(maskField('employee.email', 'lawyer@example.com'), 'l***@example.com');
-  assert.equal(maskField('employee.licenseNo', 'LICENSE123456'), 'LIC***3456');
-  assert.equal(maskField('employee.phone', '123'), '***');
-  assert.deepEqual(maskField('employee.professionalDirections', ['刑事', '民商事']), ['***', '***']);
+test('shows complete authorized business values while forbidden fields remain absent', () => {
+  assert.equal(maskField('employee.phone', '13800001234'), '13800001234');
+  assert.equal(maskField('employee.email', 'lawyer@example.com'), 'lawyer@example.com');
+  assert.equal(maskField('employee.licenseNo', 'LICENSE123456'), 'LICENSE123456');
+  assert.equal(maskField('employee.phone', '123'), '123');
+  assert.deepEqual(maskField('employee.professionalDirections', ['刑事', '民商事']), ['刑事', '民商事']);
   assert.equal(maskField('employee.idCard', '500000199001010000'), null);
 });
 
 test('defaults unknown identity/business fields to L3 and security internals to forbidden', () => {
   assert.equal(fieldPolicy('employee', 'unregisteredIdentity').classification, 'L3');
-  assert.equal(fieldPolicy('customer', 'newFact').defaultReadLevel, 'MASKED');
+  assert.equal(fieldPolicy('customer', 'newFact').defaultReadLevel, 'READ');
   assert.equal(fieldPolicy('case', 'aiSummary').classification, 'L3');
   assert.equal(fieldPolicy('user', 'passwordHash').classification, 'FORBIDDEN');
   assert.equal(fieldPolicy('user', 'refreshToken').classification, 'FORBIDDEN');
 });
 
 test('keeps read write and export independent using the union of readable role grants', () => {
-  assert.deepEqual(resolveFieldCapability('L3', []), { readLevel: 'MASKED', canWrite: false, canExport: false });
+  assert.deepEqual(resolveFieldCapability('L3', []), { readLevel: 'READ', canWrite: false, canExport: false });
   assert.deepEqual(resolveFieldCapability('L3', [
     { readLevel: 'READ', canWrite: true, canExport: false },
     { readLevel: 'MASKED', canWrite: false, canExport: true },

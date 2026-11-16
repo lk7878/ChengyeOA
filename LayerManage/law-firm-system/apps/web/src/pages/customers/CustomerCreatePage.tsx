@@ -1,8 +1,10 @@
+import { errorMessage, get, post } from '@/features/workspaces/api';
+import type { Field } from '@/features/workspaces/types';
 import BusinessWorkspacePage from '@/features/crm/BusinessWorkspacePage';
 import { useAuthStore } from '@/stores/authStore';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Form, Input, Select, Space } from 'antd';
-import { useLocation, useNavigate } from 'react-router';
+import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { customerApi } from '@/api/customer';
 import { CUSTOMER_TYPES, type CreateCustomerInput } from '@/api/types';
 import { crmNameRules, phoneRules } from '@/features/crm/form-rules';
@@ -15,8 +17,20 @@ export function CustomerWorkspacePage() {
 export default function CustomerCreatePage() {
   const location = useLocation(),
     navigate = useNavigate();
-  const [busy, setBusy] = useState(false),
-    [error, setError] = useState('');
+  const [params] = useSearchParams();
+  const tableId = params.get('table');
+  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [sourceState, setSourceState] = useState<{ tableId: string; field?: Field }>();
+  const sourceField = sourceState?.tableId === tableId ? sourceState.field : undefined;
+  const sourceLoading = Boolean(tableId && sourceState?.tableId !== tableId);
+  const creationKey = useRef(crypto.randomUUID());
+  useEffect(() => {
+    let active = true;
+    if (tableId) void get<{ fields: Field[] }>('/tables/' + tableId).then(detail => {
+      if (active) setSourceState({ tableId, field: detail.fields.find(f => f.name === '客户来源' && f.type === 'SINGLE_SELECT' && f.writable) });
+    }).catch(e => { if (active) setError(e instanceof Error ? e.message : '加载客户来源失败'); });
+    return () => { active = false; };
+  }, [tableId]);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -35,7 +49,7 @@ export default function CustomerCreatePage() {
     <div className="unified-area-page" style={{ maxWidth: 760 }}>
       <h1>新建客户</h1>
       {error && <Alert type="error" title={error} />}
-      <Form<CreateCustomerInput>
+      <Form<CreateCustomerInput & { sourceValue?: string }>
         layout="vertical"
         disabled={busy}
         initialValues={{ name: initialName, customerType: 'INDIVIDUAL' }}
@@ -43,7 +57,10 @@ export default function CustomerCreatePage() {
           setBusy(true);
           setError('');
           try {
-            const response = await customerApi.create(values);
+            const { sourceValue, ...customer } = values;
+            const response = tableId ? { data: await post<{ id: string }>('/tables/' + tableId + '/business-records', {
+              ...customer, ...(sourceField && sourceValue ? { sourceFieldId: sourceField.id, sourceValue } : {}),
+            }, creationKey.current) } : await customerApi.create(customer);
             if (!mounted.current) return;
             if (fromCase)
               navigate('/cases', {
@@ -52,7 +69,7 @@ export default function CustomerCreatePage() {
               });
             else navigate('/customers/' + response.data.id, { replace: true, state: { customerCreated: true } });
           } catch (e) {
-            if (mounted.current) setError(e instanceof Error ? e.message : '创建失败，请保留输入后重试');
+            if (mounted.current) setError(tableId ? errorMessage(e) : e instanceof Error ? e.message : '创建失败，请保留输入后重试');
           } finally {
             if (mounted.current) setBusy(false);
           }
@@ -68,6 +85,9 @@ export default function CustomerCreatePage() {
         >
           <Input maxLength={20} />
         </Form.Item>
+        {sourceField && <Form.Item name="sourceValue" label="客户来源" extra="选择律师后，基础资料将自动同步到对应客资表。">
+          <Select allowClear options={sourceField.options.choices?.map(c => ({ value: c.id, label: c.name }))} />
+        </Form.Item>}
         <Form.Item name="wechat" label="微信">
           <Input maxLength={50} />
         </Form.Item>
@@ -87,7 +107,7 @@ export default function CustomerCreatePage() {
           <Input.TextArea rows={3} maxLength={500} />
         </Form.Item>
         <Space>
-          <Button type="primary" htmlType="submit" loading={busy}>
+          <Button type="primary" htmlType="submit" loading={busy} disabled={sourceLoading}>
             创建客户
           </Button>
           <Button disabled={busy} onClick={cancel}>

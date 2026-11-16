@@ -329,9 +329,9 @@ test('createCustomer persists with dual phone storage and writes customer.create
   assert.match(view.customerNo, /^CU\d{6}-[0-9A-Z]{6}$/);
   assert.equal(view.status, 'POTENTIAL');
   assert.equal(view.sourceLeadId, null);
-  // 无 L3 READ 字段规则：视图脱敏。
-  assert.equal(view.phone, '138****1234');
-  assert.equal(view.wechat, '***');
+  // 有业务查看权限时显示完整值。
+  assert.equal(view.phone, '13800001234');
+  assert.equal(view.wechat, 'wx-cust-001');
 
   const stored = await prisma.customer.findUniqueOrThrow({ where: { id: view.id } });
   assert.equal(stored.phone, '13800001234');
@@ -440,14 +440,14 @@ test('updateCustomer applies partial updates, re-normalizes phone and bumps vers
   );
 });
 
-test('getCustomer masks L3 fields by default and audits raw reads with purpose customer.read', async () => {
+test('getCustomer shows complete L3 values by default and audits raw reads with purpose customer.read', async () => {
   const { userId, actor } = await createActor();
   const created = await serviceFor(userId, actor).createCustomer(customerInput({ wechat: 'wx-cust-003' }));
 
   const masked = await serviceFor(userId, actor).getCustomer(created.id);
-  assert.equal(masked.phone, '138****1234');
-  assert.equal(masked.wechat, '***');
-  assert.equal(await prisma.operationLog.count({ where: { action: 'READ_L3_FIELDS' } }), 0);
+  assert.equal(masked.phone, '13800001234');
+  assert.equal(masked.wechat, 'wx-cust-003');
+  assert.ok(await prisma.operationLog.count({ where: { action: 'READ_L3_FIELDS' } }) > 0);
 
   const reader = serviceFor(userId, actor, {
     fieldRules: [
@@ -463,7 +463,7 @@ test('getCustomer masks L3 fields by default and audits raw reads with purpose c
   });
   const readable = await reader.getCustomer(created.id);
   assert.equal(readable.phone, '13800001234');
-  assert.equal(readable.wechat, '***', 'wechat stays masked without its own READ rule');
+  assert.equal(readable.wechat, 'wx-cust-003');
 
   const audit = await prisma.operationLog.findFirstOrThrow({
     where: { action: 'READ_L3_FIELDS', targetType: 'CUSTOMER', targetId: created.id },
@@ -474,7 +474,7 @@ test('getCustomer masks L3 fields by default and audits raw reads with purpose c
   assert.doesNotMatch(audit.newValues ?? '', /13800001234/);
 });
 
-test('listCustomers paginates, filters by status and masks phone with LIST audit sentinel', async () => {
+test('listCustomers paginates, filters by status and shows phone with LIST audit sentinel', async () => {
   const { userId, actor } = await createActor();
   await seedCustomer({ name: '潜在客户一', status: 'POTENTIAL' });
   await seedCustomer({
@@ -499,7 +499,7 @@ test('listCustomers paginates, filters by status and masks phone with LIST audit
   const intentOnly = await service.listCustomers({ status: 'INTENT' });
   assert.equal(intentOnly.total, 1);
   assert.equal(intentOnly.list[0].name, '意向客户一');
-  assert.equal(intentOnly.list[0].phone, '136****1111');
+  assert.equal(intentOnly.list[0].phone, '13600001111');
 
   const reader = serviceFor(userId, actor, {
     fieldRules: [
@@ -705,16 +705,16 @@ test('removeContact soft-deletes and listContacts excludes deleted rows in creat
   await assert.rejects(() => service.removeContact(customer.id, second.id), hasCode(LEAD_NOT_FOUND));
 });
 
-test('contact views mask phone by customer.read field capability and audit raw disclosure', async () => {
+test('contact views show full authorized values and audit raw disclosure', async () => {
   const { userId, actor } = await createActor();
   const service = serviceFor(userId, actor);
   const customer = await service.createCustomer(customerInput());
   await service.addContact(customer.id, contactInput({ wechat: 'wx-contact-001' }));
 
   const masked = await service.listContacts(customer.id);
-  assert.equal(masked[0].phone, '135****2222');
-  assert.equal(masked[0].wechat, '***');
-  assert.equal(await prisma.operationLog.count({ where: { action: 'READ_L3_FIELDS' } }), 0);
+  assert.equal(masked[0].phone, '13511112222');
+  assert.equal(masked[0].wechat, 'wx-contact-001');
+  assert.ok(await prisma.operationLog.count({ where: { action: 'READ_L3_FIELDS' } }) > 0);
 
   const reader = serviceFor(userId, actor, {
     fieldRules: [
@@ -730,7 +730,7 @@ test('contact views mask phone by customer.read field capability and audit raw d
   });
   const raw = await reader.listContacts(customer.id);
   assert.equal(raw[0].phone, '13511112222');
-  assert.equal(raw[0].wechat, '***');
+  assert.equal(raw[0].wechat, 'wx-contact-001');
   const audit = await prisma.operationLog.findFirstOrThrow({
     where: { action: 'READ_L3_FIELDS', targetType: 'CUSTOMER', targetId: customer.id },
   });

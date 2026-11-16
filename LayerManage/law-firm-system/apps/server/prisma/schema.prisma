@@ -1874,7 +1874,7 @@ model CollabField {
   archived     Boolean          @default(false)
   table        CollabTable      @relation(fields: [tableId], references: [id], onDelete: Cascade)
 
-  @@unique([tableId, name])
+  @@index([tableId, name]) // Active-name uniqueness is enforced by a partial SQL index.
   @@map("collab_field")
 }
 

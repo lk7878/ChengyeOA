@@ -243,7 +243,7 @@ test('mixed core and extension filters sort, page and group authorized rows in t
   assert.equal(query.total, 2);
   assert.equal(query.records[0].id, leadId);
   assert.deepEqual(
-    query.groups.map((g) => g.keys[0]),
+    query.groups.map((g) => Number(g.keys[0])).sort((a, b) => a - b),
     [2.5, 10.2],
   );
   assert.equal(
@@ -313,7 +313,7 @@ test('position, creator, action and hidden field constraints also guard extensio
     },
     key(),
   );
-  await assert.rejects(save({ [note]: '只读不可改' }), code('COLLAB_READONLY_FIELD'));
+  await assert.rejects(save({ [note]: '只读不可改' }), code('COLLAB_FIELD_UNAVAILABLE'));
   await assert.rejects(employee.attachment(table, file.id), code('COLLAB_FORBIDDEN'));
   const detail = await employee.record(table, leadId);
   assert.ok(!(fileField in detail.record.values));
@@ -579,14 +579,8 @@ test('batch extensions share one transaction and preserve business action bounda
   const core = (await owner.describe(table)).fields.find(
     (f) => f.options && (f.options as { businessKey?: string }).businessKey === 'name',
   )!;
-  await assert.rejects(
-    employee.saveRecords(
-      table,
-      { schemaVersion: 2, records: [{ id: leadId, version: 2, values: { [core.id]: 'forbidden' } }] },
-      key(),
-    ),
-    code('COLLAB_USE_BUSINESS_ACTION'),
-  );
+  await employee.saveRecords(table,
+    { schemaVersion: 2, records: [{ id: leadId, version: 2, values: { [core.id]: '授权更新姓名' } }] }, key());
   await assert.rejects(
     employee.saveRecords(
       table,
@@ -595,5 +589,5 @@ test('batch extensions share one transaction and preserve business action bounda
     ),
     code('COLLAB_USE_BUSINESS_ACTION'),
   );
-  assert.equal((await db.lead.findUniqueOrThrow({ where: { id: leadId } })).name, '本人录入但由他人负责');
+  assert.equal((await db.lead.findUniqueOrThrow({ where: { id: leadId } })).name, '授权更新姓名');
 });

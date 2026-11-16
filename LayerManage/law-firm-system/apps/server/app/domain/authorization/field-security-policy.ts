@@ -81,26 +81,13 @@ export function fieldPolicy(resource: string, field: string): FieldPolicy {
   if (resource === 'user' && FORBIDDEN_USER_FIELD.test(field)) {
     return { code, resource, field, classification: 'FORBIDDEN', defaultReadLevel: 'NONE' };
   }
-  return { code, resource, field, classification: 'L3', defaultReadLevel: 'MASKED' };
+  return { code, resource, field, classification: 'L3', defaultReadLevel: 'READ' };
 }
 
 export function maskField(fieldCode: string, value: unknown): unknown {
   const policy = FIELD_BY_CODE.get(fieldCode);
   if (policy?.classification === 'L4' || policy?.classification === 'FORBIDDEN') return null;
-  if (value === null || value === undefined) return value;
-
-  if (fieldCode === 'employee.phone' && typeof value === 'string') {
-    return value.length === 11 ? `${value.slice(0, 3)}****${value.slice(-4)}` : '***';
-  }
-  if (fieldCode === 'employee.email' && typeof value === 'string') {
-    const separator = value.indexOf('@');
-    return separator > 0 ? `${value[0]}***${value.slice(separator)}` : '***';
-  }
-  if (fieldCode === 'employee.licenseNo' && typeof value === 'string') {
-    return value.length >= 7 ? `${value.slice(0, 3)}***${value.slice(-4)}` : '***';
-  }
-  if (Array.isArray(value)) return value.map(() => '***');
-  return '***';
+  return value;
 }
 
 export function resolveFieldCapability(
@@ -115,7 +102,7 @@ export function resolveFieldCapability(
   const readLevel = rules.some(rule => rule.readLevel === 'READ')
     ? 'READ'
     : rules.some(rule => rule.readLevel === 'MASKED')
-      ? 'MASKED'
+      ? 'READ'
       : baseline;
   return {
     readLevel,
@@ -126,6 +113,6 @@ export function resolveFieldCapability(
 
 function defaultReadLevel(classification: DataClassification): FieldReadLevel {
   if (classification === 'L1' || classification === 'L2') return 'READ';
-  if (classification === 'L3') return 'MASKED';
+  if (classification === 'L3') return 'READ';
   return 'NONE';
 }

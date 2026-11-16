@@ -40,7 +40,7 @@ const employee = {
   idCard: '500000199001010000',
 };
 
-test('reads L2 masks L3 omits L4 and removes forbidden fields by default', async () => {
+test('reads complete L2 and L3 values omits L4 and removes forbidden fields by default', async () => {
   const service = new FieldProjectionService();
   const audits: unknown[] = [];
   const [projected] = await service.projectRecords({
@@ -53,10 +53,10 @@ test('reads L2 masks L3 omits L4 and removes forbidden fields by default', async
 
   assert.equal(projected.id, employee.id);
   assert.equal(projected.name, employee.name);
-  assert.equal(projected.phone, '138****0000');
-  assert.equal(projected.email, 'a***@example.com');
+  assert.equal(projected.phone, employee.phone);
+  assert.equal(projected.email, employee.email);
   assert.equal('idCard' in projected, false);
-  assert.deepEqual(audits, []);
+  assert.equal(audits.length, 1);
 
   const [user] = await service.projectRecords({
     context: { ...context(), grants: [{ ...context().grants[0], resource: 'user', permissionCode: 'user.read' }], permissionCodes: ['user.read'] },

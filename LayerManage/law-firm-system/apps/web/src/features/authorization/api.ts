@@ -48,7 +48,7 @@ function reduceFieldCapabilities(
     const none = fieldRules.every(rule => rule.readLevel === 'NONE');
     const readLevel: FieldReadLevel = none
       ? 'NONE'
-      : fieldRules.some(rule => rule.readLevel === 'READ') ? 'READ' : 'MASKED';
+      : 'READ';
     return [fieldCode, {
       resource: fieldRules[0].resource,
       fieldCode,

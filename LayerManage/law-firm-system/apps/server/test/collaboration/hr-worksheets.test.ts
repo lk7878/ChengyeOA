@@ -44,7 +44,7 @@ async function sheet(kind:HrKind) {
   const values=Object.fromEntries(detail.fields.filter(f=>f.required).map(f=>[f.id,f.type==='DATETIME'?(f.name==='入职时间'?'2024.06':'2024-07-01T00:00:00+08:00'):f.type==='NUMBER'?3:f.type==='SINGLE_SELECT'?(f.options as {choices:{id:string}[]}).choices[0].id:'回归测试']));
   return {...t,detail,f,values};
 }
-test('all eight HR schemas provide CRUD, month precision, read-only role, private masking, encrypted history and reversible deletion',async()=>{
+test('all eight HR schemas provide CRUD, month precision, read-only role, full private values, encrypted history and reversible deletion',async()=>{
   const editor=await peer(['hr.worksheet.read','hr.worksheet.manage','hr.worksheet.sensitive']);
   const reader=await peer(['hr.worksheet.read']);
   const inventory=await peer(['inventory.read']);
@@ -63,7 +63,7 @@ test('all eight HR schemas provide CRUD, month precision, read-only role, privat
     assert.ok((await reader.describe(t.id)).fields.every(f=>!f.writable));
     await assert.rejects(reader.saveRecord(t.id,a.id,{schemaVersion,version:1,values:{}},key()),/COLLAB_FORBIDDEN/);
     const read=JSON.stringify(await reader.record(t.id,a.id));
-    assert.ok(!read.includes(privateValue)); assert.ok(!read.includes('110101199001011234'));assert.ok(!read.includes('hr:v1:'));
+    assert.ok(read.includes(privateValue)); if(identity) assert.ok(read.includes('110101199001011234'));assert.ok(!read.includes('hr:v1:'));
     const raw=await db.collabRecord.findUniqueOrThrow({where:{id:a.id},include:{revisions:true}});
     const recovery=await db.collabRecordOperation.findMany({where:{recordId:a.id}});
     assert.ok(!JSON.stringify([raw,recovery]).includes(privateValue));
@@ -86,7 +86,7 @@ test('all eight HR schemas provide CRUD, month precision, read-only role, privat
     const op=(await editor.recordOperations(t.id,{trash:'true'})).rows[0];
     await editor.reverseRecordOperation(t.id,op.id,{direction:'undo'},key());
     assert.equal((await admin.query(t.id,{})).total,1);
-    assert.ok(!JSON.stringify(await reader.record(t.id,a.id)).includes('保密更新值'));
+    assert.ok(JSON.stringify(await reader.record(t.id,a.id)).includes('保密更新值'));
   }
 });
 test('HR field permissions protect uploads, paste and undo; conditional family field and date precision validate',async()=>{

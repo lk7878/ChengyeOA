@@ -12,7 +12,7 @@ type Rule = { level:string;rows:'ALL'|'SELF'|'DEPARTMENT'|'SUBDEPARTMENTS'|'FILT
   add:boolean;remove:boolean;analytics:boolean;copy:boolean;automate:boolean };
 type Settings = {version:number;views:Option[];fields:Field[];rules:Record<string,Rule>};
 const levels = [{value:'MANAGER',label:'可管理'},{value:'EDITOR',label:'可编辑'},{value:'READER',label:'仅可阅读'},{value:'DENY',label:'无权限'}];
-const modes = [{value:'EDIT',label:'可编辑'},{value:'READ',label:'仅读'},{value:'MASK',label:'脱敏'},{value:'HIDDEN',label:'隐藏'}];
+const modes = [{value:'EDIT',label:'可编辑'},{value:'READ',label:'仅读'},{value:'HIDDEN',label:'隐藏'}];
 const actions = {add:'新增记录',remove:'删除记录',analytics:'仪表盘',copy:'复制与导出',automate:'审批自动化'};
 export function WorksheetPermissions({roles,superAdmin}:{roles:Option[];superAdmin:boolean}) {
   const labels=useMenuLabels();
@@ -77,7 +77,7 @@ function RuleEditor({role,table,superAdmin,onPreview}:{role:string;table:string;
         onClick={()=>change({fields:{}})}>{writable?'重置为全部可编辑':'重置为全部仅读'}</Button></Space>
       <Table size="small" rowKey="id" pagination={false} dataSource={settings.fields} columns={[
         {title:'字段',dataIndex:'name'},{title:'字段权限',render:(_,f:Field)=><Select aria-label={f.name+'权限'} disabled={rule.level==='DENY'}
-          value={!writable && (rule.fields[f.id]??'EDIT')==='EDIT'?'READ':rule.fields[f.id]??'EDIT'}
+          value={rule.fields[f.id]==='MASK'||(!writable && (rule.fields[f.id]??'EDIT')==='EDIT')?'READ':rule.fields[f.id]??'EDIT'}
           options={modes.map(m=>({...m,disabled:m.value==='EDIT'&&!writable}))}
           onChange={v=>change({fields:{...rule.fields,[f.id]:v}})}/>}]} />
       <Space style={{marginTop:16}}><Button loading={busy} type="primary" onClick={()=>void save(false)}>保存权限</Button>

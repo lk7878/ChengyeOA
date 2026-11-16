@@ -1,3 +1,4 @@
+import { syncCustomerSource } from './customer-source-routing';
 import { prepareMedicalValues } from './medical-assessment';
 import { FIELD_CATALOG } from '../../domain/authorization/field-security-policy';
 import { FieldProjectionService } from '../authorization/field-projection-service';
@@ -22,7 +23,7 @@ import { UpdateCaseInput } from '../case/case-types';
 import { removeStoredAttachments } from '../case/case-intake';
 import { editableCaseKey, caseGridChoices } from './case-grid-fields';
 import { editableBusinessFields, editableBusinessKey, isEditableBusinessSource, businessGridChoices } from './business-grid-fields';
-import { CustomerService, UpdateCustomerInput } from '../crm/customer-service';
+import { CustomerService, CreateCustomerInput, UpdateCustomerInput } from '../crm/customer-service';
 import { NegotiationService } from '../contract/negotiation-service';
 import { ContractService } from '../contract/contract-service';
 import { CrmWorksheetService } from '../crm/crm-worksheet-service';
@@ -972,8 +973,31 @@ export class CollaborationService {
       return { id: created.id };
     });
   }
+  private async createCustomerRecord(tableId: string, raw: unknown, key: unknown) {
+    const input = exact(raw, ['name','phone','wechat','email','address','customerType','status','tags','remark','sourceFieldId','sourceValue']);
+    const initial = await this.tableAccess(tableId, this.db, 2);
+    return this.write(key, ['customer.create', tableId, input], async tx => {
+      await this.lock(tx, initial.access.workspaceId);
+      const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
+      if (table.source !== 'CUSTOMERS' || access.add === false) fail('COLLAB_FORBIDDEN', 403);
+      const { sourceFieldId, sourceValue, ...core } = input;
+      if (table.fields.some(f => !f.archived && Object.hasOwn(core, String(object(f.options).businessKey)) && (!fields.some(visible => visible.id === f.id) || access.readonly.includes(f.id)))) fail('COLLAB_FIELD_UNAVAILABLE', 403);
+      const customer = await new CustomerService(this.db, { actorUserId: this.actor.userId }, this.actor).createCustomer(core as unknown as CreateCustomerInput, tx);
+      await this.extensionTarget(table, access, customer.id, tx);
+      await this.checkRowWrite(table, access, tx, customer.id, fields.filter(f => Object.hasOwn(core, String(object(f.options).businessKey))).map(f => f.id), 'add');
+      if (sourceValue !== undefined && sourceValue !== null && sourceValue !== '') {
+        const field = fields.find(f => f.id === sourceFieldId && f.name === '客户来源' && f.type === 'SINGLE_SELECT' && !object(f.options).businessKey);
+        if (!field || access.readonly.includes(field.id)) fail('COLLAB_FIELD_UNAVAILABLE', 403);
+        await this.checkRowWrite(table, access, tx, customer.id, [field.id], 'add');
+        await this.saveExtension(tableId, customer.id, { values: { [field.id]: sourceValue }, version: customer.version, schemaVersion: table.schemaVersion }, key, tx);
+      }
+      await this.event(tx, table.baseId, 'record.created', customer.id);
+      return customer;
+    });
+  }
   async createBusinessRecord(tableId: string, raw: unknown, key: unknown) {
     const selected = await this.tableAccess(tableId);
+    if (selected.table.source === 'CUSTOMERS') return this.createCustomerRecord(tableId, raw, key);
     if (selected.table.source === 'FOLLOWS') return this.createFollowRecord(tableId, raw, key);
     const input = exact(raw, [
       'name',
@@ -1666,7 +1690,7 @@ export class CollaborationService {
       const previous = fieldId ? table.fields.find((f) => f.id === fieldId) : undefined;
       if (fieldId && !previous) fail('COLLAB_NOT_FOUND', 404);
       if (fieldId && !fields.some((f) => f.id === fieldId)) fail('COLLAB_FORBIDDEN', 403);
-      if (previous && (object(previous.options).businessKey || lifecycleKey(previous))) fail('COLLAB_USE_BUSINESS_ACTION', 409);
+      if (previous && (object(previous.options).businessKey || object(previous.options).customerRouteKey || lifecycleKey(previous))) fail('COLLAB_USE_BUSINESS_ACTION', 409);
       const type = choice(input.type ?? previous?.type, FIELD_TYPES);
       if (type === 'FORMULA') fail('COLLAB_READONLY_FIELD', 403);
       if (table.source !== 'CUSTOM' && isSystemField({ type })) fail('COLLAB_USE_BUSINESS_ACTION', 409);
@@ -1751,6 +1775,18 @@ export class CollaborationService {
             data: { ...data, defaultValue: validatedDefault },
           })
         : await tx.collabField.create({ data: { ...data, tableId, defaultValue: validatedDefault } });
+      if (!previous && !field.archived) {
+        // Explicit column lists otherwise permanently hide every later field.
+        const defaults = await tx.collabView.findMany({ where: { tableId, isDefault: true } });
+        for (const view of defaults) {
+          const config = object(view.config);
+          if (Array.isArray(config.visibleFields) && !config.visibleFields.includes(field.id))
+            await tx.collabView.update({ where: { id: view.id }, data: {
+              config: json({ ...config, visibleFields: [...config.visibleFields, field.id] }),
+              version: { increment: 1 },
+            } });
+        }
+      }
       await tx.collabTable.update({ where: { id: tableId }, data: { schemaVersion: { increment: 1 } } });
       await this.event(tx, table.baseId, 'schema.updated', tableId);
       return { id: field.id, version: table.schemaVersion + 1 };
@@ -2024,7 +2060,7 @@ export class CollaborationService {
     const projection = hasInventoryProjection(table.inventoryKind) ? await inventorySummarySql(this.db, table, fields, this.actor.userId, id => this.tableAccess(id)) : table.lifecycleKind ? await this.lifecycle().sourceSql(table, access, fields) : undefined;
     const result = await queryCustomRecords(this.db, isInventorySummary(table.inventoryKind) ? Prisma.sql`${rowScope} AND r."tableId"=${tableId} AND r.archived=false AND ${filterSql(config.filter, fields, this.actor.userId, this.actor.employeeId)}` : where, config, fields, page, pageSize, projection);
     if (table.lifecycleKind) await this.lifecycle().auditPhone(fields,result.records.length);
-    if (isHrKind(table.inventoryKind) && canReadHrPrivate(this.actor) && result.records.length && fields.some(hrPrivate)) await this.db.operationLog.create({data:{userId:this.actor.userId,action:'HR_SENSITIVE_READ',targetType:'COLLAB_TABLE',targetId:tableId,newValues:JSON.stringify({count:result.records.length,fields:fields.filter(hrPrivate).map(f=>f.id)})}});
+    if (isHrKind(table.inventoryKind) && result.records.length && fields.some(hrPrivate)) await this.db.operationLog.create({data:{userId:this.actor.userId,action:'HR_SENSITIVE_READ',targetType:'COLLAB_TABLE',targetId:tableId,newValues:JSON.stringify({count:result.records.length,fields:fields.filter(hrPrivate).map(f=>f.id)})}});
     return {
       ...result,
       records: await this.projectReferences(result.records, fields, access),
@@ -2080,7 +2116,7 @@ export class CollaborationService {
       record.values = projected[0].values;
       await this.lifecycle().auditPhone(fields,1);
     }
-    if (isHrKind(table.inventoryKind) && canReadHrPrivate(this.actor) && fields.some(hrPrivate)) await this.db.operationLog.create({data:{userId:this.actor.userId,action:'HR_SENSITIVE_READ',targetType:'COLLAB_RECORD',targetId:recordId}});
+    if (isHrKind(table.inventoryKind) && fields.some(hrPrivate)) await this.db.operationLog.create({data:{userId:this.actor.userId,action:'HR_SENSITIVE_READ',targetType:'COLLAB_RECORD',targetId:recordId}});
     const revisions = await this.db.collabRevision.findMany({
       where: { recordId },
       orderBy: { version: 'desc' },
@@ -2561,6 +2597,7 @@ export class CollaborationService {
             changes: json(changes),
           },
         });
+        if (table.source === 'CUSTOMERS') await syncCustomerSource(tx, recordId, this.actor.userId, tableId);
         await this.event(tx, table.baseId, 'record.updated', recordId);
         return { id: recordId, version: core.version + row.version };
       },

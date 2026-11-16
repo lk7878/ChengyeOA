@@ -36,8 +36,7 @@ export function lawyerProspectFields() {
     if (choices) options.choices = choices.split('|').map(name => ({ id: name, name }));
     if (name === '客户姓名') options.primary = true;
     if (name === '联系方式') {
-      options.maskDisplay = true;
-      options.helpText = '列表默认脱敏显示；有编辑权限时可查看和修改原值。共享权限决定数据访问范围。';
+      options.helpText = '共享权限决定数据访问范围；有查看权限时显示完整联系方式。';
     }
     return { name, type, position, required: name === '客户姓名', options };
   });
