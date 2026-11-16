@@ -5,8 +5,9 @@ import { PrismaClient } from '@prisma/client';
 import { CollaborationService } from '../../app/application/collaboration/collaboration-service';
 import { CustomerService } from '../../app/application/crm/customer-service';
 import { AuthorizationContextLoader } from '../../app/application/authorization/authorization-context-loader';
-import { configureCustomerRouting } from '../../scripts/maintenance/configure-customer-routing';
+import { configureCustomerRouting, customerRoutingSources } from '../../scripts/maintenance/configure-customer-routing';
 import { CUSTOMER_ROUTE_TRIGGER, CustomerRouteAction, syncCustomerSource } from '../../app/application/collaboration/customer-source-routing';
+import { removeRetiredCustomerTable } from '../../scripts/maintenance/remove-retired-customer-table';
 import { lawyerProspectTemplate } from '../../app/application/collaboration/lawyer-prospect-template';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 
@@ -25,11 +26,11 @@ test.beforeEach(async () => {
   base=(await svc.createBase(w.id,{name:'客资测试'},key())).id;
   source=(await svc.createTable(base,{name:'客户记录',source:'CUSTOMERS'},key())).id;
   legacy=(await svc.createTable(base,{name:lawyers[0]+'客资表',source:'FOLLOWS'},key())).id;
-  for(const name of lawyers.slice(1)) await svc.createTable(base,{name:name+'客资表',template:lawyerProspectTemplate},key());
+  for(const name of customerRoutingSources.filter(name=>name!==lawyers[0])) await svc.createTable(base,{name:name+'客资表',template:lawyerProspectTemplate},key());
 });
 test.after(async()=>{await clearTestApplicationData(db);await db.$disconnect();});
 async function setup() {
-  await configureCustomerRouting(db,user,{sourceTableId:source,lawyerNames:lawyers,replaceLegacyTable:true},true);
+  await configureCustomerRouting(db,user,{sourceTableId:source,sourceNames:customerRoutingSources,replaceLegacyTable:true},true);
   return (await db.collabRule.findFirstOrThrow({where:{tableId:source,trigger:CUSTOMER_ROUTE_TRIGGER}})).action as unknown as CustomerRouteAction;
 }
 const values=(v:unknown)=>v as Record<string,unknown>;
@@ -53,7 +54,7 @@ test('archive permits field-name reuse without losing old values and adds new co
 });
 
 test('setup previews replacement, retains other tables, and can be repeated without duplicate routing or columns',async()=>{
-  const preview=await configureCustomerRouting(db,user,{sourceTableId:source,lawyerNames:lawyers,replaceLegacyTable:true});
+  const preview=await configureCustomerRouting(db,user,{sourceTableId:source,sourceNames:customerRoutingSources,replaceLegacyTable:true});
   assert.equal(preview.targets.filter(t=>t.replaceLegacy).length,1);
   assert.equal(await db.collabRule.count(),0);
   assert.equal((await db.collabTable.findUniqueOrThrow({where:{id:legacy}})).archived,false);
@@ -135,4 +136,58 @@ test('authorized source editors can distribute without receiving target-table ac
   await db.collabTable.update({where:{id:source},data:{accessPolicy:{restricted:false,grants:[{principalType:'USER',principalId:userId,role:'EDITOR',rowScope:'ALL',canCreate:true,hiddenFields:[],readonlyFields:[phone.id]}]}}});
   await assert.rejects(editor.createBusinessRecord(source,{name:'不能写只读字段',phone:'13800003333'},key()),/COLLAB_FIELD_UNAVAILABLE/);
   assert.equal(await db.customer.count(),1);
+});
+
+test('all six sources backfill existing customers, route new customers, and reassign without duplicates',async()=>{
+  await configureCustomerRouting(db,user,{sourceTableId:source,sourceNames:lawyers,replaceLegacyTable:true},true);
+  let action=(await db.collabRule.findFirstOrThrow({where:{tableId:source}})).action as unknown as CustomerRouteAction;
+  const channels=customerRoutingSources.filter(name=>!lawyers.includes(name));
+  const customers=[];
+  for(const name of channels) customers.push(await svc.createBusinessRecord(source,{name:'渠道测试',phone:'13800002222',sourceFieldId:action.sourceFieldId,sourceValue:name},key()));
+  assert.equal(await db.collabRecord.count(),0);
+  action=await setup();
+  assert.deepEqual(Object.keys(action.routes).sort(),[...customerRoutingSources].sort());
+  for(const name of lawyers) customers.push(await svc.createBusinessRecord(source,{name:'律师测试',phone:'13800003333',sourceFieldId:action.sourceFieldId,sourceValue:name},key()));
+  for(const route of Object.values(action.routes)) assert.equal(await db.collabRecord.count({where:{tableId:route.targetTableId,archived:false}}),1);
+  const before=await db.collabRecord.findMany({orderBy:{id:'asc'}});
+  await setup();
+  assert.deepEqual(await db.collabRecord.findMany({orderBy:{id:'asc'}}),before);
+  await assert.rejects(configureCustomerRouting(db,user,{sourceTableId:source,sourceNames:lawyers},true),/遗漏已有分发来源/);
+  assert.equal(await db.collabRule.count(),1);
+  // One customer moves through every destination. Other customers stay in place.
+  for(const name of customerRoutingSources) {
+    const detail=await svc.record(source,customers[0].id);
+    await svc.saveRecord(source,customers[0].id,{schemaVersion:(await svc.describe(source)).table.schemaVersion,version:detail.record.version,values:{[action.sourceFieldId]:name}},key());
+    assert.equal(await db.collabRecord.count({where:{archived:false}}),6);
+    const customer=await db.customer.findUniqueOrThrow({where:{id:customers[0].id}});
+    for(const [sourceName,route] of Object.entries(action.routes)) {
+      const number=Object.keys(route.fields).find(id=>route.fields[id]==='customerNo')!;
+      assert.equal(await db.collabRecord.count({where:{tableId:route.targetTableId,archived:false,values:{path:[number],equals:customer.customerNo}}}),sourceName===name?1:0);
+    }
+  }
+});
+
+test('retired table cleanup removes the exact dead directory entry and dependencies while keeping the replacement',async()=>{
+  const action=await setup(), replacement=action.routes[lawyers[0]].targetTableId;
+  const customer=await svc.createBusinessRecord(source,{name:'保留客户',phone:'13800001111',sourceFieldId:action.sourceFieldId,sourceValue:lawyers[0]},key());
+  const view=await db.collabView.findFirstOrThrow({where:{tableId:legacy}});
+  await db.collabPreference.create({data:{userId:user,tableId:legacy,viewId:view.id}});
+  const preview=await removeRetiredCustomerTable(db,user,legacy,replacement);
+  assert.equal(preview.removed,false);
+  assert.equal(preview.counts?.preferences,1);
+  await assert.rejects(removeRetiredCustomerTable(db,user,replacement,legacy,true),/不匹配/);
+  const reference=await db.collabRule.create({data:{tableId:source,name:'残留引用',ownerId:user,trigger:'TEST',action:{targetTableId:legacy}}});
+  await assert.rejects(removeRetiredCustomerTable(db,user,legacy,replacement,true),/自动化规则引用/);
+  await db.collabRule.delete({where:{id:reference.id}});
+  await removeRetiredCustomerTable(db,user,legacy,replacement,true);
+  assert.equal(await db.collabTable.count({where:{id:legacy}}),0);
+  assert.equal(await db.collabView.count({where:{tableId:legacy}}),0);
+  assert.equal(await db.collabField.count({where:{tableId:legacy}}),0);
+  assert.equal(await db.collabPreference.count({where:{tableId:legacy}}),0);
+  assert.equal((await svc.listTables(base)).tables.some(t=>t.id===legacy),false);
+  assert.equal((await svc.listTables(base)).tables.some(t=>t.id===replacement),true);
+  assert.equal(await db.collabRecord.count({where:{tableId:replacement,archived:false}}),1);
+  assert.ok(await db.customer.findUnique({where:{id:customer.id}}));
+  assert.ok(await db.collabEvent.findFirst({where:{baseId:base,kind:'table.deleted'}}));
+  assert.equal((await removeRetiredCustomerTable(db,user,legacy,replacement,true)).alreadyRemoved,true);
 });

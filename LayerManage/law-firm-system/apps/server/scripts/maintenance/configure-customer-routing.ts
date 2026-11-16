@@ -27,7 +27,9 @@ function remapLegacyRules(raw: unknown, before: CollabField[], after: CollabFiel
   }));
 }
 
-export type RoutingSetup = { sourceTableId: string; lawyerNames: string[]; replaceLegacyTable?: boolean };
+export const customerRoutingSources = ['美团', '高德', '刘佳律师', '张恒溢律师', '李辉律师', '自上门'];
+
+export type RoutingSetup = { sourceTableId: string; sourceNames: string[]; replaceLegacyTable?: boolean };
 /** Explicit, previewable setup: no name-based runtime routing or rewriting of old follow-up rows. */
 export async function configureCustomerRouting(db: PrismaClient, actorId: string, setup: RoutingSetup, apply = false) {
   const actor = await new AuthorizationContextLoader(db).load(actorId);
@@ -39,7 +41,14 @@ export async function configureCustomerRouting(db: PrismaClient, actorId: string
     const tables = await tx.collabTable.findMany({ where: { baseId: source.baseId, archived: false }, include: { fields: true, rolePolicy: true } });
     const sourceField = source.fields.find(f => !f.archived && f.name === '客户来源');
     if (sourceField && (sourceField.type !== 'SINGLE_SELECT' || object(sourceField.options).businessKey)) throw new Error('已有客户来源字段类型不符，请先核对');
-    const plan = setup.lawyerNames.map(name => {
+    if (!setup.sourceNames.length || new Set(setup.sourceNames).size !== setup.sourceNames.length) throw new Error('客户来源不能为空或重复');
+    const existingRules = await tx.collabRule.findMany({ where: { tableId: source.id, trigger: CUSTOMER_ROUTE_TRIGGER } });
+    if (existingRules.length > 1) throw new Error('存在多条客户分发规则，请先核对');
+    const old = existingRules[0];
+    const existingChoices = (object(sourceField?.options ?? {}).choices ?? []) as { id: string; name: string }[];
+    const selectedIds = new Set(setup.sourceNames.map(name => existingChoices.find(c => c.name === name)?.id ?? name));
+    if (Object.keys(object(object(old?.action ?? {}).routes ?? {})).some(id => !selectedIds.has(id))) throw new Error('配置遗漏已有分发来源，不能覆盖原规则');
+    const plan = setup.sourceNames.map(name => {
       const table = tables.find(t => t.name === name + '客资表');
       if (!table) throw new Error('未找到客资表：' + name);
       if (table.source !== 'CUSTOM' && !setup.replaceLegacyTable) throw new Error('旧业务表需明确选择移除并新建：' + table.name);
@@ -48,9 +57,8 @@ export async function configureCustomerRouting(db: PrismaClient, actorId: string
     });
     const report = { sourceTableId: source.id, sourceFieldExists: !!sourceField, targets: plan.map(p => ({ name: p.table.name, tableId: p.table.id, replaceLegacy: p.replaceLegacy })) };
     if (!apply) return report;
-    const existingChoices = (object(sourceField?.options ?? {}).choices ?? []) as { id: string; name: string }[];
     const choices = [...existingChoices];
-    for (const name of ['美团','高德','自上门', ...setup.lawyerNames]) if (!choices.some(c => c.name === name)) choices.push({ id: name, name });
+    for (const name of ['美团','高德','自上门', ...setup.sourceNames]) if (!choices.some(c => c.name === name)) choices.push({ id: name, name });
     const field = sourceField ? await tx.collabField.update({ where: { id: sourceField.id }, data: { options: json({ ...object(sourceField.options), choices }) } })
       : await tx.collabField.create({ data: { tableId: source.id, name: '客户来源', type: 'SINGLE_SELECT', position: source.fields.length, options: json({ choices }) } });
     const routes: CustomerRouteAction['routes'] = {};
@@ -84,8 +92,7 @@ export async function configureCustomerRouting(db: PrismaClient, actorId: string
       await tx.collabTable.update({ where: { id: target.id }, data: { schemaVersion: { increment: 1 } } });
       routes[choices.find(c => c.name === item.name)!.id] = { targetTableId: target.id, fields: mapping };
     }
-    const old = await tx.collabRule.findFirst({ where: { tableId: source.id, trigger: CUSTOMER_ROUTE_TRIGGER } });
-    const data = { name: '按客户来源同步律师客资', ownerId: actorId, enabled: true, trigger: CUSTOMER_ROUTE_TRIGGER, action: json({ sourceFieldId: field.id, routes }) };
+    const data = { name: '按客户来源同步客资', ownerId: actorId, enabled: true, trigger: CUSTOMER_ROUTE_TRIGGER, action: json({ sourceFieldId: field.id, routes }) };
     if (old) await tx.collabRule.update({ where: { id: old.id }, data: { ...data, version: { increment: 1 } } });
     else await tx.collabRule.create({ data: { ...data, tableId: source.id } });
     for (const view of await tx.collabView.findMany({ where: { tableId: source.id, isDefault: true } })) {
@@ -103,6 +110,6 @@ if (require.main === module) {
   const db = new PrismaClient();
   const [actorId, sourceTableId] = process.argv.slice(2);
   if (!actorId || !sourceTableId) throw new Error('需要管理员用户 ID 与客户主表 ID；默认只预览，--apply 执行，--replace-legacy 移除旧表并新建独立客资表');
-  configureCustomerRouting(db, actorId, { sourceTableId, lawyerNames: ['刘佳律师','张恒溢律师','李辉律师'], replaceLegacyTable: process.argv.includes('--replace-legacy') }, process.argv.includes('--apply'))
+  configureCustomerRouting(db, actorId, { sourceTableId, sourceNames: customerRoutingSources, replaceLegacyTable: process.argv.includes('--replace-legacy') }, process.argv.includes('--apply'))
     .then(report => console.log(JSON.stringify(report, null, 2))).catch(e => { console.error(e.message); process.exitCode = 1; }).finally(() => db.$disconnect());
 }
