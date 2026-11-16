@@ -10,6 +10,7 @@ import { EXTERNAL_LINKS } from '@/config/links'
 import './Dashboard.css'
 
 export interface DashboardProps {
+  capabilities?: string[]
   accounts: Account[]
   onNavigate: (v: ViewId) => void
   onOpenExternal: (id: 'ai_assistant' | 'knowledge_base') => void
@@ -17,7 +18,7 @@ export interface DashboardProps {
   currentUser?: Account | null
 }
 
-export function Dashboard({ accounts, onNavigate, onOpenExternal, showAccounts, currentUser }: DashboardProps) {
+export function Dashboard({ accounts, onNavigate, onOpenExternal, showAccounts, currentUser, capabilities }: DashboardProps) {
   const [cases, setCases] = useState<CaseRecord[]>([])
   useEffect(() => {
     listCases().then((r) => setCases(r.cases ?? [])).catch(() => setCases([]))
@@ -69,7 +70,7 @@ export function Dashboard({ accounts, onNavigate, onOpenExternal, showAccounts, 
       </section>
 
       <section className="wb-dash__stats">
-        {(Object.keys(CASE_KIND_LABELS) as CaseKind[]).map((kind) => {
+        {(Object.keys(CASE_KIND_LABELS) as CaseKind[]).filter(kind=>!capabilities||capabilities.includes(kind)).map((kind) => {
           const count = cases.filter((c) => c.kind === kind).length
           const active = cases.filter((c) => c.kind === kind && c.stage !== 'closed').length
           return (

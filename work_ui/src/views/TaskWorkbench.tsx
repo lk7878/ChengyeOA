@@ -3,11 +3,11 @@ import {useEffect,useState} from 'react'
 import {api,type FileRow,type Version,type Task,TASK_STATES} from '@/api/integration'
 import type {CaseKind} from '@/types'
 import {CASE_KIND_LABELS} from '@/types'
-const taskError=(message:string)=>message.startsWith('Harness 启动')?'AI 任务运行环境启动失败，请点击“启动任务”重试；若仍失败，请联系管理员。':message
+const taskError=(message:string)=>message.startsWith('Harness 启动')?'这是旧运行环境留下的错误。打开 AI 会话并发送消息，即可按新版配置重新启动。':message
 export function TaskWorkbench({kind='general'}:{kind?:CaseKind}){
  const [tasks,setTasks]=useState<Task[]>([]),[files,setFiles]=useState<FileRow[]>([]),[scope,setScope]=useState('mine'),[folders,setFolders]=useState<{id:string;name:string}[]>([]),[selected,setSelected]=useState<Record<string,Version[]>>({}),[inputs,setInputs]=useState<Record<string,number>>({}),[title,setTitle]=useState(''),[caseId,setCase]=useState(new URLSearchParams(window.location.search).get('caseId')||''),[cases,setCases]=useState<{id:string;caseNo:string;title:string;status:string}[]>([]),[kbs,setKbs]=useState<{id:string;name:string}[]>([]),[knowledge,setKnowledge]=useState<string[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false)
- const [capability,setCapability]=useState<{id:string;name:string;skills:{id:string;name:string}[]} | null>(null),[spaceName,setSpaceName]=useState('我的办案空间'),[openTask,setOpenTask]=useState<string|null>(null)
- useEffect(()=>{void api<{items:{id:string;name:string;skills:{id:string;name:string}[]}[];spaceName:string}>('/api/capabilities').then(r=>{setCapability(r.items.find(c=>c.id===kind)||null);setSpaceName(r.spaceName)}).catch(e=>setError(e.message))},[kind])
+ const [capability,setCapability]=useState<{id:string;name:string;skills:{id:string;name:string}[];knowledgeBases?:string[]} | null>(null),[spaceName,setSpaceName]=useState('我的办案空间'),[openTask,setOpenTask]=useState<string|null>(null)
+ useEffect(()=>{void api<{items:{id:string;name:string;skills:{id:string;name:string}[];knowledgeBases?:string[]}[];spaceName:string}>('/api/capabilities').then(r=>{const cap=r.items.find(c=>c.id===kind)||null;setCapability(cap);setKnowledge(cap?.knowledgeBases||[]);setSpaceName(r.spaceName)}).catch(e=>setError(e.message))},[kind])
  const parent=folders.at(-1)?.id||''
  const [reload,setReload]=useState(0),[filesLoading,setFilesLoading]=useState(true),[filesError,setFilesError]=useState('')
  const refresh=async()=>{const result=await api<{items:Task[]}>('/api/tasks');setTasks(result.items);setCases(await api<typeof cases>('/api/oa/cases'))}

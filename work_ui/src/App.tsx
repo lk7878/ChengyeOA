@@ -106,6 +106,7 @@ export default function App() {
         <main className="wb-app__content">
           {view === 'dashboard' && (
             <Dashboard
+              capabilities={capabilities}
               accounts={canManageAccounts ? accounts : []}
               onNavigate={setView}
               onOpenExternal={openExternal}
