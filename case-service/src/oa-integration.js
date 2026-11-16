@@ -6,6 +6,14 @@ import { oa } from './oa-client.js'
 const parseCookie=value=>Object.fromEntries(String(value||'').split(';').map(s=>s.trim().split(/=(.*)/s)).filter(p=>p.length>=2).map(([k,v])=>[k,v]))
 const sha=value=>createHash('sha256').update(value).digest('hex')
 const cookie=(name,value,age=28800)=>`${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${age}${process.env.COOKIE_SECURE==='1'?'; Secure':''}`
+function oaReturnOrigin(requested){
+ const configured=new URL(process.env.OA_PUBLIC_URL||'http://127.0.0.1:3000')
+ const allowed=new Set([configured.origin])
+ for(const host of ['localhost','127.0.0.1']){const alt=new URL(configured.href);alt.hostname=host;allowed.add(alt.origin)}
+ for(const item of String(process.env.OA_ALLOWED_ORIGINS||'').split(',')){const value=item.trim();if(!value)continue;try{allowed.add(new URL(value).origin)}catch{}}
+ if(typeof requested==='string'&&requested){let origin;try{origin=new URL(requested).origin}catch{throw Object.assign(Error('返回地址无效'),{statusCode:400})}if(!allowed.has(origin))throw Object.assign(Error('返回地址不允许'),{statusCode:400});return origin}
+ return configured.origin
+}
 export async function registerOa(app){
  const store=new Store(path.join(process.env.DATA_DIR,'oa-sessions.json'))
  const mappings=new Store(path.join(process.env.DATA_DIR,'oa-user-map.json'))
@@ -29,8 +37,9 @@ export async function registerOa(app){
  })
  app.get('/api/oa/theme.js',async(_req,reply)=>{reply.type('application/javascript').header('Cache-Control','private, no-store');return readFile(new URL('../../work_ui/public/oa-theme.js',import.meta.url),'utf8')})
  app.get('/api/auth/start',async(req,reply)=>{
+  let origin;try{origin=oaReturnOrigin(req.query.return)}catch(error){return reply.code(error.statusCode||400).send({error:error.message})}
   const verifier=randomBytes(32).toString('hex');const caseId=typeof req.query.caseId==='string'&&/^[a-zA-Z0-9-]{1,100}$/.test(req.query.caseId)?req.query.caseId:'';reply.header('set-cookie',[cookie('oa_login',verifier,120),cookie('oa_case',caseId,120)])
-  const url=new URL('/smart-case',process.env.OA_PUBLIC_URL||'http://127.0.0.1:3000');url.searchParams.set('challenge',sha(verifier));return reply.redirect(url.href)
+  const url=new URL('/smart-case',origin);url.searchParams.set('challenge',sha(verifier));return reply.redirect(url.href)
  })
  app.get('/api/auth/oa/callback',async(req,reply)=>{
   const verifier=parseCookie(req.headers.cookie).oa_login
@@ -39,7 +48,7 @@ export async function registerOa(app){
   await oa(result.token,'/smart-case/me')
   const token=randomBytes(32).toString('base64url')
   store.update(data=>{for(const [k,v]of Object.entries(data))if(v.expiresAt<Date.now())delete data[k];data[sha(token)]={token:result.token,expiresAt:Date.now()+result.expiresIn*1000}})
-  reply.header('set-cookie',[cookie('oa_sid',token),cookie('oa_login','',0)]);reply.header('Cache-Control','no-store');reply.header('Referrer-Policy','no-referrer');const caseId=parseCookie(req.headers.cookie).oa_case;return reply.redirect(caseId?'/?caseId='+encodeURIComponent(caseId):'/')
+  reply.header('set-cookie',[cookie('oa_sid',token),cookie('oa_login','',0)]);reply.header('Cache-Control','no-store');reply.header('Referrer-Policy','no-referrer');const caseId=parseCookie(req.headers.cookie).oa_case;const home=new URL(process.env.WORKBENCH_HOME||'/','http://local');if(caseId)home.searchParams.set('caseId',caseId);return reply.redirect(home.pathname+home.search)
  })
  app.decorate('oaLogout',async(req,reply)=>{await oa(req.oa.token,'/smart-case/logout',{method:'POST',body:{}});const sid=parseCookie(req.headers.cookie).oa_sid;store.update(data=>delete data[sha(sid)]);reply.header('set-cookie',cookie('oa_sid','',0));return {ok:true}})
  app.post('/api/oa/logout',async(req,reply)=>app.oaLogout(req,reply))
