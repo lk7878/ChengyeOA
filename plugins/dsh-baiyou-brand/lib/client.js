@@ -82,14 +82,19 @@ function applyTitle() {
 
 function applyFavicon() {
   if (typeof document === 'undefined') return
-  let link = document.querySelector('link[rel="icon"]')
-  if (!link) {
-    link = document.createElement('link')
+  // The native page declares separate light and dark icons. Replace both so
+  // the browser cannot select an unbranded icon when its color scheme changes.
+  let links = [...document.querySelectorAll('link[rel~="icon"]')]
+  if (!links.length) {
+    const link = document.createElement('link')
     link.rel = 'icon'
     document.head.appendChild(link)
+    links = [link]
   }
-  link.type = 'image/svg+xml'
-  if (link.getAttribute('href') !== FAVICON) link.setAttribute('href', FAVICON)
+  for (const link of links) {
+    link.type = 'image/svg+xml'
+    if (link.getAttribute('href') !== FAVICON) link.setAttribute('href', FAVICON)
+  }
 }
 
 function officialArtwork(svg) {
