@@ -30,6 +30,7 @@ export const ACCOUNT_STATUS_LABELS: Record<AccountStatus, string> = {
 }
 
 export interface Account {
+  isSystemSuperAdmin?: boolean
   id: string
   username: string
   displayName: string

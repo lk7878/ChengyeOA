@@ -54,7 +54,7 @@ export function Dashboard({ accounts, onNavigate, onOpenExternal, showAccounts, 
         <div className="wb-dash__heroText">
           <h2>承业智慧办案</h2>
           <p>
-            按伤残鉴定、伤情鉴定、医疗损害司法鉴定、交通事故鉴定分库管理案件，并可进入知识库查看标准、导入材料。
+            按伤残鉴定、伤情鉴定、医疗损害司法鉴定、交通事故鉴定分库管理案件，并可进入知识库浏览已发布的专业知识。
           </p>
           <div className="wb-dash__heroActions">
             <Button variant="primary" icon={<IconSpark size={16} />} onClick={() => onOpenExternal('ai_assistant')}>
@@ -179,7 +179,7 @@ export function Dashboard({ accounts, onNavigate, onOpenExternal, showAccounts, 
         <LinkCard
           icon={<IconBook size={20} />}
           title="知识库"
-          desc="查看标准规范库、鉴定方法库、脱敏案例库中的条目，并导入材料。"
+          desc="查看获授权知识库的已发布条目与内容。"
           href="工作台 · 知识库"
           onClick={() => onNavigate('knowledge')}
           external={false}

@@ -46,9 +46,9 @@ test('preparation and in-flight save prevent deletion until the operation settle
  let finish
  tasks.validate=()=>new Promise(resolve=>{finish=resolve})
  await mkdir(path.join(tasks.directory(id),'workspace'),{recursive:true})
- const saving=tasks.save(id,{id:owner},'token')
+ const saving=tasks.save(id,{id:owner},'token',['reports/missing:'+ 'a'.repeat(64)])
  assert.throws(()=>tasks.remove(id,owner),{statusCode:409})
- finish();await saving
+ finish();await assert.rejects(saving,{statusCode:409})
  tasks.remove(id,owner)
  assert.equal(tasks.list(owner).length,0)
 })

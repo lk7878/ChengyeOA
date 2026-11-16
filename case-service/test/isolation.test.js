@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtemp,mkdir,rm,readFile} from 'node:fs/promises'
+import {mkdtemp,mkdir,rm,readFile,open} from 'node:fs/promises'
 import path from 'node:path'
 import {tmpdir} from 'node:os'
 import {launchIsolatedHarness,harnessRpc} from '../src/isolated-harness.js'
@@ -34,4 +34,19 @@ test('sandbox launch failure stays failed and keeps diagnostics out of the user 
   if(previous===undefined)delete process.env.HARNESS_APPARMOR_PROFILE;else process.env.HARNESS_APPARMOR_PROFILE=previous
   await rm(dir,{recursive:true,force:true})
  }
+})
+
+
+test('binary preview accepts 33 MiB while preserving a 128 MiB upper bound and workspace isolation',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'oa-large-preview-'));let runtime;
+ try{
+  for(const box of ['materials','drafts','reports'])await mkdir(path.join(dir,'workspace',box),{recursive:true});
+  for(const [name,size]of [['preview.pdf',33*1024*1024],['oversized.pdf',128*1024*1024+1]]){const f=await open(path.join(dir,'workspace/reports',name),'w');try{await f.truncate(size)}finally{await f.close()}}
+  runtime=await launchIsolatedHarness({dir,id:crypto.randomUUID(),publicBase:'http://127.0.0.1:5180'});
+  const w=await harnessRpc(runtime,'workspace/create',{request:{path:'/workspace'}}),s=await harnessRpc(runtime,'session/create',{request:{workspaceId:w.workspace.workspaceId,agentPreset:'general-legal'}});
+  const read=path=>fetch(runtime.base+'/api/workspaceFiles/readBytes',{method:'POST',headers:{cookie:runtime.cookie,'content-type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:crypto.randomUUID(),method:'workspaceFiles/readBytes',payload:{args:{workspaceFileScopeId:s.sessionId,path,options:{}}}})});
+  const response=await read('/workspace/reports/preview.pdf');assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/multipart/);assert.ok((await response.arrayBuffer()).byteLength>33*1024*1024);
+  const rejected=await (await read('/workspace/reports/oversized.pdf')).json();assert.equal(rejected.result.error.code,'workspace-file/too-large');assert.equal(rejected.result.error.details.limit,128*1024*1024);
+  const outside=await (await read('/etc/passwd')).json();assert.equal(outside.result.ok,false);
+ }finally{runtime?.stop();await rm(dir,{recursive:true,force:true})}
 })

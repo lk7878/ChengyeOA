@@ -130,6 +130,7 @@ function patchLabels() {
     if (el.childNodes.length !== 1 || el.firstChild.nodeType !== Node.TEXT_NODE) continue
     if (el.closest('textarea, input, pre, code, [contenteditable="true"]')) continue
     const text = el.textContent || ''
+    if (/^单页内容超过 .+ 上限，无法读取$/.test(text)) { el.textContent = text.replace('单页内容', '文件内容') + '。请缩小文件后重试。'; continue }
     if (EXACT.has(text)) {
       const next = EXACT.get(text)
       if (!next) {

@@ -40,6 +40,9 @@ for name in plugins:
 (profile/'cordis.patch.yml').write_text('''- id: locale
   config:
     preference: zh
+- id: workspace-files
+  config:
+    maxFileBytes: 134217728
 - id: agent-preset-registry
   config:
     default: general-legal

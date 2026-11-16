@@ -36,3 +36,16 @@ test('native duplicate imports reuse only byte-identical content in the same lib
  try{await mkdir(path.join(dir,'submission-files'));await writeFile(path.join(dir,'submission-files','s'),content);service.acl.update(data=>{data.kb={reviewers:['reviewer']}});service.store.update(data=>{data.s={id:'s',kbId:'kb',status:'APPROVED',source:{name:'sample.txt',sha256:hash}}});assert.equal((await service.publish('s',{id:'reviewer',permissions:['knowledge.review']})).nativeId,'existing');assert.equal(service.store.read().s.status,'PUBLISHED')
  }finally{await rm(dir,{recursive:true,force:true})}
 })
+
+test('overview and browsing only reveal authorized published knowledge; withdrawal during read blocks content',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'oa-kb-browse-'));let finish;
+ const s=new KnowledgePublication(dir,{nativeApi:()=>new Promise(resolve=>{finish=resolve})});
+ try{s.acl.update(d=>{d.kb={name:'法律法规库',readers:['reader'],reviewers:['admin']};d.private={name:'私有',readers:[]}});
+ s.store.update(d=>{d.yes={id:'yes',kbId:'kb',nativeId:'n',status:'PUBLISHED',source:{name:'测试法律.pdf',size:42,version:1}};d.no={id:'no',kbId:'kb',status:'PENDING',source:{name:'秘密'}}});
+ assert.equal(s.overview('reader',[])[0].count,1);assert.equal(s.overview('stranger',[]).length,0);assert.throws(()=>s.documents('private','reader',[]));
+ assert.deepEqual(s.documents('kb','reader',[],'法律').items.map(d=>d.id),['yes']);assert.equal(s.documents('kb','reader',[],'秘密').total,0);
+ await assert.rejects(s.submit({id:'reader',permissions:[]},'token',{kbId:'kb'}),{statusCode:403});
+ const reading=s.document('kb','yes','reader',[]);s.withdraw('yes',{id:'admin',permissions:['knowledge.review']});finish({data:[{knowledge_id:'n',content:'hidden'}]});await assert.rejects(reading,{statusCode:404});
+ s.store.update(d=>{d.yes.status='PUBLISHED'});const live=s.document('kb','yes','reader',[]);finish({data:[{knowledge_id:'n',content:'visible'},{knowledge_id:'other',content:'leak'},{knowledge_id:'n',content:'disabled',is_enabled:false}]});assert.deepEqual((await live).items,[{content:'visible'}]);
+ }finally{await rm(dir,{recursive:true,force:true})}
+})

@@ -6,7 +6,7 @@ import {randomUUID} from 'node:crypto'
 
 // Walk through held directory descriptors. O_NOFOLLOW on every component
 // prevents task-written symlinks from making the host read another task's data.
-export async function* outputSnapshots(workspace,destination) {
+export async function* outputSnapshots(workspace,destination,include=()=>true) {
  const root=await open(workspace,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW)
  async function* walk(parent,prefix){
   const names=await readdir(`/proc/self/fd/${parent.fd}`)
@@ -15,7 +15,7 @@ export async function* outputSnapshots(workspace,destination) {
    try{
     const stat=await handle.stat(),relative=path.join(prefix,name)
     if(stat.isDirectory()){yield* walk(handle,relative);continue}
-    if(!stat.isFile()||Date.now()-stat.mtimeMs<1500)continue
+    if(!stat.isFile()||Date.now()-stat.mtimeMs<1500||!include(relative))continue
     const snapshot=path.join(destination,randomUUID()+'.output')
     try{
      await pipeline(handle.createReadStream({autoClose:false}),createWriteStream(snapshot,{flags:'wx',mode:0o600}))

@@ -42,15 +42,27 @@ export class OaTasks {
  }
  async runtime(id,user,token){const task=this.get(id,user.id);await this.validate(task,token);this.get(id,user.id);const runtime=this.runtimes.get(id);if(!runtime)fail('任务未运行',409);return runtime}
  stop(id,owner,reason='用户停止'){this.get(id,owner);const runtime=this.runtimes.get(id);this.runtimes.delete(id);runtime?.stop();this.update(id,{status:'INTERRUPTED',error:reason})}
- async save(id,user,token){const task=this.get(id,user.id);if(this.busy.has(id))return this.get(id,user.id);this.busy.add(id)
+ async candidates(id,user,token){
+  const task=this.get(id,user.id);await this.validate(task,token);const dir=this.directory(id),items=[];
+  for await(const entry of outputSnapshots(path.join(dir,'workspace'),dir)){
+   const sha256=await hashFile(entry.snapshot),key=entry.relative+':'+sha256;
+   items.push({key,name:entry.name,path:entry.relative,size:entry.size,sha256,saved:task.outputs[key]?.status==='SAVED'});
+  }
+  await this.validate(task,token);this.get(id,user.id);return {items};
+ }
+ async save(id,user,token,selection){
+  this.get(id,user.id);
+  if(!Array.isArray(selection)||!selection.length||selection.length>1000||selection.some(k=>typeof k!=='string'||!/^.+:[a-f0-9]{64}$/.test(k)))fail('请先勾选需要保存的成果版本');
+  const pending=new Set(selection),paths=new Set(selection.map(k=>k.slice(0,-65)));
+  const task=this.get(id,user.id);if(this.busy.has(id))fail('任务操作进行中，请稍后重试',409);this.busy.add(id)
   try{await this.validate(task,token);const dir=this.directory(id);
-   for await(const entry of outputSnapshots(path.join(dir,'workspace'),dir)){const {snapshot}=entry,stat={size:entry.size};const sha256=await hashFile(snapshot),key=entry.relative+':'+sha256;let out=this.get(id,user.id).outputs[key];
+   for await(const entry of outputSnapshots(path.join(dir,'workspace'),dir,relative=>paths.has(relative))){const {snapshot}=entry,stat={size:entry.size};const sha256=await hashFile(snapshot),key=entry.relative+':'+sha256;if(!pending.has(key))continue;pending.delete(key);let out=this.get(id,user.id).outputs[key];
     try{if(out?.fileId)continue;
      if(!out?.uploadId){const previous=Object.entries(this.get(id,user.id).outputs).filter(([oldKey,value])=>oldKey.startsWith(entry.relative+':')&&value.status==='SAVED').at(-1)?.[1];let target={};if(previous){const access=await oa(token,`/personal-files/${previous.fileId}/access`),versions=await oa(token,`/personal-files/${previous.fileId}/versions`);if(versions[0]?.sha256!==previous.sha256)fail('OA 成果已被更新，请将任务成果另存为新名称后重试',409);target={fileId:previous.fileId,version:access.version,name:access.name}}const upload=await oa(token,'/personal-files/uploads',{method:'POST',body:{name:entry.name,...target,size:stat.size,source:'smart-case:'+id,lineage:task.inputs.map(({fileId,version,sha256})=>({fileId,version,sha256}))}});out={name:entry.name,sha256,uploadId:upload.id,status:'SAVING'};this.store.update(data=>{data[id].outputs[key]=out})}
      const upload=await oa(token,'/personal-files/uploads/'+out.uploadId),handle=await open(snapshot,'r');try{for(let offset=upload.offset;offset<stat.size;offset+=upload.chunkSize){const buffer=Buffer.alloc(Math.min(upload.chunkSize,stat.size-offset));const {bytesRead}=await handle.read(buffer,0,buffer.length,offset);if(bytesRead!==buffer.length)throw Error('成果写入过程中发生变化，请重试');const form=new FormData();form.append('file',new Blob([buffer]),'chunk.bin');await oa(token,`/personal-files/uploads/${out.uploadId}/chunk?offset=${offset}`,{method:'PUT',body:form})}}finally{await handle.close()}
      const saved=await oa(token,`/personal-files/uploads/${out.uploadId}/complete`,{method:'POST',body:{}});this.store.update(data=>{data[id].outputs[key]={...out,fileId:saved.id,version:saved.version,status:'SAVED'}})
     }catch(e){this.store.update(data=>{data[id].outputs[key]={...out,name:entry.name,sha256,status:'SAVE_FAILED',error:e.message}});throw e}finally{await rm(snapshot,{force:true})}
-   }return this.get(id,user.id)
+   }if(pending.size)fail('部分成果已变更、删除或仍在写入，请刷新列表后重新勾选；已保存项保留',409);return this.get(id,user.id)
   }finally{this.busy.delete(id)}
  }
  remove(id,owner){
@@ -70,7 +82,7 @@ export class OaTasks {
    this.stop(id,task.owner,'OA 会话或材料授权失效');this.update(id,{status:'REVOKED'});continue
   }
   if(this.runtimes.get(id)!==runtime)continue
-  try{await this.save(id,{id:task.owner},runtime.token)}catch(e){this.update(id,{error:'个人成果待保存：'+e.message})}
+  // Generated drafts remain in the task until the owner confirms an exact content hash.
  }}
  close(){for(const runtime of this.runtimes.values())runtime.stop();this.runtimes.clear()}
 }
@@ -83,7 +95,8 @@ export async function registerTasks(app){
  app.post('/api/tasks/:id/start',async req=>tasks.start(req.params.id,req.user,req.oa.token))
  app.post('/api/tasks/:id/delete',async req=>tasks.remove(req.params.id,req.user.id))
  app.post('/api/tasks/:id/stop',async req=>{tasks.stop(req.params.id,req.user.id);return {ok:true}})
- app.post('/api/tasks/:id/save',async req=>tasks.save(req.params.id,req.user,req.oa.token))
+ app.get('/api/tasks/:id/outputs',async req=>tasks.candidates(req.params.id,req.user,req.oa.token))
+ app.post('/api/tasks/:id/save',async req=>tasks.save(req.params.id,req.user,req.oa.token,req.body?.selection))
  app.post('/api/tasks/:id/archive',async req=>{const task=tasks.get(req.params.id,req.user.id);if(tasks.busy.has(task.id))fail('任务操作进行中',409);tasks.busy.add(task.id);try{await tasks.validate(task,req.oa.token);for(const input of task.inputs){const p=await oa(req.oa.token,`/personal-files/${input.fileId}/publication`);if(!p.canPublish)fail('共享材料没有发布授权，个人成果仍保留',403)}const out=Object.values(task.outputs).find(o=>o.fileId===req.body.fileId&&o.version===req.body.version);if(!out)fail('成果未保存',409);if(!task.caseId)fail('请先关联OA案件');const result=await oa(req.oa.token,'/smart-case/archive',{method:'POST',body:{fileId:out.fileId,version:out.version,caseId:task.caseId}});tasks.store.update(data=>{for(const output of Object.values(data[task.id].outputs))if(output.fileId===out.fileId&&output.version===out.version)output.archives={...output.archives,[task.caseId]:result.caseFileId}});return result}finally{tasks.busy.delete(task.id)}})
  let checking=false;const timer=setInterval(async()=>{if(checking)return;checking=true;try{await tasks.monitor()}finally{checking=false}},2000);timer.unref();app.addHook('onClose',async()=>{clearInterval(timer);tasks.close()})
  return tasks

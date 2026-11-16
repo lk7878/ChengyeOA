@@ -11,3 +11,15 @@ test('cancelling a streamed model response keeps the broker available',async()=>
  const status=await new Promise((resolve,reject)=>{const req=http.request({socketPath:broker.socket,path:'/unknown'},res=>{res.resume();resolve(res.statusCode)});req.on('error',reject);req.end()});assert.equal(status,404)
  }finally{broker?.close();mock.closeAllConnections();await new Promise(r=>mock.close(r));for(const[k,v]of Object.entries(previous))if(v===undefined)delete process.env[k];else process.env[k]=v}
 })
+
+test('knowledge broker searches only the task selection and rejects unselected libraries',async()=>{
+ const previous=process.env.OA_API_BASE;let broker;const searched=[];
+ const mock=http.createServer((_req,res)=>{res.setHeader('content-type','application/json');res.end(JSON.stringify({code:200,data:{id:'reader',permissions:[]}}))});
+ try{await new Promise(r=>mock.listen(0,'127.0.0.1',r));process.env.OA_API_BASE='http://127.0.0.1:'+mock.address().port;
+ broker=await createTaskBroker({task:{knowledgeBases:['chosen']},token:'fixture',validate:async()=>{},knowledge:{acl:{read:()=>({chosen:{},'not-selected':{}})},search:async id=>{searched.push(id);return {data:[{content:'selected'}]}}}});
+ const call=pathname=>new Promise((resolve,reject)=>{const req=http.request({socketPath:broker.socket,path:pathname,method:'POST'},res=>{res.resume();res.on('end',()=>resolve(res.statusCode))});req.on('error',reject);req.end(JSON.stringify({query:'synthetic',query_text:'synthetic'}))});
+ assert.equal(await call('/oa/knowledge/search'),200);assert.deepEqual(searched,['chosen']);
+ assert.equal(await call('/api/v1/knowledge-bases/chosen/hybrid-search'),200);assert.deepEqual(searched,['chosen','chosen']);
+ assert.equal(await call('/api/v1/knowledge-bases/not-selected/hybrid-search'),403);assert.deepEqual(searched,['chosen','chosen']);
+ }finally{broker?.close();mock.closeAllConnections();await new Promise(r=>mock.close(r));if(previous===undefined)delete process.env.OA_API_BASE;else process.env.OA_API_BASE=previous}
+})

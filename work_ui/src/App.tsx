@@ -16,13 +16,13 @@ import './App.css'
 const TITLES: Record<ViewId, { title: string; subtitle: string }> = {
   cases_general:{title:'AI助手',subtitle:'通用法律能力 · 资料整理 → 分析 → 起草 → 复核'},
   specialized:{title:'专项能力',subtitle:'伤残、伤情、医疗损害与交通事故专业流程'},
-  settings:{title:'设置',subtitle:'身份与组织由 OA 统一管理'},
+  settings:{title:'知识库管理',subtitle:'身份与组织由 OA 统一管理'},
   dashboard: { title: '概览', subtitle: '四类鉴定分库管理，快捷进入 AI 助手与知识库' },
   cases_disability: { title: CASE_KIND_LABELS.disability, subtitle: CASE_KIND_HINTS.disability },
   cases_injury: { title: CASE_KIND_LABELS.injury, subtitle: CASE_KIND_HINTS.injury },
   cases_malpractice: { title: CASE_KIND_LABELS.malpractice, subtitle: CASE_KIND_HINTS.malpractice },
   cases_traffic: { title: CASE_KIND_LABELS.traffic, subtitle: CASE_KIND_HINTS.traffic },
-  knowledge: { title: '知识库', subtitle: '查看已接入的知识库与标准，并可导入材料' },
+  knowledge: { title: '知识库', subtitle: '浏览与检索已授权、已发布的专业知识' },
   accounts: { title: '账号管理', subtitle: '维护人员账号、角色与最小授权' },
   sharing: { title: '数据共享', subtitle: '配置鉴定人员之间的案件数据共享组' },
 }
@@ -124,6 +124,7 @@ export default function App() {
         onOpenExternal={openExternal}
         showAccounts={canManageAccounts}
         showSharing={canManageAccounts}
+        showSettings={!!user.isSystemSuperAdmin}
       />
       <div className="wb-app__main">
         <TopBar
@@ -153,7 +154,7 @@ export default function App() {
             <KnowledgeBase canWrite={canWriteKb} canOpenConsole={canWriteKb} />
           )}
           {view==='specialized'&&<div className="oa-workspace"><div className="oa-specialties">{(['disability','injury','malpractice','traffic'] as const).map(k=><button className="oa-panel" key={k} onClick={()=>setView(`cases_${k}`)}><h2>{CASE_KIND_LABELS[k]}</h2><p>{CASE_KIND_HINTS[k]}</p></button>)}</div></div>}
-          {view==='settings'&&<div className="oa-workspace"><section className="oa-panel"><h2>账号与权限</h2><p>账号创建、停用、组织和业务权限由 OA 管理。知识审核仅对明确授权的目标库生效。</p><h2>模型与运行</h2><p>聊天、OCR 和知识索引由部署配置分别管理。任务材料和会话独立隔离。</p>{(user as Account&{isSystemSuperAdmin?:boolean}).isSystemSuperAdmin&&<KnowledgeAccess/>}<h2>开源组件</h2><p>DeepSeek Harness（MIT）、WeKnora 及法律 Skills 的原许可证与来源声明保留在部署包中。</p></section></div>}
+          {view==='settings'&&user.isSystemSuperAdmin&&<div className="oa-workspace"><section className="oa-panel"><h2>账号与权限</h2><p>账号创建、停用、组织和业务权限由 OA 管理。知识审核仅对明确授权的目标库生效。</p><h2>模型与运行</h2><p>聊天、OCR 和知识索引由部署配置分别管理。任务材料和会话独立隔离。</p>{(user as Account&{isSystemSuperAdmin?:boolean}).isSystemSuperAdmin&&<KnowledgeAccess/>}<h2>开源组件</h2><p>DeepSeek Harness（MIT）、WeKnora 及法律 Skills 的原许可证与来源声明保留在部署包中。</p></section></div>}
 
         </main>
       </div>
