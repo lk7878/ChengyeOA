@@ -8,8 +8,8 @@ import net from 'node:net'
 import {modelConfig} from './model-config.js'
 const root=fileURLToPath(new URL('../..',import.meta.url))
 const sleep=ms=>new Promise(r=>setTimeout(r,ms))
-export async function launchIsolatedHarness({dir,id,publicBase,brokerSocket,preset='general-legal'}){
- const engine=path.join(root,'runtime/upstream/harness'),bundle=path.join(root,'runtime/bundle'),node=path.join(root,'runtime/node24'),home=path.join(dir,'home')
+export async function launchIsolatedHarness({dir,id,publicBase,brokerSocket,preset='general-legal',bundlePath=path.join(root,'runtime/bundle')}){
+ const engine=path.join(root,'runtime/upstream/harness'),bundle=bundlePath,node=path.join(root,'runtime/node24'),home=path.join(dir,'home')
  for(const directory of [home,path.join(home,'profiles')]){const info=await lstat(directory).catch(e=>{if(e.code!=='ENOENT')throw e});if(info&&!info.isDirectory())await rm(directory,{force:true});await mkdir(directory,{recursive:true,mode:0o700})}
  // A task may alter its writable home. Recreate only the deployment profile after
  // checking its parents; never follow a task-created link into the host.

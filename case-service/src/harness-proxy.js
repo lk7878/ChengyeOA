@@ -1,3 +1,4 @@
+import {canManageHarness,harnessBootstrap,isHarnessAdminRequest} from './harness-experience.js'
 import {randomUUID} from 'node:crypto'
 import http from 'node:http'
 import net from 'node:net'
@@ -192,6 +193,7 @@ export async function registerHarnessProxy(app){
  })
 
  app.post('/harness/:id/__ws/send',async(req,reply)=>{
+  await app.oaTasks.runtime(req.params.id,req.user,req.oa.token)
   const entry=tunnels.get(req.body?.cid)
   if(!entry||entry.taskId!==req.params.id||entry.userId!==req.user.id||entry.ws.readyState!==WebSocket.OPEN)return reply.code(410).send({error:'通道已关闭'})
   for(const frame of Array.isArray(req.body?.frames)?req.body.frames:[]){
@@ -216,6 +218,10 @@ export async function registerHarnessProxy(app){
   const parsedSuffix=new URL(suffix,'http://local')
   // An upstream launch token must never replace the backend-owned runtime credential.
   if(parsedSuffix.searchParams.has('token'))return reply.code(400).send({error:'无效连接参数'})
+  if(!canManageHarness(req.user)){
+   const methods=[decodeURIComponent(parsedSuffix.pathname).replace(/^\/api\//,''),req.body?.method]
+   if(methods.some(method=>isHarnessAdminRequest(method,req.body?.payload?.args)))return reply.code(403).send({error:'仅 OA 超级管理员可管理 AI 助手设置'})
+  }
   const maybeHtml=req.method==='GET'&&(parsedSuffix.pathname==='/'||parsedSuffix.pathname.endsWith('.html'))
   return new Promise((resolve,reject)=>{
    const h=headers(req.headers,runtime);if(maybeHtml)delete h['accept-encoding']
@@ -228,7 +234,7 @@ export async function registerHarnessProxy(app){
      const parts=[];res.on('data',c=>parts.push(c));res.on('error',reject);res.on('end',()=>{
       const html=Buffer.concat(parts).toString('utf8')
        .replace('<link rel="manifest" href="./manifest.webmanifest" />','<link rel="manifest" crossorigin="use-credentials" href="./manifest.webmanifest" />')
-       .replace('<head>','<head><script src="./__ws/shim.js"></script>')
+       .replace('<head>','<head>'+harnessBootstrap(req.user)+'<script src="./__ws/shim.js"></script>')
       reply.header('content-length',String(Buffer.byteLength(html)))
       resolve(reply.send(html))
      });return

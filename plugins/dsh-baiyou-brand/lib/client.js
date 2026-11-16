@@ -1,5 +1,6 @@
 window.__ModuleLoader__.load({ id: "dsh-baiyou-brand", factory: (require) => {
 var module = { exports: {} }; var exports = module.exports;
+var { useEffect } = require("react");
 var { jsx, jsxs } = require("react/jsx-runtime");
 const inject = ['slots', 'theme']
 
@@ -27,7 +28,9 @@ const EXACT = new Map([
 
 const CSS = [
   '.by-mark{display:inline-flex;flex:none;border-radius:8px;overflow:hidden}',
-  '.by-name{display:flex;flex-direction:column;justify-content:center;line-height:1.15;gap:1px;min-width:0}',
+  '.by-name{display:flex;flex-direction:column;justify-content:center;line-height:normal;gap:2px;min-width:0;white-space:nowrap}',
+  '.by-name__zh{line-height:18px}.by-name__en{line-height:14px}',
+  '[class*=\"_brandName\"]:has(.by-name),[class*=\"_brandIdentity\"]:has(.by-name){height:auto;min-height:36px}',
   '.by-name__zh{font-size:13px;font-weight:700;letter-spacing:.04em;color:var(--dsw-alias-label-primary)}',
   '.by-name__en{font-size:10px;font-weight:600;letter-spacing:.14em;color:var(--dsw-alias-label-secondary)}',
 ].join('')
@@ -149,7 +152,26 @@ function patchOfficialDom() {
   patchLabels()
 }
 
+// Shadow the upstream onboarding step using its public slot contract. This
+// completes the coordinator without showing a modal or storing fake acceptance.
+function SkipPreviewNotice({ complete }) {
+  useEffect(() => { complete() }, [complete])
+  return null
+}
+function HiddenSettings() { return null }
+
 function apply(ctx) {
+  ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
+    name: 'settings.onboarding', id: 'welcome-notice', order: -100, priority: -10,
+  }, SkipPreviewNotice))
+  // Hide the owning settings surface too: keyboard shortcuts must not open it.
+  // This flag is injected by the authenticated OA proxy before the native app boots.
+  if (window.__oaHarness?.isSuperAdmin !== true) {
+    ctx.slots.inject('sidebar.settings', () => ctx.slots.register({
+      name: 'sidebar.settings', priority: -10,
+    }, HiddenSettings))
+  }
+
   const syncTheme = event => ctx.theme.setTheme(event?.detail || window.__oaTheme || 'light');
   window.addEventListener('oa-theme-change', syncTheme);
   if (window.__oaTheme) syncTheme();
