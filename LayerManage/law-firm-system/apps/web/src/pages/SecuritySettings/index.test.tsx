@@ -84,3 +84,28 @@ test('administrator binds in the existing page without resetting authorization o
   await waitFor(() => expect(screen.queryByRole('button', { name: 'complete optional enrollment' })).not.toBeInTheDocument());
   expect(useAuthStore.getState().authorization?.isSystemSuperAdmin).toBe(true);
 });
+
+test.each([false, true])('bound user regenerates recovery codes without step-up (admin=%s)', async admin => {
+  setUser(admin); render(<SecuritySettingsPage />);
+  await screen.findByText('当前设备');
+  fireEvent.click(screen.getByText('高级安全设置'));
+  fireEvent.click(await screen.findByRole('button', { name: '重新生成恢复码' }));
+  fireEvent.click(await screen.findByRole('button', { name: /继\s*续/ }));
+  await waitFor(() => expect(authApi.regenerateRecoveryCodes).toHaveBeenCalledWith());
+  expect(await screen.findByText('请立即保存新恢复码')).toBeInTheDocument();
+  expect(runStepUp).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText('当前六位验证码')).not.toBeInTheDocument();
+  if (admin) expect(screen.queryByRole('button', { name: '关闭验证器' })).not.toBeInTheDocument();
+});
+
+test('ordinary user disables an existing factor after confirmation without step-up', async () => {
+  vi.mocked(authApi.disableMfa).mockResolvedValue({ code: 200, message: 'OK', data: null });
+  setUser(false); render(<SecuritySettingsPage />);
+  await screen.findByText('当前设备');
+  fireEvent.click(screen.getByText('高级安全设置'));
+  fireEvent.click(await screen.findByRole('button', { name: '关闭验证器' }));
+  fireEvent.click(await screen.findByRole('button', { name: /^关\s*闭$/ }));
+  await waitFor(() => expect(authApi.disableMfa).toHaveBeenCalledWith());
+  expect(runStepUp).not.toHaveBeenCalled();
+  expect(useAuthStore.getState().isAuthenticated).toBe(false);
+});

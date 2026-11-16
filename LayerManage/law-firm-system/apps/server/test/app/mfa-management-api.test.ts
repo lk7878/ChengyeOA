@@ -81,15 +81,14 @@ test.after(async () => {
   await mm.restore();
 });
 
-test('returns MFA status and regenerates recovery codes with target-bound step-up', async () => {
+test('returns MFA status and regenerates recovery codes without step-up', async () => {
   const actor = await identity();
   const status = await app.httpRequest().get('/api/v1/auth/mfa')
     .set('Authorization', `Bearer ${actor.token}`).expect(200);
   assert.equal(status.body.data.enabled, true);
 
-  const grant = await stepUp(actor, 'MFA_RECOVERY_CODES_REGENERATE', { userId: actor.userId });
   const response = await authenticated(app.httpRequest().post('/api/v1/auth/mfa/recovery-codes'), actor)
-    .set('X-Step-Up-Token', grant).expect(200);
+    .expect(200);
   assert.equal(response.body.data.recoveryCodes.length, 10);
   assert.equal(await prisma.mfaRecoveryCode.count({ where: { usedAt: null } }), 10);
 });
@@ -106,9 +105,8 @@ test('disables ordinary-user MFA but rejects administrator disable without consu
 
   await clearTestApplicationData(prisma);
   const ordinary = await identity();
-  const grant = await stepUp(ordinary, 'MFA_DISABLE_SELF', { userId: ordinary.userId });
   await authenticated(app.httpRequest().delete('/api/v1/auth/mfa'), ordinary)
-    .set('X-Step-Up-Token', grant).expect(200);
+    .expect(200);
   assert.equal(await prisma.mfaFactor.count({ where: { userId: ordinary.userId, disabledAt: null } }), 0);
   assert.equal(await prisma.authSession.count({ where: { userId: ordinary.userId, revokedAt: null } }), 0);
 });

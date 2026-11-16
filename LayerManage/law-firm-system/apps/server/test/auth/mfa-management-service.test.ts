@@ -80,9 +80,7 @@ test.beforeEach(async () => {
 });
 test.after(async () => { await clearTestApplicationData(prisma); await prisma.$disconnect(); });
 
-test('requires target-bound step-up to disable ordinary-user MFA and forbids administrator disable', async () => {
-  await assert.rejects(() => management().disableSelf(claims, ''), hasCode('STEP_UP_REQUIRED'));
-
+test('disables ordinary-user MFA without step-up and still forbids administrator disable', async () => {
   const role = await prisma.role.create({
     data: { id: 'role:system-admin', code: 'SYSTEM_ADMIN', name: 'System Admin', type: 'SYSTEM' },
   });
@@ -96,16 +94,14 @@ test('requires target-bound step-up to disable ordinary-user MFA and forbids adm
     where: { userId },
     data: { revokedAt: now, revokedByUserId: userId, revokeReason: 'test role removal' },
   });
-  const allowedGrant = await grant('MFA_DISABLE_SELF', { userId });
-  await management().disableSelf(claims, allowedGrant);
+  await management().disableSelf(claims);
   assert.ok((await prisma.mfaFactor.findUniqueOrThrow({ where: { id: factorId } })).disabledAt);
   assert.equal(await prisma.mfaRecoveryCode.count({ where: { factorId, usedAt: null } }), 0);
   assert.equal(await prisma.authSession.count({ where: { userId, revokedAt: { not: null } } }), 1);
 });
 
 test('regenerates ten recovery codes atomically and invalidates every old code', async () => {
-  const token = await grant('MFA_RECOVERY_CODES_REGENERATE', { userId });
-  const result = await management().regenerateRecoveryCodes(claims, token);
+  const result = await management().regenerateRecoveryCodes(claims);
 
   assert.equal(result.recoveryCodes.length, 10);
   assert.equal(new Set(result.recoveryCodes).size, 10);
@@ -113,4 +109,5 @@ test('regenerates ten recovery codes atomically and invalidates every old code',
   const fresh = await prisma.mfaRecoveryCode.findMany({ where: { factorId, usedAt: null } });
   assert.equal(fresh.length, 10);
   assert.ok(fresh.every(stored => !result.recoveryCodes.includes(stored.codeHash)));
+  assert.equal(await prisma.operationLog.count({ where: { userId, action: 'MFA_RECOVERY_CODES_REGENERATED' } }), 1);
 });

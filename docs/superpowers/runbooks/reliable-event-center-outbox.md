@@ -69,9 +69,9 @@ Permanent failure 立即进入 MANUAL。未知异常映射为稳定 `EVENT_HANDL
 
 1. 用详情页确认 delivery 为 MANUAL、当前 version、错误码/引用及被阻塞对象。
 2. 修复数据库、处理器、版本或来源数据的真实原因；不要改写事件或 attempt。
-3. 有 `event.delivery.retry` 的有效超级管理员完成新鲜 MFA Step-Up。
-4. Step-Up purpose 必须为 `EVENT_DELIVERY_RETRY`，target 必须精确等于 `{ deliveryId, expectedVersion }`。
-5. 提交一次人工重试。事务必须同时消费 Step-Up、把 MANUAL 改为 PENDING、增加 `manualRetryCount/version` 并写 `EVENT_DELIVERY_MANUAL_RETRY` 审计。
+3. 由具备 `event.delivery.retry` 权限的有效超级管理员执行；人工重试不再要求验证器二次验证。
+4. 请求必须携带当前 `expectedVersion`，并满足 MANUAL 状态、租约及隔离记录限制。
+5. 提交一次人工重试。事务将 MANUAL 改为 PENDING、增加 `manualRetryCount/version` 并写 `EVENT_DELIVERY_MANUAL_RETRY` 审计；审计失败仍整体回滚，不消费 Step-Up 凭据。
 6. 若 version、actor、target、token、租约或审计冲突，停止并刷新详情；不得复用旧授权。
 7. 人工重试后若再次失败，立即回到 MANUAL；成功后确认后续有序投递解除阻塞。
 
@@ -105,7 +105,7 @@ Worker 将健康状态标为 degraded，数据库连续失败退避为 1、2、5
 6. 再次运行 preflight；只有 `READY` 才可将唯一实例的 Worker 开关改为 true 并滚动重启。
 7. 使用源命令 `events:check -- --mode=canary` 或便携命令 `law-firm-system.exe events:check --mode=canary` 观察完整 canary 窗口。默认窗口为 15 分钟，窗口内至少完成一个真实治理通知闭环。
 8. `READY` 才完成上线；`DEGRADED` 必须延长观察并调查告警码；`BLOCKED` 必须立即按下节回滚。不得通过删行、改状态或缩短租约让检查变绿。
-9. 验证运维页权限及 Step-Up 人工重试。
+9. 验证运维页权限、无需验证码的人工重试，以及版本冲突、隔离记录和审计保护。
 
 ## 回滚
 

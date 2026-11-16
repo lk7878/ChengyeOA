@@ -1,6 +1,5 @@
 import { Controller } from 'egg';
 
-import { createAuthenticationServices } from '../application/auth/authentication-factory';
 import type { AuthorizationContext } from '../application/authorization/authorization-service';
 import { EventOperationsService } from '../application/events/event-operations-service';
 import { createEventServices } from '../application/events/event-services-factory';
@@ -35,7 +34,6 @@ export default class EventOperationsController extends Controller {
       (body as { expectedVersion?: unknown }).expectedVersion as number,
       {
         claims: this.ctx.state.user,
-        token: this.ctx.get('x-step-up-token').trim(),
         ip: this.ctx.ip,
       },
     ));
@@ -57,7 +55,6 @@ export default class EventOperationsController extends Controller {
       snapshotReader: events.snapshotReader,
       observability: this.ctx.app.config.eventObservability,
       workerEnabled: this.ctx.app.config.eventWorker.enabled,
-      stepUp: createAuthenticationServices(this.ctx).stepUp,
     });
   }
 

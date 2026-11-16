@@ -22,11 +22,11 @@ export const eventOperationsApi = {
   subscriptions: (signal?: AbortSignal) => signal
     ? request.get<ApiResponse<EventSubscriptionSummary[]>>('/v1/event-operations/subscriptions', { signal })
     : request.get<ApiResponse<EventSubscriptionSummary[]>>('/v1/event-operations/subscriptions'),
-  retry: (id: string, expectedVersion: number, stepUpToken: string) => (
+  retry: (id: string, expectedVersion: number) => (
     request.post<ApiResponse<EventDeliveryRetryResult>>(
       `/v1/event-operations/deliveries/${id}/retry`,
       { expectedVersion },
-      { headers: { 'X-Step-Up-Token': stepUpToken }, suppressGlobalError: true },
+      { suppressGlobalError: true },
     )
   ),
 };

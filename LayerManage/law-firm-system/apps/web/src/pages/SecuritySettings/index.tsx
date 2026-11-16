@@ -5,18 +5,15 @@ import Modal from '@/components/DraggableModal';
 import { authApi } from '@/api/auth';
 import { requestErrorMessage } from '@/api/errors';
 import ChangePasswordDialog from '@/features/auth/components/ChangePasswordDialog';
-import StepUpDialog from '@/features/auth/components/StepUpDialog';
 import MfaEnrollment from '@/features/auth/components/MfaEnrollment';
 import { runtimeSession } from '@/features/auth/runtime-session';
 import type { AuthenticatedData, MfaStatusView, SessionView } from '@/features/auth/types';
-import { useStepUp } from '@/features/auth/useStepUp';
 import { useAuthStore } from '@/stores/authStore';
 
 export default function SecuritySettingsPage() {
   const userId = useAuthStore(state => state.userInfo?.id);
   const authorization = useAuthStore(state => state.authorization);
   const isAdministrator = Boolean(authorization?.isSystemAdmin || authorization?.isSystemSuperAdmin);
-  const stepUp = useStepUp();
   const [status, setStatus] = useState<MfaStatusView | null>(null);
   const [sessions, setSessions] = useState<SessionView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,10 +47,16 @@ export default function SecuritySettingsPage() {
   const regenerate = async () => {
     if (!userId) return;
     try {
-      const result = await stepUp.run({ purpose: 'MFA_RECOVERY_CODES_REGENERATE', target: { userId },
-        impact: '使旧恢复码立即失效并生成新恢复码', mutate: token => authApi.regenerateRecoveryCodes(token) });
+      const result = await authApi.regenerateRecoveryCodes();
       setCodes(result.data.recoveryCodes); setSaved(false); await load();
-    } catch (e) { if ((e as Error).message !== 'STEP_UP_CANCELLED') message.error(requestErrorMessage(e, '恢复码生成失败')); }
+    } catch (e) { message.error(requestErrorMessage(e, '恢复码生成失败')); }
+  };
+  const disable = async () => {
+    try {
+      await authApi.disableMfa();
+      useAuthStore.getState().clearSession();
+      message.success('验证器已关闭，请重新登录');
+    } catch (e) { message.error(requestErrorMessage(e, '验证器关闭失败')); }
   };
   const columns = [
     { title: '登录设备', key: 'device', render: (_: unknown, row: SessionView, index: number) =>
@@ -82,8 +85,11 @@ export default function SecuritySettingsPage() {
       <Collapse items={[{ key: 'advanced', label: '高级安全设置', children: <>
         <Alert type="info" showIcon title="登录、日常操作和普通审批无需二次验证。只有执行高风险操作的管理员需要绑定身份验证器。" />
         {!isAdministrator && <Typography.Paragraph>普通账号无需安装验证器；以前的绑定也不会影响正常登录。管理员专属操作请联系管理员处理。</Typography.Paragraph>}
-        {isAdministrator && <>
-          <Typography.Paragraph>二次验证：{status?.enabled ? '已绑定' : '未绑定'}。用于永久销毁数据、关键管理权限变更和高风险治理操作。</Typography.Paragraph>
+        {!isAdministrator && status?.enabled && <Popconfirm title="确认关闭自己的验证器？所有登录设备将退出，旧恢复码会失效。" onConfirm={disable} okText="关闭" cancelText="取消">
+          <Button danger>关闭验证器</Button>
+        </Popconfirm>}
+        {(isAdministrator || status?.enabled) && <>
+          <Typography.Paragraph>二次验证：{status?.enabled ? '已绑定' : '未绑定'}。用于永久销毁数据等仍受保护的高风险操作。</Typography.Paragraph>
           {status?.enabled ? <>
             <Typography.Paragraph>剩余恢复码：{status.recoveryCodesRemaining}。请离线保存恢复码；验证器丢失时由授权运维人员按现有管理员恢复流程处理。恢复会撤销旧凭据并记录审计。</Typography.Paragraph>
             <Popconfirm title="重新生成后，旧恢复码将立即失效。确认继续？" onConfirm={regenerate} okText="继续" cancelText="取消">
@@ -102,6 +108,5 @@ export default function SecuritySettingsPage() {
       <Alert type="warning" title="这些恢复码只显示一次，请离线安全保存。" />
       <pre>{codes.join('\n')}</pre><Checkbox checked={saved} onChange={e => setSaved(e.target.checked)}>我已安全保存恢复码</Checkbox>
     </Modal>
-    <StepUpDialog {...stepUp.dialogProps} />
   </section>;
 }

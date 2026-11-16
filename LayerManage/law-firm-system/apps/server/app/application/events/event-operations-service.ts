@@ -39,7 +39,7 @@ export interface EventOperationsListQuery {
 
 export interface EventRetryAuthorization {
   readonly claims: ActiveSessionClaims;
-  readonly token: string;
+  readonly token?: string;
   readonly ip?: string;
 }
 
@@ -60,7 +60,7 @@ export interface EventOperationsServiceOptions {
   readonly snapshotReader: Pick<EventRuntimeSnapshotReader, 'read'>;
   readonly observability: EventObservabilityEnvironment;
   readonly workerEnabled: boolean;
-  readonly stepUp: Pick<StepUpService, 'consume'> | StepUpConsumer;
+  readonly stepUp?: Pick<StepUpService, 'consume'> | StepUpConsumer;
   readonly now?: () => Date;
   readonly auditWriter?: AuditWriter;
 }
@@ -325,7 +325,7 @@ export class EventOperationsService {
     context: AuthorizationContext,
     id: string,
     expectedVersion: number,
-    stepUp: EventRetryAuthorization,
+    authorization: EventRetryAuthorization,
   ): Promise<{ id: string; status: 'PENDING'; version: number }> {
     this.authorization.requireAction(context, 'event.delivery.retry');
     if (!context.isSystemSuperAdmin) {
@@ -333,10 +333,10 @@ export class EventOperationsService {
     }
     const deliveryId = requiredIdentifier(id);
     if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) authorizationInputError();
-    if (!stepUp || typeof stepUp !== 'object' || !stepUp.claims || typeof stepUp.token !== 'string') {
+    if (!authorization || typeof authorization !== 'object' || !authorization.claims) {
       authorizationInputError();
     }
-    if (stepUp.claims.userId !== context.userId) {
+    if (authorization.claims.userId !== context.userId) {
       throw new AuthorizationError(AUTHORIZATION_CODES.authentication, 401);
     }
     const now = this.validNow();
@@ -367,13 +367,6 @@ export class EventOperationsService {
       if (delivery.subscriptionId === EVENT_DISPATCH_QUARANTINE_SUBSCRIPTION_ID) {
         throw new AuthorizationError(AUTHORIZATION_CODES.quarantined, 409);
       }
-      await this.options.stepUp.consume(
-        tx,
-        stepUp.claims,
-        'EVENT_DELIVERY_RETRY',
-        { deliveryId, expectedVersion },
-        stepUp.token,
-      );
       const nextVersion = delivery.version + 1;
       const updated = await tx.eventDelivery.updateMany({
         where: { id: deliveryId, status: 'MANUAL', version: expectedVersion },
@@ -403,7 +396,7 @@ export class EventOperationsService {
           attemptCount: delivery.attemptCount,
           version: nextVersion,
         }),
-        ip: safeIp(stepUp.ip),
+        ip: safeIp(authorization.ip),
       });
       return { id: deliveryId, status: 'PENDING' as const, version: nextVersion };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 5_000, timeout: 10_000 });

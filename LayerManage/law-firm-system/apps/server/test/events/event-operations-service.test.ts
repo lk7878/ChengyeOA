@@ -593,16 +593,15 @@ test('accepts canonical UTC bounds and rejects normalized calendar/time values',
   );
 });
 
-test('requires effective super-admin and atomically consumes target-bound Step-Up before requeueing MANUAL', async () => {
+test('requires effective super-admin and requeues MANUAL with audit but without Step-Up', async () => {
   const calls: ConsumeCall[] = [];
   const { delivery, event, payload } = await createDelivery({ errorText: 'private raw exception' });
   const operations = service(prisma, calls);
-  const token = 'one-time-step-up';
 
   await assert.rejects(
     () => operations.retry(
       authorization({ superAdmin: false }), delivery.id, delivery.version,
-      { claims, token, ip: '127.0.0.1' },
+      { claims, ip: '127.0.0.1' },
     ),
     hasCode('SPECIAL_PERMISSION_REQUIRED'),
   );
@@ -610,14 +609,10 @@ test('requires effective super-admin and atomically consumes target-bound Step-U
 
   const result = await operations.retry(
     authorization(), delivery.id, delivery.version,
-    { claims, token, ip: '127.0.0.1' },
+    { claims, ip: '127.0.0.1' },
   );
   assert.deepEqual(result, { id: delivery.id, status: 'PENDING', version: delivery.version + 1 });
-  assert.deepEqual(calls, [{
-    purpose: 'EVENT_DELIVERY_RETRY',
-    target: { deliveryId: delivery.id, expectedVersion: delivery.version },
-    token,
-  }]);
+  assert.deepEqual(calls, []);
 
   const updated = await prisma.eventDelivery.findUniqueOrThrow({ where: { id: delivery.id } });
   assert.equal(updated.status, 'PENDING');
@@ -672,7 +667,7 @@ test('serializes concurrent retry attempts so exactly one version-bound request 
   }
 });
 
-test('rejects an authorization/Step-Up actor mismatch before consuming or mutating', async () => {
+test('rejects an authorization/session actor mismatch before consuming or mutating', async () => {
   const calls: ConsumeCall[] = [];
   const { delivery } = await createDelivery();
 
@@ -687,7 +682,7 @@ test('rejects an authorization/Step-Up actor mismatch before consuming or mutati
   assert.equal((await prisma.eventDelivery.findUniqueOrThrow({ where: { id: delivery.id } })).status, 'MANUAL');
 });
 
-test('rolls back Step-Up consumption and delivery changes when the manual retry audit fails', async () => {
+test('rolls back delivery changes when the manual retry audit fails', async () => {
   const { delivery } = await createDelivery();
   const events = createEventServices(prisma, CONFIG);
   const operations = new EventOperationsService({

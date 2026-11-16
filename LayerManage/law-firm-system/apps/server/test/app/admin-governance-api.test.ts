@@ -261,7 +261,7 @@ for (const operationType of ['SUPER_ADMIN_GRANT', 'ADMIN_MFA_RESET'] as const) {
   });
 }
 
-test('other critical and high-risk governance actions still require step-up', async () => {
+test('newly exempt administrator governance submissions retain their risk and review requirements', async () => {
   const requester = await createAdministrator('SYSTEM_SUPER_ADMIN', false);
   const targetUser = await prisma.user.findUniqueOrThrow({ where: { id: superId } });
   const databaseName = decodeURIComponent(new URL(process.env.DATABASE_URL_TEST!).pathname.slice(1));
@@ -269,9 +269,10 @@ test('other critical and high-risk governance actions still require step-up', as
     const response = await app.httpRequest().post('/api/v1/admin-governance/operations').set(bearer(requester.token)).send({
       operationType, targetType: 'USER', targetId: superId, expectedTargetVersion: 1,
       payload: operationType.endsWith('_GRANT') ? { validUntil: null } : {},
-      reason: 'Other actions must retain their original step-up boundary', idempotencyKey: randomUUID(),
+      reason: 'These actions retain independent review without step-up', idempotencyKey: randomUUID(),
       ...(operationType.startsWith('SUPER_ADMIN_') ? { confirmation: `CONFIRM ${databaseName} ${operationType} ${targetUser.username}` } : {}),
-    }).expect(403);
-    assert.equal(response.body.message, 'STEP_UP_REQUIRED');
+    }).expect(200);
+    assert.equal(response.body.data.status, 'PENDING_REVIEW');
+    assert.equal(response.body.data.riskLevel, operationType.startsWith('SUPER_ADMIN_') ? 'CRITICAL' : 'HIGH');
   }
 });

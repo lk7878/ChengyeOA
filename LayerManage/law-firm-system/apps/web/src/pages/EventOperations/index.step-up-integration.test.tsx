@@ -56,7 +56,7 @@ beforeEach(() => {
   } as never });
 });
 
-test('real Step-Up hook returns a retry conflict to the page and clears the one-time request', async () => {
+test('retry conflict returns to the page without opening or requesting Step-Up', async () => {
   const globalError = vi.spyOn(message, 'error').mockImplementation(() => undefined as never);
   vi.mocked(eventOperationsApi.retry).mockRejectedValue({
     response: { status: 409, data: { message: 'AUTHORIZATION_VERSION_CONFLICT' } },
@@ -64,12 +64,12 @@ test('real Step-Up hook returns a retry conflict to the page and clears the one-
   render(<EventOperationsPage />);
   fireEvent.click(await screen.findByRole('button', { name: '查看投递 d1' }));
   fireEvent.click(await screen.findByRole('button', { name: '人工重试 d1' }));
-  fireEvent.change(await screen.findByLabelText('当前六位验证码'), { target: { value: '123456' } });
-  fireEvent.click(screen.getByRole('button', { name: '验证并继续' }));
 
   expect(await screen.findByText('投递状态已变化，请刷新后重试')).toBeInTheDocument();
   expect(eventOperationsApi.retry).toHaveBeenCalledOnce();
-  expect(eventOperationsApi.retry).toHaveBeenCalledWith('d1', 7, 'fresh-one-time-token');
+  expect(authApi.stepUp).not.toHaveBeenCalled();
+  expect(authApi.mfaStatus).not.toHaveBeenCalled();
+  expect(eventOperationsApi.retry).toHaveBeenCalledWith('d1', 7);
   await waitFor(() => expect(eventOperationsApi.detail).toHaveBeenCalledTimes(2));
   expect(eventOperationsApi.list).toHaveBeenCalledTimes(2);
   expect(screen.queryByLabelText('当前六位验证码')).not.toBeInTheDocument();

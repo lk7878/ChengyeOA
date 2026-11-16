@@ -23,6 +23,11 @@ export function confirmationPhrase(template: string, targetUsername: string): st
 
 // Match the server policy for create, approval and retry without lowering the risk classification.
 export function requiresGovernanceStepUp(riskLevel: string, operationType: GovernedOperationType): boolean {
-  if (operationType === 'SUPER_ADMIN_GRANT' || operationType === 'ADMIN_MFA_RESET') return false;
+  if ([
+    'SOP_TEMPLATE_PUBLISH', 'SOP_TEMPLATE_DISABLE',
+    'SYSTEM_ADMIN_GRANT', 'SYSTEM_ADMIN_REVOKE', 'SYSTEM_ADMIN_ACCOUNT_DISABLE',
+    'SUPER_ADMIN_GRANT', 'SUPER_ADMIN_REVOKE', 'SUPER_ADMIN_ACCOUNT_DISABLE',
+    'ADMIN_MFA_RESET', 'MASTER_DATA_STATUS_CORRECTION',
+  ].includes(operationType)) return false;
   return riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
 }

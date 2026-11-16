@@ -92,21 +92,20 @@ test('initial password change is still mandatory, then completes without MFA', a
   const changed = await app.httpRequest().post('/api/v1/auth/password/forced-change').send({ challengeToken: first.body.data.challengeToken, password: newPassword, confirmation: newPassword }).expect(200);
   assert.equal(changed.body.data.mode, 'AUTHENTICATED');
 });
-test('high risk authority changes require an administrator and a target-bound one-use proof from a password session', async () => {
+test('permanent file deletion still requires an administrator and a target-bound one-use proof', async () => {
   const admin = await user(true, true), a = await login(admin), member = await user(false, true), b = await login(member);
-  const path = '/api/v1/roles', body = { name: 'Risk test role', code: `RISK_${randomUUID().slice(0, 8)}` };
-  const denied = await req(b, 'post', path).send(body).expect(403); assert.equal(denied.body.message, 'ADMIN_HIGH_RISK_ONLY');
-  const challenge = await req(a, 'post', path).send(body).expect(403); assert.equal(challenge.body.message, 'STEP_UP_REQUIRED');
+  const path = `/api/v1/files/${randomUUID()}`, body = {};
+  const denied = await req(b, 'delete', path).send(body).expect(403); assert.equal(denied.body.message, 'ADMIN_HIGH_RISK_ONLY');
+  const challenge = await req(a, 'delete', path).send(body).expect(403); assert.equal(challenge.body.message, 'STEP_UP_REQUIRED');
   const target = challenge.body.errors.target;
   await req(b, 'post', '/api/v1/auth/step-up').send({ purpose: 'ADMIN_HIGH_RISK', target, code: totp() }).expect(403);
   const proof = await req(a, 'post', '/api/v1/auth/step-up').send({ purpose: 'ADMIN_HIGH_RISK', target, code: totp() }).expect(200);
   const token = proof.body.data.stepUpToken;
-  const mismatch = await req(a, 'post', path).set('X-Step-Up-Token', token).send({ ...body, name: 'Changed target' }).expect(403);
+  const mismatch = await req(a, 'delete', path).set('X-Step-Up-Token', token).send({ ...body, name: 'Changed target' }).expect(403);
   assert.equal(mismatch.body.message, 'STEP_UP_TARGET_MISMATCH');
-  await req(a, 'post', path).set('X-Step-Up-Token', token).send(body).expect(200);
-  const replay = await req(a, 'post', path).set('X-Step-Up-Token', token).send(body).expect(403);
+  await req(a, 'delete', path).set('X-Step-Up-Token', token).send(body).expect(404);
+  const replay = await req(a, 'delete', path).set('X-Step-Up-Token', token).send(body).expect(403);
   assert.equal(replay.body.message, 'STEP_UP_INVALID');
-  assert.equal(await db.role.count({ where: { code: body.code.toUpperCase() } }), 1);
 });
 test('unbound administrator can start enrollment inline; ordinary account is not invited to bind', async () => {
   const a = await login(await user(true)), b = await login(await user());
@@ -114,13 +113,18 @@ test('unbound administrator can start enrollment inline; ordinary account is not
   await req(b, 'post', '/api/v1/auth/mfa/enrollment/start').send({}).expect(403);
   assert.equal((await req(b, 'get', '/api/v1/auth/mfa')).body.data.canManageHighRisk, false);
 });
-test('route aliases cannot bypass high-risk verification', async () => {
+test('role creation and aliases need no factor while preserving administrator authorization', async () => {
   const a = await login(await user(true));
-  for (const path of ['/api/v1/roles/', '/api/v1/ROLES']) {
-    const response = await req(a, 'post', path).send({ name: 'Alias role', code: `ALIAS_${randomUUID().slice(0, 8)}` }).expect(403);
-    assert.equal(response.body.message, 'STEP_UP_REQUIRED');
+  for (const path of ['/api/v1/roles', '/api/v1/roles/']) {
+    await req(a, 'post', path).send({ name: `Alias role ${randomUUID()}`, code: `ALIAS_${randomUUID().slice(0, 8)}` }).expect(200);
   }
-  assert.equal(await db.role.count({ where: { code: { startsWith: 'ALIAS_' } } }), 0);
+  // Upper-case is classified identically by the guard but is not a registered route.
+  await req(a, 'post', '/api/v1/ROLES').send({ name: 'Unsupported alias', code: 'UNSUPPORTED' }).expect(404);
+  const ordinary = await login(await user());
+  const denied = await req(ordinary, 'post', '/api/v1/roles').send({ name: 'No authority', code: 'FORBIDDEN' }).expect(403);
+  assert.equal(denied.body.message, 'ADMIN_HIGH_RISK_ONLY');
+  assert.equal(await db.role.count({ where: { code: { startsWith: 'ALIAS_' } } }), 2);
+
 });
 test('risk catalogue distinguishes destructive actions from navigation, reversible edits and ordinary approvals', () => {
   for (const [method, path, body] of [

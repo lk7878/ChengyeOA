@@ -14,9 +14,6 @@ import {
 } from '@/features/sop/api';
 import NodeEditor from '@/features/sop/NodeEditor';
 import { governanceApi } from '@/features/admin-governance/api';
-import { hashCanonicalPayload } from '@/features/admin-governance/canonical-json';
-import { useStepUp } from '@/features/auth/useStepUp';
-import StepUpDialog from '@/features/auth/components/StepUpDialog';
 import { requestErrorMessage, showRequestError } from '@/api/errors';
 const empty: SopOptions = { organizations: [], teams: [], roles: [], limit: 500 };
 const labels = { DRAFT: '草稿', PUBLISHED: '已发布', DISABLED: '已停用' };
@@ -53,8 +50,7 @@ export default function SopTemplatesPage() {
       key: string;
     } | null>(null),
     [reason, setReason] = useState('');
-  const stepUp = useStepUp(),
-    alive = useRef(true),
+  const alive = useRef(true),
     sequence = useRef(0),
     copyKey = useRef<{ source: string; key: string } | undefined>(undefined);
   const organizationId = Form.useWatch('organizationId', form);
@@ -190,23 +186,12 @@ export default function SopTemplatesPage() {
         reason: reason.trim(),
         idempotencyKey: action.key,
       };
-      await stepUp.run({
-        purpose: 'ADMIN_GOVERNANCE_CREATE',
-        target: {
-          operationType: input.operationType,
-          targetType: input.targetType,
-          targetId: input.targetId,
-          expectedTargetVersion: input.expectedTargetVersion,
-          payloadHash: await hashCanonicalPayload(input.payload),
-        },
-        impact: '提交模板治理申请，须由其他获权管理员审核后生效',
-        mutate: (token) => governanceApi.create(input, token),
-      });
+      await governanceApi.create(input);
       setAction(null);
       await load();
       message.success('已提交治理审核');
     } catch (e) {
-      if (!(e instanceof Error && e.message === 'STEP_UP_CANCELLED')) showRequestError(e);
+      showRequestError(e);
     } finally {
       setSaving(false);
     }
@@ -418,7 +403,6 @@ export default function SopTemplatesPage() {
         />
         <p>原因至少10个字符。审核过程在原治理中心完成，申请人不能审核自己的申请。</p>
       </Modal>
-      <StepUpDialog {...stepUp.dialogProps} />
     </section>
   );
 }

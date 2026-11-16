@@ -4,8 +4,6 @@ import { Alert, Button, Card, Descriptions, Empty, Input, Space, Spin, Statistic
 import Drawer from '@/components/DraggableDrawer';
 import type { TableProps } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import StepUpDialog from '@/features/auth/components/StepUpDialog';
-import { useStepUp } from '@/features/auth/useStepUp';
 import { eventOperationsApi } from '@/features/event-operations/api';
 import type {
   EventDeliveryDetail,
@@ -118,7 +116,6 @@ const EMPTY_FILTERS: FilterDraft = {
 };
 
 export default function EventOperationsPage() {
-  const stepUp = useStepUp();
   const permissions = useAuthStore(state => state.authorization?.permissions ?? []);
   const canRetry = permissions.includes('event.delivery.retry');
   const [summary, setSummary] = useState<EventOperationsSummary | null>(null);
@@ -290,12 +287,7 @@ export default function EventOperationsPage() {
     setRetrying(true);
     setRetryError(null);
     try {
-      await stepUp.run({
-        purpose: 'EVENT_DELIVERY_RETRY',
-        target: { deliveryId: delivery.id, expectedVersion: delivery.version },
-        impact: `将针对投递 ${delivery.id} 重新执行业务处理器 ${delivery.handlerCode}。处理器可能再次写入业务结果，请确认已完成故障排查。`,
-        mutate: token => eventOperationsApi.retry(delivery.id, delivery.version, token),
-      });
+      await eventOperationsApi.retry(delivery.id, delivery.version);
       if (!mountedRef.current) return;
       if (detailIdRef.current === delivery.id) closeDetail();
       await loadDashboard(queryRef.current);
@@ -303,7 +295,6 @@ export default function EventOperationsPage() {
       message.success('人工重试已提交');
     } catch (error) {
       if (!mountedRef.current) return;
-      if (isStepUpCancelled(error)) return;
       if (isQuarantinedDelivery(error)) {
         if (detailIdRef.current === delivery.id) {
           setRetryError('内部隔离记录不可普通重试，需部署支持并重新验证');
@@ -448,7 +439,6 @@ export default function EventOperationsPage() {
         {retryError && <Alert type="warning" showIcon title={retryError} style={{ marginBottom: 16 }} />}
         {detail && <EventDeliveryDetailView detail={detail} canRetry={canRetry} retrying={retrying} onRetry={retryDelivery} />}
       </Drawer>
-      <StepUpDialog {...stepUp.dialogProps} />
     </section>
   );
 }
@@ -648,10 +638,6 @@ function formatFilterSummary(subscription: EventSubscriptionSummary): string {
   return summary.conditions.map(condition => (
     `${condition.field} / ${FILTER_OPERATOR_LABELS[condition.operator]} / ${condition.valueCount} 个值`
   )).join('；');
-}
-
-function isStepUpCancelled(error: unknown): boolean {
-  return error instanceof Error && error.message === 'STEP_UP_CANCELLED';
 }
 
 function isVersionConflict(error: unknown): boolean {

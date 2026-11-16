@@ -477,7 +477,7 @@ test('keeps the latest selected detail when older requests resolve last', async 
   vi.mocked(eventOperationsApi.detail).mockImplementation(id => (
     (id === 'd1' ? d1Request.promise : d2Request.promise) as never
   ));
-  runStepUp.mockImplementation(() => new Promise(() => undefined));
+  vi.mocked(eventOperationsApi.retry).mockImplementation(() => new Promise(() => undefined));
   render(<EventOperationsPage />);
 
   fireEvent.click(await screen.findByRole('button', { name: '查看投递 d1' }));
@@ -492,9 +492,7 @@ test('keeps the latest selected detail when older requests resolve last', async 
   expect(screen.queryByText('SYSTEM_ADMIN_GRANT')).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: '人工重试 d2' }));
-  await waitFor(() => expect(runStepUp).toHaveBeenCalledWith(expect.objectContaining({
-    target: { deliveryId: 'd2', expectedVersion: 11 },
-  })));
+  await waitFor(() => expect(eventOperationsApi.retry).toHaveBeenCalledWith('d2', 11));
 });
 
 test('keeps a newer filtered dashboard loading and ignores an older refresh failure', async () => {
@@ -566,14 +564,8 @@ test('binds MANUAL retry to delivery version, forwards token directly, closes de
   await screen.findByText('投递详情');
   fireEvent.click(screen.getByRole('button', { name: '人工重试 d1' }));
 
-  await waitFor(() => expect(runStepUp).toHaveBeenCalledOnce());
-  const request = runStepUp.mock.calls[0][0];
-  expect(request).toMatchObject({
-    purpose: 'EVENT_DELIVERY_RETRY',
-    target: { deliveryId: 'd1', expectedVersion: 7 },
-  });
-  expect(request.impact).toContain('重新执行业务处理器');
-  expect(eventOperationsApi.retry).toHaveBeenCalledWith('d1', 7, 'one-time-step-up');
+  await waitFor(() => expect(eventOperationsApi.retry).toHaveBeenCalledWith('d1', 7));
+  expect(runStepUp).not.toHaveBeenCalled();
   await waitFor(() => expect(eventOperationsApi.summary).toHaveBeenCalledTimes(2));
   expect(eventOperationsApi.list).toHaveBeenCalledTimes(2);
   expect(screen.queryByText('投递详情')).not.toBeInTheDocument();
@@ -582,21 +574,14 @@ test('binds MANUAL retry to delivery version, forwards token directly, closes de
   success.mockRestore();
 });
 
-test('keeps the detail safe on Step-Up cancellation and refreshes stale detail on conflict', async () => {
+test('refreshes stale detail on conflict without Step-Up', async () => {
   vi.mocked(eventOperationsApi.list).mockResolvedValue({ code: 200, message: 'OK', data: {
     list: [manualDelivery], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
   } } as never);
-  runStepUp.mockRejectedValueOnce(new Error('STEP_UP_CANCELLED'));
+  vi.mocked(eventOperationsApi.retry).mockRejectedValueOnce({ response: { status: 409, data: { message: 'AUTHORIZATION_VERSION_CONFLICT' } } });
   render(<EventOperationsPage />);
   fireEvent.click(await screen.findByRole('button', { name: '查看投递 d1' }));
   await screen.findByText('投递详情');
-  fireEvent.click(screen.getByRole('button', { name: '人工重试 d1' }));
-  await waitFor(() => expect(runStepUp).toHaveBeenCalledOnce());
-  expect(eventOperationsApi.retry).not.toHaveBeenCalled();
-  expect(screen.getByText('投递详情')).toBeInTheDocument();
-  await waitFor(() => expect(screen.getByRole('button', { name: '人工重试 d1' })).not.toBeDisabled());
-
-  runStepUp.mockRejectedValueOnce({ response: { status: 409, data: { message: 'AUTHORIZATION_VERSION_CONFLICT' } } });
   fireEvent.click(screen.getByRole('button', { name: '人工重试 d1' }));
   await waitFor(() => expect(eventOperationsApi.detail).toHaveBeenCalledTimes(2));
   expect(screen.getByText('投递状态已变化，请刷新后重试')).toBeInTheDocument();

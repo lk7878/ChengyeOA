@@ -41,13 +41,13 @@ test('calls the bounded event operations endpoints with typed query parameters',
   expect(requestMock.get).toHaveBeenNthCalledWith(4, '/v1/event-operations/subscriptions');
 });
 
-test('sends the one-time Step-Up token only in the retry request header', async () => {
-  await eventOperationsApi.retry('delivery-1', 7, 'one-time-step-up');
+test('retries with the version and no Step-Up header', async () => {
+  await eventOperationsApi.retry('delivery-1', 7);
 
   expect(requestMock.post).toHaveBeenCalledWith(
     '/v1/event-operations/deliveries/delivery-1/retry',
     { expectedVersion: 7 },
-    { headers: { 'X-Step-Up-Token': 'one-time-step-up' }, suppressGlobalError: true },
+    { suppressGlobalError: true },
   );
   expect(JSON.stringify(requestMock.post.mock.calls[0])).not.toContain('payload');
 });

@@ -470,13 +470,11 @@ test('reports persistent dispatcher faults through the summary API without expos
   assert.equal(stillDegraded.body.data.worker.invalidEnvelopeCount, 1);
 });
 
-test('requires effective super-admin, bearer authority, and the exact generic Step-Up grant', async () => {
+test('requires effective super-admin and bearer authority without a Step-Up grant', async () => {
   const delivery = await createManualDelivery();
-  const directGrant = await createGrant({ deliveryId: delivery.id, expectedVersion: delivery.version });
 
   await app.httpRequest().post(`/api/v1/event-operations/deliveries/${delivery.id}/retry`)
     .set(bearer(superSession.token))
-    .set('X-Step-Up-Token', directGrant)
     .send({ expectedVersion: delivery.version })
     .expect(200);
 
@@ -494,14 +492,12 @@ test('requires effective super-admin, bearer authority, and the exact generic St
     .set('X-CSRF-Token', login.body.data.csrfToken)
     .expect(200);
   await browser.post(`/api/v1/event-operations/deliveries/${delivery.id}/retry`)
-    .set('X-Step-Up-Token', directGrant)
     .send({ expectedVersion: delivery.version })
     .expect(401);
 
   const concurrentDelivery = await createManualDelivery();
   await app.httpRequest().post(`/api/v1/event-operations/deliveries/${delivery.id}/retry`)
     .set(bearer(systemSession.token)).set(csrf(systemSession))
-    .set('X-Step-Up-Token', directGrant)
     .send({ expectedVersion: delivery.version })
     .expect(403);
 
@@ -511,81 +507,32 @@ test('requires effective super-admin, bearer authority, and the exact generic St
   const results = await Promise.all([
     app.httpRequest().post(`/api/v1/event-operations/deliveries/${concurrentDelivery.id}/retry`)
       .set(bearer(superSession.token))
-      .set('X-Step-Up-Token', endpointGrant)
       .send({ expectedVersion: concurrentDelivery.version }),
     app.httpRequest().post(`/api/v1/event-operations/deliveries/${concurrentDelivery.id}/retry`)
       .set(bearer(superSession.token))
-      .set('X-Step-Up-Token', endpointGrant)
       .send({ expectedVersion: concurrentDelivery.version }),
   ]);
   assert.deepEqual(results.map(response => response.status).sort(), [200, 409]);
   assert.equal(await prisma.operationLog.count({
     where: { action: 'EVENT_DELIVERY_MANUAL_RETRY', targetId: concurrentDelivery.id },
   }), 1);
-  assert.ok((await prisma.stepUpGrant.findUniqueOrThrow({
+  assert.equal((await prisma.stepUpGrant.findUniqueOrThrow({
     where: { tokenHash: hashOpaqueToken(endpointGrant) },
-  })).consumedAt);
+  })).consumedAt, null);
 });
 
-test('rejects wrong-purpose, target, version, expired, and reused Step-Up without partial writes', async () => {
-  const cases = [
-    { expected: 'STEP_UP_PURPOSE_MISMATCH', token: await createGrant({
-      purpose: 'SESSION_REVOKE', deliveryId: randomUUID(), expectedVersion: 7,
-    }) },
-    { expected: 'STEP_UP_TARGET_MISMATCH', token: '' },
-    { expected: 'STEP_UP_EXPIRED', token: '' },
-  ];
-
-  for (const entry of cases) {
-    const delivery = await createManualDelivery();
-    if (!entry.token && entry.expected === 'STEP_UP_TARGET_MISMATCH') {
-      entry.token = await createGrant({ deliveryId: delivery.id, expectedVersion: delivery.version + 1 });
-    }
-    if (!entry.token && entry.expected === 'STEP_UP_EXPIRED') {
-      entry.token = await createGrant({
-        deliveryId: delivery.id,
-        expectedVersion: delivery.version,
-        expiresAt: new Date(Date.now() - 1),
-      });
-    }
-    const response = await app.httpRequest().post(`/api/v1/event-operations/deliveries/${delivery.id}/retry`)
-      .set(bearer(superSession.token)).set(csrf(superSession))
-      .set('X-Step-Up-Token', entry.token)
-      .send({ expectedVersion: delivery.version })
-      .expect(403);
-    assert.equal(response.body.message, entry.expected);
-    assert.equal((await prisma.eventDelivery.findUniqueOrThrow({ where: { id: delivery.id } })).status, 'MANUAL');
-  }
-
-  const versioned = await createManualDelivery();
-  const versionToken = await createGrant({ deliveryId: versioned.id, expectedVersion: versioned.version });
-  await app.httpRequest().post(`/api/v1/event-operations/deliveries/${versioned.id}/retry`)
-    .set(bearer(superSession.token)).set(csrf(superSession))
-    .set('X-Step-Up-Token', versionToken)
-    .send({ expectedVersion: versioned.version + 1 })
-    .expect(409);
-  assert.equal((await prisma.stepUpGrant.findUniqueOrThrow({
-    where: { tokenHash: hashOpaqueToken(versionToken) },
-  })).consumedAt, null);
-
-  await app.httpRequest().post(`/api/v1/event-operations/deliveries/${versioned.id}/retry`)
-    .set(bearer(superSession.token)).set(csrf(superSession))
-    .set('X-Step-Up-Token', versionToken)
-    .send({ expectedVersion: versioned.version })
-    .expect(200);
-  await prisma.eventDelivery.update({
-    where: { id: versioned.id },
-    data: { status: 'MANUAL', version: versioned.version },
-  });
-  const reused = await app.httpRequest().post(`/api/v1/event-operations/deliveries/${versioned.id}/retry`)
-    .set(bearer(superSession.token)).set(csrf(superSession))
-    .set('X-Step-Up-Token', versionToken)
-    .send({ expectedVersion: versioned.version })
-    .expect(403);
-  assert.equal(reused.body.message, 'STEP_UP_INVALID');
-  assert.equal(await prisma.operationLog.count({
-    where: { action: 'EVENT_DELIVERY_MANUAL_RETRY', targetId: versioned.id },
-  }), 1);
+test('retry ignores legacy proof headers but still rejects stale versions and duplicate requests', async () => {
+  const delivery = await createManualDelivery();
+  const url = `/api/v1/event-operations/deliveries/${delivery.id}/retry`;
+  await app.httpRequest().post(url).set(bearer(superSession.token))
+    .send({ expectedVersion: delivery.version + 1 }).expect(409);
+  assert.equal((await prisma.eventDelivery.findUniqueOrThrow({ where: { id: delivery.id } })).status, 'MANUAL');
+  await app.httpRequest().post(url).set(bearer(superSession.token))
+    .set('X-Step-Up-Token', 'obsolete-proof-not-required')
+    .send({ expectedVersion: delivery.version }).expect(200);
+  await app.httpRequest().post(url).set(bearer(superSession.token))
+    .send({ expectedVersion: delivery.version }).expect(409);
+  assert.equal(await prisma.operationLog.count({ where: { action: 'EVENT_DELIVERY_MANUAL_RETRY', targetId: delivery.id } }), 1);
 });
 
 test('generic Step-Up rejects unknown purposes and malformed targets as stable 400 before TOTP use', async () => {

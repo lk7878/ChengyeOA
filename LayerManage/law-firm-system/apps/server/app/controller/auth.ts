@@ -192,7 +192,6 @@ export default class AuthController extends Controller {
   public async disableMfa() {
     await createAuthenticationServices(this.ctx).mfa.disableSelf(
       this.ctx.state.user,
-      this.ctx.get('x-step-up-token').trim(),
     );
     clearAuthenticationCookies(this.ctx);
     this.ctx.body = { code: 200, message: 'success', data: null };
@@ -201,7 +200,6 @@ export default class AuthController extends Controller {
   public async regenerateRecoveryCodes() {
     const data = await createAuthenticationServices(this.ctx).mfa.regenerateRecoveryCodes(
       this.ctx.state.user,
-      this.ctx.get('x-step-up-token').trim(),
     );
     this.ctx.body = { code: 200, message: 'success', data };
   }

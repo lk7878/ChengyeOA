@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { createGovernanceServices } from '../../app/application/admin-governance/governance-factory';
 import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
-import { ActiveSessionClaims } from '../../app/application/auth/session-service';
-import { SecurityError } from '../../app/domain/security/security-errors';
-import { StepUpPurpose } from '../../app/domain/security/step-up-target';
-import { hashPayload } from '../../app/domain/admin-governance/canonical-json';
 import { PermissionCode } from '../../app/domain/authorization/authorization-types';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
 
@@ -31,20 +27,12 @@ function context(userId: string, superAdmin: boolean): AuthorizationContext {
   };
 }
 
-function claims(userId: string): ActiveSessionClaims {
-  return { userId, sessionId: randomUUID(), credentialVersion: 1, assuranceLevel: 'MFA' };
-}
-
-function authorization(userId: string) {
-  return { claims: claims(userId), token: `grant-${randomUUID()}` };
-}
-
 function highInput() {
   return {
     operationType: 'MASTER_DATA_STATUS_CORRECTION',
     targetType: 'ORGANIZATION',
     targetId: branchId,
-    reason: 'Protect this high-risk governance state correction with step-up',
+    reason: 'Verify exempt state correction retains review and audit',
     expectedTargetVersion: 1,
     payload: { status: 'DISABLED' },
     idempotencyKey: randomUUID(),
@@ -69,77 +57,25 @@ test.beforeEach(async () => {
 });
 test.after(async () => { await clearTestApplicationData(prisma); await prisma.$disconnect(); });
 
-test('requires and transactionally consumes purpose-bound grants for high-risk create, approve, and retry', async () => {
-  const calls: Array<{ purpose: StepUpPurpose; target: unknown; observedStatus: string | null }> = [];
-  const consumer = {
-    async consume(
-      tx: Prisma.TransactionClient,
-      _claims: ActiveSessionClaims,
-      purpose: StepUpPurpose,
-      target: unknown,
-      token: string,
-    ) {
-      assert.match(token, /^grant-/);
-      const operationId = typeof target === 'object' && target && 'operationId' in target
-        ? String((target as { operationId: unknown }).operationId)
-        : null;
-      const operation = operationId
-        ? await tx.adminOperation.findUnique({ where: { id: operationId }, select: { status: true } })
-        : null;
-      calls.push({ purpose, target, observedStatus: operation?.status ?? null });
-    },
-  };
+test('status correction creates, approves and retries without consuming a grant', async () => {
+  let consumed = 0;
   const services = createGovernanceServices(prisma, {
-    databaseName: 'chengye_oa_test',
-    stepUp: consumer,
+    databaseName: 'chengye_oa_test', stepUp: { async consume() { consumed++; throw new Error('must not verify'); } },
   });
-
-  await assert.rejects(
-    () => services.command.create(context(requesterId, false), highInput()),
-    (error: unknown) => error instanceof SecurityError && error.code === 'STEP_UP_REQUIRED',
-  );
-
-  const created = await services.command.create(
-    context(requesterId, false), highInput(), undefined, authorization(requesterId),
-  );
-  assert.equal(calls[0].purpose, 'ADMIN_GOVERNANCE_CREATE');
-  assert.equal(calls[0].observedStatus, null);
-  assert.deepEqual(calls[0].target, {
-    operationType: 'MASTER_DATA_STATUS_CORRECTION',
-    targetType: 'ORGANIZATION',
-    targetId: branchId,
-    expectedTargetVersion: 1,
-    payloadHash: hashPayload({ status: 'DISABLED' }),
-  });
-
-  await services.review.review(
-    context(reviewerId, true),
-    created.id,
-    { decision: 'APPROVE', expectedOperationVersion: created.version },
-    undefined,
-    authorization(reviewerId),
-  );
-  assert.deepEqual(calls[1], {
-    purpose: 'ADMIN_GOVERNANCE_APPROVE',
-    target: { operationId: created.id, expectedOperationVersion: created.version, decision: 'APPROVE' },
-    observedStatus: 'PENDING_REVIEW',
-  });
-
+  const created = await services.command.create(context(requesterId, false), highInput());
+  assert.equal(created.status, 'PENDING_REVIEW');
+  assert.equal((await prisma.organization.findUniqueOrThrow({ where: { id: branchId } })).status, 'ENABLED');
+  await assert.rejects(() => services.review.review(context(requesterId, true), created.id,
+    { decision: 'APPROVE', expectedOperationVersion: created.version }));
+  await services.review.review(context(reviewerId, true), created.id,
+    { decision: 'APPROVE', expectedOperationVersion: created.version });
+  assert.equal((await prisma.organization.findUniqueOrThrow({ where: { id: branchId } })).status, 'DISABLED');
+  assert.equal((await prisma.adminOperation.findUniqueOrThrow({ where: { id: created.id } })).status, 'SUCCEEDED');
   await prisma.organization.update({ where: { id: branchId }, data: { status: 'ENABLED', version: 1 } });
-  const retrySource = await services.command.create(
-    context(requesterId, false), highInput(), undefined, authorization(requesterId),
-  );
+  const retrySource = await services.command.create(context(requesterId, false), highInput());
   await prisma.adminOperation.update({ where: { id: retrySource.id }, data: { status: 'FAILED', version: 2 } });
-  await services.review.resume(
-    context(reviewerId, true),
-    retrySource.id,
-    { expectedOperationVersion: 2 },
-    undefined,
-    authorization(reviewerId),
-  );
-  assert.deepEqual(calls[3], {
-    purpose: 'ADMIN_GOVERNANCE_RETRY',
-    target: { operationId: retrySource.id, expectedOperationVersion: 2 },
-    observedStatus: 'FAILED',
-  });
+  await services.review.resume(context(reviewerId, true), retrySource.id, { expectedOperationVersion: 2 });
+  assert.equal((await prisma.adminOperation.findUniqueOrThrow({ where: { id: retrySource.id } })).status, 'SUCCEEDED');
+  assert.equal(consumed, 0);
+  assert.ok(await prisma.operationLog.count({ where: { targetId: created.id } }));
 });

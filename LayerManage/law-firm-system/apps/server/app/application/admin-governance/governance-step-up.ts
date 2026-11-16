@@ -32,7 +32,13 @@ export async function consumeGovernanceStepUp(
 }
 
 export function requiresGovernanceStepUp(riskLevel: string, operationType: string): boolean {
-  // Only these two governed actions are exempt; authorization, review and audit remain mandatory.
-  if (operationType === 'SUPER_ADMIN_GRANT' || operationType === 'ADMIN_MFA_RESET') return false;
+  // Explicit exemptions do not change authorization, risk, review or audit.
+  // Future HIGH/CRITICAL operations remain protected unless explicitly listed.
+  if ([
+    'SOP_TEMPLATE_PUBLISH', 'SOP_TEMPLATE_DISABLE',
+    'SYSTEM_ADMIN_GRANT', 'SYSTEM_ADMIN_REVOKE', 'SYSTEM_ADMIN_ACCOUNT_DISABLE',
+    'SUPER_ADMIN_GRANT', 'SUPER_ADMIN_REVOKE', 'SUPER_ADMIN_ACCOUNT_DISABLE',
+    'ADMIN_MFA_RESET', 'MASTER_DATA_STATUS_CORRECTION',
+  ].includes(operationType)) return false;
   return riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
 }

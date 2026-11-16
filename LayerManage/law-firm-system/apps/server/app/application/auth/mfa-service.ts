@@ -36,13 +36,14 @@ export class MfaService {
     private readonly totp: TotpService,
     private readonly secretCrypto: MfaSecretCrypto,
     private readonly hasher: PasswordHasher,
-    private readonly stepUp: StepUpService,
+    _stepUp: StepUpService,
     private readonly auditWriter: AuditWriter = writeAuditLog,
     private readonly clock: () => Date = () => new Date(),
     _legacyLocalPasswordLogin = false,
   ) {
     // Retained only for constructor compatibility; never bypass operation checks.
     void _legacyLocalPasswordLogin;
+    void _stepUp; // Constructor compatibility; self-service maintenance no longer consumes a grant.
   }
 
   async beginEnrollment(challengeToken: string): Promise<{
@@ -300,14 +301,12 @@ export class MfaService {
       : { enabled: false, verifiedAt: null, recoveryCodesRemaining: 0 };
   }
 
-  async disableSelf(claims: ActiveSessionClaims, stepUpToken: string): Promise<void> {
+  async disableSelf(claims: ActiveSessionClaims, _legacyStepUpToken = ''): Promise<void> {
+    void _legacyStepUpToken;
     const now = this.clock();
     await this.prisma.$transaction(async tx => {
       const factor = await activeFactorForUpdate(tx, claims.userId);
       if (!factor?.verifiedAt) throw invalidMfa();
-      await this.stepUp.consume(
-        tx, claims, 'MFA_DISABLE_SELF', { userId: claims.userId }, stepUpToken,
-      );
       const administratorGrant = await tx.userRole.findFirst({ where: {
         userId: claims.userId,
         revokedAt: null,
@@ -341,21 +340,15 @@ export class MfaService {
 
   async regenerateRecoveryCodes(
     claims: ActiveSessionClaims,
-    stepUpToken: string,
+    _legacyStepUpToken = '',
   ): Promise<{ recoveryCodes: string[] }> {
+    void _legacyStepUpToken;
     const recoveryCodes = Array.from({ length: RECOVERY_CODE_COUNT }, createRecoveryCode);
     const codeHashes = await Promise.all(recoveryCodes.map(code => this.hasher.hash(code)));
     const now = this.clock();
     await this.prisma.$transaction(async tx => {
       const factor = await activeFactorForUpdate(tx, claims.userId);
       if (!factor?.verifiedAt) throw invalidMfa();
-      await this.stepUp.consume(
-        tx,
-        claims,
-        'MFA_RECOVERY_CODES_REGENERATE',
-        { userId: claims.userId },
-        stepUpToken,
-      );
       await tx.mfaRecoveryCode.updateMany({
         where: { factorId: factor.id, usedAt: null },
         data: { usedAt: now },

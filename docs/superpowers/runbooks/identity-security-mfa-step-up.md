@@ -8,13 +8,24 @@ Login is password-only for all accounts, including administrators and accounts w
 
 The account menu retains Appearance and adds an in-page Change Password dialog. Changing a personal password verifies the current password, rotates the current device's credentials atomically, invalidates old credentials and outstanding proofs, and logs out all other devices. Device logout is owner-scoped and CSRF-protected; it does not require a factor. Passwords are per account, never shared by role. No periodic password change is imposed.
 
-Ordinary approvals, individual recoverable worksheet record deletion/undo, and moving a directory into the recycle bin do not require TOTP. The existing record batch-delete endpoint is limited to 100 recoverable rows with per-row access checks and undo history; it does not permanently destroy them and does not require TOTP. Destruction of an entire worksheet or a data-bearing directory is always protected. Permanently destroying a worksheet, purging a directory containing documents, permanently deleting an attachment, creating or deleting roles, changing role permissions or grants, resetting another user's password, changing a department manager, and account/employee bindings require an effective SYSTEM_ADMIN or SYSTEM_SUPER_ADMIN and a fresh action proof. Empty folder removal, role name/description edits, and navigation-only menu changes are excluded. No database-wipe or restore endpoint is added.
+Ordinary approvals, individual recoverable worksheet record deletion/undo, and moving a directory into the recycle bin do not require TOTP. The existing record batch-delete endpoint is limited to 100 recoverable rows with per-row access checks and undo history. Permanent worksheet destruction, purging a data-bearing directory, permanent attachment deletion and case attachment removal continue to require an effective administrator and a fresh action proof. Empty folder removal and navigation-only menu changes remain excluded. No database-wipe or restore endpoint is added.
 
-The governed actions `SUPER_ADMIN_GRANT` and `ADMIN_MFA_RESET` do not require TOTP at submission, approval or retry. Their CRITICAL classification, exact confirmation phrase, super-admin authorization, independent review, target/version checks and audit remain unchanged. This exception does not apply to revoking or disabling a super-admin, other role changes, permanent data deletion, or personal factor maintenance.
+The following operations no longer request or consume an authenticator proof:
 
-High-risk HTTP proofs bind method, path, and a digest of the body/query; existing governance proofs continue to bind their operation and version. A proof lasts five minutes and is single use. Validation never substitutes for the original permission, data-scope, review-identity, version, and audit checks. Password-only sessions can verify a concrete action. Administrators can enroll within the pending action dialog and continue without navigating away; a fresh TOTP period is needed after enrollment because replay protection remains enabled.
+- Permission administration: role creation, updates, deletion, enable/disable; permission, data-scope, field, worksheet and application authorization; user role and special grants/revocations.
+- Personnel administration: account/employee binding, department manager changes, and resetting another account's login password.
+- Administrator governance: system administrator grant/revoke/account disable; super-administrator grant/revoke/account disable; administrator MFA reset.
+- Business governance: SOP template publication/disable and master-data status correction.
+- Operations: manual retry of a failed event delivery.
+- Personal factor maintenance: disabling one's own existing factor and regenerating recovery codes.
 
-Personal files currently have no deletion endpoint. Do not label any existing hard-delete operation as recoverable or add destructive maintenance entry points to implement this policy. Ordinary users receive a contact-administrator message for administrator-only actions. Keep the governed and emergency reset restrictions below; after reset, login remains password-only and the next high-risk action requires re-enrollment.
+The existing administrator-only gates and specific permission checks remain. All governed exemptions cover submission, approval and failed-execution retry; their catalog risk, independent review, exact CRITICAL confirmation, target/version checks and audit remain unchanged. Manual event retry remains super-admin-only with the retry permission, current delivery version, quarantine restriction and transactional audit. Existing MFA is still required to maintain that factor. A currently serving administrator still cannot directly disable their own factor. Disabling an ordinary user's factor revokes sessions and recovery codes; regeneration invalidates the old codes. The account-security page retains consequence confirmations, with no authenticator dialog for these maintenance operations.
+
+Exempt governance operation types are explicit, so future HIGH/CRITICAL types remain protected unless deliberately added. Permanent deletion exemptions are not implied by the permission-administration exemptions.
+
+High-risk HTTP proofs bind method, path, and a digest of the body/query; any non-exempt governance proofs continue to bind their operation and version. A proof lasts five minutes and is single use. Validation never substitutes for the original permission, data-scope, review-identity, version, and audit checks. Password-only sessions can verify a concrete action. Administrators can enroll within the pending action dialog and continue without navigating away; a fresh TOTP period is needed after enrollment because replay protection remains enabled.
+
+Personal files currently have no deletion endpoint. Do not label any existing hard-delete operation as recoverable or add destructive maintenance entry points to implement this policy. Ordinary users receive a contact-administrator message for administrator-only actions. Keep the governed and emergency reset restrictions below; after reset, login remains password-only and the next protected high-risk action requires re-enrollment.
 
 ## Required Secrets
 
@@ -59,7 +70,7 @@ An administrator cannot disable their own MFA. Resetting administrator MFA is a 
 - Recovery codes are shown only after enrollment or regeneration and only once.
 - Store them offline in the approved credential vault; never put them in tickets, chat, screenshots, URLs, source files, logs, or browser storage.
 - Each code is one-time. Regeneration immediately invalidates every prior code.
-- Treat a viewed, copied, or potentially exposed code set as compromised and regenerate it from **账号安全** after fresh Step-Up.
+- Treat a viewed, copied, or potentially exposed code set as compromised and regenerate it from **账号安全** after confirming that the old codes will be invalidated.
 
 ## Governed Administrator MFA Reset
 

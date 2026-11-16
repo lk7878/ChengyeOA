@@ -56,11 +56,9 @@ export const authApi = {
   logout: () => request.post<ApiResponse<null>>('/v1/auth/logout'),
 
   mfaStatus: () => request.get<ApiResponse<MfaStatusView>>('/v1/auth/mfa'),
-  disableMfa: (stepUpToken: string) => request.delete<ApiResponse<null>>('/v1/auth/mfa', {
-    headers: { 'X-Step-Up-Token': stepUpToken },
-  }),
-  regenerateRecoveryCodes: (stepUpToken: string) => request.post<ApiResponse<{ recoveryCodes: string[] }>>(
-    '/v1/auth/mfa/recovery-codes', {}, { headers: { 'X-Step-Up-Token': stepUpToken } },
+  disableMfa: () => request.delete<ApiResponse<null>>('/v1/auth/mfa'),
+  regenerateRecoveryCodes: () => request.post<ApiResponse<{ recoveryCodes: string[] }>>(
+    '/v1/auth/mfa/recovery-codes', {},
   ),
   sessions: () => request.get<ApiResponse<SessionView[]>>('/v1/auth/sessions'),
   revokeSession: (sessionId: string, stepUpToken = '') => request.delete<ApiResponse<null>>(
