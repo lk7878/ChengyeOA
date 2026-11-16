@@ -212,13 +212,13 @@ bbc0ed2f96d7f9481e15be7347d27d8536dea5e98b14385832f09359f1413cd2  LayerManage/la
 ffa9f7db7e0011b618a83b645b7d8e23035b187403f87f0360ee9c25619fc1ed  LayerManage/law-firm-system/apps/server/app/application/admin-governance/adapters/governance-adapter.ts
 03cefd448e88bc8113aaba7c17db8c3b30ce01b4e55469773b6aa79d360d64c2  LayerManage/law-firm-system/apps/server/app/application/admin-governance/adapters/master-data-adapter.ts
 28f5c91e799d1c283b3e619a50c9232f27e065b09fc6a6e2cb367227e31d9b8f  LayerManage/law-firm-system/apps/server/app/application/admin-governance/adapters/sop-template-adapter.ts
-d846f1747b2e27b33649d48470738c4e3a02db0f47ca60f20cbae209df674ee9  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-command-service.ts
+89c012d8ffab4617a5b74ad1f55407b1a9955f8425baa32274464998884c4295  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-command-service.ts
 b7aff642654da8c4517e9ff0fca124686cdb5d4c93f2fd2bffe80c1d1b4c599f  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-event-sink.ts
-b9b8165973ec63ba8482a4ec9a7393b529832f516cb7e6b51855bba4b9905ad3  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-execution-runner.ts
+e84a0c66210721f357f48ff19ee3142585313f5a4256d09adb4b0817243838e5  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-execution-runner.ts
 38c8edef1fe6cebc18d3fd0d8f65b93f1a6ba2f2699afe820051b14acf7a1f3a  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-factory.ts
 1b2fbc09590132f3d0e87cd04f6295e88e21c8f64ebcf62b0c8da93812853c74  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-query-service.ts
-18fd61df64fb97b4e1843f25dbb1d9b3e79e6a56b51c11c6aadf399223d89d23  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-review-service.ts
-5a423c53a68f61e2f388c56c65dea449718fa1b3cc9ee961cb407a11c7c855a5  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-step-up.ts
+8ee1030828d49237c8efe0476d2f6e69256f2a0430d26d02d507f48d802d3aa2  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-review-service.ts
+3ffa2d0c024d6418bfd189a2a2a9601a224b5faab7f1f49e975e639a5177dfdf  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-step-up.ts
 0a7e5d8814c8866cb339391769d9941f513a38b93c4b1bbf119b5e3cbf88c137  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-store.ts
 c0a51a9bd9f8ff27bcfb1133773f86274193cf1213be3e1b100cb115ea891ce9  LayerManage/law-firm-system/apps/server/app/application/admin-governance/governance-views.ts
 d9987ff81fe2f5d71a9addf785034bad4137dcbdab14d7615d66e722213c6f1b  LayerManage/law-firm-system/apps/server/app/application/approval/approval-attachment-service.ts
@@ -716,7 +716,7 @@ ee8186b13f46cc945fa3082ebad2be920a7383cfbfcd7c71ce450f25e9390af5  LayerManage/la
 92170fd4142d67cfb0eab5f165eac4518b20b743a7c47f7aa29c6aa39a170ef1  LayerManage/law-firm-system/apps/server/test/admin-governance/governance-store.test.ts
 20772b5f7cb74e48ac27efd4de3b5ddc557314456108f20c95912c51c7165ffe  LayerManage/law-firm-system/apps/server/test/admin-governance/master-data-adapter.test.ts
 9395eeb8bd0579494409e8ee23a5b83fb0ea99494d5d540405c50505f66f297c  LayerManage/law-firm-system/apps/server/test/admin-governance/system-admin-permissions.test.ts
-33ec004cb27c54fb1306f3639875ece68f225883e21ba80bed0f9a2c6cb4e07f  LayerManage/law-firm-system/apps/server/test/app/admin-governance-api.test.ts
+3f1fe01ddbbdb4af61ab12b74fe3877f89c9de136c107d3805dc245bdec271d1  LayerManage/law-firm-system/apps/server/test/app/admin-governance-api.test.ts
 d572658bcc5453620f6938826a6f2cb695ba78c1efb8bf87dd624a86569e0964  LayerManage/law-firm-system/apps/server/test/app/administrator-mfa-guard.test.ts
 c648203bdaa9e8d26fd30659dd73d8ee36e04ad3de8673b35b03a48509493cb8  LayerManage/law-firm-system/apps/server/test/app/administrator-mfa-local.test.ts
 9df87a22a70da06940d0efc45cbc28d9c7790cd5f29cc786e56cb058fb6012e5  LayerManage/law-firm-system/apps/server/test/app/analytics-api.test.ts
@@ -1049,7 +1049,7 @@ cdaf2280fa8f5083240a49483959337be0549e2ebc2197fa3a7065776c5a7f4e  LayerManage/la
 98d3e277c17bd732398e5d68299a301cf080bb9528afd7bb231e86642a9d9357  LayerManage/law-firm-system/apps/web/src/features/admin-governance/components/OperationCreateDrawer.tsx
 8ca46a66e27256cecf101b897f81eb527c8bd1bc1b061a5490b74f7432d49ec1  LayerManage/law-firm-system/apps/web/src/features/admin-governance/components/OperationDetailDrawer.tsx
 2612b25d6ef8e790e945028f814f4bf35721a347660bdc99e3bbfc0dd66d5b2c  LayerManage/law-firm-system/apps/web/src/features/admin-governance/components/ReviewDialog.tsx
-ffba558472946a90b0a5d09d12587ce84e4c51d3e832f06992a32aba71823617  LayerManage/law-firm-system/apps/web/src/features/admin-governance/form-rules.ts
+f09fa28224bed01b088e0c3b86d7b984bb2dbd0f866ed2b2ca218bd75d045827  LayerManage/law-firm-system/apps/web/src/features/admin-governance/form-rules.ts
 66aedabbbdb643cf2c51aa5672b9ac58dca45c9d914846eed4bec7c2a9a8dcaa  LayerManage/law-firm-system/apps/web/src/features/admin-governance/types.ts
 14f755847f15b4773db4d2a755214d1e734cb7e2e8d892b76580928b6dc6ed9b  LayerManage/law-firm-system/apps/web/src/features/appearance/AppearanceProvider.tsx
 7bbed9b2796118c78637a55a570773128e64712d7be758e9ddc4ec09c54ea406  LayerManage/law-firm-system/apps/web/src/features/appearance/AppearanceSettings.tsx
@@ -1197,8 +1197,8 @@ b8f8e1d7f1df0df1dbdf973d810195d62e394ba17476fb20794cd45004d95f40  LayerManage/la
 af55bc28f3b3e259a77dd9a801a5fb0e67cbcb5d8d642ad670e4e69f8918d99a  LayerManage/law-firm-system/apps/web/src/main.tsx
 fd24ef748a5922b6aa3105732f31bc9dd88487a9d421d5326561919587b3e267  LayerManage/law-firm-system/apps/web/src/pages/AdminGovernance/governance.css
 b1b8081f6590c85f366783070a2d7e94d33bc4e88c9c2c3284c66ea84b7103dd  LayerManage/law-firm-system/apps/web/src/pages/AdminGovernance/index.test.tsx
-0b16615b07a596623fc89bb9bcbe929054fbd98b58990f837c14e94f4bca16b5  LayerManage/law-firm-system/apps/web/src/pages/AdminGovernance/index.tsx
-9efbe08c87e6cdf0403a0ba235e26f3981f935bf7f0fee9026a3ddc138008923  LayerManage/law-firm-system/apps/web/src/pages/AdminGovernance/step-up.test.tsx
+b3057f7e3a26ce0f5aa232d939d50251fb55cfa3e5b9e78fd0b264f2aee9a95b  LayerManage/law-firm-system/apps/web/src/pages/AdminGovernance/index.tsx
+9f34b1d7f99f240139df05f99ee67bc661bac0872f7bc6f9239c5f016498145f  LayerManage/law-firm-system/apps/web/src/pages/AdminGovernance/step-up.test.tsx
 c2fdc212103ccc9d0ea137d91242b86a87a7c8eb2aa22e5bdf377ee87c4d630d  LayerManage/law-firm-system/apps/web/src/pages/AnalyticsDesigner/AnalyticsDesigner.test.tsx
 91acee287baeb0079617cc2818d49eb626b1c0c8cb5c4e90da4fed8a288f698a  LayerManage/law-firm-system/apps/web/src/pages/AnalyticsDesigner/WidgetView.tsx
 0985e28c897c8fd45e4cb2b30dc564e4c1697c3fd984db17c1ce8c21b73a027b  LayerManage/law-firm-system/apps/web/src/pages/AnalyticsDesigner/designer.css
@@ -1669,7 +1669,7 @@ b7a62ed3d694bd0de9d331827a8df8cbabf27dbf440836168dd3fd114c6f33d2  docs/superpowe
 42d06a0ce1358fef09c38a07846ae3543057297028236b64c2d9b2242ce4ba18  docs/superpowers/reports/spec-008-closeout.md
 da09b05e57410d15d07780505976b8da44c067627db923fb01d28dc0d28de543  docs/superpowers/runbooks/admin-governance-super-admin-review.md
 3dbabdb89ac221d48096e5ac9a49f5f6a3417774735dedd08c0cb8416e68ee52  docs/superpowers/runbooks/dependency-security.md
-e4a52b289dbe3e770a9266cc648207bdc997c5591b83e24403fe57caa1c78bd6  docs/superpowers/runbooks/identity-security-mfa-step-up.md
+97e5d286b2a7b37e1a5c09881887f7679af13ce01251e3bc0c63345809389f75  docs/superpowers/runbooks/identity-security-mfa-step-up.md
 de3b873d42be8cf00a6a9d16b9082d2e887e2efcaf73c319fdac39733fd34852  docs/superpowers/runbooks/local-development.md
 6a0d1e2b443feda869b42bd087e6990415ba720c37a77d247aa73a9bd3f81c92  docs/superpowers/runbooks/organization-personnel-master-data.md
 0521e40c44228873b88b8bfd1b0d0ec68eeb7c328255f38c3bf15f7f63a8e34c  docs/superpowers/runbooks/postgresql-backup-restore.md
@@ -1730,6 +1730,9 @@ a4539e99bcf93ab9b44bd7a5f44f2fa936f4f528fcd93ef09a45cdef70df41d4  docs/verificat
 3b18629a663854abe34aeee60af8d78abc5c45c72fd59a9ed80a369560832953  docs/verification/20261115-final/moved-worksheet.jpg
 8e61fcd79a6509e08e888f5c20b8e445aa0ae657c964985f01cfaf6df3cb837a  docs/verification/20261115-final/navigation.jpg
 0af1f76505dfdd3933fb2521123bdbf9eb4bb5e11dbf4a01aac17bee652873a9  docs/verification/20261115-live-acceptance.json
+c174e0f927c59cde6bfd30ab8c5aee1f3345fc40d0bf4d0bc550c5ada74b3509  docs/verification/20261116-governance-exemptions.json
+3f99a743f072232482d9ddfe53f6c875636db5407aaefebd0e83beffae0269b6  docs/verification/20261116-governance-exemptions/ADMIN_MFA_RESET-confirmation.png
+f1dd81fe21218696d6f64ca4879a12f628e172e83d9728adc00b6f76d110814f  docs/verification/20261116-governance-exemptions/SUPER_ADMIN_GRANT-confirmation.png
 2fe77f3e61feb820316dbeea6b277d9f19648036a283a6706bb64918bf7396b1  docs/专项设计/2026-09-14-多维协作工作区调整建议.md
 2f2b057e3393efae8424ac0a649a568008e12f0c818d2ec1241e548d76159068  docs/专项设计/API规范错误码与事务边界设计.md
 688eeba3b2a9ee9a4b07b68c0e136715f0304e25bf717e8c90df6fff53ac1984  docs/专项设计/PostgreSQL迁移方案.md

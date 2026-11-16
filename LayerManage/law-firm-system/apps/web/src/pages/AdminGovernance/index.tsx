@@ -17,7 +17,7 @@ import OperationCreateDrawer from '@/features/admin-governance/components/Operat
 import OperationDetailDrawer from '@/features/admin-governance/components/OperationDetailDrawer';
 import ReviewDialog from '@/features/admin-governance/components/ReviewDialog';
 import { hashCanonicalPayload } from '@/features/admin-governance/canonical-json';
-import { OPERATION_LABELS } from '@/features/admin-governance/form-rules';
+import { OPERATION_LABELS, requiresGovernanceStepUp } from '@/features/admin-governance/form-rules';
 import type {
   AdminOperationDetail,
   AdminOperationSummary,
@@ -238,7 +238,7 @@ export default function AdminGovernancePage({ initialOperationId }: { initialOpe
     try {
       const entry = catalog.find((item) => item.operationType === input.operationType);
       const created =
-        entry && requiresStepUp(entry.riskLevel)
+        entry && requiresGovernanceStepUp(entry.riskLevel, entry.operationType)
           ? await stepUp.run({
               purpose: 'ADMIN_GOVERNANCE_CREATE',
               target: {
@@ -269,7 +269,7 @@ export default function AdminGovernancePage({ initialOperationId }: { initialOpe
     setSubmitting(true);
     try {
       const input = { decision, comment, expectedOperationVersion: reviewOperation.version };
-      if (decision === 'APPROVE' && requiresStepUp(reviewOperation.riskLevel)) {
+      if (decision === 'APPROVE' && requiresGovernanceStepUp(reviewOperation.riskLevel, reviewOperation.operationType)) {
         await stepUp.run({
           purpose: 'ADMIN_GOVERNANCE_APPROVE',
           target: {
@@ -306,7 +306,7 @@ export default function AdminGovernancePage({ initialOperationId }: { initialOpe
   async function retry(operation: AdminOperationSummary) {
     try {
       const input = { expectedOperationVersion: operation.version };
-      if (requiresStepUp(operation.riskLevel)) {
+      if (requiresGovernanceStepUp(operation.riskLevel, operation.operationType)) {
         await stepUp.run({
           purpose: 'ADMIN_GOVERNANCE_RETRY',
           target: { operationId: operation.id, expectedOperationVersion: operation.version },
@@ -570,8 +570,4 @@ export default function AdminGovernancePage({ initialOperationId }: { initialOpe
       <StepUpDialog {...stepUp.dialogProps} />
     </section>
   );
-}
-
-function requiresStepUp(risk: string): boolean {
-  return risk === 'HIGH' || risk === 'CRITICAL';
 }

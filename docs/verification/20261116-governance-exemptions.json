@@ -1,0 +1,76 @@
+{
+  "task": "按用户确认，仅取消授予超级管理员权限与重置管理员验证器的二次验证",
+  "verifiedAt": "2026-11-16T15:28:10.583091+08:00",
+  "checkpointCommit": "5b099b7c",
+  "scope": {
+    "exemptOperations": [
+      "SUPER_ADMIN_GRANT",
+      "ADMIN_MFA_RESET"
+    ],
+    "exemptStages": [
+      "create",
+      "approve",
+      "retry"
+    ],
+    "preserved": [
+      "CRITICAL风险等级",
+      "超级管理员授权",
+      "完整确认短语",
+      "独立审核、禁止自审和目标审核",
+      "目标版本、重复提交及执行保护",
+      "审计记录",
+      "其他高风险操作的二次验证"
+    ]
+  },
+  "cause": "前后端此前仅按HIGH/CRITICAL等级要求验证码，未按具体治理操作区分。现用明确操作白名单豁免，服务端以解析后的操作类型或数据库中的操作类型判断。",
+  "actualSystem": {
+    "entry": "http://43.136.135.233",
+    "database": "实际运行的chengye_oa，localhost:55432",
+    "browser": "标准Playwright Chromium，未修改代理设置",
+    "results": [
+      "Public password-only login: requester and reviewer have no authenticator",
+      "Ordinary account remains forbidden from granting super-admin",
+      "Public UI SUPER_ADMIN_GRANT: confirmation retained; submitted without TOTP",
+      "Public API SUPER_ADMIN_GRANT: independent approval and execution without TOTP; self-review denied",
+      "Disposable target enrolled via normal public MFA APIs for reset verification",
+      "Public UI ADMIN_MFA_RESET: confirmation retained; submitted without TOTP",
+      "Public API ADMIN_MFA_RESET: independent approval and execution without TOTP; self-review denied",
+      "Reset disabled factor and recovery codes, invalidated target sessions and old access",
+      "Actual browser made zero step-up or enrollment requests for both governed submissions",
+      "Other critical governance and permanent worksheet destruction remain protected; no data destroyed",
+      "Actual database confirms authorization change, reset effects and complete governance audit",
+      "All disposable sessions, including browser devices, logged out via public logout-all API"
+    ],
+    "browserStepUpRequests": 0,
+    "operationIds": [
+      "8f02036b-ed7d-480c-9936-eebb333405e0",
+      "555700ae-2931-45f9-97f4-51a4ec09b4e3"
+    ],
+    "scopeNote": "两项提交在实际公网页面完成；独立批准通过实际公网API完成。实际数据库核对生效结果与审计。重试和过期版本保护在隔离数据库及前端回归验证。"
+  },
+  "checks": {
+    "serverTests": "31项通过：最终API回归7项、治理验证/管理员适配器/审核/恢复回归24项；数据库测试串行、使用独立oa_security_test。",
+    "webTests": "3个文件共12项通过",
+    "serverTypecheck": "通过",
+    "changedFilesESLint": "前后端通过",
+    "webBuild": "通过，保留现有大体积chunk提示",
+    "gitDiffCheck": "通过"
+  },
+  "cleanup": {
+    "fixtureUsersRemoved": 3,
+    "fixtureOperationsRemoved": 2,
+    "sessionsFactorsGrantsRemoved": true,
+    "auditLogsRetained": 26,
+    "realAccountsChanged": false,
+    "realBusinessDataChanged": false
+  },
+  "evidence": [
+    "20261116-governance-exemptions/SUPER_ADMIN_GRANT-confirmation.png",
+    "20261116-governance-exemptions/ADMIN_MFA_RESET-confirmation.png"
+  ],
+  "notes": [
+    "验收脚本最后的退出所有设备地址初次填写错误；已改用实际/auth/logout-all接口完成退出并核验零活动会话。该脚本错误不涉及产品修改。",
+    "仅使用三名明确标记的临时验收账号，未修改真实员工权限、密码或验证器。",
+    "保留外观设置、个人修改密码与其他已完成功能。"
+  ]
+}

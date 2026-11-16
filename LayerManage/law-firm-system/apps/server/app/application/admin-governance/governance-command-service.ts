@@ -58,7 +58,7 @@ export class GovernanceCommandService {
     let created: AdminOperation;
     try {
       created = await this.prisma.$transaction(async tx => {
-        if (requiresGovernanceStepUp(catalog.riskLevel)) {
+        if (requiresGovernanceStepUp(catalog.riskLevel, input.operationType)) {
           await consumeGovernanceStepUp(
             tx,
             this.stepUp,

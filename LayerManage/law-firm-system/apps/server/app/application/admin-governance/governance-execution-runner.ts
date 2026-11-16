@@ -156,7 +156,7 @@ export class GovernanceExecutionRunner {
         if (!mayResumeExecution(operation.status as GovernanceStatus, successfulAttempts, catalog.retryable)) {
           processed();
         }
-        if (retryStepUp && requiresGovernanceStepUp(operation.riskLevel)) {
+        if (retryStepUp && requiresGovernanceStepUp(operation.riskLevel, operation.operationType)) {
           await consumeGovernanceStepUp(
             tx,
             this.stepUp,

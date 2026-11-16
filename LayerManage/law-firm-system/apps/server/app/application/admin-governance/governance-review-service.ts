@@ -115,7 +115,7 @@ export class GovernanceReviewService {
         if (!(error instanceof GovernanceError)) throw error;
         return rejectReview(tx, context.userId, id, error, normalizedRequestId, operation);
       }
-      if (input.decision === 'APPROVE' && requiresGovernanceStepUp(operation.riskLevel)) {
+      if (input.decision === 'APPROVE' && requiresGovernanceStepUp(operation.riskLevel, operation.operationType)) {
         await consumeGovernanceStepUp(
           tx,
           this.stepUp,

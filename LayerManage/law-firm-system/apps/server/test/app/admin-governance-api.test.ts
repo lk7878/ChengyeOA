@@ -32,7 +32,7 @@ interface TestSession {
 
 function bearer(token: string) { return { Authorization: `Bearer ${token}` }; }
 
-async function createAdministrator(code: 'SYSTEM_ADMIN' | 'SYSTEM_SUPER_ADMIN') {
+async function createAdministrator(code: 'SYSTEM_ADMIN' | 'SYSTEM_SUPER_ADMIN', bound = true) {
   const user = await prisma.user.create({ data: {
     username: `${code.toLowerCase()}.${randomUUID()}`, password: 'unused',
   } });
@@ -40,7 +40,7 @@ async function createAdministrator(code: 'SYSTEM_ADMIN' | 'SYSTEM_SUPER_ADMIN') 
   await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
   const secret = new TotpService().generateSecret();
   const encrypted = new MfaSecretCrypto((app.config as typeof app.config & { identitySecurity: { mfaEncryptionKeys: ReadonlyMap<number, Buffer> } }).identitySecurity.mfaEncryptionKeys).encrypt(secret);
-  await prisma.mfaFactor.create({ data: {
+  if (bound) await prisma.mfaFactor.create({ data: {
     userId: user.id,
     encryptedSecret: encrypted.ciphertext,
     secretIv: encrypted.iv,
@@ -48,7 +48,7 @@ async function createAdministrator(code: 'SYSTEM_ADMIN' | 'SYSTEM_SUPER_ADMIN') 
     keyVersion: encrypted.keyVersion,
     verifiedAt: new Date(),
   } });
-  const credentials = await new SessionService(prisma, new JwtTokenService(jwtSecret)).create(user.id, 'MFA', {});
+  const credentials = await new SessionService(prisma, new JwtTokenService(jwtSecret)).create(user.id, bound ? 'MFA' : 'PASSWORD', {});
   return {
     id: user.id,
     token: credentials.accessToken,
@@ -177,5 +177,101 @@ test('rejects client-controlled policy fields and returns stable errors without 
       .set(bearer(systemToken)).send({ ...createInput(), [field]: 'CLIENT_VALUE' }).expect(400);
     assert.equal(response.body.message, 'TARGET_NOT_ELIGIBLE');
     assert.doesNotMatch(JSON.stringify(response.body), /Prisma|SELECT|stack|password|Bearer/i);
+  }
+});
+
+for (const operationType of ['SUPER_ADMIN_GRANT', 'ADMIN_MFA_RESET'] as const) {
+  test(`${operationType} needs no factor on create, approval or retry, but preserves governance safeguards`, async () => {
+    const requester = await createAdministrator('SYSTEM_SUPER_ADMIN', false);
+    const reviewer = await createAdministrator('SYSTEM_SUPER_ADMIN', false);
+    const target = operationType === 'ADMIN_MFA_RESET'
+      ? await createAdministrator('SYSTEM_SUPER_ADMIN')
+      : await prisma.user.create({ data: { username: `target.${randomUUID()}`, password: 'unused' } });
+    const targetUser = await prisma.user.findUniqueOrThrow({ where: { id: target.id } });
+    const ordinary = await prisma.user.create({ data: { username: `ordinary.${randomUUID()}`, password: 'unused' } });
+    const ordinarySession = await new SessionService(prisma, new JwtTokenService(jwtSecret)).create(ordinary.id, 'PASSWORD', {});
+    const databaseName = decodeURIComponent(new URL(process.env.DATABASE_URL_TEST!).pathname.slice(1));
+    const input = {
+      operationType, targetType: 'USER', targetId: target.id,
+      expectedTargetVersion: targetUser.credentialVersion,
+      reason: 'Verify the explicitly exempt action retains independent review and audit',
+      payload: operationType === 'SUPER_ADMIN_GRANT' ? { validUntil: null } : {},
+      confirmation: `CONFIRM ${databaseName} ${operationType} ${targetUser.username}`,
+      idempotencyKey: randomUUID(),
+    };
+    const create = (token: string, body = input) => app.httpRequest()
+      .post('/api/v1/admin-governance/operations').set(bearer(token)).send(body);
+    await create(systemToken).expect(403);
+    await create(ordinarySession.accessToken).expect(403);
+    const badConfirmation = await create(requester.token, { ...input, confirmation: 'wrong' }).expect(422);
+    assert.equal(badConfirmation.body.message, 'TARGET_NOT_ELIGIBLE');
+
+    // A genuinely stale target fails execution and retry without demanding a factor.
+    const stale = await create(requester.token, { ...input, expectedTargetVersion: targetUser.credentialVersion + 1,
+      idempotencyKey: randomUUID() }).expect(200);
+    const failure = await app.httpRequest().post(`/api/v1/admin-governance/operations/${stale.body.data.id}/review`)
+      .set(bearer(reviewer.token)).send({ decision: 'APPROVE', expectedOperationVersion: stale.body.data.version }).expect(409);
+    assert.equal(failure.body.message, 'STALE_TARGET_VERSION');
+    const failed = await app.httpRequest().get(`/api/v1/admin-governance/operations/${stale.body.data.id}`).set(bearer(reviewer.token)).expect(200);
+    assert.equal(failed.body.data.status, 'FAILED');
+    assert.equal(failed.body.data.executions[0].resultCode, 'STALE_TARGET_VERSION');
+    const retryFailure = await app.httpRequest().post(`/api/v1/admin-governance/operations/${stale.body.data.id}/retry`)
+      .set(bearer(reviewer.token)).send({ expectedOperationVersion: failed.body.data.version }).expect(409);
+    assert.equal(retryFailure.body.message, 'STALE_TARGET_VERSION');
+    const retried = await app.httpRequest().get(`/api/v1/admin-governance/operations/${stale.body.data.id}`).set(bearer(reviewer.token)).expect(200);
+    assert.equal(retried.body.data.status, 'FAILED');
+    assert.equal(retried.body.data.executions.length, 2);
+
+    const created = await create(requester.token).expect(200);
+    const op = created.body.data;
+    assert.equal(op.status, 'PENDING_REVIEW');
+    assert.equal(op.riskLevel, 'CRITICAL');
+    assert.ok(op.secondConfirmationAt);
+    const review = (token: string, version = op.version) => app.httpRequest()
+      .post(`/api/v1/admin-governance/operations/${op.id}/review`).set(bearer(token))
+      .send({ decision: 'APPROVE', expectedOperationVersion: version });
+    await review(systemToken).expect(403);
+    const self = await review(requester.token).expect(403);
+    assert.equal(self.body.message, 'GOVERNANCE_SELF_REVIEW_FORBIDDEN');
+    if ('token' in target) {
+      const conflicted = await review(target.token).expect(403);
+      assert.equal(conflicted.body.message, 'GOVERNANCE_REVIEW_TARGET_CONFLICT');
+    }
+    await review(reviewer.token, op.version + 1).expect(409);
+    const approved = await review(reviewer.token).expect(200);
+    assert.equal(approved.body.data.status, 'SUCCEEDED');
+    assert.equal(approved.body.data.reviews.length, 1);
+    assert.equal(approved.body.data.executions.length, 1);
+    await review(reviewer.token).expect(409);
+    const audit = await prisma.operationLog.findMany({ where: { targetId: op.id }, select: { action: true } });
+    for (const action of ['ADMIN_GOVERNANCE_CREATED_CONFIRMED', 'ADMIN_GOVERNANCE_APPROVE', 'ADMIN_GOVERNANCE_EXECUTION_SUCCEEDED']) {
+      assert.ok(audit.some(item => item.action === action), action);
+    }
+    assert.equal(await prisma.mfaFactor.count({ where: { userId: { in: [requester.id, reviewer.id] } } }), 0);
+    assert.equal(await prisma.stepUpGrant.count({ where: { userId: { in: [requester.id, reviewer.id] } } }), 0);
+    if (operationType === 'SUPER_ADMIN_GRANT') {
+      assert.equal(await prisma.userRole.count({ where: { userId: target.id, role: { code: 'SYSTEM_SUPER_ADMIN' }, revokedAt: null } }), 1);
+    } else {
+      const factor = await prisma.mfaFactor.findFirstOrThrow({ where: { userId: target.id } });
+      assert.ok(factor.disabledAt);
+      assert.equal(await prisma.authSession.count({ where: { userId: target.id, revokedAt: null } }), 0);
+      assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: target.id } })).credentialVersion, targetUser.credentialVersion + 1);
+      assert.equal(await prisma.operationLog.count({ where: { targetId: target.id, action: 'ADMIN_MFA_RESET_GOVERNANCE' } }), 1);
+    }
+  });
+}
+
+test('other critical and high-risk governance actions still require step-up', async () => {
+  const requester = await createAdministrator('SYSTEM_SUPER_ADMIN', false);
+  const targetUser = await prisma.user.findUniqueOrThrow({ where: { id: superId } });
+  const databaseName = decodeURIComponent(new URL(process.env.DATABASE_URL_TEST!).pathname.slice(1));
+  for (const operationType of ['SYSTEM_ADMIN_GRANT', 'SUPER_ADMIN_REVOKE', 'SUPER_ADMIN_ACCOUNT_DISABLE']) {
+    const response = await app.httpRequest().post('/api/v1/admin-governance/operations').set(bearer(requester.token)).send({
+      operationType, targetType: 'USER', targetId: superId, expectedTargetVersion: 1,
+      payload: operationType.endsWith('_GRANT') ? { validUntil: null } : {},
+      reason: 'Other actions must retain their original step-up boundary', idempotencyKey: randomUUID(),
+      ...(operationType.startsWith('SUPER_ADMIN_') ? { confirmation: `CONFIRM ${databaseName} ${operationType} ${targetUser.username}` } : {}),
+    }).expect(403);
+    assert.equal(response.body.message, 'STEP_UP_REQUIRED');
   }
 });

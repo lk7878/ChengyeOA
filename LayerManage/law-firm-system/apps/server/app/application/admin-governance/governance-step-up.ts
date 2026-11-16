@@ -31,6 +31,8 @@ export async function consumeGovernanceStepUp(
   await consumer.consume(tx, authorization.claims, purpose, target, authorization.token);
 }
 
-export function requiresGovernanceStepUp(riskLevel: string): boolean {
+export function requiresGovernanceStepUp(riskLevel: string, operationType: string): boolean {
+  // Only these two governed actions are exempt; authorization, review and audit remain mandatory.
+  if (operationType === 'SUPER_ADMIN_GRANT' || operationType === 'ADMIN_MFA_RESET') return false;
   return riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
 }

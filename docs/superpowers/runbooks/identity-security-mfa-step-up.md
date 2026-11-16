@@ -2,13 +2,15 @@
 
 This runbook is the production operating contract for SPEC-006. It covers the MFA encryption key, synchronized rollout, administrator enrollment, recovery codes, governed and emergency MFA reset, backup/restore, rollback, and key-loss response.
 
-## Current interaction policy (2026-11-15)
+## Current interaction policy (2026-11-16)
 
 Login is password-only for all accounts, including administrators and accounts with an existing TOTP factor. First-login / administrator-reset password changes remain mandatory. The legacy `LOCAL_PASSWORD_LOGIN` setting does not control this policy or bypass high-risk checks.
 
 The account menu retains Appearance and adds an in-page Change Password dialog. Changing a personal password verifies the current password, rotates the current device's credentials atomically, invalidates old credentials and outstanding proofs, and logs out all other devices. Device logout is owner-scoped and CSRF-protected; it does not require a factor. Passwords are per account, never shared by role. No periodic password change is imposed.
 
 Ordinary approvals, individual recoverable worksheet record deletion/undo, and moving a directory into the recycle bin do not require TOTP. The existing record batch-delete endpoint is limited to 100 recoverable rows with per-row access checks and undo history; it does not permanently destroy them and does not require TOTP. Destruction of an entire worksheet or a data-bearing directory is always protected. Permanently destroying a worksheet, purging a directory containing documents, permanently deleting an attachment, creating or deleting roles, changing role permissions or grants, resetting another user's password, changing a department manager, and account/employee bindings require an effective SYSTEM_ADMIN or SYSTEM_SUPER_ADMIN and a fresh action proof. Empty folder removal, role name/description edits, and navigation-only menu changes are excluded. No database-wipe or restore endpoint is added.
+
+The governed actions `SUPER_ADMIN_GRANT` and `ADMIN_MFA_RESET` do not require TOTP at submission, approval or retry. Their CRITICAL classification, exact confirmation phrase, super-admin authorization, independent review, target/version checks and audit remain unchanged. This exception does not apply to revoking or disabling a super-admin, other role changes, permanent data deletion, or personal factor maintenance.
 
 High-risk HTTP proofs bind method, path, and a digest of the body/query; existing governance proofs continue to bind their operation and version. A proof lasts five minutes and is single use. Validation never substitutes for the original permission, data-scope, review-identity, version, and audit checks. Password-only sessions can verify a concrete action. Administrators can enroll within the pending action dialog and continue without navigating away; a fresh TOTP period is needed after enrollment because replay protection remains enabled.
 
@@ -50,7 +52,7 @@ Keep at least two independently controlled effective `SYSTEM_SUPER_ADMIN` accoun
 3. The second super-admin independently signs in, binds a different authenticator, saves a different recovery-code set, and verifies a fresh login.
 4. Confirm both can access the administrator-governance catalog. Do not store both authenticators or both recovery-code sets with the same custodian.
 
-An administrator cannot disable their own MFA. Resetting administrator MFA is a CRITICAL governance action requiring another eligible super-admin, exact confirmation, fresh TOTP Step-Up, non-self-review, and an audit trail.
+An administrator cannot disable their own MFA. Resetting administrator MFA is a CRITICAL governance action requiring another eligible super-admin, exact confirmation, non-self-review, and an audit trail.
 
 ## Recovery-Code Handling
 
@@ -61,7 +63,7 @@ An administrator cannot disable their own MFA. Resetting administrator MFA is a 
 
 ## Governed Administrator MFA Reset
 
-Use `ADMIN_MFA_RESET` for normal recovery when another effective super-admin is available. The target must be a different administrator. Approval disables the target factor, invalidates recovery codes, increments credential version, revokes all sessions, and requires re-enrollment before the next high-risk action.
+Use `ADMIN_MFA_RESET` for normal recovery when another effective super-admin is available. No authenticator code is required to submit, approve or retry this governed reset; the existing independent-review and confirmation requirements still apply. The target must be a different administrator. Approval disables the target factor, invalidates recovery codes, increments credential version, revokes all sessions, and requires re-enrollment before the next high-risk action.
 
 Verify the immutable governance record and the `ADMIN_MFA_RESET` audit before closing the incident. Never include TOTP, MFA, recovery, cookie, authorization, token, or secret fields in the request reason or evidence.
 
