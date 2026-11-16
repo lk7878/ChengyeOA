@@ -1,11 +1,11 @@
-import { PRODUCT_TITLE } from './src/product'
+import { BROWSER_TITLE } from './src/product'
 import { configDefaults, defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import { searchForWorkspaceRoot } from 'vite'
 
 export default defineConfig({
-  plugins: [react(), { name: 'chengye-product-title', transformIndexHtml: html => html.replace(/<title>.*?<\/title>/, '<title>' + PRODUCT_TITLE + '</title>') }],
+  plugins: [react(), { name: 'chengye-product-title', transformIndexHtml: html => html.replace(/<title>.*?<\/title>/, '<title>' + BROWSER_TITLE + '</title>') }],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

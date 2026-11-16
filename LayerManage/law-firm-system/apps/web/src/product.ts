@@ -2,3 +2,6 @@
 export const PRODUCT_NAME = '律师智慧管理系统';
 export const PRODUCT_VERSION = '1.2.1';
 export const PRODUCT_TITLE = PRODUCT_NAME + ' V' + PRODUCT_VERSION;
+
+// Browser tabs use the public brand name without a release version.
+export const BROWSER_TITLE = '承业智慧管理系统';

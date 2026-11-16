@@ -4,13 +4,14 @@ import { Link, Navigate, useSearchParams } from 'react-router';
 import { WorkspaceEditor } from '@/pages/Workspaces';
 import { get, errorMessage } from '@/features/workspaces/api';
 import type { BusinessDirectory } from '@/features/crm/BusinessWorkspacePage';
+import { BROWSER_TITLE } from '@/product';
 import { inventoryWorksheetRoutes } from './worksheet-routes';
 
 export default function InventoryWorksheetPage({ section }: { section: string }) {
   const [params] = useSearchParams();
   const config = inventoryWorksheetRoutes[section];
   return <>
-    <title>{`${config.title} · 律师智慧管理系统`}</title>
+    <title>{BROWSER_TITLE}</title>
     {params.get('base') && params.get('table')
       ? <WorkspaceEditor businessMode />
       : <WorksheetDestination key={section} kind={config.kind} title={config.title} />}
