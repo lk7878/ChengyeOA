@@ -7,12 +7,14 @@ const inner = readFileSync(path.join(here, 'src/client.js'), 'utf8')
   .replace(/\r\n/g, '\n')
   .replace(/^import \{ useEffect \} from 'react'\n+/, '')
   .replace(/^import \{ jsx, jsxs \} from 'react\/jsx-runtime'\n+/, '')
+  .replace(/^import \{ registerOaFileSync \} from '\.\/oa-file-sync.js'\n+/, '')
+const fileSync = readFileSync(path.join(here, 'src/oa-file-sync.js'), 'utf8')
 const out = [
   'window.__ModuleLoader__.load({ id: "dsh-baiyou-brand", factory: (require) => {',
   'var module = { exports: {} }; var exports = module.exports;',
   'var { useEffect } = require("react");',
   'var { jsx, jsxs } = require("react/jsx-runtime");',
-  inner.replaceAll('export const ', 'const ').replaceAll('export function ', 'function '),
+  (fileSync + '\n' + inner).replaceAll('export const ', 'const ').replaceAll('export function ', 'function '),
   'exports.inject = inject; exports.apply = apply;',
   'return module.exports; } });',
   '',

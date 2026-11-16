@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
+import { registerOaFileSync } from './oa-file-sync.js'
 
-export const inject = ['slots', 'theme']
+export const inject = ['slots', 'theme', 'contextMenus']
 
 const TITLE = '承业智慧办案 · AI 助手'
 const CSS_ID = 'dsh-baiyou-brand/css'
@@ -166,6 +167,7 @@ function SkipPreviewNotice({ complete }) {
 function HiddenSettings() { return null }
 
 export function apply(ctx) {
+  registerOaFileSync(ctx)
   ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
     name: 'settings.onboarding', id: 'welcome-notice', order: -100, priority: -10,
   }, SkipPreviewNotice))
