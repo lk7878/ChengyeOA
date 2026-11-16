@@ -48,4 +48,11 @@ test('large uploads resume idempotently, retain immutable versions and enforce e
  await owner.share(first.id,{version:3,policy:{restricted:true,grants:[]}});await assert.rejects(other.content(first.id,1));
  const stale=await owner.begin({fileId:first.id,version:4,name:'stale',size:0});await owner.rename(first.id,{version:4,name:'renamed'});await assert.rejects(owner.complete(stale.id));
  const huge=await owner.begin({name:'large-format.bin',size:3*1024*1024*1024});assert.equal(huge.total,3221225472);
+ // Purging a personal original must retain the separately stored formal archive.
+ const savedRow=await db.personalFile.findUniqueOrThrow({where:{id:saved.id}});
+ await other.remove({files:[{id:saved.id,version:savedRow.version}]});
+ await other.purge(saved.id,{version:savedRow.version+1});
+ const archivedFile=await db.caseFile.findUniqueOrThrow({where:{id:archived.caseFileId}});
+ assert.equal((await readFile(path.resolve(process.env.CASE_FILES_STORAGE_ROOT||'var/storage/case-files',archivedFile.filePath))).toString(),'out');
+ assert.ok(await db.smartCaseArchive.findUnique({where:{key:archived.key}}));
 });

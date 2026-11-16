@@ -26,7 +26,12 @@ export class PersonalFileTransfer extends PersonalFiles {
     await mkdir(root(), { recursive: true });
     const space = await statfs(root());
     if (total * 2 > space.bavail * space.bsize) fail('PERSONAL_STORAGE_FULL', 507);
-    return this.db.personalFileUpload.create({ data: { id: randomUUID(), ownerId: this.actor.userId, lineage, source, name, total, parentId, fileId, expectedVersion: fileId ? integer(v.version) : null } });
+    return this.db.$transaction(async tx=>{
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('personal-files',0))`;
+      if(fileId){const r=await this.require(fileId,2,tx);if(r.row.kind!=='FILE'||r.row.version!==integer(v.version))fail('COLLAB_ACCESS_CONFLICT',409);}
+      if(parentId)await this.require(parentId,2,tx);
+      return tx.personalFileUpload.create({ data: { id: randomUUID(), ownerId: this.actor.userId, lineage, source, name, total, parentId, fileId, expectedVersion: fileId ? integer(v.version) : null } });
+    });
   }
   async uploadStatus(id: string) {
     const row = await this.db.personalFileUpload.findUnique({ where: { id } });

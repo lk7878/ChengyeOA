@@ -20,6 +20,8 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  PERSONAL_FILE_PURGE_FAILED: '文件清理未完成，已禁止恢复；请在回收站点击“重试彻底删除”。',
+  PERSONAL_FILE_PURGE_REFERENCED: '文件存储仍被其他文件引用，未执行删除，请联系管理员核对。',
   COLLAB_CUSTOMER_ROUTE_UNAVAILABLE: '对应律师客资表或同步字段不可用，客户修改未保存，请联系管理员检查。',
   COLLAB_CUSTOMER_ROUTE_DUPLICATE: '客资表存在重复客户编号，客户修改未保存，请联系管理员核对。',
   COLLAB_CUSTOMER_ROUTE_REQUIRED_FIELD: '客资表有无法自动填写的必填字段，客户修改未保存，请联系管理员检查。',

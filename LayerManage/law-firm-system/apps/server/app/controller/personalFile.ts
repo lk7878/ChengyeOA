@@ -8,6 +8,7 @@ export default class PersonalFileController extends Controller {
   async remove(){this.respond(await this.svc().remove(this.ctx.request.body));}
   async trash(){this.respond(await this.svc().trash());}
   async restore(){this.respond(await this.svc().restore(this.ctx.params.id,this.ctx.request.body));}
+  async purge(){this.respond(await this.svc().purge(this.ctx.params.id,this.ctx.request.body));}
   async create(){this.respond(await this.svc().create(this.ctx.request.body));}
   async replace(){this.respond(await this.svc().replace(this.ctx.params.id,this.ctx.request.body));}
   async download(){this.respond(await this.svc().download(this.ctx.params.id));}

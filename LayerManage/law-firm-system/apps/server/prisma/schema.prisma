@@ -2828,3 +2828,17 @@ model PersonalFilePublication {
   @@id([fileId,userId])
   @@map("personal_file_publication")
 }
+
+// Durable cleanup receipt: retained until all current/history blobs and upload chunks are gone.
+model PersonalFilePurge {
+  fileId String @id
+  ownerId String
+  name String
+  version Int
+  storageKeys Json
+  uploadIds Json
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  @@index([ownerId,completedAt])
+  @@map("personal_file_purge")
+}

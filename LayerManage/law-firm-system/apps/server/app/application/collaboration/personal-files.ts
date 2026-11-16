@@ -1,6 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir,readFile,writeFile,unlink } from 'node:fs/promises';
+import { mkdir,readFile,writeFile,unlink,rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Prisma } from '@prisma/client';
 import { CollaborationService,Access } from './collaboration-service';
@@ -128,7 +128,56 @@ export class PersonalFiles extends CollaborationService {
       return {count:files.length};
     });
   }
-  async trash(){return {items:await this.db.personalFile.findMany({where:{ownerId:this.actor.userId,deletedAt:{not:null}},select:{id:true,name:true,version:true,deletedAt:true},orderBy:{deletedAt:'desc'}})};}
+  async trash(){
+    const [files,pending]=await Promise.all([
+      this.db.personalFile.findMany({where:{ownerId:this.actor.userId,deletedAt:{not:null}},select:{id:true,name:true,version:true,deletedAt:true},orderBy:{deletedAt:'desc'}}),
+      this.db.personalFilePurge.findMany({where:{ownerId:this.actor.userId,completedAt:null},orderBy:{createdAt:'desc'}}),
+    ]);
+    return {items:[...pending.map(p=>({id:p.fileId,name:p.name,version:p.version,deletedAt:p.createdAt,purging:true})),...files.map(f=>({...f,purging:false}))]};
+  }
+  async purge(id:string,raw:unknown){
+    const input=exact(raw,['version']),version=integer(input.version);
+    const [file,job]=await Promise.all([this.db.personalFile.findUnique({where:{id}}),this.db.personalFilePurge.findUnique({where:{fileId:id}})]);
+    if(job?job.ownerId!==this.actor.userId:!file||file.ownerId!==this.actor.userId||!file.deletedAt||file.kind!=='FILE')fail('COLLAB_FORBIDDEN',403);
+    // Once trashed, new replacement uploads are forbidden. A concurrent restore
+    // changes the version, which is checked again under the lock below.
+    // Upload completion takes the upload lock before the tree lock; keep the same order.
+    const uploads=await this.db.personalFileUpload.findMany({where:{OR:[{fileId:id},{resultId:id}]},select:{id:true},orderBy:{id:'asc'}});
+    const receipt=await this.db.$transaction(async tx=>{
+      for(const upload of uploads)await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${upload.id},0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('personal-files',0))`;
+      const previous=await tx.personalFilePurge.findUnique({where:{fileId:id}});
+      if(previous){if(previous.ownerId!==this.actor.userId)fail('COLLAB_FORBIDDEN',403);if(previous.version!==version)fail('COLLAB_ACCESS_CONFLICT',409);return previous;}
+      const row=await tx.personalFile.findUnique({where:{id}});
+      if(!row||row.ownerId!==this.actor.userId||!row.deletedAt||row.kind!=='FILE')fail('COLLAB_FORBIDDEN',403);
+      if(row.version!==version)fail('COLLAB_ACCESS_CONFLICT',409);
+      const versions=await tx.personalFileVersion.findMany({where:{fileId:id}});
+      const storageKeys=[...new Set([row.storageKey,...versions.map(v=>v.storageKey)].filter((key):key is string=>!!key))];
+      const uploadIds=uploads.map(u=>u.id);
+      if([...storageKeys,...uploadIds].some(key=>!/^[a-f0-9-]{36}$/i.test(key)))fail('COLLAB_INVALID_FILE');
+      // A physical object referenced by another file must never be removed.
+      if(await tx.personalFile.count({where:{id:{not:id},storageKey:{in:storageKeys}}})||await tx.personalFileVersion.count({where:{fileId:{not:id},storageKey:{in:storageKeys}}}))fail('PERSONAL_FILE_PURGE_REFERENCED',409);
+      const job=await tx.personalFilePurge.create({data:{fileId:id,ownerId:row.ownerId,name:row.name,version,storageKeys,uploadIds}});
+      await tx.personalFilePublication.deleteMany({where:{fileId:id}});
+      await tx.personalFileVersion.deleteMany({where:{fileId:id}});
+      await tx.personalFileUpload.deleteMany({where:{OR:[{fileId:id},{resultId:id}]}});
+      await tx.personalFile.delete({where:{id}});
+      await tx.operationLog.create({data:{userId:this.actor.userId,action:'PERSONAL_FILE_PURGE_REQUEST',targetType:'PERSONAL_FILE',targetId:id}});
+      return job;
+    });
+    if(receipt.completedAt)return {ok:true};
+    // Persist the cleanup intent before touching disk. A failed cleanup remains in trash
+    // as a retry-only item, including after a process restart; it cannot be restored.
+    try{
+      for(const key of receipt.storageKeys as string[])await unlink(path.join(storage(),key)).catch(e=>{if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;});
+      for(const uploadId of receipt.uploadIds as string[])await rm(path.join(storage(),'uploads',uploadId),{recursive:true,force:true});
+    }catch{fail('PERSONAL_FILE_PURGE_FAILED',500);}
+    await this.db.$transaction(async tx=>{
+      const result=await tx.personalFilePurge.updateMany({where:{fileId:id,completedAt:null},data:{completedAt:new Date(),storageKeys:[],uploadIds:[]}});
+      if(result.count)await tx.operationLog.create({data:{userId:this.actor.userId,action:'PERSONAL_FILE_PURGE',targetType:'PERSONAL_FILE',targetId:id}});
+    });
+    return {ok:true};
+  }
   async restore(id:string,raw:unknown){
     const v=exact(raw,['version']);return this.db.$transaction(async tx=>{
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('personal-files',0))`;
