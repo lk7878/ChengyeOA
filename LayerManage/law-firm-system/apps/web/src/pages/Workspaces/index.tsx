@@ -9,6 +9,7 @@ import Modal from '@/components/DraggableModal';
 import BaseModule from '@/features/workspaces/BaseModule';
 import { inventoryViewConfig } from '@/pages/Inventory/context';
 import { financialSources, financialViewConfig, financeContextParams } from '@/pages/finance/context';
+import { useMenuLabels } from '@/features/navigation/menu-labels';
 import { useAuthStore } from '@/stores/authStore';
 import { businessSources, isBusinessSource, domainCreate } from '@/features/crm/business-sources';
 import CreateBusinessLead from '@/features/crm/CreateBusinessLead';
@@ -82,6 +83,8 @@ export default function WorkspacesPage() {
 }
 
 export function WorkspaceEditor({ businessMode = false }: { businessMode?: boolean }) {
+  const { sourceLabel } = useMenuLabels();
+  const superAdmin = useAuthStore(state=>!!state.authorization?.isSystemSuperAdmin);
   const appearance = useAppearance();
   const saveAppearance = useAppearanceStore(state => state.save);
   const appearanceReady = useAppearanceStore(state => state.status === 'ready');
@@ -133,7 +136,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   const [dialog, setDialog] = useState<Dialog>();
   const [busy, setBusy] = useState(false);
   const [form] = Form.useForm();
-  const [invite, setInvite] = useState<{tableId:string;version:number;invitations:Record<string,string>;roles:{id:string;name:string}[]}>();
+  const [invite, setInvite] = useState<{tableId:string;version:number;invitations:Record<string,string>;users?:{id:string;name:string}[];roles:{id:string;name:string}[]}>();
   const [inlineDirty, setInlineDirty] = useState(false);
   const [viewVersion, setViewVersion] = useState(1);
   const [editing, setEditing] = useState<Editing>();
@@ -501,7 +504,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
     setDialog(next);
     if (next.kind === 'share' && tableId) {
       setInvite(undefined);
-      void get<{version:number;invitations:Record<string,string>;roles:{id:string;name:string}[]}>('/tables/'+tableId+'/invitations')
+      void get<{version:number;invitations:Record<string,string>;users?:{id:string;name:string}[];roles:{id:string;name:string}[]}>('/tables/'+tableId+'/invitations')
         .then(data=>setInvite({...data,tableId})).catch(e=>message.error(errorMessage(e)));
     }
   };
@@ -968,7 +971,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
           {base && (
             <>
               <span className="workspace-divider">/</span>
-              <span>{base.name}</span>
+              <span>{sourceLabel(base.moduleSource,base.name)}</span>
             </>
           )}
         </Space>
@@ -1002,7 +1005,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
           {base && (
             <Button
               icon={<ShareAltOutlined />}
-              disabled={!detail?.access.canManageAccess || detail.access.level < 3}
+              disabled={!detail || (!superAdmin && (!detail.access.canManageAccess || detail.access.level < 3))}
               onClick={() => openDialog({ kind: 'share' })}
             >
               分享
@@ -2004,7 +2007,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     ] as const
                   ).map((source) => ({
                     value: source,
-                    label: '连接业务 · ' + businessSources[source].title,
+                    label: '连接业务 · ' + sourceLabel(source),
                     disabled: (baseAccess?.level || 0) < 4,
                   })),
                   ...(base?.moduleSource === 'CASES' ? [
@@ -2130,7 +2133,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
           )}
           {dialog?.kind === 'share' && <>
             <Form.Item name="principalId" label="邀请成员" rules={[{required:true}]}>
-              <Select showSearch optionFilterProp="label" onChange={id=>form.setFieldValue('role',invite?.invitations[id] || 'READER')} options={directory.users.map(u=>({value:u.id,label:u.name}))}/>
+              <Select showSearch optionFilterProp="label" onChange={id=>form.setFieldValue('role',invite?.invitations[id] || 'READER')} options={(invite?.users ?? directory.users).map(u=>({value:u.id,label:u.name}))}/>
             </Form.Item>
             <Form.Item name="role" label="工作表角色" rules={[{required:true}]}>
               <Select options={[{value:'READER',label:'阅读者'},{value:'EDITOR',label:'编辑者'},{value:'MANAGER',label:'管理员'},

@@ -743,6 +743,7 @@ export class CollaborationService {
       lifecycleKind: string | null;
       inventoryKind: string | null;
       baseName: string;
+      moduleSource: string | null;
       workspaceName: string;
     }[] = [];
     const targets: { id: string; name: string; workspaceName: string }[] = [];
@@ -786,6 +787,7 @@ export class CollaborationService {
               inventoryKind: table.inventoryKind,
               baseId: base.id,
               baseName: base.name,
+              moduleSource: directory.base.moduleSource,
               workspaceName: workspace.name,
             });
           }

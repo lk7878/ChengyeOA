@@ -21,7 +21,7 @@ export class WorksheetPermissions {
   async catalog() {
     this.manage();
     const tables = await this.db.collabTable.findMany({ where: { archived:false, source:{notIn:retiredSources}, base:{ OR:[{driveNode:null},{driveNode:{is:{deletedAt:null}}}] } },
-      select:{id:true,name:true,source:true,inventoryKind:true,base:{select:{id:true,name:true,workspace:{select:{name:true,moduleGroup:true}}}}}, orderBy:[{name:'asc'},{id:'asc'}] });
+      select:{id:true,name:true,source:true,inventoryKind:true,base:{select:{id:true,name:true,moduleSource:true,workspace:{select:{name:true,moduleGroup:true}}}}}, orderBy:[{name:'asc'},{id:'asc'}] });
     if (this.actor.isSystemSuperAdmin) return tables;
     const allowed: typeof tables = [];
     for (const t of tables) {
@@ -65,23 +65,29 @@ export class WorksheetPermissions {
       if (roleId === 'OWNER') fail('COLLAB_OWNER_IMMUTABLE',403);
       if (invite) {
         const svc = new CollaborationService(this.db,this.actor);
-        const selected = await svc.tableAccess(tableId,tx,3);
-        if (!selected.access.canManageAccess) fail('COLLAB_FORBIDDEN',403);
+        // System administration of invitations is independent of document membership.
+        // Ordinary managers still obey the table's effective grant ceiling.
+        await this.requireLiveInvitationTable(tableId, tx);
+        const selected = this.actor.isSystemSuperAdmin ? null : await svc.tableAccess(tableId,tx,3);
+        if (selected && !selected.access.canManageAccess) fail('COLLAB_FORBIDDEN',403);
         const userId = text(input.userId);
         if (roleId === 'REMOVE') delete invitations[userId];
         else {
-          if (!(await svc.options(base.base.workspaceId,tableId)).users.some(u => u.id === userId)) fail('COLLAB_MEMBER_UNAVAILABLE');
+          const eligible = this.actor.isSystemSuperAdmin
+            ? await tx.user.findFirst({where:{id:userId,status:'ENABLED'},select:{id:true}})
+            : (await svc.options(base.base.workspaceId,tableId)).users.some(u => u.id === userId);
+          if (!eligible) fail('COLLAB_MEMBER_UNAVAILABLE');
           if (!presets.some(p => p === roleId) && !rules[roleId]) fail('COLLAB_INVALID_ACCESS');
           const grant=rules[roleId] ?? defaultRule(roleId as 'READER'|'EDITOR'|'MANAGER');
-          const ceiling=selected.access;
+          const ceiling=selected?.access;
           const levels={DENY:0,READER:1,EDITOR:2,MANAGER:3,OWNER:4};
-          if(levels[grant.level]>ceiling.level || (grant.remove && ceiling.remove===false) ||
+          if(ceiling && (levels[grant.level]>ceiling.level || (grant.remove && ceiling.remove===false) ||
             (grant.copy && ceiling.copy===false) || (grant.automate && ceiling.automate===false) ||
             (ceiling.selfOnly && grant.rows!=='SELF') ||
             (ceiling.rules?.some(r=>r.rows!=='ALL'||r.business) && !ceiling.rules.some(r=>JSON.stringify(r)===JSON.stringify(grant))) ||
             ceiling.hidden.some(id=>grant.fields[id]!=='HIDDEN') ||
             ceiling.masked?.some(id=>!['HIDDEN','MASK'].includes(grant.fields[id])) ||
-            ceiling.readonly.some(id=>(grant.fields[id]??'EDIT')==='EDIT' && levels[grant.level]>=2))
+            ceiling.readonly.some(id=>(grant.fields[id]??'EDIT')==='EDIT' && levels[grant.level]>=2)))
             fail('COLLAB_GRANT_EXCEEDS_ACCESS',403);
           invitations[userId]=roleId;
         }
@@ -111,14 +117,26 @@ export class WorksheetPermissions {
     };
     return transaction ? apply(transaction) : this.db.$transaction(apply);
   }
+  private async requireLiveInvitationTable(tableId:string, tx:Prisma.TransactionClient=this.db) {
+    const table=await tx.collabTable.findFirst({where:{id:tableId,archived:false},select:{source:true,base:{select:{driveNode:{select:{deletedAt:true}}}}}});
+    if(!table)fail('COLLAB_NOT_FOUND',404);
+    if(table.base.driveNode?.deletedAt)fail('COLLAB_FORBIDDEN',403);
+    if(retiredSources.includes(table.source))fail('MODULE_RETIRED',409);
+  }
   async invitationOptions(tableId: string) {
     const svc=new CollaborationService(this.db,this.actor);
-    const {access}=await svc.tableAccess(tableId,this.db,3);
-    if (!access.canManageAccess) fail('COLLAB_FORBIDDEN',403);
+    await this.requireLiveInvitationTable(tableId);
+    if(!this.actor.isSystemSuperAdmin){
+      const {access}=await svc.tableAccess(tableId,this.db,3);
+      if (!access.canManageAccess) fail('COLLAB_FORBIDDEN',403);
+    }
     const saved=await this.db.worksheetRolePolicy.findUnique({where:{tableId}});
     const ids=Object.keys(saved?.rules || {});
     const roles=await this.db.role.findMany({where:{id:{in:ids},status:'ENABLED',type:'BUSINESS'},select:{id:true,name:true}});
-    return { roles,invitations:saved?.invitations ?? {},version:saved?.version ?? 0 };
+    const users=this.actor.isSystemSuperAdmin ? (await this.db.user.findMany({where:{status:'ENABLED'},
+      select:{id:true,username:true,employee:{select:{name:true}}},orderBy:{username:'asc'},take:1000}))
+      .map(user=>({id:user.id,name:user.employee?.name||user.username})) : undefined;
+    return { roles,users,invitations:saved?.invitations ?? {},version:saved?.version ?? 0 };
   }
   async preview(tableId: string, raw: unknown) {
     if (!this.actor.isSystemSuperAdmin) fail('COLLAB_FORBIDDEN',403);

@@ -7,7 +7,7 @@ import { WorksheetPermissions } from './WorksheetPermissions';
 import { businessLabel } from '@/locales/business-labels';
 import Table from '@/components/ResizableTable';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, DatePicker, Form, Input, message, Select, Space, Switch, Tabs, Tag, Checkbox, Collapse } from 'antd';
+import { Alert, Button, DatePicker, Form, Input, message, Select, Space, Switch, Tabs, Tag, Checkbox, Collapse } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
 import Modal from '@/components/DraggableModal';
 import { EditOutlined, PlusOutlined, ReloadOutlined, SaveOutlined, UserAddOutlined } from '@ant-design/icons';
@@ -55,6 +55,8 @@ export default function SecurityRolePage() {
   const [teams, setTeams] = useState<ProfessionalTeam[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [confirmWorksheets,setConfirmWorksheets]=useState(false);
+  const [worksheetSaveError,setWorksheetSaveError]=useState('');
   const [worksheetChanges,setWorksheetChanges]=useState<WorksheetChange[]>([]);
   const [editForm] = Form.useForm<RoleForm>();
   const [scopeForm] = Form.useForm<ScopeForm>();
@@ -254,10 +256,18 @@ export default function SecurityRolePage() {
           <ApplicationPermissions key={selected.id+':'+selected.version} roleId={selected.id} changes={worksheetChanges} onChange={setWorksheetChanges}
             readOnly={!canManagePermissions||selected.type!=='BUSINESS'} superAdmin={!!authorization?.isSystemSuperAdmin}/>
           {canManagePermissions&&selected.type==='BUSINESS'&&<Button type="primary" disabled={!worksheetChanges.length} loading={saving}
-            onClick={()=>Modal.confirm({title:'确认保存这些授权变更？',content:'仅更新上方差异中列出的工作表。请核对数据范围和特殊权限。',
-              onOk:async()=>{const response=await request.put<{data:RoleAuthorizationView}>('/roles/'+selected.id+'/worksheets',
-                {version:selected.version,worksheets:worksheetChanges},{suppressGlobalError:true});
-                acceptUpdatedRole(response.data);setWorksheetChanges([]);message.success('表格授权已保存');}})}>核对并保存表格授权</Button>}
+            onClick={()=>{setWorksheetSaveError('');setConfirmWorksheets(true);}}>核对并保存表格授权</Button>}
+          {worksheetSaveError && <Alert role="alert" type="error" title={worksheetSaveError}/>}
+          <Modal open={confirmWorksheets} title="确认保存这些授权变更？" okText="确认保存" cancelText="取消"
+            onCancel={()=>setConfirmWorksheets(false)} onOk={()=>{
+              setConfirmWorksheets(false);setSaving(true);
+              void request.put<{data:RoleAuthorizationView}>('/v1/roles/'+selected.id+'/worksheets',
+                {version:selected.version,worksheets:worksheetChanges},{suppressGlobalError:true})
+                .then(response=>{acceptUpdatedRole(response.data);setWorksheetChanges([]);message.success('表格授权已保存');})
+                .catch(error=>{setWorksheetSaveError(error instanceof Error && error.message==='STEP_UP_CANCELLED'
+                  ? '已取消验证，授权尚未保存；已选权限保留，可重新保存。' : authorizationErrorMessage(error));})
+                .finally(()=>setSaving(false));
+            }}>仅更新差异中列出的工作表。验证完成后会继续保存，取消验证会保留已选权限。</Modal>
         </>},...roleTabs.filter(t=>t.key==='members')]} />
       <Collapse items={[{key:'advanced',label:'高级设置 · 操作代码、数据范围及字段规则',children:<Tabs items={roleTabs.filter(t=>!['basic','members'].includes(t.key))}/>}]} />
     </Drawer>

@@ -9,8 +9,11 @@ export function defaultMenu(area:Area='apps'):MenuNode[]{
   return [...new Set(items.map(e=>e.group))].flatMap((group,i)=>[{id:'group-'+i,label:group,parentId:null,target:null,position:i},
     ...items.filter(e=>e.group===group).map((e,j)=>({id:'entry-'+e.path,label:e.title,parentId:'group-'+i,target:e.path,position:j}))]);
 }
-export const useMenuStore=create<{config:MenuConfig|null;load:()=>Promise<void>;set:(c:MenuConfig)=>void}>(set=>({config:null,
-  load:async()=>{const c=await get<MenuConfig>('/navigation-menu');set({config:c});},set:c=>set({config:c})}));
+export const menuChangeKey = 'oa-navigation-revision';
+export const useMenuStore=create<{config:MenuConfig|null;load:()=>Promise<void>;set:(c:MenuConfig)=>void}>((set,state)=>({config:null,
+  load:async()=>{const c=await get<MenuConfig>('/navigation-menu');if(c.version >= (state().config?.version ?? -1))set({config:c});},
+  set:c=>{set({config:c});try{localStorage.setItem(menuChangeKey,String(c.version));}catch{/* Server reload remains available. */}}
+}));
 export function menuTree(nodes:MenuNode[],allowed:Set<string>,parentId:string|null=null):Array<MenuNode&{children:ReturnType<typeof menuTree>}>{
   return nodes.filter(n=>n.parentId===parentId).sort((a,b)=>a.position-b.position||a.id.localeCompare(b.id)).flatMap(n=>{
     const children=menuTree(nodes,allowed,n.id);

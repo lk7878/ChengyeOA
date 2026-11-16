@@ -1,3 +1,4 @@
+import { useMenuLabels } from '@/features/navigation/menu-labels';
 import { formatMoney, formatBusinessDate, refundStatusLabels } from '@/utils/business-format';
 import { useEffect, useState } from 'react';
 import { Alert, Button, Input, Space, Table } from 'antd';
@@ -73,7 +74,8 @@ export default function ModuleRecordList({ source }: { source: Exclude<BusinessS
     setLoading(true);
     setRevision((n) => n + 1);
   };
-  const title = businessSources[source].title.replace('工作表', '记录');
+  const { sourceLabel } = useMenuLabels();
+  const title = sourceLabel(source);
   const href = (row: Row) => {
     const path = source === 'FOLLOWS' ? '/leads/' + row.leadId : businessSources[source].path + '/' + row.id;
     return path + (contextKey !== '{}' ? '?' + new URLSearchParams(context) : '');

@@ -17,7 +17,7 @@ export default function OfficeTemplate({roles,onSaved}:{roles:RoleAuthorizationV
         <ul>{template.capabilities.map(c=><li key={c}>{c}</li>)}</ul>
         <Space wrap>{Object.entries(names).map(([code,name])=><Checkbox key={code} checked={template.permissionCodes.includes(code)}
           onChange={e=>{setTemplate({...template,permissionCodes:e.target.checked?[...template.permissionCodes,code]:template.permissionCodes.filter(c=>c!==code)});setDiff(undefined);}}>{name}</Checkbox>)}</Space>
-        <p><Button onClick={async()=>{try{const r=await request.put<{data:Template}>('/roles/office-template',{version:template.version,permissionCodes:template.permissionCodes});
+        <p><Button onClick={async()=>{try{const r=await request.put<{data:Template}>('/v1/roles/office-template',{version:template.version,permissionCodes:template.permissionCodes});
           setTemplate(r.data);setDiff(undefined);message.success('模板已保存，新建角色将使用此版本');}catch(e){setError(errorMessage(e));}}}>保存新建角色默认模板</Button></p>
         <h3>显式更新已有角色</h3>
         <Select mode="multiple" style={{width:'100%'}} aria-label="选择应用模板的角色" placeholder="选择要更新的角色" value={selected}

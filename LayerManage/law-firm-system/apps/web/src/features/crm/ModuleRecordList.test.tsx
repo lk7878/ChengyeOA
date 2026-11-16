@@ -100,7 +100,7 @@ test('new module workbooks request a canonical business connection by default', 
   await waitFor(() =>
     expect(post).toHaveBeenCalledWith(
       '/workspaces/w/drive/bases',
-      { name: '客户工作表', moduleSource: 'CUSTOMERS', connectBusiness: true },
+      { name: '客户管理', moduleSource: 'CUSTOMERS', connectBusiness: true },
       expect.any(String),
     ),
   );

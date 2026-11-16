@@ -20,7 +20,7 @@ export default function ApplicationDefaults({role,onSaved,editable}:{role:RoleAu
     ]}/>
     {editable&&<Button style={{marginTop:12}} disabled={!pending.length} onClick={()=>Modal.confirm({
       title:'确认应用设置变更',content:<ul>{rows.filter(r=>pending.includes(r.id)).map(r=><li key={r.id}>{r.name} · {r.canCreate?'允许创建':'不授予创建'} · {({DENY:'新表单独授权',READER:'普通新表默认查看',EDITOR:'普通新表默认编辑'})[r.defaultLevel]}</li>)}</ul>,
-      onOk:async()=>{try{const result=await request.put<{data:RoleAuthorizationView}>('/roles/'+role.id+'/applications',{version:role.version,
+      onOk:async()=>{try{const result=await request.put<{data:RoleAuthorizationView}>('/v1/roles/'+role.id+'/applications',{version:role.version,
         applications:rows.filter(r=>pending.includes(r.id)).map(({id,...rest})=>({workspaceId:id,canCreate:rest.canCreate,defaultLevel:rest.defaultLevel,version:rest.version}))});
         onSaved(result.data);message.success('应用设置已保存');}catch(e){setError(errorMessage(e));throw e;}}
     })}>核对并保存应用设置</Button>}</>;

@@ -1,9 +1,10 @@
+import { useMenuLabels } from '@/features/navigation/menu-labels';
 import { useRef, useState } from 'react';
 import { Alert, Button, Input, Select } from 'antd';
 import Modal from '@/components/DraggableModal';
 import { errorMessage, get, post } from '../workspaces/api';
 import type { Workspace } from '../workspaces/types';
-import { businessSources, type BusinessSource } from './business-sources';
+import { type BusinessSource } from './business-sources';
 
 export default function CreateModuleBase({
   source,
@@ -12,6 +13,7 @@ export default function CreateModuleBase({
   source: BusinessSource;
   onCreated: (base: string, table: string) => void;
 }) {
+  const { sourceLabel } = useMenuLabels();
   const [open, setOpen] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [parents, setParents] = useState<{ id: string; name: string }[]>([]);
@@ -28,7 +30,7 @@ export default function CreateModuleBase({
         onClick={async () => {
           setOpen(true);
           setError('');
-          setName(businessSources[source].title);
+          setName(sourceLabel(source));
           setWorkspace(undefined);
           setConnectBusiness(true);
           setWorkspaces([]);
@@ -50,7 +52,7 @@ export default function CreateModuleBase({
         新建多维表格
       </Button>
       <Modal
-        title={'新建' + businessSources[source].title}
+        title={'新建' + sourceLabel(source)}
         open={open}
         okText="创建工作表"
         cancelText="取消"

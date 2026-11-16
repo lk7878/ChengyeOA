@@ -1,11 +1,12 @@
+import { useMenuLabels } from '@/features/navigation/menu-labels';
 import { useRef, useState } from 'react';
 import { Alert, Button, Select } from 'antd';
 import Modal from '@/components/DraggableModal';
-import { moduleOptions } from '@/features/crm/business-sources';
 import { errorMessage, post } from './api';
 import type { Base } from './types';
 
 export default function BaseModule({ base, onSaved }: { base: Base; onSaved: () => void }) {
+  const { moduleOptions } = useMenuLabels();
   const [open, setOpen] = useState(false);
   const [source, setSource] = useState<string>();
   const [busy, setBusy] = useState(false);

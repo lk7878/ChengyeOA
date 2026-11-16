@@ -38,6 +38,7 @@ function OpenStepUpDialog({
     <Modal
       open
       title="再次验证身份"
+      zIndex={2000}
       okText="验证并继续"
       cancelText="取消"
       okButtonProps={{
@@ -57,7 +58,7 @@ function OpenStepUpDialog({
     >
       <Typography.Paragraph>此操作影响：{impact}</Typography.Paragraph>
       <Typography.Paragraph>
-        验证码来自你绑定的手机身份验证器，不会显示在此页面，也不会通过短信发送。
+        请验证当前登录的管理员账号，不是正在被授权的新账号。验证码来自管理员绑定的手机身份验证器，不会通过短信发送。
       </Typography.Paragraph>
       {readiness === 'CHECKING' && (
         <Typography.Paragraph role="status">正在检查账号验证状态…</Typography.Paragraph>

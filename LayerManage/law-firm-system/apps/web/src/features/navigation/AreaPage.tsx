@@ -1,3 +1,4 @@
+import { useMenuLabels } from './menu-labels';
 import { defaultMenu, useMenuStore } from './menu-store';
 import { useState } from 'react';
 import { Empty, Input } from 'antd';
@@ -11,10 +12,11 @@ export default function AreaPage({ area: id }: { area: Area }) {
   const authorization = useAuthStore((state) => state.authorization);
   const name = useAuthStore((state) => state.userInfo?.name || state.userInfo?.username);
   const area = areas.find((item) => item.id === id)!;
+  const { resolve } = useMenuLabels();
   const config=useMenuStore(s=>s.config);
   const nodes=config?.nodes??defaultMenu();
   const available = visibleEntries(authorization, id).filter(e=>id!=='apps'||e.path==='/apps'||nodes.some(n=>n.target===e.path)).map(e=>{
-    if(id!=='apps')return e;const node=nodes.find(n=>n.target===e.path),parent=nodes.find(n=>n.id===node?.parentId);return {...e,title:node?.label??e.title,group:parent?.label??e.group};
+    if(id!=='apps')return e;const node=resolve(e.path);return {...e,title:node?.label??e.title,group:node?.group||e.group};
   }).filter(
     (item) => item.path !== area.path && (item.title + item.group).includes(query.trim()),
   );

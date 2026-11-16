@@ -1071,3 +1071,26 @@ test('table import is atomic and idempotent and export follows explicit grants a
   assert.equal(exported.records.length,1);
   assert.equal(exported.records[0].values[title.id],'一');
 });
+
+test('super administrator invites without table membership while ordinary admins cannot bypass table access',async()=>{
+  const {WorksheetPermissions}=await import('../../app/application/collaboration/worksheet-permissions');
+  const t=await table('CUSTOM');
+  const root=await db.user.create({data:{username:key(),password:'unused'}});
+  const recipient=await db.user.create({data:{username:key(),password:'unused'}});
+  const actor={...svc.actor,userId:root.id,employeeId:null};
+  const policy=new WorksheetPermissions(db,actor);
+  const options=await policy.invitationOptions(t.id);
+  assert.ok(options.users?.some(u=>u.id===recipient.id));
+  assert.equal(options.version,0);
+  await policy.change(t.id,{userId:recipient.id,roleId:'READER',version:0},true);
+  const saved=await db.worksheetRolePolicy.findUniqueOrThrow({where:{tableId:t.id}});
+  assert.equal((saved.invitations as Record<string,string>)[recipient.id],'READER');
+  assert.equal(await db.operationLog.count({where:{userId:root.id,targetId:t.id,action:'WORKSHEET_ROLE_INVITE'}}),1);
+  const ordinary=new WorksheetPermissions(db,{...actor,isSystemSuperAdmin:false,isSystemAdmin:true});
+  await assert.rejects(ordinary.change(t.id,{userId:recipient.id,roleId:'EDITOR',version:1},true),code('COLLAB_FORBIDDEN'));
+  await assert.rejects(policy.change(t.id,{userId:recipient.id,roleId:'OWNER',version:1},true),code('COLLAB_OWNER_IMMUTABLE'));
+  await assert.rejects(policy.change(t.id,{userId:recipient.id,roleId:'EDITOR',version:0},true),code('COLLAB_ACCESS_CONFLICT'));
+  await db.user.update({where:{id:recipient.id},data:{status:'DISABLED'}});
+  await assert.rejects(policy.change(t.id,{userId:recipient.id,roleId:'EDITOR',version:1},true),code('COLLAB_MEMBER_UNAVAILABLE'));
+  assert.equal((await db.worksheetRolePolicy.findUniqueOrThrow({where:{tableId:t.id}})).version,1);
+});

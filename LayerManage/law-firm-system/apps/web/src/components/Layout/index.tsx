@@ -1,5 +1,6 @@
 import BusinessNavigation from '@/features/navigation/BusinessNavigation';
-import { defaultMenu, useMenuStore } from '@/features/navigation/menu-store';
+import { useMenuLabels } from '@/features/navigation/menu-labels';
+import { menuChangeKey, useMenuStore } from '@/features/navigation/menu-store';
 import { inPreviewFrame } from '@/features/authorization/preview-frame';
 import PermissionPreview from '@/pages/SecurityRole/PermissionPreview';
 import Modal from '@/components/DraggableModal';
@@ -59,9 +60,18 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   const [search, setSearch] = useState('');
   const { userInfo, authorization, authorizationStatus, ensureAuthorization, logout } = useAuthStore();
   useNavigationAuthorization();
-  const {config:menuConfig,load:loadMenu}=useMenuStore();
-  useEffect(()=>{if(authorizationStatus==='ready')void loadMenu().catch(()=>undefined);},[authorizationStatus,loadMenu]);
-  const labelFor=(path:string,fallback:string)=>(menuConfig?.nodes??defaultMenu()).find(n=>n.target===path)?.label??fallback;
+  const loadMenu=useMenuStore(state=>state.load);
+  const { labelFor, pathFor } = useMenuLabels();
+  useEffect(()=>{
+    if(authorizationStatus!=='ready')return;
+    const reload=()=>{void loadMenu().catch(()=>undefined);};
+    const storage=(event:StorageEvent)=>{if(event.key===menuChangeKey)reload();};
+    const visible=()=>{if(!document.hidden)reload();};
+    reload();window.addEventListener('storage',storage);window.addEventListener('focus',reload);
+    document.addEventListener('visibilitychange',visible);
+    const timer=window.setInterval(visible,15000);
+    return()=>{clearInterval(timer);window.removeEventListener('storage',storage);window.removeEventListener('focus',reload);document.removeEventListener('visibilitychange',visible);};
+  },[authorizationStatus,loadMenu]);
   const current = findEntry(legacyRedirects[pathname] || pathname);
   const area = areas.find((item) => item.id === current?.area) || areas[0];
   const available = visibleEntries(authorization, area.id).filter((item) => item.path !== area.path);
@@ -141,7 +151,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   );
   const searchItems = entries.filter(
     (item) =>
-      !item.hidden && canOpen(item, authorization) && (labelFor(item.path,item.title) + item.group).includes(search.trim()),
+      !item.hidden && canOpen(item, authorization) && pathFor(item.path,item.group+' / '+item.title).includes(search.trim()),
   );
   return (
     <UnifiedShellContext.Provider value={true}>
@@ -269,7 +279,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
                 {labelFor(item.path,item.title)}
                 <small>
                   {item.global ? '全局工具' : areas.find((value) => value.id === item.area)?.title} ·{' '}
-                  {item.group}
+                  {pathFor(item.path,item.group)}
                 </small>
               </Link>
             ))}

@@ -1,3 +1,4 @@
+import { useMenuLabels } from '@/features/navigation/menu-labels';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Checkbox, Collapse, Form, Menu, Select, Space, Table, Tag } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
@@ -10,7 +11,7 @@ export type TableRule = {level:string;rows:'ALL'|'SELF'|'DEPARTMENT'|'SUBDEPARTM
   add:boolean;remove:boolean;copy:boolean;analytics:boolean;automate:boolean;share?:boolean;import?:boolean;
   business?:{permissions:string[];scopeIds:string[]}};
 export type WorksheetChange = {tableId:string;version:number;rule:TableRule};
-type CatalogTable = {id:string;name:string;source:string;inventoryKind?:string;base:{id:string;name:string;workspace:{name:string;moduleGroup?:string}}};
+type CatalogTable = {id:string;name:string;source:string;inventoryKind?:string;base:{id:string;name:string;moduleSource?:string|null;workspace:{name:string;moduleGroup?:string}}};
 type Settings = {inherited?:{roleId:string;source:string;level:string}[];version:number;rules:Record<string,TableRule>;fields:Field[];views:{id:string;name:string}[];
   capabilities:{permissionNames?:Record<string,string>;scopeTypes?:string[];selfMeaning?:string;resource:string|null;basic:string[];edit:string[];scoped:boolean;special:{code:string;name:string}[]}};
 type Scope = {id:string;name:string;scopeType:string};
@@ -19,6 +20,7 @@ const fieldModes=[{value:'HIDDEN',label:'隐藏'},{value:'MASK',label:'脱敏查
 const emptyRule=():TableRule=>({level:'DENY',rows:'ALL',fields:{},add:false,remove:false,copy:false,analytics:true,automate:false,share:false,import:false});
 export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,superAdmin=false}:
   {roleId?:string;changes:WorksheetChange[];onChange:(value:WorksheetChange[])=>void;readOnly?:boolean;superAdmin?:boolean}) {
+  const { sourceGroup, sourceGroupKey } = useMenuLabels();
   const [tables,setTables]=useState<CatalogTable[]>([]);
   const [settings,setSettings]=useState<Record<string,Settings>>({});
   const [scopes,setScopes]=useState<Scope[]>([]);
@@ -36,9 +38,10 @@ export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,s
       }).catch(e=>{if(active)setError(errorMessage(e));});
     return()=>{active=false;};
   },[roleId]);
-  const groups=useMemo(()=>[...new Set(tables.map(t=>t.base.workspace.moduleGroup || t.base.workspace.name))],[tables]);
-  const currentGroup=group || groups[0];
-  const visible=tables.filter(t=>(t.base.workspace.moduleGroup || t.base.workspace.name)===currentGroup);
+  const groupKey=(t:CatalogTable)=>sourceGroupKey(t.base.moduleSource,t.base.workspace.moduleGroup || t.base.workspace.name);
+  const groups=useMemo(()=>[...new Set(tables.map(t=>sourceGroupKey(t.base.moduleSource,t.base.workspace.moduleGroup || t.base.workspace.name)))],[tables,sourceGroupKey]);
+  const currentGroup=group && groups.includes(group) ? group : groups[0];
+  const visible=tables.filter(t=>groupKey(t)===currentGroup);
   const ruleFor=(id:string)=>changes.find(c=>c.tableId===id)?.rule || settings[id]?.rules[roleId || ''] || emptyRule();
   const change=(ids:string[],patch:Partial<TableRule>)=>{
     const next=[...changes];
@@ -73,7 +76,7 @@ export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,s
     <Alert type="info" title="成员按多个角色和直接分享合并获得权限。本角色设为无权限，仅撤销本角色这一来源的授权。"/>
     <div style={{display:'grid',gridTemplateColumns:'150px minmax(0,1fr)',gap:16,marginTop:16}}>
       <Menu selectedKeys={currentGroup?[currentGroup]:[]} onClick={e=>{setGroup(e.key);setSelected([]);}}
-        items={groups.map(g=>({key:g,label:tables.find(t=>(t.base.workspace.moduleGroup||t.base.workspace.name)===g)?.base.workspace.name||g}))}/>
+        items={groups.map(g=>{const table=tables.find(t=>groupKey(t)===g)!;return {key:g,label:sourceGroup(table.base.moduleSource,table.base.workspace.name)};})}/>
       <section>
         {!readOnly&&<Space style={{marginBottom:12}}>批量设置
           <Select aria-label="批量权限等级" placeholder="选择权限等级" disabled={!selected.length} style={{width:150}}

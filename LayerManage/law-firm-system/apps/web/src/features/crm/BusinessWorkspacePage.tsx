@@ -1,3 +1,4 @@
+import { useMenuLabels } from '@/features/navigation/menu-labels';
 import { useEffect, useState } from 'react';
 import { Alert, Button, Empty, Space, Spin } from 'antd';
 import { Link, useSearchParams } from 'react-router';
@@ -8,7 +9,7 @@ import { get, errorMessage } from '../workspaces/api';
 import { WorkspaceEditor } from '@/pages/Workspaces';
 
 export interface BusinessDirectory {
-  tables: { id: string; name: string; source?: string; lifecycleKind?: string | null; inventoryKind?: string | null; baseId: string; baseName: string; workspaceName: string }[];
+  tables: { id: string; name: string; source?: string; lifecycleKind?: string | null; inventoryKind?: string | null; baseId: string; baseName: string; workspaceName: string; moduleSource?: string | null }[];
   targets: { id: string; name: string; workspaceName: string }[];
 }
 export function BusinessTableLinks({
@@ -63,6 +64,7 @@ export default function BusinessWorkspacePage({ source = 'LEADS' }: { source?: B
   return <BusinessDirectoryPage key={source} source={source} />;
 }
 function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
+  const { sourceLabel, sourcePath } = useMenuLabels();
   const [params, setParams] = useSearchParams();
   const [data, setData] = useState<BusinessDirectory>();
   const [error, setError] = useState('');
@@ -76,7 +78,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
     return () => { active = false; };
   }, [source, revision]);
   return <div className="unified-area-page">
-    <div className="unified-area-heading"><h1>{businessSources[source].title}{retired && '历史归档'}</h1>
+    <div className="unified-area-heading"><h1>{sourceLabel(source)}{retired && '历史归档'}</h1>
       <Space>{!retired && <CreateModuleBase source={source} onCreated={(base, table) => setParams({...Object.fromEntries(params),base,table})}/>}
         <Button onClick={()=>setRevision(n=>n+1)}>刷新工作表</Button></Space></div>
     {retired && <Alert type="info" title="该模块已停用，历史记录仅供获授权人员查阅。"/>}
@@ -86,7 +88,7 @@ function BusinessDirectoryPage({ source }: { source: BusinessSource }) {
     <div className="unified-app-grid">{data?.tables.map(table=>
       <Link className="unified-app-card" key={table.id}
         to={'?'+new URLSearchParams({...Object.fromEntries(params),base:table.baseId,table:table.id})}>
-        <span><strong>{table.name}</strong><small>{table.workspaceName} / {table.baseName}</small></span>
+        <span><strong>{table.name}</strong><small>{sourcePath(table.moduleSource ?? source, table.workspaceName+' / '+table.baseName)}</small></span>
       </Link>)}</div>
   </div>;
 }
