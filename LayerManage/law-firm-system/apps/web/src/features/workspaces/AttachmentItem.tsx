@@ -4,27 +4,24 @@ import { Button, message } from 'antd';
 import { authenticatedFetch, get } from './api';
 
 export default function AttachmentItem({ tableId, id }: { tableId: string; id: string }) {
-  const [metadata, setMetadata] = useState<{ name: string; mimeType: string }>();
+  const [loaded, setLoaded] = useState<{ tableId: string; id: string; name: string; mimeType: string }>();
+  let metadata = loaded?.tableId === tableId && loaded.id === id ? loaded : undefined;
+  if (id.startsWith('case-file:')) {
+    metadata = undefined;
+    try {
+      const value = JSON.parse(id.slice(10));
+      if (value && typeof value.id === 'string' && typeof value.name === 'string' && typeof value.mimeType === 'string') {
+        metadata = { tableId, id, name: value.name, mimeType: value.mimeType };
+      }
+    } catch { /* Invalid file references remain unavailable. */ }
+  }
   const [preview, setPreview] = useState<string>();
   useEffect(() => {
     let alive = true;
-    if (id.startsWith('case-file:')) {
-      try {
-        const value = JSON.parse(id.slice(10));
-        if (
-          typeof value.id === 'string' &&
-          typeof value.name === 'string' &&
-          typeof value.mimeType === 'string'
-        )
-          setMetadata({ name: value.name, mimeType: value.mimeType });
-      } catch {
-        setMetadata(undefined);
-      }
-      return;
-    }
+    if (id.startsWith('case-file:')) return;
     void get<{ name: string; mimeType: string }>('/tables/' + tableId + '/files/' + id + '?metadata=true')
       .then((result) => {
-        if (alive) setMetadata(result);
+        if (alive) setLoaded({ ...result, tableId, id });
       })
       .catch(() => undefined);
     return () => {

@@ -12,10 +12,15 @@ export function useContractIntake(
   open: boolean,
 ) {
   const [result, setResult] = useState<{ id?: string; error?: string; customer?: {id:string;name:string} }>();
+  const requestKey = JSON.stringify([contractId, syncIdentity, open]);
+  const [previousKey, setPreviousKey] = useState(requestKey);
+  if (requestKey !== previousKey) {
+    setPreviousKey(requestKey);
+    setResult(undefined);
+  }
   useEffect(() => {
     let active = true;
     if (open && contractId) {
-      setResult(undefined);
       void contractApi
         .detail(contractId)
         .then(async (response) => {

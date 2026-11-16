@@ -18,7 +18,7 @@ export function validateTemporaryPassword(value: string): void {
   }
 }
 
-export function validatePassword(value: string, _username: string): void {
+export function validatePassword(value: string): void {
   validateTemporaryPassword(value);
 }
 

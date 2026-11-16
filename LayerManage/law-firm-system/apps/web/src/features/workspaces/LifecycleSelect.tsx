@@ -30,51 +30,41 @@ export default function LifecycleSelect({
 }) {
   const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
-  const [rows, setRows] = useState<UpstreamChoice[]>([]);
-  const [more, setMore] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [sourceKind, setSourceKind] = useState<ChoicesResult['sourceKind']>();
   const [revision, setRevision] = useState(0);
+  const queryKey = JSON.stringify([tableId, keyword, revision]);
+  const requestKey = JSON.stringify([queryKey, page]);
+  const [result, setResult] = useState<ChoicesResult & { queryKey: string; requestKey: string; error?: string }>();
+  const current = result?.queryKey === queryKey ? result : undefined;
+  const loading = current?.requestKey !== requestKey;
+  const rows = current?.rows ?? [];
+  const more = current?.hasMore ?? false;
+  const error = loading ? '' : current?.error ?? '';
+  const sourceKind = current?.sourceKind;
   useEffect(() => {
     let live = true;
-    setLoading(true);
-    setError('');
-    if (page === 1) {
-      setRows([]);
-      setMore(false);
-    }
     const timer = setTimeout(() => {
       void get<ChoicesResult>(
         `/tables/${tableId}/lifecycle-choices?keyword=${encodeURIComponent(keyword)}&page=${page}`,
       )
         .then((r) => {
           if (live) {
-            setRows((previous) =>
-              page === 1
-                ? r.rows
-                : [...new Map([...previous, ...r.rows].map((row) => [row.id, row])).values()],
-            );
-            setMore(r.hasMore);
-            setSourceKind(r.sourceKind);
+            setResult(previous => ({ ...r, queryKey, requestKey,
+              rows: page === 1 || previous?.queryKey !== queryKey ? r.rows
+                : [...new Map([...previous.rows, ...r.rows].map(row => [row.id, row])).values()],
+            }));
           }
         })
         .catch((e) => {
           if (live) {
-            setError(errorMessage(e));
-            setRows([]);
-            setMore(false);
+            setResult({ queryKey, requestKey, rows: [], hasMore: false, error: errorMessage(e) });
           }
-        })
-        .finally(() => {
-          if (live) setLoading(false);
         });
     }, 200);
     return () => {
       live = false;
       clearTimeout(timer);
     };
-  }, [tableId, keyword, page, revision]);
+  }, [tableId, keyword, page, queryKey, requestKey]);
   const selected = typeof value === 'string' ? value : undefined;
   return (
     <Space orientation="vertical" style={{ width: '100%' }}>

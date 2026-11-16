@@ -1,4 +1,9 @@
 import assert from 'node:assert/strict';
+import { defaultRule } from '../../app/application/collaboration/worksheet-roles';
+import { hashPayload } from '../../app/domain/admin-governance/canonical-json';
+import { hashOpaqueToken } from '../../app/domain/security/opaque-token';
+import { digestStepUpTarget } from '../../app/domain/security/step-up-target';
+import type { Route, Response } from '../../../web/node_modules/@playwright/test';
 import test from 'node:test';
 import { createHmac, randomUUID } from 'node:crypto';
 import { decodeBase32 } from '../../app/domain/security/base32';
@@ -84,7 +89,28 @@ test.after(async () => {
   await mm.restore();
 });
 
+// These HTTP tests exercise collaboration behavior with an already verified action proof.
+// The challenge, TOTP and replay contract is covered by risk-based-identity-api.test.ts.
+async function actionProof(session: { sessionId: string }, method: string, path: string, body: unknown) {
+  const authSession = await db.authSession.findUniqueOrThrow({ where: { id: session.sessionId } });
+  const proof = randomUUID();
+  await db.stepUpGrant.create({ data: {
+    sessionId: session.sessionId, userId: authSession.userId, purpose: 'ADMIN_HIGH_RISK',
+    targetDigest: digestStepUpTarget('ADMIN_HIGH_RISK', { method, path, payloadHash: hashPayload({ body, query: {} }) }),
+    tokenHash: hashOpaqueToken(proof), expiresAt: new Date(Date.now() + 60_000),
+  } });
+  return proof;
+}
+async function ownerAdministrator() {
+  const role = await db.role.create({ data: { code: 'SYSTEM_SUPER_ADMIN', name: '管理员', type: 'SYSTEM' } });
+  await db.userRole.create({ data: { userId: owner, roleId: role.id } });
+  const session = await createApiSession(db, owner, 'MFA');
+  token = session.token;
+  return session;
+}
+
 test('recycle-bin purge HTTP command removes uploaded files and cannot be invoked by editors', async () => {
+  const administrator = await ownerAdministrator();
   await db.driveNode.upsert({ where: { id: baseId }, update: {}, create: { id: baseId, baseId, workspaceId, kind: 'BASE', ownerId: owner } });
   const fileBody = { name: 'purge.pdf', content: Buffer.from('%PDF-1.4\npurge regression').toString('base64') };
   const file = await app.httpRequest().post(`/api/v1/tables/${tableId}/files`).set('Authorization', 'Bearer ' + token).send(fileBody).expect(200);
@@ -95,8 +121,8 @@ test('recycle-bin purge HTTP command removes uploaded files and cannot be invoke
   await app.httpRequest().post(endpoint + '/preview').set('Authorization', 'Bearer ' + editorToken).send({ action: 'PURGE' }).expect(403);
   const preview = await app.httpRequest().post(endpoint + '/preview').set('Authorization', 'Bearer ' + token).send({ action: 'PURGE' }).expect(200);
   const receipt = randomUUID(), body = { action: 'PURGE', previewToken: preview.body.data.previewToken };
-  await app.httpRequest().post(endpoint).set('Authorization', 'Bearer ' + token).set('Idempotency-Key', receipt).send(body).expect(200);
-  await app.httpRequest().post(endpoint).set('Authorization', 'Bearer ' + token).set('Idempotency-Key', receipt).send(body).expect(200);
+  await app.httpRequest().post(endpoint).set('Authorization', 'Bearer ' + token).set('X-Step-Up-Token', await actionProof(administrator, 'POST', endpoint, body)).set('Idempotency-Key', receipt).send(body).expect(200);
+  await app.httpRequest().post(endpoint).set('Authorization', 'Bearer ' + token).set('X-Step-Up-Token', await actionProof(administrator, 'POST', endpoint, body)).set('Idempotency-Key', receipt).send(body).expect(200);
   assert.equal(await db.collabAttachment.count({ where: { id: file.body.data.id } }), 0);
   assert.equal(await db.collabBase.count({ where: { id: baseId } }), 0);
 });
@@ -443,6 +469,7 @@ test(
 );
 
 test('SSE delivers real changes and revokes an already connected member without broadcasting values', async () => {
+  const administrator = await ownerAdministrator();
   const abort = new AbortController();
   const frames: string[] = [];
   const response = await fetch(
@@ -498,13 +525,12 @@ test('SSE delivers real changes and revokes an already connected member without 
       .send({})
       .expect(200);
     assert.equal(ownRows.body.data.total, 0);
-    await app
-      .httpRequest()
-      .post('/api/v1/tables/' + tableId + '/access')
-      .set('Authorization', 'Bearer ' + token)
-      .set('Idempotency-Key', randomUUID())
-      .send({ version: 1, policy: { restricted: true, grants: [] } })
-      .expect(200);
+    const policyPath = '/api/v1/worksheet-permissions/' + tableId;
+    const settings = await app.httpRequest().get(policyPath).set('Authorization', 'Bearer ' + token).expect(200);
+    const policyBody = { version: settings.body.data.version, roleId: 'EDITOR', rule: defaultRule('DENY') };
+    await app.httpRequest().post(policyPath).set('Authorization', 'Bearer ' + token)
+      .set('X-Step-Up-Token', await actionProof(administrator, 'POST', policyPath, policyBody))
+      .send(policyBody).expect(200);
     await until('event: revoked');
     assert.equal(await db.collabMember.count({ where: { workspaceId, principalId: editor } }), 1);
     const listed = await app
@@ -5966,9 +5992,11 @@ test('global read-only preview uses the target permissions and keeps the adminis
   assert.ok(costs.every(code=>catalog.some(p=>p.code===code && p.businessRoleAssignable)));
   assert.equal(catalog.find(p=>p.code==='role.permission.manage')?.businessRoleAssignable,false);
   const rolePath='/roles/'+businessRole.id+'/permissions';
-  const saved=await adminRequest('put',rolePath).send({permissionCodes:costs,version:businessRole.version}).expect(200);
+  const permissionBody={permissionCodes:costs,version:businessRole.version};
+  const saved=await adminRequest('put',rolePath).set('X-Step-Up-Token',await actionProof(grant,'PUT','/api/v1'+rolePath,permissionBody)).send(permissionBody).expect(200);
   assert.deepEqual([...saved.body.data.permissionCodes].sort(),[...costs].sort());
-  await adminRequest('put',rolePath).send({permissionCodes:[...costs,'role.permission.manage'],version:saved.body.data.version}).expect(403);
+  const forbiddenBody={permissionCodes:[...costs,'role.permission.manage'],version:saved.body.data.version};
+  await adminRequest('put',rolePath).set('X-Step-Up-Token',await actionProof(grant,'PUT','/api/v1'+rolePath,forbiddenBody)).send(forbiddenBody).expect(403);
   const reopened=await adminRequest('get','/roles/'+businessRole.id).expect(200);
   assert.deepEqual(reopened.body.data.permissionCodes,saved.body.data.permissionCodes);
   if (process.env.COLLAB_BROWSER_REHEARSAL === 'true') {
@@ -5987,7 +6015,7 @@ test('global read-only preview uses the target permissions and keeps the adminis
       await page.addInitScript('if (window===window.parent) window.unifiedTestSession='+JSON.stringify({
         mode:'AUTHENTICATED',token:grant.token,csrfToken:'test',expiresIn:900,user:{id:owner,username:'collab-owner',name:'预览验收管理员',roles:[],permissions:[]}}));
       const address=vite.resolvedUrls.local[0];
-      await page.route((url:URL)=>url.href===address || url.href===address+'security/roles',async (route:any)=>{
+      await page.route((url:URL)=>url.href===address || url.href===address+'security/roles',async (route:Route)=>{
         if(route.request().frame()!==page.mainFrame())return route.continue();
         const response=await route.fetch();
         await route.fulfill({response,body:(await response.text()).replace('/src/main.tsx','/e2e/unified-harness.tsx')});
@@ -6052,7 +6080,7 @@ test('global read-only preview uses the target permissions and keeps the adminis
         await page.locator('.ant-select-dropdown:visible').getByText(fixture.source==='INVENTORY_ITEMS'?'查看':'编辑',{exact:true}).click();
       }
       await wizard.getByRole('button',{name:'下一步',exact:true}).click();
-      const createdResponse=page.waitForResponse((r:any)=>r.url().endsWith('/api/v1/roles')&&r.request().method()==='POST');
+      const createdResponse=page.waitForResponse((r:Response)=>r.url().endsWith('/api/v1/roles')&&r.request().method()==='POST');
       await wizard.getByRole('button',{name:'核对并创建',exact:true}).click();
       const createdResult=await createdResponse;
       assert.equal(createdResult.status(),200);
@@ -6073,13 +6101,13 @@ test('global read-only preview uses the target permissions and keeps the adminis
       }
       const expense=fixtures.find(f=>f.source==='INVENTORY_MOVEMENTS')!;
       const expenseDetail=(await memberApi('get','/tables/'+expense.tableId).expect(200)).body.data;
-      const applicant=expenseDetail.fields.find((f:any)=>f.name==='申请人').id;
+      const applicant=expenseDetail.fields.find((f:{ id: string; name: string })=>f.name==='申请人').id;
       await memberApi('post','/tables/'+expense.tableId+'/records').set('Idempotency-Key',randomUUID())
-        .send({schemaVersion:expenseDetail.table.schemaVersion,values:{[applicant]:'验收员工',[expenseDetail.fields.find((f:any)=>f.name==='采购日期') .id]:'2026-11-14T00:00:00.000Z',[expenseDetail.fields.find((f:any)=>f.name==='产品名称').id]:'验收用品'}}).expect(200);
+        .send({schemaVersion:expenseDetail.table.schemaVersion,values:{[applicant]:'验收员工',[expenseDetail.fields.find((f:{ id: string; name: string })=>f.name==='采购日期') .id]:'2026-11-14T00:00:00.000Z',[expenseDetail.fields.find((f:{ id: string; name: string })=>f.name==='产品名称').id]:'验收用品'}}).expect(200);
       const ordinary=await browser.newPage();
       await ordinary.addInitScript('if (window===window.parent) window.unifiedTestSession='+JSON.stringify({
         mode:'AUTHENTICATED',token:session.token,csrfToken:session.csrfToken,expiresIn:900,user:{id:member.id,username:member.username,name:'验收员工',roles:[],permissions:[]}}));
-      await ordinary.route((url:URL)=>url.origin===new URL(address).origin,async(route:any)=>{
+      await ordinary.route((url:URL)=>url.origin===new URL(address).origin,async(route:Route)=>{
         if(route.request().frame()!==ordinary.mainFrame()||route.request().resourceType()!=='document')return route.continue();
         const response=await route.fetch();await route.fulfill({response,body:(await response.text()).replace('/src/main.tsx','/e2e/unified-harness.tsx')});
       });
@@ -6124,12 +6152,12 @@ test('November feedback browser: menu labels, personal upload, medical lookup an
   const page=await browser.newPage({viewport:{width:1440,height:1000}});const address=vite.resolvedUrls.local[0];
   try{
     await page.addInitScript('window.unifiedTestSession='+JSON.stringify({mode:'AUTHENTICATED',token:grant.token,csrfToken:'test',expiresIn:900,user:{id:owner,username:'collab-owner',name:'验收管理员',roles:[],permissions:[]}}));
-    await page.route((url:URL)=>url.origin===new URL(address).origin,async(route:any)=>{if(route.request().frame()!==page.mainFrame()||route.request().resourceType()!=='document')return route.continue();const response=await route.fetch();await route.fulfill({response,body:(await response.text()).replace('/src/main.tsx','/e2e/unified-harness.tsx')});});
+    await page.route((url:URL)=>url.origin===new URL(address).origin,async(route:Route)=>{if(route.request().frame()!==page.mainFrame()||route.request().resourceType()!=='document')return route.continue();const response=await route.fetch();await route.fulfill({response,body:(await response.text()).replace('/src/main.tsx','/e2e/unified-harness.tsx')});});
     await page.goto(address+'admin/navigation');
     await page.getByRole('heading',{name:'菜单管理',exact:true}).waitFor();
     await page.getByText('跟进工作表',{exact:true}).click();
     await page.getByRole('textbox',{name:'展示名称'}).fill('客户跟进验收');
-    const menuSaved=page.waitForResponse((r:any)=>r.url().endsWith('/api/v1/navigation-menu')&&r.request().method()==='PUT');
+    const menuSaved=page.waitForResponse((r:Response)=>r.url().endsWith('/api/v1/navigation-menu')&&r.request().method()==='PUT');
     await page.getByRole('button',{name:'保存菜单',exact:true}).click();assert.equal((await menuSaved).status(),200);
     await page.goto(address+'apps');
     await page.getByRole('link',{name:'承业中心',exact:true}).waitFor();
@@ -6162,7 +6190,7 @@ test('November feedback browser: menu labels, personal upload, medical lookup an
     await browserExpect(record.getByRole('textbox',{name:'患者姓名',exact:true})).toHaveValue('浏览器客户');
     assert.equal(await record.getByRole('textbox',{name:'患者姓名',exact:true}).inputValue(),'浏览器客户');
     assert.equal(await record.getByRole('textbox',{name:'患者姓名',exact:true}).isDisabled(),true);
-    const saved=page.waitForResponse((r:any)=>r.url().endsWith('/tables/'+medical.id+'/records')&&r.request().method()==='POST');
+    const saved=page.waitForResponse((r:Response)=>r.url().endsWith('/tables/'+medical.id+'/records')&&r.request().method()==='POST');
     await record.getByRole('button',{name:/^保\s*存$/}).click();assert.equal((await saved).status(),200);await record.waitFor({state:'hidden'});
     await page.getByRole('button',{name:'移动工作表',exact:true}).click();
     const move=page.getByRole('dialog',{name:'移动工作表',exact:true});

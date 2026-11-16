@@ -12,10 +12,14 @@ import { appearanceRowHeight, defaultAppearance, useAppearanceStore } from './st
 vi.mock('@/features/workspaces/api', () => ({ get: vi.fn(), patch: vi.fn(), errorMessage: (e: Error) => e.message }));
 vi.mock('@/features/notifications/LiveNotifications', () => ({ default: () => null }));
 // Menu loading is independent of the appearance request whose race is under test.
-vi.mock('@/features/navigation/menu-store', () => ({
-  defaultMenu: () => [],
-  useMenuStore: Object.assign(() => ({config:null,load:async()=>undefined}), {getState:()=>({config:null})}),
-}));
+vi.mock('@/features/navigation/menu-store', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/features/navigation/menu-store')>();
+  const state = { ...actual.useMenuStore.getState(), config: null, load: async () => undefined };
+  return {
+    ...actual,
+    useMenuStore: Object.assign((selector?: (value: typeof state) => unknown) => selector ? selector(state) : state, { getState: () => state }),
+  };
+});
 let mounts = 0;
 function Drafts() {
   const [value, setValue] = useState('');

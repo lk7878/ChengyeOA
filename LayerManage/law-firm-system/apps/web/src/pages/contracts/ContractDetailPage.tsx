@@ -66,7 +66,7 @@ const ContractDetailPage: React.FC = () => {
   const [riskRevision,setRiskRevision]=useState(0);
   useEffect(()=>{
     if (activeModal!=='effect' || contract?.contractType!=='FORMAL') return;
-    let active=true; setCaseRisk(undefined);setRiskError(false);actionForm.setFieldValue('conflictReview',undefined);
+    let active=true;
     request.get<ApiResponse<ConflictResult>>(`/v1/contracts/${id}/effect-case-screen`).then(({data})=>{
       if(active){setCaseRisk(data);if(data.count)actionForm.setFieldValue(['conflictReview','fingerprint'],data.fingerprint)}
     }).catch(()=>{if(active)setRiskError(true)});
@@ -80,6 +80,8 @@ const ContractDetailPage: React.FC = () => {
   }, [id, canReadPayments]);
 
   const openModal = (modal: Exclude<ActionModal, null>) => {
+    setCaseRisk(undefined);
+    setRiskError(false);
     actionForm.resetFields();
     setActiveModal(modal);
   };
@@ -118,7 +120,7 @@ const ContractDetailPage: React.FC = () => {
           () => effectContract(id, {...(values.effectiveDate && { effectiveDate: values.effectiveDate.toISOString() }),...(values.conflictReview && {conflictReview:values.conflictReview})}),
           '合同已生效',
         );
-        if(!ok)setRiskRevision(r=>r+1);
+        if(!ok){setCaseRisk(undefined);setRiskError(false);actionForm.setFieldValue('conflictReview',undefined);setRiskRevision(r=>r+1);}
         break;
       }
       case 'terminate': {

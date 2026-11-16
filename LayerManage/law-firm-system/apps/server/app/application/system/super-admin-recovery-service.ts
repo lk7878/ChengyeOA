@@ -61,7 +61,7 @@ export class SuperAdminRecoveryService {
         throw new ValidationCommandError('Recovery username does not match the initialized super-admin');
       }
 
-      validatePassword(normalizedInput.temporaryPassword, user.username);
+      validatePassword(normalizedInput.temporaryPassword);
       if (await this.hasher.compare(normalizedInput.temporaryPassword, user.password)) {
         throw new SecurityError('PASSWORD_REUSED');
       }

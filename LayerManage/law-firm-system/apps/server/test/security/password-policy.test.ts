@@ -24,18 +24,18 @@ test('accepts a short numeric temporary password', () => {
 });
 
 test('accepts a short numeric user password', () => {
-  assert.doesNotThrow(() => validatePassword('123456', 'root.admin'));
-  assert.doesNotThrow(() => validatePassword('Correct-Horse-92', 'root.admin'));
-  assert.throws(() => validatePassword('12345', 'root.admin'), /PASSWORD_INVALID/);
-  assert.throws(() => validatePassword(' 123456', 'root.admin'), /PASSWORD_INVALID/);
-  assert.throws(() => validatePassword('123456\n', 'root.admin'), /PASSWORD_INVALID/);
+  assert.doesNotThrow(() => validatePassword('123456'));
+  assert.doesNotThrow(() => validatePassword('Correct-Horse-92'));
+  assert.throws(() => validatePassword('12345'), /PASSWORD_INVALID/);
+  assert.throws(() => validatePassword(' 123456'), /PASSWORD_INVALID/);
+  assert.throws(() => validatePassword('123456\n'), /PASSWORD_INVALID/);
 });
 
 test('enforces the password length boundaries', () => {
-  assert.doesNotThrow(() => validatePassword('a'.repeat(6), 'root.admin'));
-  assert.doesNotThrow(() => validatePassword('a'.repeat(128), 'root.admin'));
-  assert.throws(() => validatePassword('a'.repeat(5), 'root.admin'), /PASSWORD_INVALID/);
-  assert.throws(() => validatePassword('a'.repeat(129), 'root.admin'), /PASSWORD_INVALID/);
+  assert.doesNotThrow(() => validatePassword('a'.repeat(6)));
+  assert.doesNotThrow(() => validatePassword('a'.repeat(128)));
+  assert.throws(() => validatePassword('a'.repeat(5)), /PASSWORD_INVALID/);
+  assert.throws(() => validatePassword('a'.repeat(129)), /PASSWORD_INVALID/);
 });
 
 test('hashes and compares passwords through the shared hasher', async () => {

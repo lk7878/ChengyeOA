@@ -26,7 +26,7 @@ test('appearance persists only for the authenticated account and rejects foreign
   await app.httpRequest().patch(endpoint).set('Authorization', 'Bearer ' + a.accessToken).send(custom).expect(200);
   const saved = await app.httpRequest().get(endpoint).set('Authorization', 'Bearer ' + a.accessToken).expect(200);
   assert.deepEqual(saved.body.data, custom);
-  const { colorMode: _mode, ...legacy } = custom;
+  const legacy = { fontSize: custom.fontSize, background: custom.background, rowHeight: custom.rowHeight };
   await app.httpRequest().patch(endpoint).set('Authorization', 'Bearer ' + a.accessToken).send(legacy).expect(200);
   assert.equal(((await db.user.findUniqueOrThrow({ where: { id: users[0].id } })).appearance as Record<string, unknown>).colorMode, 'dark');
   const other = await app.httpRequest().get(endpoint).set('Authorization', 'Bearer ' + b.accessToken).expect(200);

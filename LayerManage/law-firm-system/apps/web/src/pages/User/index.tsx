@@ -1,5 +1,5 @@
 import Table from '@/components/ResizableTable';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useEffectEvent } from 'react';
 import { Button, Input, Tag, Space, Form, message,
   Select, Card, Row, Col
 } from 'antd';
@@ -48,7 +48,9 @@ const UserPage: React.FC = () => {
     } catch { /* Shared interceptor reports request errors. */ }
   }
 
-  useEffect(() => { fetchData(); fetchRoles(); }, [pagination.current, pagination.pageSize]);
+  const { current: currentPage, pageSize } = pagination;
+  const onPageChange = useEffectEvent(() => { void fetchData(); void fetchRoles(); });
+  useEffect(() => { onPageChange(); }, [currentPage, pageSize]);
 
   async function fetchData() {
     setLoading(true);

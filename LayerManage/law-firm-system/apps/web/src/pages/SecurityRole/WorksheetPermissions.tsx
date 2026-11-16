@@ -1,4 +1,5 @@
-import { useMenuLabels, menuLabels } from '@/features/navigation/menu-labels';
+import { presetNames, tableOptions, previewEvent, type TableOption } from './worksheet-permission-options';
+import { useMenuLabels } from '@/features/navigation/menu-labels';
 import { useEffect, useState } from 'react';
 import { Alert, Button, Checkbox, Form, Menu, Radio, Select, Space, Table, message } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
@@ -6,8 +7,6 @@ import FilterEditor from '@/features/workspaces/FilterEditor';
 import { errorMessage, get, post } from '@/features/workspaces/api';
 import type { Field, Filter, Option } from '@/features/workspaces/types';
 
-export const presetNames: Record<string,string> = {OWNER:'所有者',MANAGER:'管理员',EDITOR:'编辑者',READER:'阅读者'};
-export type TableOption = {id:string;name:string;base:{id:string;name:string;moduleSource?:string|null;workspace:{name:string}}};
 type Mode = 'EDIT'|'READ'|'MASK'|'HIDDEN';
 type Rule = { level:string;rows:'ALL'|'SELF'|'DEPARTMENT'|'SUBDEPARTMENTS'|'FILTER';filter?: Filter;viewIds?:string[];fields:Record<string,Mode>;
   add:boolean;remove:boolean;analytics:boolean;copy:boolean;automate:boolean };
@@ -15,8 +14,6 @@ type Settings = {version:number;views:Option[];fields:Field[];rules:Record<strin
 const levels = [{value:'MANAGER',label:'可管理'},{value:'EDITOR',label:'可编辑'},{value:'READER',label:'仅可阅读'},{value:'DENY',label:'无权限'}];
 const modes = [{value:'EDIT',label:'可编辑'},{value:'READ',label:'仅读'},{value:'MASK',label:'脱敏'},{value:'HIDDEN',label:'隐藏'}];
 const actions = {add:'新增记录',remove:'删除记录',analytics:'仪表盘',copy:'复制与导出',automate:'审批自动化'};
-export const tableOptions = (tables:TableOption[], labels = menuLabels([])) => tables.map(t=>({value:t.id,label:labels.sourcePath(t.base.moduleSource,[t.base.workspace.name,t.base.name].join(' / '))+' / '+t.name}));
-export const previewEvent = 'oa:worksheet-permission-preview';
 export function WorksheetPermissions({roles,superAdmin}:{roles:Option[];superAdmin:boolean}) {
   const labels=useMenuLabels();
   const [open,setOpen]=useState(false);

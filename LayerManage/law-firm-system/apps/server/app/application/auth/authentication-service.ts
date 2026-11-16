@@ -177,7 +177,7 @@ export class AuthenticationService {
     const userId = await this.challenges.getActiveUserId(challengeToken, 'PASSWORD_CHANGE');
     const snapshot = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!snapshot?.mustChangePassword) throw authenticationFailed();
-    validatePassword(password, snapshot.username);
+    validatePassword(password);
     if (await this.hasher.compare(password, snapshot.password)) throw new SecurityError('PASSWORD_REUSED');
     const passwordHash = await this.hasher.hash(password);
 
@@ -242,7 +242,7 @@ export class AuthenticationService {
       await this.recordWrongPassword(user.id, user.username, metadata);
       throw new SecurityError('CURRENT_PASSWORD_INVALID', 403);
     }
-    validatePassword(password, user.username);
+    validatePassword(password);
     if (await this.hasher.compare(password, user.password)) throw new SecurityError('PASSWORD_REUSED');
     const hash = await this.hasher.hash(password);
     const credentials = await this.sessions.changePassword(claims, user.password, hash);

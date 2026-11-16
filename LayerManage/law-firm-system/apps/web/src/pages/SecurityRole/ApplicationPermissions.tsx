@@ -5,7 +5,7 @@ import Drawer from '@/components/DraggableDrawer';
 import FilterEditor from '@/features/workspaces/FilterEditor';
 import { errorMessage, get } from '@/features/workspaces/api';
 import type { Field, Filter } from '@/features/workspaces/types';
-import { previewEvent } from './WorksheetPermissions';
+import { previewEvent } from './worksheet-permission-options';
 
 export type TableRule = {level:string;rows:'ALL'|'SELF'|'DEPARTMENT'|'SUBDEPARTMENTS'|'FILTER';filter?:Filter;fields:Record<string,string>;viewIds?:string[];
   add:boolean;remove:boolean;copy:boolean;analytics:boolean;automate:boolean;share?:boolean;import?:boolean;

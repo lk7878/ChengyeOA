@@ -156,7 +156,7 @@ export default class UserController extends Controller {
     }
     const normalizedUsername = normalizeUsername(username);
     validateUsername(normalizedUsername);
-    validatePassword(password, normalizedUsername);
+    validatePassword(password);
 
     // 检查用户名是否已存在
     const existing = await ctx.prisma.user.findUnique({
@@ -283,7 +283,7 @@ export default class UserController extends Controller {
         select: { id: true, username: true, password: true },
       });
       if (!target) throw new MasterDataError('USER_NOT_FOUND', 404);
-      validatePassword(password, target.username);
+      validatePassword(password);
       if (await passwordHasher.compare(password, target.password)) {
         throw new SecurityError('PASSWORD_REUSED');
       }

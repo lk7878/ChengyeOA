@@ -157,7 +157,7 @@ export class RoleAuthorizationService {
         }
         if(source) {
           const applications=await tx.roleApplicationPolicy.findMany({where:{roleId:source.id}});
-          if(applications.length) await tx.roleApplicationPolicy.createMany({data:applications.map(({roleId:_,...p})=>({...p,roleId:role.id,version:1}))});
+          if(applications.length) await tx.roleApplicationPolicy.createMany({data:applications.map(p=>({...p,roleId:role.id,version:1}))});
         }
         if(input.applications?.length) {
           if(!this.authorization) fail('COLLAB_FORBIDDEN',403);

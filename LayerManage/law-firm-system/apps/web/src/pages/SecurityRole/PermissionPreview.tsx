@@ -8,7 +8,7 @@ import { get, post, errorMessage } from '@/features/workspaces/api';
 import type { Field, RecordRow } from '@/features/workspaces/types';
 import { domainCreate } from '@/features/crm/business-sources';
 import { displayValue } from '@/features/workspaces/display-value';
-import { presetNames,previewEvent,tableOptions,type TableOption } from './WorksheetPermissions';
+import { presetNames,previewEvent,tableOptions,type TableOption } from './worksheet-permission-options';
 
 type Choice={label:string;value:string};
 type Preview={fields:Field[];records:RecordRow[];total:number;canEdit:boolean;canDelete:boolean;canAdd:boolean;source:string;actions:string[]};

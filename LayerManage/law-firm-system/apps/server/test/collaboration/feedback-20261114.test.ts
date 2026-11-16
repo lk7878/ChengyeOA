@@ -2,7 +2,7 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { randomUUID as key } from 'node:crypto';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { clearTestApplicationData,createTestPrisma } from '../helpers/test-database';
 import { CollaborationService } from '../../app/application/collaboration/collaboration-service';
 import { PersonalFiles } from '../../app/application/collaboration/personal-files';
@@ -71,7 +71,7 @@ test('medical assessments fill from permitted follows, lock linked fields and cl
   const table=await svc.createTable(base,{name:'病例评估表',template:'MEDICAL_ASSESSMENT'},key());
   const lead=await db.lead.create({data:{leadNo:key(),name:'张客户',phone:'13800000000',phoneHash:key(),wechat:'wechat-name',branchId:org,createdBy:owner.userId}});
   const follow=await db.leadFollow.create({data:{leadId:lead.id,type:'PHONE',content:'已有跟进',createdBy:owner.userId}});
-  const fields=(await svc.describe(table.id)).fields,link=fields.find(f=>(f.options as any).medicalRelation)!,name=fields.find(f=>f.name==='患者姓名')!,identity=fields.find(f=>f.name==='ID')!;
+  const fields=(await svc.describe(table.id)).fields,link=fields.find(f=>(f.options as Prisma.JsonObject).medicalRelation)!,name=fields.find(f=>f.name==='患者姓名')!,identity=fields.find(f=>f.name==='ID')!;
   const selected=source.id+':'+follow.id;
   assert.ok((await medicalOptions(db,owner,table.id,'张')).some(o=>o.value===selected));
   assert.equal((await medicalCustomer(db,owner,selected)).customerName,'张客户');

@@ -232,7 +232,7 @@ ea52b63c023b21d6f6a60288f60b20d62aa8267f6c3aea292eb75da0fc2ea315  LayerManage/la
 b7e08261030895416fd1b9b2757013fa1f7655ba92abe5734c6c4c10deabc334  LayerManage/law-firm-system/apps/server/app/application/auth/administrator-mfa-reset.ts
 3ac805ff4c32212437364590610fa11579499a846ab04490a8ddbd6f66234049  LayerManage/law-firm-system/apps/server/app/application/auth/auth-challenge-service.ts
 6ef6560b86c4c63c7cee511bed73bbe9845fbb1b650951c2447948311120681f  LayerManage/law-firm-system/apps/server/app/application/auth/authentication-factory.ts
-3d0a976d4fa6bc00679a47f42645d2155c6291ffd6771c3e1808d81b178880e2  LayerManage/law-firm-system/apps/server/app/application/auth/authentication-service.ts
+a4972509ed1383858e92d76da51c82da2a9a132f5691d6b8e842bc099729c730  LayerManage/law-firm-system/apps/server/app/application/auth/authentication-service.ts
 07b4f14722f498d543925367277874032923b74042f266fb8edd0357faa4dfb3  LayerManage/law-firm-system/apps/server/app/application/auth/high-risk-operation.ts
 b8b3c611d9c31a7dba53a0ff46250320f883c751dc448d68810ece6556757a97  LayerManage/law-firm-system/apps/server/app/application/auth/mfa-service.ts
 82ad9c304269e2528b7f5db818987a1df31d7e775a5fa59bf991d55f6e0885ab  LayerManage/law-firm-system/apps/server/app/application/auth/session-service.ts
@@ -249,7 +249,7 @@ e187eca4603bf0f5a42f6b35d895f1d8f9dba1262070b143340364cc01b1bb74  LayerManage/la
 7c968a97fc31a3e3364b67b45001516df41e40a76d8dd07b484a7d58dc5e26ec  LayerManage/law-firm-system/apps/server/app/application/authorization/organization-role-presets.ts
 ad97f6c50add557a4f5f077d6b8995a3de3633da595d12a9733925f2635b4f7d  LayerManage/law-firm-system/apps/server/app/application/authorization/permission-trace-service.ts
 59e9a1da683d8745d7cc2d9073e05c1ee5414eedf5327ebed0e677f65ced5b01  LayerManage/law-firm-system/apps/server/app/application/authorization/resource-scope-resolvers.ts
-7b4fb9d4987c5ffcc81cc009514ce48882eba6c3cc523cc621a0bbaa611d0db6  LayerManage/law-firm-system/apps/server/app/application/authorization/role-authorization-service.ts
+8b5ac5ae7b50f85642ef8a8c5fd4be245da200a507ad786e7c0322fff17a8d70  LayerManage/law-firm-system/apps/server/app/application/authorization/role-authorization-service.ts
 f8a2f22aedf03cf3e4bff6fbd4550ec6bbb52928928cc4ab00382c5b75f16191  LayerManage/law-firm-system/apps/server/app/application/authorization/sensitive-access-service.ts
 bfad56ec654e6eeacd5adb291683a876bfd1e88ce97725b803094438527238ce  LayerManage/law-firm-system/apps/server/app/application/authorization/user-grant-service.ts
 e1edac4ca9159b7963a6c112c67e24df0f56f8e75d87760b050757410e8f9134  LayerManage/law-firm-system/apps/server/app/application/calendar/calendar-service.ts
@@ -276,7 +276,7 @@ d90760759d773932dbb513ee17c4622155e3622915aabe2a5a8c0927645cbb4c  LayerManage/la
 4af0cdfcf410278223e1787a2cf48951e57b80d9a10146d250bc348826a79cee  LayerManage/law-firm-system/apps/server/app/application/collaboration/case-grid-fields.ts
 e36ce54756b90a1d2d474b8f10cb2dd71af2476be79699f8c9c48708487f3bed  LayerManage/law-firm-system/apps/server/app/application/collaboration/collaboration-change.ts
 427fb5538432198c5dde9b6abc6c0dcbe78399a0af39a090f3e516ef313ebbf3  LayerManage/law-firm-system/apps/server/app/application/collaboration/collaboration-policy.ts
-f1aaa6f85811bb94ed4e55620763d91cafad528eab2636f1378a72782e3e46b4  LayerManage/law-firm-system/apps/server/app/application/collaboration/collaboration-service.ts
+493bbfdd8ee14b4b0c1fa2900c7dab217704a9368f2394202522b2a336ef55b3  LayerManage/law-firm-system/apps/server/app/application/collaboration/collaboration-service.ts
 7cc713325dfb6ce154602404a1da3517d5d4d9ec3696fb3ce486453e655c7fd0  LayerManage/law-firm-system/apps/server/app/application/collaboration/custom-record-query.ts
 9995b3ed79a5164777cafda2b24e14ac14c5ca34f2735bfd71593f657943ca41  LayerManage/law-firm-system/apps/server/app/application/collaboration/delivery-change.ts
 49fcf68f2ca32df7e39fbb129204d5cf8f4450a923e48a5c5b4d827704080a20  LayerManage/law-firm-system/apps/server/app/application/collaboration/department-scope.ts
@@ -406,7 +406,7 @@ d1bb88c0967260a6552bdff55269f7d576db1fcfd5dfebbaee357f94e10d83c0  LayerManage/la
 a55e5daba86bd22ab4753d0e3be394ab1d415b604d9e5de36bbf478d59e11403  LayerManage/law-firm-system/apps/server/app/application/system/retire-user.ts
 2a805e1d78ccee07f1c451f984b0ec65362c850c734b4d79630928f32f1a95ae  LayerManage/law-firm-system/apps/server/app/application/system/safe-user-projection.ts
 a5443ec52132ff65ad3efa617e48dbcf3140e73c6ef06f55fe51a56336d79e73  LayerManage/law-firm-system/apps/server/app/application/system/second-super-admin-service.ts
-ed8534956ae7bb647abdfa7be11d4e56227f5c0156e1c210cc8ccf3e01401462  LayerManage/law-firm-system/apps/server/app/application/system/super-admin-recovery-service.ts
+5c9043407065ac4cb10d1b2239d8d764e2145942bc8f0712dbeb1afed1f31504  LayerManage/law-firm-system/apps/server/app/application/system/super-admin-recovery-service.ts
 09d49f73fc6d028556eb7c739963c3298af895e6b39fdf4d400c5bca4d39bf65  LayerManage/law-firm-system/apps/server/app/application/system/system-bootstrap-service.ts
 a80b96e23b01288a4cb55b8764a2a7003311497d53bc017fcb50a81830c9bf5c  LayerManage/law-firm-system/apps/server/app/application/system/system-command-errors.ts
 07e9ce5f6d4a4451c2259b18defcedfb72dbe67b3e185e9f39074fb5f584ad63  LayerManage/law-firm-system/apps/server/app/application/system/trust-root-guard.ts
@@ -457,7 +457,7 @@ a091f12cc3029d8a93a8c70c358ca5792e893ed8b554de6d3be7379763b462cc  LayerManage/la
 99b984ccb8739fbcfb38037f78b0fa37a761d817506598a4020ad8cad94ce79c  LayerManage/law-firm-system/apps/server/app/controller/role.ts
 4795b3a20ad76af23b23ff0e39a3730f6e2ebee14b6de2d7795debf95e28c863  LayerManage/law-firm-system/apps/server/app/controller/smartCase.ts
 90bcf4ff06c856a96c24ad8ec7bede41523f9cb6ab14d513789ac4d9a4bf7267  LayerManage/law-firm-system/apps/server/app/controller/sop.ts
-7da66b9050c29c78c52d860d66d669bc1d20a088bcc779501ef876c5df3f51d8  LayerManage/law-firm-system/apps/server/app/controller/user.ts
+bff0b73c0d9b9d8132457fc8d9fab48a245027e626e251e583e4d5546da8dc69  LayerManage/law-firm-system/apps/server/app/controller/user.ts
 c313b725734b63bdbf8eb033ca6e22f8423ef08b0fb2601119ee9aad17113b41  LayerManage/law-firm-system/apps/server/app/controller/workflow.ts
 9bdf2624a2e4d6845e5b2764a138a63d446baa42b7bc0fe3fce8ee9ed3868e87  LayerManage/law-firm-system/apps/server/app/domain/admin-governance/canonical-json.ts
 e79224afed372d00535a38e32573393fa56800bdc52900425f3e41daa469f317  LayerManage/law-firm-system/apps/server/app/domain/admin-governance/governance-errors.ts
@@ -504,7 +504,7 @@ aa2a1b7f8ce772a8a92d8ea77671c934f833ceef3168baad05710656ec938e3e  LayerManage/la
 2e32c2b6aca11579698d87c4cc2c7f4c2c204f8ce6d8fe44b7b069d521e7c562  LayerManage/law-firm-system/apps/server/app/domain/security/mfa-factor-crypto.ts
 f8785d58e53bdb5a6b81baa1578e6ad82c70c08e8e413ca4c4289331faa79f23  LayerManage/law-firm-system/apps/server/app/domain/security/opaque-token.ts
 515f24caec179fb5450425bf74cf3d062103939082082b801826356ef7559707  LayerManage/law-firm-system/apps/server/app/domain/security/password-hasher.ts
-787b99786978d7c330ed888b9b29bf6b7fd616602b09fa59345a2d4bdcf9c594  LayerManage/law-firm-system/apps/server/app/domain/security/password-policy.ts
+279b9bba51a49d5db984afee157a851d9ce7933c68edd1eb6fbcfa761de26c09  LayerManage/law-firm-system/apps/server/app/domain/security/password-policy.ts
 80683c5445e23c8b180c09011ca1b0bff1b396c0a82a2deb4278b197a844c260  LayerManage/law-firm-system/apps/server/app/domain/security/security-errors.ts
 b9c0cb0210a92fe803421f19f58dcfb5f31701a25682e1a50e683daf951ba3c5  LayerManage/law-firm-system/apps/server/app/domain/security/step-up-target.ts
 5b6bab324b2316aa3252249d03112ce4a7dad1b2b0173deeeb07ff21403a55cb  LayerManage/law-firm-system/apps/server/app/domain/security/token-service.ts
@@ -720,7 +720,7 @@ d572658bcc5453620f6938826a6f2cb695ba78c1efb8bf87dd624a86569e0964  LayerManage/la
 c648203bdaa9e8d26fd30659dd73d8ee36e04ad3de8673b35b03a48509493cb8  LayerManage/law-firm-system/apps/server/test/app/administrator-mfa-local.test.ts
 9df87a22a70da06940d0efc45cbc28d9c7790cd5f29cc786e56cb058fb6012e5  LayerManage/law-firm-system/apps/server/test/app/analytics-api.test.ts
 5357152b21efa7e2a205555f82f3e582767c20ee9e70c51dd5e50178b5671793  LayerManage/law-firm-system/apps/server/test/app/anomaly-api.test.ts
-7677ae0162400a6f617bcd8bb32053332ab570deec03d83a927864d92bf45d67  LayerManage/law-firm-system/apps/server/test/app/appearance-api.test.ts
+8993badd2b4bad2b1393937b5067b1e8a21c5191d406018deb70010f501d00d5  LayerManage/law-firm-system/apps/server/test/app/appearance-api.test.ts
 d873316c48a2fbd8523900517bd2af3b33ff7837dd14edc9601b820c6ae7b66c  LayerManage/law-firm-system/apps/server/test/app/appointment-api.test.ts
 96ebf216f24537b188913ceea1a9f193cae91d4f153f35c78193efc8527428fe  LayerManage/law-firm-system/apps/server/test/app/approval-api.test.ts
 df9a5d40bbb614f7a3d3aa1fd9fd5e34e26042d352e9be9b940a7228ddcb26a2  LayerManage/law-firm-system/apps/server/test/app/auth.test.ts
@@ -818,14 +818,14 @@ e602f86dd0a19c9f6cd652113a388a320744e0fb82c2c366b4fb8b9b4e7db1a2  LayerManage/la
 9a70efc411edced950e91ab6f8876902fde02b199f13db558bb492e2d56115e4  LayerManage/law-firm-system/apps/server/test/collaboration/channel-dashboard-workspace.test.ts
 6ddf2bc66156e4ee679a8a6f596acf9af80cdd7ca90e4d6c4a64461854053534  LayerManage/law-firm-system/apps/server/test/collaboration/channel-identity-migration.test.ts
 e32e894b818c71580c280cfb7e80d3a35f449719f5d57b2e13e738f19d69300a  LayerManage/law-firm-system/apps/server/test/collaboration/collaboration-change.test.ts
-4d0111ec9bc4e0750162fb1b39b6fff250f67f7b656cac33a6933abe0cb126d4  LayerManage/law-firm-system/apps/server/test/collaboration/collaboration-http.test.ts
+1f0a30bdced990ca2a2bbf513be64acbd13d88023cda1a741249a3634572a4e0  LayerManage/law-firm-system/apps/server/test/collaboration/collaboration-http.test.ts
 1d067feb8b56ce4d3e15bbf78c07e06dfc980cb18e531c6b80e125dca1b066b0  LayerManage/law-firm-system/apps/server/test/collaboration/collaboration-load.test.ts
 d99c353f36634f53e163e4cc8b017406e910599a4b4ea35316781c45f5f6620f  LayerManage/law-firm-system/apps/server/test/collaboration/collaboration-service.test.ts
 0635b332539c08659074363a5cc71c7997b3566d1739bc42f00d0d2ad9b84792  LayerManage/law-firm-system/apps/server/test/collaboration/comments-calendar.test.ts
 4d9f7e8dedf0f2165e1f488fdeca00ed1d6bb2d02b3f9d0413e52a9533d4c3a4  LayerManage/law-firm-system/apps/server/test/collaboration/drive-lifecycle.test.ts
 93063e204c5b1c5cda8a76ff3a1d79d4ce5cd8de1cb623d9c58f96e2c2cc1d61  LayerManage/law-firm-system/apps/server/test/collaboration/drive-navigation.test.ts
 db31d2a219c1d15e3f14298c6dd33a3db17fccd3294759a7f11e0489c2762ba5  LayerManage/law-firm-system/apps/server/test/collaboration/drive-service.test.ts
-0e41d8e82d1e9583b185ada76556c6a0e90ae3ce012fd34317d5adfb0720c7c9  LayerManage/law-firm-system/apps/server/test/collaboration/feedback-20261114.test.ts
+636bcfa9bcccd00bd34005f576d4313abac536a43cae2207d749f9f6e075670e  LayerManage/law-firm-system/apps/server/test/collaboration/feedback-20261114.test.ts
 9f2191d63da0b13de12f613cf9e1424db9ee4aae5157fb46a901c2f5b70f9c14  LayerManage/law-firm-system/apps/server/test/collaboration/financial-workspace.test.ts
 3ce6d8f5528c89681cff7960a28d9f2692c7a2cb70f800b3dc234dabecf7038b  LayerManage/law-firm-system/apps/server/test/collaboration/follow-support-tables.test.ts
 5a358b3c5a67d85e059066b118cd182d6fc86b42f39146f014d50dd90114d8ed  LayerManage/law-firm-system/apps/server/test/collaboration/hr-worksheets.test.ts
@@ -946,7 +946,7 @@ c18ee47bd9b678dc9d1284d212ead65c06b8e8423abd73fba916ee72f7c37c57  LayerManage/la
 88a7321baf08325734fb1ed4ce0d27837d7c428c583c6666adc3ee2d635d9c1b  LayerManage/law-firm-system/apps/server/test/security/event-observability-prisma-logging.test.ts
 bef1d4f114c5ed87d2ce4bd65b3118a39456a26cce9ff81dd6cfc6411fa97565  LayerManage/law-firm-system/apps/server/test/security/mfa-factor-crypto.test.ts
 2af8f32e8b74c609235d8bad35e88071b0e1f17961df13ec82b50e462ed0a10f  LayerManage/law-firm-system/apps/server/test/security/opaque-token.test.ts
-c52dc7229a371646597dda62ffadceadbd043247c890779a7efe1c45317d6c4b  LayerManage/law-firm-system/apps/server/test/security/password-policy.test.ts
+851fa965facda6d99438aa11b895d58ce0478a570d5d2c852c140b6ffc68a9c8  LayerManage/law-firm-system/apps/server/test/security/password-policy.test.ts
 403a94fddfb068b5470200f05a102fe7c1e4035071c27796a527f8c4c67519ab  LayerManage/law-firm-system/apps/server/test/security/persisted-documentation-leakage.test.ts
 72cc68e795eaca6a6f0874f50338dc54f661fe207c493e03e0aea2feb8fb7656  LayerManage/law-firm-system/apps/server/test/security/spec-007-event-leakage.test.ts
 8fd15e1efc038a27b4920602363d7a3e6778886ca46df2aef5ecfd5bee55cbc8  LayerManage/law-firm-system/apps/server/test/security/step-up-target.test.ts
@@ -1053,7 +1053,7 @@ ffba558472946a90b0a5d09d12587ce84e4c51d3e832f06992a32aba71823617  LayerManage/la
 7bbed9b2796118c78637a55a570773128e64712d7be758e9ddc4ec09c54ea406  LayerManage/law-firm-system/apps/web/src/features/appearance/AppearanceSettings.tsx
 d8cb2e1d6d23d45f24fc2e199b581f4d03d842de2d9d8093c8db7151587d0c6a  LayerManage/law-firm-system/apps/web/src/features/appearance/ThemeToggle.tsx
 0a1480f257763725bb930b31c318136dbb539c1e5935aa2f54e6f3a2df847bd4  LayerManage/law-firm-system/apps/web/src/features/appearance/appearance.css
-010d96f7c8173e1e4ffa48e0bff334478c237d7f5e182ae3bce1d45624577a02  LayerManage/law-firm-system/apps/web/src/features/appearance/appearance.test.tsx
+e0baf9312ca6e87fb3e3a7a85edafe525c12ad3decdab3e97b3e8781fcf840d9  LayerManage/law-firm-system/apps/web/src/features/appearance/appearance.test.tsx
 064d4551f9407f2c825baeb2a8f7d587f7a9d4ae1c75fbb8933b47a870185f15  LayerManage/law-firm-system/apps/web/src/features/appearance/store.ts
 ee305baf3ce3057c2401d8e001e70035e1516af4c145ee4ab90044a57910b1b1  LayerManage/law-firm-system/apps/web/src/features/auth/challengeStore.ts
 38c3834a634184baa3721e0a671d8e63c01b4fe4339f8880907d13f69df03b58  LayerManage/law-firm-system/apps/web/src/features/auth/components/ChangePasswordDialog.test.tsx
@@ -1150,7 +1150,7 @@ df899bf3c592643c6f001bab1e7a177187efb19fa552b754f2a71b4b7520cdd3  LayerManage/la
 d021c858e2967584d7546e9ce3a809c1ff287142fe540631ed1c616267072adc  LayerManage/law-firm-system/apps/web/src/features/sop/execution.tsx
 8e6e8b18dcc4c2139fe50236400600c478df0419e2c8e4393be398bbf4f54fbe  LayerManage/law-firm-system/apps/web/src/features/workspaces/AfterSalesStatusAction.test.tsx
 c1d0f99535c27bbd5156913f738247d1d7abf598461b09440a247fb14f146c5b  LayerManage/law-firm-system/apps/web/src/features/workspaces/AfterSalesStatusAction.tsx
-45b37ba72464391adb5a5d441022c1d803aaf2f7564e03b61cac8373fef3aaa0  LayerManage/law-firm-system/apps/web/src/features/workspaces/AttachmentItem.tsx
+2fd7fc62cac0da8314a5c1deb045f09355397e5bcee2edcd4fbe739dce6addae  LayerManage/law-firm-system/apps/web/src/features/workspaces/AttachmentItem.tsx
 e55417fc22a0263a9ecee2b5c77fe32a1c2778c108405e24a2eb17feb7abe29d  LayerManage/law-firm-system/apps/web/src/features/workspaces/BaseModule.tsx
 ef481babf6989b1cf3f7e6cdc30274ff6b697373506e5e618baf3ce0d591a181  LayerManage/law-firm-system/apps/web/src/features/workspaces/BulkTransfer.tsx
 b41a433481cb0a74f7d5fd07c26efed51f5de16c45f1b84322121b33fa214268  LayerManage/law-firm-system/apps/web/src/features/workspaces/BusinessRecord.tsx
@@ -1160,7 +1160,7 @@ d752164772753a4e433bfd8ca4a71c8f2c62fd68b0932bf35c6cc43a8ae29da4  LayerManage/la
 e93f7930078d0e2253880a2b542e6d5fccb81979c57b1fba0d28aa2820e4286b  LayerManage/law-firm-system/apps/web/src/features/workspaces/GridCell.test.tsx
 ba75062998cbf6fcd6b5ba63520bb20954f6549b3ae36e2ff6073b5be86e60b6  LayerManage/law-firm-system/apps/web/src/features/workspaces/GridCell.tsx
 119873d2c0ffe54c0a33cd294c54379ec3ae75f818a00209daf31e26fdfc5fae  LayerManage/law-firm-system/apps/web/src/features/workspaces/LifecycleSelect.test.tsx
-2a52edcda88b73958b4f366fffb958f79f6b8e04861d0a6b35f926c4b46f10d3  LayerManage/law-firm-system/apps/web/src/features/workspaces/LifecycleSelect.tsx
+1d287a07804ab9d1cbd46800c9886f947ca564efe04fbc71f9f1973c9d4279ff  LayerManage/law-firm-system/apps/web/src/features/workspaces/LifecycleSelect.tsx
 6151261ade046d1ce3e1781fd8beda4dbf5e317fefa5a2193ee932c04273b34b  LayerManage/law-firm-system/apps/web/src/features/workspaces/LifecycleTableControl.tsx
 13b6fe04845bcc03b9bc82f6027164a2eb2d551c36749657afb84c61a40acbac  LayerManage/law-firm-system/apps/web/src/features/workspaces/MedicalCustomerSelect.tsx
 bfcb439dee6adf8ae4b431a72f96b6a3de159d20164f42d0e1c274ea2a1c40c4  LayerManage/law-firm-system/apps/web/src/features/workspaces/MoveTable.tsx
@@ -1207,7 +1207,7 @@ a502297cb3fb4bb5a2a83c11e08a4a12978eb65c7f1a17e1db08b6d93bfb47e2  LayerManage/la
 991972fe45f9c622013eb2973be2339ffbbe4e391f257c89f00bea104765ca95  LayerManage/law-firm-system/apps/web/src/pages/Case/CaseIdentityGaps.tsx
 dd67f0c3286920f8c3be8ac651ee50eb94f379b11ad7d819f665da8caf96717d  LayerManage/law-firm-system/apps/web/src/pages/Case/CaseRecordPage.tsx
 942befaf8a62f07f85ca0b3ad0b1f2dce7bbcfc1e106e3f9ae2c96c6d873eae2  LayerManage/law-firm-system/apps/web/src/pages/Case/CaseWorkspacePage.tsx
-1a8b2267976d3bda7713907ca35bfb7f9c2f4590f9b4dfb13ece3f8fd4dc131c  LayerManage/law-firm-system/apps/web/src/pages/Case/ConflictCheck.tsx
+3160b72fe3b995fedf52ce64fbd253399ef64a1765c21b40d67c130e0815f0c2  LayerManage/law-firm-system/apps/web/src/pages/Case/ConflictCheck.tsx
 d4ac6e03dd6701630b269548b410645b3ab6c837d443cc49db126ca3be4901b8  LayerManage/law-firm-system/apps/web/src/pages/Case/IntakeFields.tsx
 f9aafeb55f51b875c08e13845347b2152b02bcc5c5e6c0bd8053a1048cbc869c  LayerManage/law-firm-system/apps/web/src/pages/Case/LinkedContractCase.test.tsx
 5038a4fa432a3fd1789919d36c13ef6154bdfcaeeece12be6979b9dd327050af  LayerManage/law-firm-system/apps/web/src/pages/Case/LinkedContractCase.tsx
@@ -1215,7 +1215,7 @@ f9aafeb55f51b875c08e13845347b2152b02bcc5c5e6c0bd8053a1048cbc869c  LayerManage/la
 d741c9102844f3b74eab5821281e8786a0bb23a2d96d9b8849dde270ceed31c4  LayerManage/law-firm-system/apps/web/src/pages/Case/case-draft.ts
 84298524aadd325007c226f75c790a710439e3dfc46beef4e231f0b6cc67a743  LayerManage/law-firm-system/apps/web/src/pages/Case/intake-contract.ts
 e167fd7e50f46d98db33559a6ff9bacfca147e8c8c7748ba1a86a6c590d1d128  LayerManage/law-firm-system/apps/web/src/pages/Case/useContractIntake.test.tsx
-37c1e6dbb9e2ddd01d306674c7cd7f0c3126d30531018f40b2ffeabf5e91f097  LayerManage/law-firm-system/apps/web/src/pages/Case/useContractIntake.ts
+ef35a5c8713739862e777d505d1e626ceb42bac36b778cc14d2aa0100629e8fc  LayerManage/law-firm-system/apps/web/src/pages/Case/useContractIntake.ts
 ddcbe2901981c1a64b5f6b76dc2dffc530fb42a5548d33c1fb362e661f30186d  LayerManage/law-firm-system/apps/web/src/pages/Channel/ChannelCreatePage.tsx
 2da4bf5794b70e07776d89ed1c312853fefc788579538b025607b1b8d8e699c5  LayerManage/law-firm-system/apps/web/src/pages/Channel/ChannelIdentityGaps.tsx
 d9a820ddeb71475ea3504395e5cb111d07faf6148e1dceb11bb66b21e89ca6bb  LayerManage/law-firm-system/apps/web/src/pages/Channel/ChannelRecordPage.tsx
@@ -1261,15 +1261,16 @@ a3e55c9472011443a41904c8496890fd80180bef64e8e88bfa6d836a7d3828de  LayerManage/la
 eea03206c0532080291fa8dab80ebecfa73c751ab39bf1a6ab39ae005726bcad  LayerManage/law-firm-system/apps/web/src/pages/Quality/AnalysisPages.tsx
 4b21dc6e96b159bc873e376db489d6275eae1a365341c396bd2a9804881bd0d7  LayerManage/law-firm-system/apps/web/src/pages/Quality/index.tsx
 c29489e93ee61744d6709310976d681ceef188a8c8f47e5883df7fa3a8d47677  LayerManage/law-firm-system/apps/web/src/pages/RetiredArchives.tsx
-9bf5f0861afe37d4cd043958448dcbfcd4674f7b6bcc59d2050d95caa82f12e8  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/ApplicationDefaults.tsx
-0cb91a707e97596d0fd80bc3c6a6c0d38d6e8b2530a2eb04ef52f5f19c5fa67a  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/ApplicationPermissions.tsx
+35c449700d200802affacbc9db08d46e8535902061fa1648d24e5c0987a31b1e  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/ApplicationDefaults.tsx
+d64c78cd6c784bed43d46c54b7df53753b0424fb943b9d102ef19c9fd78831cc  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/ApplicationPermissions.tsx
 5fd38fa091e2b990db0e29d5f25d0516f55bc8b5dfea755dc214989c18362051  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/CreateRole.tsx
-e4738cb11cfa9dc42d0f41be80a6f1628e90a8de03371b44c818403bbb04b54d  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/CurrentPagePreview.tsx
+d9d8a7c94ea24262bdb5075a5a2cfe21888c9928d36b9dd79a3c46df5bc19c2c  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/CurrentPagePreview.tsx
 1ff7a389fe0f0cc7475c930cabac5b2d027c958d4e09e9b908f27d2fd9cb7f36  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/OfficeTemplate.tsx
-e152cf39ea5a87a1b2542b6340ba652753a991d0e510e078244ccf5ceffcf544  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/PermissionPreview.tsx
-85e55726bdba14f1f7b220fdaa26ac5373ce0f66fb6ab53549da3794212d0819  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/WorksheetPermissions.tsx
+3aad153b176feda8e402882723087c8d8c16799e0bf3b6374f6e91c4d064f5e8  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/PermissionPreview.tsx
+75d464d8ebb687937d11081d30eb328aa5c31b7bbeb0f914db767d93d6fdef06  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/WorksheetPermissions.tsx
 74cdc67d92899e68360b00c106055526108b8dc081fd12e87e94f341fd118d6d  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/index.test.tsx
 5db012824b2bc02e6176d42c3c44cb30a2eca60b581c3d952235a82664434329  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/index.tsx
+7302f9da3c6a7a93cd71067387a3ca912a4c2d0cb097868630ade6a3bbad2e90  LayerManage/law-firm-system/apps/web/src/pages/SecurityRole/worksheet-permission-options.ts
 8b394ab0c79dea65776d951637d9cbf59f50c46ac3dd4bf6cd0ae3268e9c8e14  LayerManage/law-firm-system/apps/web/src/pages/SecuritySettings/index.test.tsx
 cb2032e7d794bb9f7b719d969946feb94bbe63405606da2c65994f7f7fdb3480  LayerManage/law-firm-system/apps/web/src/pages/SecuritySettings/index.tsx
 fb78eb194141847a5173f392443f4c76130158b783ed3dd377b75d883224b240  LayerManage/law-firm-system/apps/web/src/pages/SecurityUser/index.test.tsx
@@ -1283,7 +1284,7 @@ ff84b68449b056d210d82bcaa3f936ba414beaed65f73d2a4122556dc3fd0e8e  LayerManage/la
 2b2e5104b2b76e3831b8aafb316bf5bc6abebf0503c2dbadbc0045795396e577  LayerManage/law-firm-system/apps/web/src/pages/SopExecution/TaskPage.tsx
 3f3f5af3b201ec6786c53775e88ef5079b0892bd0359ffa442efb22d3072e8b2  LayerManage/law-firm-system/apps/web/src/pages/SopTemplates/index.tsx
 08c1d270de12f45403bc577dbcd93947f91d6b76ad190500a3d5a7a03e40b8f3  LayerManage/law-firm-system/apps/web/src/pages/User/index.test.tsx
-9fb587bb00afc288dfcf1026b501f3c932fc856a4f8f495afa0cb3c5b687874d  LayerManage/law-firm-system/apps/web/src/pages/User/index.tsx
+274361fb487262c281562b7a8b6be5eacf6beee866380d9629e097ec7e05ab04  LayerManage/law-firm-system/apps/web/src/pages/User/index.tsx
 21ba6d92c90ab0e234bf89fa73658bc31034397817d50579ccbb0086fbe4de47  LayerManage/law-firm-system/apps/web/src/pages/Workspaces/case-editing.test.tsx
 818d26be287ed6c3928c3692009c1dd923d5c8dc9d2ec9ac7f790ff49a0b16d9  LayerManage/law-firm-system/apps/web/src/pages/Workspaces/index.tsx
 228981060a8c0867176d11ad833270c20586512ecf1a792bd11097bbaddbd188  LayerManage/law-firm-system/apps/web/src/pages/Workspaces/table-deletion.test.tsx
@@ -1316,7 +1317,7 @@ c29ae8270c87d546c888fdc8d11589d18ef797f2258c3e390f41ae4754323892  LayerManage/la
 c30a4dad09412e3fc4fc8540583555a216f5b048841b5f6c94f296ad79d855dd  LayerManage/law-firm-system/apps/web/src/pages/approvals/visual/workflow-optimization.test.tsx
 fa1511f669875fce8b08db891942ac1bcf4be51e35a8461f85d6e07a0a7d2002  LayerManage/law-firm-system/apps/web/src/pages/approvals/visual/workflow.css
 aa3e1f5885d902cb610725bb82e2018f43852a53fecb3326c68a185960240812  LayerManage/law-firm-system/apps/web/src/pages/contracts/ContractCreatePage.tsx
-dc64bdf857708f80a87128b17005f31715e3987324d85cba21614d45822e353b  LayerManage/law-firm-system/apps/web/src/pages/contracts/ContractDetailPage.tsx
+1a304485cae7af99d893cb2810d9c4adda3990e1fea6c52a7384c5bedf71883f  LayerManage/law-firm-system/apps/web/src/pages/contracts/ContractDetailPage.tsx
 0f878ba12ce429a1f76edb5f4397cfddb25b37ae7f073d97bbea426134c32fcf  LayerManage/law-firm-system/apps/web/src/pages/contracts/__tests__/ContractDetailPage.test.tsx
 2a43653bfb28de76a5f88cc55ff922f6a47711f72ee93926791832074e14e1e6  LayerManage/law-firm-system/apps/web/src/pages/contracts/__tests__/contract-actions.test.ts
 eb872443ce37bbd026546c63a7bc4e1d1c059aa6816811fe39dbf8ddeb234554  LayerManage/law-firm-system/apps/web/src/pages/contracts/meta.ts

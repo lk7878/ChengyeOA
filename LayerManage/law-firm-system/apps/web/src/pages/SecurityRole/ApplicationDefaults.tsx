@@ -6,8 +6,11 @@ import { get, errorMessage } from '@/features/workspaces/api';
 import type { RoleAuthorizationView } from '@/features/authorization/types';
 type Application={id:string;name:string;canCreate:boolean;defaultLevel:string;version:number};
 export default function ApplicationDefaults({role,onSaved,editable}:{role:RoleAuthorizationView;onSaved:(role:RoleAuthorizationView)=>void;editable:boolean}) {
+  return <ApplicationDefaultsEditor key={JSON.stringify([role.id, role.version])} role={role} onSaved={onSaved} editable={editable}/>;
+}
+function ApplicationDefaultsEditor({role,onSaved,editable}:{role:RoleAuthorizationView;onSaved:(role:RoleAuthorizationView)=>void;editable:boolean}) {
   const [rows,setRows]=useState<Application[]>([]),[pending,setPending]=useState<string[]>([]),[error,setError]=useState('');
-  useEffect(()=>{get<Application[]>('/roles/'+role.id+'/applications').then(setRows).catch(e=>setError(errorMessage(e)));setPending([]);},[role.id,role.version]);
+  useEffect(()=>{let active=true;get<Application[]>('/roles/'+role.id+'/applications').then(rows=>{if(active)setRows(rows)}).catch(e=>{if(active)setError(errorMessage(e))});return()=>{active=false};},[role.id,role.version]);
   const change=(id:string,patch:Partial<Application>)=>{setRows(r=>r.map(x=>x.id===id?{...x,...patch}:x));setPending(p=>[...new Set([...p,id])]);};
   return <>{error&&<Alert type="error" title={error}/>}
     <p>新表默认单独授权。默认查看或编辑仅适用于普通自定义表，业务表和敏感标准表需单独授权。</p>

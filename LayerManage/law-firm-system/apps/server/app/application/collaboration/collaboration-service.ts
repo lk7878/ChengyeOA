@@ -113,7 +113,12 @@ export interface Access {
 }
 
 function publicAccess(access: Access) {
-  const { rules, rowIds, scopedRules, conditional, previewCeiling, ...visible } = access;
+  const visible = { ...access };
+  delete visible.rules;
+  delete visible.rowIds;
+  delete visible.scopedRules;
+  delete visible.conditional;
+  delete visible.previewCeiling;
   return visible;
 }
 

@@ -11,24 +11,24 @@ export default function ConflictCheck({ id, linked }: { id?: string; linked: boo
   const opponent = Form.useWatch(['intakeData','opposingParty'], form);
   const region = Form.useWatch(['intakeData','region'], form);
   const phone = Form.useWatch(['intakeData','customerPhone'], form);
-  const [result, setResult] = useState<ConflictResult>();
-  const [error, setError] = useState(false);
+  const queryKey = JSON.stringify([id, customerId, opponent, region, phone, linked]);
+  const [response, setResponse] = useState<{ key: string; result?: ConflictResult; error?: boolean }>();
+  const result = response?.key === queryKey ? response.result : undefined;
+  const error = response?.key === queryKey && !!response.error;
   useEffect(() => {
     let active = true;
-    setResult(undefined);
-    setError(false);
     form.setFieldValue('conflictReview', undefined);
     if (!customerId) return;
     const timer = window.setTimeout(() => {
       void request.post<ApiResponse<ConflictResult>>('/v1/cases/conflict-screen', { id, customerId, linked,
         intakeData: { opposingParty: opponent, ...(!linked && { region, customerPhone: phone }) } })
         .then(({data}) => { if (active) {
-          setResult(data);
+          setResponse({ key: queryKey, result: data });
           if (data.count) form.setFieldValue(['conflictReview','fingerprint'], data.fingerprint);
-        } }).catch(() => { if (active) setError(true); });
+        } }).catch(() => { if (active) setResponse({ key: queryKey, error: true }); });
     }, 300);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [form, customerId, opponent, region, phone, linked, id]);
+  }, [form, customerId, opponent, region, phone, linked, id, queryKey]);
   if (!customerId) return null;
   return <ConflictResultFields result={result} error={error}/>;
 }
