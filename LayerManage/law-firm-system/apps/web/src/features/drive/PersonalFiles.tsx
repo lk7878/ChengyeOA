@@ -3,6 +3,7 @@ import {uploadFile,downloadVersion} from './file-transfer';
 import { useCallback,useEffect,useRef,useState } from 'react';
 import { Alert,Button,Checkbox,Dropdown,Input,Select,Space,Table,message } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
+import ResizableTable from '@/components/ResizableTable';
 import Modal from '@/components/DraggableModal';
 import request from '@/api/request';
 import {get,post,patch,errorMessage} from '../workspaces/api';
@@ -45,15 +46,15 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
       <Button danger disabled={busy||!selected.length} onClick={()=>setDeleting((data?.items??[]).filter(i=>selected.includes(i.id)))}>删除所选（{selected.length}）</Button>
       {scope==='mine'&&<Button disabled={busy} onClick={()=>void get<{items:NonNullable<typeof trash>}>('/personal-files/trash').then(r=>setTrash(r.items)).catch(e=>message.error(errorMessage(e)))}>回收站</Button>}
     </Space>
-    <p style={{color:'#667085',marginTop:8}}>可在“更多”中更新文件或管理分享。文件更新后保留旧版本，有多个版本时可查看历史版本。</p>
+    <p style={{color:'#667085',marginTop:8}}>可在“更多”中更新文件或管理分享。文件更新后保留旧版本，有多个版本时可查看历史版本。拖动表头分隔线可调整列宽，双击恢复默认。</p>
     <input hidden type="file" multiple ref={fileInput} onChange={e=>void upload(e.target.files)}/><input hidden type="file" multiple {...{webkitdirectory:''}} ref={folderInput} onChange={e=>void upload(e.target.files)}/>
     {Object.entries(progress).map(([file,state])=><p key={file}>{file}：{state}</p>)}
     {failed.length>0&&<Button disabled={busy} onClick={()=>void upload(failed)}>重试失败文件（续传）</Button>}
-    <Table<Item> style={{marginTop:12}} rowKey="id" dataSource={data?.items??[]} pagination={{pageSize:10}} rowSelection={{selectedRowKeys:selected,onChange:keys=>setSelected(keys.map(String)),getCheckboxProps:r=>({disabled:busy||r.kind!=='FILE'||r.level<3})}} columns={[
-      {title:'文件名称',dataIndex:'name',render:(_,r)=>r.kind==='FOLDER'?<Button type="link" onClick={()=>setParent(r.id)}>📁 {r.name}</Button>:r.name},
-      {title:'权限',render:(_,r)=>['无权限','只读','编辑','管理'][r.level]},
-      {title:'大小',render:(_,r)=>r.kind==='FILE'?Math.ceil(r.size/1024)+' KB':'文件夹'},
-      {title:'操作',width:180,render:(_,r)=><Space>
+    <ResizableTable<Item> columnWidthsKey={`personal-files:${authorization?.userId??'anonymous'}:${scope}`} style={{marginTop:12}} rowKey="id" dataSource={data?.items??[]} pagination={{pageSize:10}} rowSelection={{columnWidth:48,selectedRowKeys:selected,onChange:keys=>setSelected(keys.map(String)),getCheckboxProps:r=>({disabled:busy||r.kind!=='FILE'||r.level<3})}} columns={[
+      {title:'文件名称',dataIndex:'name',width:320,render:(_,r)=>r.kind==='FOLDER'?<Button type="link" onClick={()=>setParent(r.id)}>📁 {r.name}</Button>:r.name},
+      {title:'权限',key:'permission',width:90,render:(_,r)=>['无权限','只读','编辑','管理'][r.level]},
+      {title:'大小',key:'size',width:120,render:(_,r)=>r.kind==='FILE'?Math.ceil(r.size/1024)+' KB':'文件夹'},
+      {title:'操作',key:'actions',width:180,render:(_,r)=><Space wrap>
         {r.kind==='FILE'&&<Button onClick={()=>void downloadVersion(r.id,r.contentVersion,r.name).catch(e=>message.error(errorMessage(e)))}>下载</Button>}
         {(r.level>=2||(r.kind==='FILE'&&r.contentVersion>1))&&<Dropdown trigger={['click']} menu={{items:[
           ...(r.kind==='FILE'&&r.level>=2?[{key:'update',label:'更新文件'}]:[]),
