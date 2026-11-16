@@ -1205,7 +1205,7 @@ ee1aa8daed7cc2152416716a7f1df83153a4a88ad1665fbcc1716f9782304c73  LayerManage/la
 a502297cb3fb4bb5a2a83c11e08a4a12978eb65c7f1a17e1db08b6d93bfb47e2  LayerManage/law-firm-system/apps/web/src/pages/Calendar/Calendar.test.tsx
 20ba996db9ba78b1b70de412e7f3d42796ed89f18b90474dd3d384f4b14611eb  LayerManage/law-firm-system/apps/web/src/pages/Calendar/index.tsx
 991972fe45f9c622013eb2973be2339ffbbe4e391f257c89f00bea104765ca95  LayerManage/law-firm-system/apps/web/src/pages/Case/CaseIdentityGaps.tsx
-5a376429d4b20276aa7918b4d2c5b464122db29867f8f8eae8698674bf98e1c8  LayerManage/law-firm-system/apps/web/src/pages/Case/CaseRecordPage.tsx
+dd67f0c3286920f8c3be8ac651ee50eb94f379b11ad7d819f665da8caf96717d  LayerManage/law-firm-system/apps/web/src/pages/Case/CaseRecordPage.tsx
 942befaf8a62f07f85ca0b3ad0b1f2dce7bbcfc1e106e3f9ae2c96c6d873eae2  LayerManage/law-firm-system/apps/web/src/pages/Case/CaseWorkspacePage.tsx
 1a8b2267976d3bda7713907ca35bfb7f9c2f4590f9b4dfb13ece3f8fd4dc131c  LayerManage/law-firm-system/apps/web/src/pages/Case/ConflictCheck.tsx
 d4ac6e03dd6701630b269548b410645b3ab6c837d443cc49db126ca3be4901b8  LayerManage/law-firm-system/apps/web/src/pages/Case/IntakeFields.tsx
@@ -1285,7 +1285,7 @@ ff84b68449b056d210d82bcaa3f936ba414beaed65f73d2a4122556dc3fd0e8e  LayerManage/la
 08c1d270de12f45403bc577dbcd93947f91d6b76ad190500a3d5a7a03e40b8f3  LayerManage/law-firm-system/apps/web/src/pages/User/index.test.tsx
 9fb587bb00afc288dfcf1026b501f3c932fc856a4f8f495afa0cb3c5b687874d  LayerManage/law-firm-system/apps/web/src/pages/User/index.tsx
 21ba6d92c90ab0e234bf89fa73658bc31034397817d50579ccbb0086fbe4de47  LayerManage/law-firm-system/apps/web/src/pages/Workspaces/case-editing.test.tsx
-561e96676283b2e48c3bd9c34227b98c4b47472daf0173ca3218dbc48036a085  LayerManage/law-firm-system/apps/web/src/pages/Workspaces/index.tsx
+818d26be287ed6c3928c3692009c1dd923d5c8dc9d2ec9ac7f790ff49a0b16d9  LayerManage/law-firm-system/apps/web/src/pages/Workspaces/index.tsx
 228981060a8c0867176d11ad833270c20586512ecf1a792bd11097bbaddbd188  LayerManage/law-firm-system/apps/web/src/pages/Workspaces/table-deletion.test.tsx
 65baee1b6f6713d25d20cefb7e790649699d1e0ce89226b75e4c93af3a4fd1c2  LayerManage/law-firm-system/apps/web/src/pages/Workspaces/workspace.css
 b6cb26f8d5ac187cdd69b940ea854efec40518ab3b54c4bfc6e25c7c3654e4f3  LayerManage/law-firm-system/apps/web/src/pages/anomalies/AnomalyListPage.tsx

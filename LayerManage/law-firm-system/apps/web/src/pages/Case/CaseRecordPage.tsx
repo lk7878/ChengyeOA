@@ -173,17 +173,19 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
 
   const [searchParams] = useSearchParams();
   const sourceTable = !id ? searchParams.get('table') : null;
-  const [worksheet,setWorksheet] = useState<TableDetail>();
+  const [worksheetResult,setWorksheetResult] = useState<{ tableId: string; data?: TableDetail; error?: string }>();
+  const worksheet = worksheetResult?.tableId === sourceTable ? worksheetResult.data : undefined;
+  const worksheetError = worksheetResult?.tableId === sourceTable ? worksheetResult.error ?? '' : '';
   const [screenRevision,setScreenRevision]=useState(0);
-  const [worksheetError,setWorksheetError] = useState('');
   useEffect(()=>{
-    let active=true; setWorksheet(undefined);setWorksheetError('');
-    if(sourceTable) void get<TableDetail>('/tables/'+encodeURIComponent(sourceTable)).then(d=>{
+    if (!sourceTable) return;
+    let active=true;
+    void get<TableDetail>('/tables/'+encodeURIComponent(sourceTable)).then(d=>{
       if (!active) return;
-      if(d.table.source!=='CASES'||d.access.level<2||d.access.add===false) setWorksheetError('当前工作表不允许新建案件。');
-      else if (['customerName','caseType'].some(key=>!d.fields.some(f=>f.options.businessKey===key && !d.access.readonly.includes(f.id)))) setWorksheetError('工作表权限缺少建案必需的客户或案由字段。');
-      else setWorksheet(d);
-    }).catch(e=>{if(active)setWorksheetError(errorMessage(e))});
+      if(d.table.source!=='CASES'||d.access.level<2||d.access.add===false) setWorksheetResult({ tableId: sourceTable, error: '当前工作表不允许新建案件。' });
+      else if (['customerName','caseType'].some(key=>!d.fields.some(f=>f.options.businessKey===key && !d.access.readonly.includes(f.id)))) setWorksheetResult({ tableId: sourceTable, error: '工作表权限缺少建案必需的客户或案由字段。' });
+      else setWorksheetResult({ tableId: sourceTable, data: d });
+    }).catch(e=>{if(active)setWorksheetResult({ tableId: sourceTable, error: errorMessage(e) })});
     return()=>{active=false};
   },[sourceTable]);
   const [workspaceId, setWorkspaceId] = useState(
@@ -384,7 +386,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
 
   useEffect(() => {
     let live = true;
-    if (!createOpen) {setContractSearch('');return;}
+    if (!createOpen) return;
     const timer=window.setTimeout(()=>{
       void contractApi.list({status:'EFFECTIVE',page:1,pageSize:100,keyword:contractSearch.trim() || undefined})
         .then(r=>{if(live)setUpstreamContracts(r.data.list)}).catch(()=>{if(live)setUpstreamContracts([])});
@@ -458,6 +460,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
       setAttachments({});
       message.success(editingCase ? '案件已修改' : '案件已创建');
       setCreateOpen(false);
+      setContractSearch('');
       if (editingCase) await openDetailWithFiles(saved);
       else navigate('/cases/' + saved.id, { replace: true });
     } catch (error) {
@@ -800,6 +803,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
         onCancel={() => {
           if (!createSubmitting) {
             setCreateOpen(false);
+            setContractSearch('');
             clearCaseDraft();
             if (!id) navigate('/cases');
           }

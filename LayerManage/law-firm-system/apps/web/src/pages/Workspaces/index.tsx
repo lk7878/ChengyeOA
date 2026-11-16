@@ -274,12 +274,11 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
     return () => {
       alive = false;
     };
-  }, [tableId, baseId, selectedViewId, revision]);
+  }, [tableId, baseId, selectedViewId, revision, params, setParams]);
   useEffect(() => {
     let alive = true;
     if (!tableId || !detail || detail.table.id !== tableId) return;
     // Only initial loading blocks the grid; background updates keep existing rows interactive.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(loadedTableRef.current !== tableId);
     setQueryError('');
     let queryConfig: ViewConfig;
