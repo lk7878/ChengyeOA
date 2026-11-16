@@ -18,7 +18,7 @@ export default () => async (ctx: Context, next: () => Promise<unknown>) => {
   }
 
   if(token.startsWith('sc_')) {
-    if(!/^\/api\/v1\/(smart-case\/(me|logout|cases|archive|directory|roles)(\/|$)|personal-files(\/|$))/.test(path))throw new SecurityError('TOKEN_INVALID',401);
+    if(!/^\/api\/v1\/(smart-case\/(me|logout|cases|archive|directory)(\/|$)|personal-files(\/|$))/.test(path))throw new SecurityError('TOKEN_INVALID',401);
     ctx.state.user=await new SmartCaseIdentity(ctx.prisma).authenticate(token);
   } else ctx.state.user = await createAuthenticationService(ctx).authenticate(token);
   await next();

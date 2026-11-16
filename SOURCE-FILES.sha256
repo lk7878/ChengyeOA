@@ -388,7 +388,6 @@ e61b596e73311fb239b8da8fbdf2265890ee5fe4fe7e9c989d4053c0b45c592a  LayerManage/la
 c92cc5f0e7560df5491307351a4282fef6a55c0d9f6bbfbdaf42b4538664e880  LayerManage/law-firm-system/apps/server/app/application/quality/remediation-material.ts
 a6d5d99e9c16f5f4ec7e03445890ad65f7fe4bc4e70df15803886c6792921694  LayerManage/law-firm-system/apps/server/app/application/smart-case/archive.ts
 88df16ecdf0090567e3a8bab43f65593f5d469fb75c5b3249147065cbaa5b3f8  LayerManage/law-firm-system/apps/server/app/application/smart-case/identity.ts
-2bd0501dcbbf1e1c0c8b7e9894b8a3c39cb9a15dabab8872bbff67cae0c303ce  LayerManage/law-firm-system/apps/server/app/application/smart-case/roles.ts
 c29a89f03a878eb1e78963031237425382ff6741b4545f0c070efcb88bfdd62f  LayerManage/law-firm-system/apps/server/app/application/sop/change-notification.ts
 e01832da1ea8143e7740400dd711a8e58a3f3f982d8dc2bc886f6bdaadbfb143  LayerManage/law-firm-system/apps/server/app/application/sop/continuation-service.ts
 a35dd3ba90a8355557f81deadb9d7719d2ab8030d92a2c41ea58dc4e1332f24d  LayerManage/law-firm-system/apps/server/app/application/sop/employment-stamp.ts
@@ -456,7 +455,7 @@ be928db508da0be5427e0b1358b3cdcaa990dbdfb5996582031f38c8fd34b2d2  LayerManage/la
 a091f12cc3029d8a93a8c70c358ca5792e893ed8b554de6d3be7379763b462cc  LayerManage/law-firm-system/apps/server/app/controller/quality.ts
 2178bd8e756927e9c4442933c03fd8390674480b0b94038f9f3a8a9628486306  LayerManage/law-firm-system/apps/server/app/controller/refund.ts
 99b984ccb8739fbcfb38037f78b0fa37a761d817506598a4020ad8cad94ce79c  LayerManage/law-firm-system/apps/server/app/controller/role.ts
-413f01482caf8104ec15abf064041f78c1f21a9f4811fcba809879506e11efc9  LayerManage/law-firm-system/apps/server/app/controller/smartCase.ts
+4795b3a20ad76af23b23ff0e39a3730f6e2ebee14b6de2d7795debf95e28c863  LayerManage/law-firm-system/apps/server/app/controller/smartCase.ts
 90bcf4ff06c856a96c24ad8ec7bede41523f9cb6ab14d513789ac4d9a4bf7267  LayerManage/law-firm-system/apps/server/app/controller/sop.ts
 bff0b73c0d9b9d8132457fc8d9fab48a245027e626e251e583e4d5546da8dc69  LayerManage/law-firm-system/apps/server/app/controller/user.ts
 c313b725734b63bdbf8eb033ca6e22f8423ef08b0fb2601119ee9aad17113b41  LayerManage/law-firm-system/apps/server/app/controller/workflow.ts
@@ -517,7 +516,7 @@ b9c0cb0210a92fe803421f19f58dcfb5f31701a25682e1a50e683daf951ba3c5  LayerManage/la
 dd0a8b4c923c515597248f7e4c00449cdc6339cdb2b0f0062dc7fc12e31d214c  LayerManage/law-firm-system/apps/server/app/extend/helper.ts
 553fc591c856b1f39e3f75eb3979f56d4f961f3a7cf7a07081d415f9efe93cda  LayerManage/law-firm-system/apps/server/app/lib/database-health.ts
 61e26f3febb18701ec3bf163519219871072d25df8223d82e898f57e62e0956a  LayerManage/law-firm-system/apps/server/app/middleware/administratorMfaGuard.ts
-7708c66463061b6ad0176e8600d0aff3987e0446b8a0d98e94377c5662ae09ca  LayerManage/law-firm-system/apps/server/app/middleware/auth.ts
+c596ccc336e330934aa488d9282055909226a6eb3491d539ed3717eb0fcc2e03  LayerManage/law-firm-system/apps/server/app/middleware/auth.ts
 2d3b667964e8b95b49769832b8f006c112cea2e3353008eacf3f9fc426662b6f  LayerManage/law-firm-system/apps/server/app/middleware/authorizationContext.ts
 c8c3c061c1c6cfd7b9af871da95185fb44a84bd1208fb948123a0a8b881a4258  LayerManage/law-firm-system/apps/server/app/middleware/csrf.ts
 837ceae298d615ea928f2be91263adcb754acd118a9fa8db956c1cbdacc43b76  LayerManage/law-firm-system/apps/server/app/middleware/errorHandler.ts
@@ -527,7 +526,7 @@ aac4c8725156d4ecac2080b85a0cecbced91818b5b48df565cbe238f02daaa5e  LayerManage/la
 99391dccb153d1d42e644ec134f5bd6c0f5f52203f60e645247fbff60fbd46e6  LayerManage/law-firm-system/apps/server/app/middleware/requirePermission.ts
 f775f2c37f6d481a132ecd1e11fc8349447672fd81632c1fdde18a9da8ba56fc  LayerManage/law-firm-system/apps/server/app/middleware/retiredModules.ts
 c06e193a86e32e1b59ec7492062df6c5ba31093f2d82e80991bec5f45236ab66  LayerManage/law-firm-system/apps/server/app/middleware/worksheetAuthorization.ts
-855be46756fcefc45a59bc5c063611f7c10f0af88b254bffa2606fc88ea5caf3  LayerManage/law-firm-system/apps/server/app/router.ts
+a088a31e4e498e2781fd85faeb289904640ea2edc08601769bc940b17041648e  LayerManage/law-firm-system/apps/server/app/router.ts
 ccf25ba7b84be1ff679710228fbaecd52f4859639be51a0b1ce13c320f181dee  LayerManage/law-firm-system/apps/server/app/schedule/calendar.ts
 ee90f3c8aac87498acea755ab53d3baa8515d7df5b05c6e835646458d87bdff4  LayerManage/law-firm-system/apps/server/app/schedule/workflow.ts
 7d22e98538419adff0ef8d629cc2f729e896354fd3aa628e67df713e370b114c  LayerManage/law-firm-system/apps/server/config/config.default.ts
@@ -773,7 +772,6 @@ b1ed6b9862a99cde13253d5554a10bca7fe823bd9fbb3872f76af0d27db9ae17  LayerManage/la
 db288963d4d392564886d1ca740fd20600f5a8b037283061ce378e29933db865  LayerManage/law-firm-system/apps/server/test/auth/mfa-service.test.ts
 bf40a02cacfca010d2f1665ba59f4e3790fc6963d95de797f93688327dc6cc0a  LayerManage/law-firm-system/apps/server/test/auth/session-service.test.ts
 4bbb09c780aa3223c131f57ed4a0b765f14f4986fa34f26e73ef0bcc7ef801d8  LayerManage/law-firm-system/apps/server/test/auth/smart-case-identity.test.ts
-21b721e740c9cc7448bded762138a289fe6b0e742e55d9f9dfbc955f86baf459  LayerManage/law-firm-system/apps/server/test/auth/smart-case-roles.test.ts
 4d8bcce8cad03c18f9efb76f2467cf891347ebff7ed8b3a03efaa0db472b0830  LayerManage/law-firm-system/apps/server/test/auth/step-up-service.test.ts
 5cef9e82b7c228ed528b1e221c27d5e5989fad504765df34e256b4393a561773  LayerManage/law-firm-system/apps/server/test/authorization/authorization-audit.test.ts
 b01227c662c9cac77f443338c10027201797ca5a98b6a5ce486e1c73a6019a0e  LayerManage/law-firm-system/apps/server/test/authorization/authorization-context-loader.test.ts
