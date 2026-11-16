@@ -1,5 +1,6 @@
 import { randomBytes,createHash } from 'node:crypto'
 import path from 'node:path'
+import {readFile} from 'node:fs/promises'
 import { Store } from './atomic-store.js'
 import { oa } from './oa-client.js'
 const parseCookie=value=>Object.fromEntries(String(value||'').split(';').map(s=>s.trim().split(/=(.*)/s)).filter(p=>p.length>=2).map(([k,v])=>[k,v]))
@@ -14,7 +15,7 @@ export async function registerOa(app){
   if(!session||session.expiresAt<=Date.now())throw Object.assign(Error('请从 OA 登录'),{statusCode:401});
   const current=await oa(session.token,'/smart-case/me');
   const id=mappings.update(data=>data[current.id]??=('oa-'+current.id));
-  return {oa:{token:session.token,...current},user:{id,oaUserId:current.id,username:current.username,displayName:current.displayName,isSystemSuperAdmin:current.isSystemSuperAdmin,status:'active',roles:current.permissions.includes('knowledge.review')?['public_admin']:['case_owner']}}
+  return {oa:{token:session.token,...current},user:{id,oaUserId:current.id,appearance:current.appearance,username:current.username,displayName:current.displayName,isSystemSuperAdmin:current.isSystemSuperAdmin,status:'active',roles:current.permissions.includes('knowledge.review')?['public_admin']:['case_owner']}}
  }
  app.decorate('oaAuthenticate',authenticate)
  app.addHook('preHandler',async(req,reply)=>{
@@ -26,6 +27,7 @@ export async function registerOa(app){
   // These legacy paths expose shared runtimes/passwords or bypass OA authoritative files.
   if(/^\/api\/(accounts|sharing-groups|ai\/visible-sessions|go\/|knowledge-bases|knowledge\/)/.test(p)||p==='/api/auth/login'||/\/cases\/[^/]+\/(session|materials|raw|preview|session-files|files|export-word)(\/|$)/.test(p))return reply.code(410).send({error:'此旧接口已停用，请使用 OA 授权任务和知识投稿'})
  })
+ app.get('/api/oa/theme.js',async(_req,reply)=>{reply.type('application/javascript').header('Cache-Control','private, no-store');return readFile(new URL('../../work_ui/public/oa-theme.js',import.meta.url),'utf8')})
  app.get('/api/auth/start',async(req,reply)=>{
   const verifier=randomBytes(32).toString('hex');const caseId=typeof req.query.caseId==='string'&&/^[a-zA-Z0-9-]{1,100}$/.test(req.query.caseId)?req.query.caseId:'';reply.header('set-cookie',[cookie('oa_login',verifier,120),cookie('oa_case',caseId,120)])
   const url=new URL('/smart-case',process.env.OA_PUBLIC_URL||'http://127.0.0.1:3000');url.searchParams.set('challenge',sha(verifier));return reply.redirect(url.href)

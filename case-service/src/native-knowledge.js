@@ -16,7 +16,7 @@ export async function registerNativeKnowledge(app){
    if(!path.extname(file))file=path.join(root,'index.html')
    const mime={'.html':'text/html','.js':'application/javascript','.css':'text/css','.svg':'image/svg+xml','.woff2':'font/woff2','.png':'image/png','.ico':'image/x-icon'}[path.extname(file)]||'application/octet-stream'
    await stat(file).catch(()=>fail('页面资源不存在',404));reply.type(mime)
-   if(file.endsWith('index.html'))return (await readFile(file,'utf8')).replace('</head>','<style>:root{--td-brand-color:#3370ff;--td-brand-color-active:#245bdb}body{font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif} .oa-native-notice{padding:10px 18px;background:#eef4ff;color:#245bdb;font-size:13px;position:fixed;bottom:0;left:0;right:0;z-index:10000}</style></head>').replace('</body>','<div class="oa-native-notice">知识库原生管理 · 新建或修改知识正文请通过工作台投稿审核；本页支持原文、分块、索引查看及重新解析。<a href="/">返回工作台</a></div></body>')
+   if(file.endsWith('index.html'))return (await readFile(file,'utf8')).replace('</head>','<script defer src="/api/oa/theme.js"></script><style>:root{--td-brand-color:#3370ff;--td-brand-color-active:#245bdb}body{font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif} .oa-native-notice{padding:10px 18px;background:#eef4ff;color:#245bdb;font-size:13px;position:fixed;bottom:0;left:0;right:0;z-index:10000}</style></head>').replace('</body>','<div class="oa-native-notice">知识库原生管理 · 新建或修改知识正文请通过工作台投稿审核；本页支持原文、分块、索引查看及重新解析。<a href="/wb/">返回工作台</a></div></body>')
    return reply.send(createReadStream(file))
   }
   const route=url.pathname.replace(/^\/api\/v1/,'')

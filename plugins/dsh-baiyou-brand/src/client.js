@@ -1,6 +1,6 @@
 import { jsx, jsxs } from 'react/jsx-runtime'
 
-export const inject = ['slots']
+export const inject = ['slots', 'theme']
 
 const TITLE = '承业智慧办案 · AI 助手'
 const CSS_ID = 'dsh-baiyou-brand/css'
@@ -149,6 +149,13 @@ function patchOfficialDom() {
 }
 
 export function apply(ctx) {
+  const syncTheme = event => ctx.theme.setTheme(event?.detail || window.__oaTheme || 'light');
+  window.addEventListener('oa-theme-change', syncTheme);
+  if (window.__oaTheme) syncTheme();
+  const themeScript = document.createElement('script');
+  themeScript.src = '/api/oa/theme.js';
+  document.head.appendChild(themeScript);
+  ctx.effect(() => () => { window.removeEventListener('oa-theme-change', syncTheme); themeScript.remove(); }, 'oa-theme-sync');
   ensureCss()
   applyTitle()
   applyFavicon()

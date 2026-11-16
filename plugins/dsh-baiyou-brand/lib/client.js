@@ -1,7 +1,7 @@
 window.__ModuleLoader__.load({ id: "dsh-baiyou-brand", factory: (require) => {
 var module = { exports: {} }; var exports = module.exports;
 var { jsx, jsxs } = require("react/jsx-runtime");
-const inject = ['slots']
+const inject = ['slots', 'theme']
 
 const TITLE = '承业智慧办案 · AI 助手'
 const CSS_ID = 'dsh-baiyou-brand/css'
@@ -150,6 +150,13 @@ function patchOfficialDom() {
 }
 
 function apply(ctx) {
+  const syncTheme = event => ctx.theme.setTheme(event?.detail || window.__oaTheme || 'light');
+  window.addEventListener('oa-theme-change', syncTheme);
+  if (window.__oaTheme) syncTheme();
+  const themeScript = document.createElement('script');
+  themeScript.src = '/api/oa/theme.js';
+  document.head.appendChild(themeScript);
+  ctx.effect(() => () => { window.removeEventListener('oa-theme-change', syncTheme); themeScript.remove(); }, 'oa-theme-sync');
   ensureCss()
   applyTitle()
   applyFavicon()

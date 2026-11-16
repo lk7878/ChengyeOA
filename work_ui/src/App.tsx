@@ -28,18 +28,6 @@ const TITLES: Record<ViewId, { title: string; subtitle: string }> = {
 }
 
 
-function useTheme() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const saved = localStorage.getItem('wb-theme')
-    return saved === 'dark' ? 'dark' : 'light'
-  })
-  useEffect(() => {
-    document.body.toggleAttribute('data-ds-dark-theme', theme === 'dark')
-    localStorage.setItem('wb-theme', theme)
-  }, [theme])
-  return { theme, toggle: () => setTheme((t) => (t === 'light' ? 'dark' : 'light')) }
-}
-
 function useLlmStatus(enabled: boolean) {
   const [status, setStatus] = useState<LlmStatus | null>(null)
   useEffect(() => {
@@ -63,7 +51,6 @@ function useLlmStatus(enabled: boolean) {
 export default function App() {
   const openExternal=(id:'ai_assistant'|'knowledge_base')=>setView(id==='ai_assistant'?'cases_general':'knowledge')
   const [view, setView] = useState<ViewId>(new URLSearchParams(window.location.search).has('caseId')?'cases_general':'dashboard')
-  const { theme, toggle } = useTheme()
   const [user, setUser] = useState<Account | null>(null)
   const [authReady, setAuthReady] = useState(false)
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -144,8 +131,6 @@ export default function App() {
           subtitle={TITLES[view].subtitle}
           onOpenExternal={openExternal}
           onNavigate={setView}
-          theme={theme}
-          onToggleTheme={toggle}
           llm={canSeeBalance ? llm : null}
           user={user}
           onLogout={handleLogout}

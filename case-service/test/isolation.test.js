@@ -17,3 +17,21 @@ test('latest Harness creates all professional presets without shared cookies or 
  for(const r of runtimes)assert.doesNotMatch(r.diagnostics(),/did not activate|failed to import|skipping profile bundle/)
  }finally{for(const r of runtimes)r.stop();await Promise.all(dirs.map(d=>rm(d,{recursive:true,force:true})))}
 })
+
+test('sandbox launch failure stays failed and keeps diagnostics out of the user message',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'oa-isolation-failure-'))
+ const previous=process.env.HARNESS_APPARMOR_PROFILE
+ try{
+  await mkdir(path.join(dir,'workspace/materials'),{recursive:true})
+  process.env.HARNESS_APPARMOR_PROFILE='oa-test-profile-that-does-not-exist'
+  await assert.rejects(launchIsolatedHarness({dir,id:crypto.randomUUID(),publicBase:'http://127.0.0.1:5180'}),error=>{
+   assert.match(error.message,/AI 任务运行环境启动失败/)
+   assert.doesNotMatch(error.message,/aa-exec|at Server|改用本机/)
+   return true
+  })
+  assert.match(await readFile(path.join(dir,'startup.log'),'utf8'),/aa-exec/)
+ }finally{
+  if(previous===undefined)delete process.env.HARNESS_APPARMOR_PROFILE;else process.env.HARNESS_APPARMOR_PROFILE=previous
+  await rm(dir,{recursive:true,force:true})
+ }
+})

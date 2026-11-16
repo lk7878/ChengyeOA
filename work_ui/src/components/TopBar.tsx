@@ -1,5 +1,5 @@
 import { Button } from './Button'
-import { IconSpark, IconBook, IconExternal, IconMoon, IconSun } from './icons'
+import { IconSpark, IconBook, IconExternal } from './icons'
 import type { Account, ViewId } from '@/types'
 import { EXTERNAL_LINKS } from '@/config/links'
 import { ROLE_LABELS } from '@/types'
@@ -11,8 +11,6 @@ export interface TopBarProps {
   subtitle?: string
   onOpenExternal: (id: 'ai_assistant' | 'knowledge_base') => void
   onNavigate?: (v: ViewId) => void
-  theme: 'light' | 'dark'
-  onToggleTheme: () => void
   llm?: LlmStatus | null
   user: Account
   onLogout: () => void
@@ -20,7 +18,7 @@ export interface TopBarProps {
 }
 
 export function TopBar({
-  title, subtitle, onOpenExternal, onNavigate, theme, onToggleTheme, llm, user, onLogout, showBalance,
+  title, subtitle, onOpenExternal, onNavigate, llm, user, onLogout, showBalance,
 }: TopBarProps) {
   const balanceText = llm
     ? (llm.balance.hidden
@@ -47,9 +45,6 @@ export function TopBar({
             <span className="wb-topbar__balanceValue">{balanceText}</span>
           </div>
         ) : null}
-        <Button variant="outline" onClick={onToggleTheme} icon={theme === 'light' ? <IconMoon size={16} /> : <IconSun size={16} />}>
-          {theme === 'light' ? '深色' : '浅色'}
-        </Button>
         <Button
           variant="outline"
           onClick={() => onNavigate ? onNavigate('knowledge') : onOpenExternal('knowledge_base')}
