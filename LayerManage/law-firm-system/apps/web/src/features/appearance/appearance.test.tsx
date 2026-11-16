@@ -87,3 +87,30 @@ test('account changes reset presentation and ignore a stale response from the pr
   expect(document.documentElement.dataset.oaAppearance).toBe('standard');
   expect(useAppearanceStore.getState().preferences).toEqual(defaultAppearance);
 });
+
+test('homepage theme toggle saves all preferences, broadcasts only its account and preserves drafts', async () => {
+  vi.mocked(get).mockResolvedValue({ ...defaultAppearance, fontSize: 'large', background: 'green' });
+  show();
+  await waitFor(() => expect(useAppearanceStore.getState().status).toBe('ready'));
+  fireEvent.change(screen.getByLabelText('业务草稿'), { target: { value: '切换时保留' } });
+  fireEvent.click(screen.getByRole('button', { name: '切换深色模式' }));
+  await waitFor(() => expect(document.documentElement.dataset.oaColorMode).toBe('dark'));
+  expect(patch).toHaveBeenCalledWith('/auth/appearance', { ...defaultAppearance, fontSize: 'large', background: 'green', colorMode: 'dark' });
+  expect(JSON.parse(localStorage.getItem('oa-appearance:a')!).colorMode).toBe('dark');
+  expect(screen.getByLabelText('业务草稿')).toHaveValue('切换时保留');
+  expect(mounts).toBe(1);
+  fireEvent(window, new StorageEvent('storage', { key: 'oa-appearance:b', newValue: JSON.stringify(defaultAppearance) }));
+  expect(document.documentElement.dataset.oaColorMode).toBe('dark');
+  fireEvent(window, new StorageEvent('storage', { key: 'oa-appearance:a', newValue: JSON.stringify(defaultAppearance) }));
+  await waitFor(() => expect(document.documentElement.dataset.oaColorMode).toBe('light'));
+});
+
+test('failed quick toggle keeps the confirmed theme and does not broadcast a false success', async () => {
+  show();
+  await waitFor(() => expect(useAppearanceStore.getState().status).toBe('ready'));
+  vi.mocked(patch).mockRejectedValue(new Error('网络中断'));
+  fireEvent.click(screen.getByRole('button', { name: '切换深色模式' }));
+  await screen.findByText('网络中断');
+  expect(document.documentElement.dataset.oaColorMode).toBe('light');
+  expect(JSON.parse(localStorage.getItem('oa-appearance:a')!).colorMode).toBe('light');
+});

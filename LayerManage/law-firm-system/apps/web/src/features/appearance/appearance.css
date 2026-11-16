@@ -31,3 +31,19 @@ html[data-oa-appearance] .wf-field-help,
 html[data-oa-appearance] .wf-node-kind,
 html[data-oa-appearance] .wf-name-field > small,
 html[data-oa-appearance] .wf-name-error { font-size: var(--oa-font-small); }
+
+/* Ant Design supplies component colors; these are the custom OA shell and workspace surfaces. */
+html[data-oa-color-mode="dark"] body { color: #e1e5eb; }
+html[data-oa-color-mode="dark"] :is(.unified-shell,.collab-workspace,.unified-brand,.unified-tool,.unified-notification,.unified-app-card,.unified-app-group h2,.workspace-cell,.workspace-field-heading) { color: #e1e5eb; }
+html[data-oa-color-mode="dark"] :is(.unified-header,.unified-context,.unified-app-card,.workspace-sidebar,.workspace-top,.workspace-toolbar,.workspace-grid .ant-table-cell) { border-color: #343b47; }
+html[data-oa-color-mode="dark"] :is(.unified-app-card,.workspace-grid .ant-table-thead .ant-table-cell,.workspace-grid .ant-table-cell-fix-left,.workspace-grid .ant-table-cell-fix-right) { background: var(--oa-panel-bg); }
+html[data-oa-color-mode="dark"] :is(.unified-global-nav a,.unified-context-nav a,.unified-context-nav button) { color: #c4ccda; }
+html[data-oa-color-mode="dark"] :is(.unified-global-nav a:hover,.unified-context-nav a:hover,.unified-context-nav button:hover,.unified-global-nav a[aria-current],.unified-context-nav a[aria-current],.workspace-table-item.selected,.unified-home-callout,.unified-card-symbol) { background: #243551; color: #a7c5ff; border-color: #354c71; }
+html[data-oa-color-mode="dark"] :is(.unified-muted,.unified-context-nav h2,.unified-area-heading p,.unified-home-callout p,.unified-app-card p,.workspace-muted,.workspace-status) { color: #a5afc1; }
+html[data-oa-color-mode="dark"] :is(.workspace-status,.workspace-empty,.unified-navigation-drawer) { background: var(--oa-panel-bg); }
+html[data-oa-color-mode="dark"] .cloud-drive { background: var(--oa-page-bg); color: #e1e5eb; }
+html[data-oa-color-mode="dark"] .drive-sidebar { background: var(--oa-rail-bg); }
+html[data-oa-color-mode="dark"] :is(.drive-header,.drive-sidebar,.drive-resource) { border-color: #343b47; }
+html[data-oa-color-mode="dark"] .drive-resource:hover { background: #243551; }
+html[data-oa-color-mode="dark"] :is(.drive-resource-open,.drive-toolbar .ant-breadcrumb button) { color: #c4ccda; }
+html[data-oa-color-mode="dark"] :is(.drive-nav-title,.drive-caption,.unified-app-card small) { color: #a5afc1; }

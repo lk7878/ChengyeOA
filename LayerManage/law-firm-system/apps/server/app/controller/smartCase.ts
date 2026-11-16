@@ -9,9 +9,9 @@ export default class SmartCaseController extends Controller {
   async launch(){this.respond(await this.identity().issue(this.ctx.state.user,this.ctx.state.authorization,String(this.ctx.request.body?.challenge||'')));}
   async exchange(){this.respond(await this.identity().exchange(String(this.ctx.request.body?.code||''),this.ctx.get('x-smart-case-client'),String(this.ctx.request.body?.verifier||'')));}
   async me(){
-    const user=await this.ctx.prisma.user.findUniqueOrThrow({where:{id:this.ctx.state.user.userId},select:{id:true,username:true,employee:{select:{name:true}}}});
+    const user=await this.ctx.prisma.user.findUniqueOrThrow({where:{id:this.ctx.state.user.userId},select:{id:true,username:true,appearance:true,employee:{select:{name:true}}}});
     const a=this.ctx.state.authorization;
-    this.respond({id:user.id,username:user.username,displayName:user.employee?.name||user.username,isSystemSuperAdmin:a.isSystemSuperAdmin,permissions:a.permissionCodes});
+    this.respond({appearance:user.appearance,id:user.id,username:user.username,displayName:user.employee?.name||user.username,isSystemSuperAdmin:a.isSystemSuperAdmin,permissions:a.permissionCodes});
   }
   async logout(){await this.identity().revoke(this.ctx.get('authorization').slice(7));this.respond({ok:true});}
   async directory(){if(!this.ctx.state.authorization.isSystemSuperAdmin)this.ctx.throw(403);this.respond(await this.ctx.prisma.user.findMany({where:{status:'ENABLED'},select:{id:true,username:true,employee:{select:{name:true}}}}));}

@@ -4,6 +4,7 @@ import { inPreviewFrame } from '@/features/authorization/preview-frame';
 import PermissionPreview from '@/pages/SecurityRole/PermissionPreview';
 import Modal from '@/components/DraggableModal';
 import LiveNotifications from '@/features/notifications/LiveNotifications';
+import ThemeToggle from '@/features/appearance/ThemeToggle';
 import AppearanceSettings from '@/features/appearance/AppearanceSettings';
 import { businessSources } from '@/features/crm/business-sources';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -170,6 +171,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
             />
           </div>
           <div className="unified-header-actions">
+            <ThemeToggle />
             {!inPreviewFrame && authorization?.isSystemSuperAdmin && <PermissionPreview name={userInfo?.name || userInfo?.username || '管理员'} />}
             <Button
               aria-label="查找功能入口"

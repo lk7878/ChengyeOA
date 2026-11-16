@@ -27,6 +27,10 @@ export default function AppearanceSettings({ onClose }: { onClose(): void }) {
     {status === 'loading' && <p>正在读取个人设置…</p>}
     {error && <Alert type="error" title={error}/>}
     <Form layout="vertical" disabled={busy || status !== 'ready'}>
+      <Form.Item label="界面模式"><Radio.Group aria-label="界面模式" value={draft.colorMode || 'light'}
+        onChange={e => setDraft({ ...draft, colorMode: e.target.value })} options={[
+          { value: 'light', label: '浅色' }, { value: 'dark', label: '深色' },
+        ]}/><div>同步应用到 OA 和智慧办案。</div></Form.Item>
       <Form.Item label="字体大小"><Radio.Group name="appearance-font-size" aria-label="字体大小" value={draft.fontSize}
         onChange={e => setDraft({ ...draft, fontSize: e.target.value })} options={[
           { value: 'standard', label: '标准' }, { value: 'large', label: '大' }, { value: 'extraLarge', label: '特大' },

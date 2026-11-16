@@ -17,8 +17,8 @@ test('appearance persists only for the authenticated account and rejects foreign
   const sessions = new SessionService(db, new JwtTokenService('01234567890123456789012345678901'));
   const a = await sessions.create(users[0].id, 'PASSWORD', {}), b = await sessions.create(users[1].id, 'PASSWORD', {});
   const endpoint = '/api/v1/auth/appearance';
-  const standard = { fontSize: 'standard', background: 'default', rowHeight: 'standard' };
-  const custom = { fontSize: 'extraLarge', background: 'green', rowHeight: 'comfortable' };
+  const standard = { colorMode: 'light', fontSize: 'standard', background: 'default', rowHeight: 'standard' };
+  const custom = { colorMode: 'dark', fontSize: 'extraLarge', background: 'green', rowHeight: 'comfortable' };
   await app.httpRequest().get(endpoint).expect(401);
   await app.httpRequest().patch(endpoint).send(custom).expect(401);
   const initial = await app.httpRequest().get(endpoint).set('Authorization', 'Bearer ' + a.accessToken).expect(200);
@@ -26,9 +26,12 @@ test('appearance persists only for the authenticated account and rejects foreign
   await app.httpRequest().patch(endpoint).set('Authorization', 'Bearer ' + a.accessToken).send(custom).expect(200);
   const saved = await app.httpRequest().get(endpoint).set('Authorization', 'Bearer ' + a.accessToken).expect(200);
   assert.deepEqual(saved.body.data, custom);
+  const { colorMode: _mode, ...legacy } = custom;
+  await app.httpRequest().patch(endpoint).set('Authorization', 'Bearer ' + a.accessToken).send(legacy).expect(200);
+  assert.equal(((await db.user.findUniqueOrThrow({ where: { id: users[0].id } })).appearance as Record<string, unknown>).colorMode, 'dark');
   const other = await app.httpRequest().get(endpoint).set('Authorization', 'Bearer ' + b.accessToken).expect(200);
   assert.deepEqual(other.body.data, standard);
-  for (const bad of [{ ...custom, userId: users[1].id }, { ...custom, fontSize: '999px' }, { ...custom, permissions: ['*'] }, { ...custom, background: 'url(https://example.com)' }]) {
+  for (const bad of [{ ...custom, colorMode: 'system' }, { ...custom, userId: users[1].id }, { ...custom, fontSize: '999px' }, { ...custom, permissions: ['*'] }, { ...custom, background: 'url(https://example.com)' }]) {
     await app.httpRequest().patch(endpoint).set('Authorization', 'Bearer ' + a.accessToken).send(bad).expect(422);
   }
   assert.deepEqual((await db.user.findUniqueOrThrow({ where: { id: users[1].id } })).appearance, {});

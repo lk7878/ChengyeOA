@@ -3,19 +3,25 @@ import { get, patch } from '@/features/workspaces/api';
 import { useAuthStore } from '@/stores/authStore';
 
 export type Appearance = {
+  colorMode?: 'light' | 'dark';
   fontSize: 'standard' | 'large' | 'extraLarge';
   background: 'default' | 'beige' | 'green';
   rowHeight: 'compact' | 'standard' | 'comfortable';
 };
-export const defaultAppearance: Appearance = { fontSize: 'standard', background: 'default', rowHeight: 'standard' };
+export const defaultAppearance: Appearance = { colorMode: 'light', fontSize: 'standard', background: 'default', rowHeight: 'standard' };
 export const fontPixels = { standard: 14, large: 16, extraLarge: 18 };
 export const rowPixels = { compact: 32, standard: 40, comfortable: 64 };
 export function normalizeAppearance(value: Partial<Appearance>): Appearance {
   return {
+    colorMode: value.colorMode === 'dark' ? 'dark' : 'light',
     fontSize: Object.hasOwn(fontPixels, value.fontSize || '') ? value.fontSize! : 'standard',
     background: ['default', 'beige', 'green'].includes(value.background || '') ? value.background! : 'default',
     rowHeight: Object.hasOwn(rowPixels, value.rowHeight || '') ? value.rowHeight! : 'standard',
   };
+}
+export const appearanceKey = (accountId: string) => `oa-appearance:${accountId}`;
+function broadcast(accountId: string, value: Appearance) {
+  try { localStorage.setItem(appearanceKey(accountId), JSON.stringify(value)); } catch { /* Server persistence still works when storage is unavailable. */ }
 }
 let generation = 0;
 export const useAppearanceStore = create<{
@@ -29,8 +35,10 @@ export const useAppearanceStore = create<{
     set({ accountId, preferences: defaultAppearance, status: 'loading' });
     try {
       const value = await get<Appearance>('/auth/appearance');
-      if (current === generation && useAuthStore.getState().userInfo?.id === accountId)
+      if (current === generation && useAuthStore.getState().userInfo?.id === accountId) {
         set({ accountId, preferences: normalizeAppearance(value), status: 'ready' });
+        broadcast(accountId, normalizeAppearance(value));
+      }
     } catch {
       if (current === generation && useAuthStore.getState().userInfo?.id === accountId) set({ status: 'error' });
     }
@@ -46,6 +54,7 @@ export const useAppearanceStore = create<{
       if (current !== generation || useAuthStore.getState().userInfo?.id !== accountId)
         throw new Error('账号已切换，请在当前账号下重新打开外观设置。');
       set({ accountId, preferences: normalizeAppearance(saved), status: 'ready' });
+      broadcast(accountId, normalizeAppearance(saved));
     } finally {
       if (current === generation && useAuthStore.getState().userInfo?.id === accountId) set({ status: 'ready' });
     }
