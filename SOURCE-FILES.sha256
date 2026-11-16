@@ -1034,7 +1034,7 @@ ed43ca572ab33d2ec5caf523a40c4a4470cb64e61ff584ac526fea58c23e3bac  LayerManage/la
 0dce2d072e245ae9b9a6bc3bd85898be31bf581447472aed6b1d5439d3c7f2b2  LayerManage/law-firm-system/apps/web/src/components/DraggableModal.test.tsx
 689d18ece4c77eb454353c275a1c0a45cbe693d93936ba6f6a5e9553d34bac98  LayerManage/law-firm-system/apps/web/src/components/DraggableModal.tsx
 3d493ed6858ece642178184d45f55ffc75ccd59a6e7c4f127ea34d59c9931da2  LayerManage/law-firm-system/apps/web/src/components/Layout/index.test.tsx
-c3c16867fe45c39a49b6041991c656c8a8dc945c0633c9c63ddb0a439b4f1f90  LayerManage/law-firm-system/apps/web/src/components/Layout/index.tsx
+daec908445c6ff4ef05045c3e3f7b7c1f8d0dbbb3f0eb19d8e7b9a973c2d6409  LayerManage/law-firm-system/apps/web/src/components/Layout/index.tsx
 47ab73bf28b40ac41d1f7e1eda5e76b5ac72d7556fc84c6e74ef176413868d65  LayerManage/law-firm-system/apps/web/src/components/Layout/sidebar.css
 259d68a64167003ed3127ac81e1514fb2ed366345e6729e7db64217bf61783e6  LayerManage/law-firm-system/apps/web/src/components/ResizableTable.test.tsx
 ea3785801d54f1b7c36e38a35897149e5840fa69f05c1dc4d4d27a92dec0d5de  LayerManage/law-firm-system/apps/web/src/components/ResizableTable.tsx
@@ -1128,7 +1128,7 @@ b536741a76b2e88ab28f2183fc81e96da6e3d974bddd2fe10885307d2945144b  LayerManage/la
 7c55cb23d1ff15bfaba82c5e0f8b6ef464773c2c6880ab0e9878d7caf25e100e  LayerManage/law-firm-system/apps/web/src/features/master-data/organization-utils.ts
 ec34ea8cca826918dd2dfbc71a6e4eaa7a00c94e161fb2eb98a7966c3a28a69c  LayerManage/law-firm-system/apps/web/src/features/master-data/types.ts
 fc13f3eeefd5b4d71c20f5a7b2b3fa08e76d94be4a16e9de5d680f369ed3954d  LayerManage/law-firm-system/apps/web/src/features/navigation/AreaPage.tsx
-2fd0aa23faae25816457fbd8d8ea444f121c8d45b7c9fd90863113bbf17d2c84  LayerManage/law-firm-system/apps/web/src/features/navigation/BusinessNavigation.tsx
+0a2ec949ac0a6bbdc97a7cd297dc8ad39641344b455fbb0d0358b1b83aabd11f  LayerManage/law-firm-system/apps/web/src/features/navigation/BusinessNavigation.tsx
 7554dd80a449df5a8e74a63cd155b04236460942a0b1c4ee7359304ed1c24ba4  LayerManage/law-firm-system/apps/web/src/features/navigation/catalog.test.ts
 c5370d3339ffa4efa516ee45f0e31c8777dc1caedff106b23e8f45e96b46a362  LayerManage/law-firm-system/apps/web/src/features/navigation/catalog.ts
 b6554f5f0ed69d2486d563fe2a6e6382590358d6ed8fecc030c1449f3a6726fb  LayerManage/law-firm-system/apps/web/src/features/navigation/menu-labels.test.tsx

@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { defaultMenu, menuTree, useMenuStore } from './menu-store';
 import { areas } from './catalog';
 import type { DataNode } from 'antd/es/tree';
-export default function BusinessNavigation({area='apps',paths,current,onNavigate}:{area?:'apps'|'analytics'|'admin';paths:string[];current?:string;onNavigate:()=>void}){
+export default function BusinessNavigation({area='apps',paths,current,onNavigate}:{area?:'home'|'apps'|'analytics'|'admin';paths:string[];current?:string;onNavigate:()=>void}){
   const config=useMenuStore(s=>s.config);
   const nodes=area==='apps'?(config?.nodes??defaultMenu()):defaultMenu(area);
   const title=areas.find(item=>item.id===area)!.title;
