@@ -130,6 +130,6 @@ export class PersonalFileTransfer extends PersonalFiles {
   async allFiles() {
     if (!this.actor.isSystemSuperAdmin) fail('COLLAB_FORBIDDEN', 403);
     await this.db.operationLog.create({ data: { userId: this.actor.userId, action: 'ALL_FILES_LIST', targetType: 'PERSONAL_FILE', targetId: '*' } });
-    return { items: await this.db.personalFile.findMany({ select: { id: true, name: true, ownerId: true, parentId: true, kind: true, size: true, contentVersion: true, updatedAt: true } }), path: [] as {id:string;name:string}[], canUpload: false };
+    return { items: await this.db.personalFile.findMany({ where:{deletedAt:null}, select: { id: true, name: true, ownerId: true, parentId: true, kind: true, size: true, contentVersion: true, updatedAt: true } }), path: [] as {id:string;name:string}[], canUpload: false };
   }
 }

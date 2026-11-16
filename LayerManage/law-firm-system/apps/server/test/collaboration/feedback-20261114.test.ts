@@ -208,3 +208,25 @@ test('office template saves and applies a versioned preview with the PostgreSQL 
   assert.equal((await db.role.findUniqueOrThrow({where:{id:role.id}})).version,role.version+1);
   await assert.rejects(applyOfficeTemplate(db,owner.userId,{...input,apply:true}),code('COLLAB_ACCESS_CONFLICT'));
 });
+
+test('personal file deletion validates every permission and version atomically; owners can restore history',async()=>{
+  const a=new PersonalFiles(db,staff),b=new PersonalFiles(db,other),root=new PersonalFiles(db,owner);
+  const make=(s:PersonalFiles,name:string)=>s.create({kind:'FILE',name,content:Buffer.from('retained version').toString('base64')});
+  const first=await make(a,'第一份.txt'),second=await make(a,'第二份.txt'),foreign=await make(b,'他人文件.txt');
+  await assert.rejects(root.remove({files:[{id:first.id,version:1}]}),code('COLLAB_FORBIDDEN'));
+  await assert.rejects(a.remove({files:[{id:first.id,version:1},{id:foreign.id,version:1}]}),code('COLLAB_FORBIDDEN'));
+  assert.equal((await a.list({})).items.length,2);
+  await a.rename(second.id,{name:'更新后的文件.txt',version:1});
+  await assert.rejects(a.remove({files:[{id:first.id,version:1},{id:second.id,version:1}]}),code('COLLAB_ACCESS_CONFLICT'));
+  assert.equal((await a.list({})).items.length,2);
+  await a.share(first.id,{version:1,policy:{restricted:true,grants:[grant(other.userId,'EDITOR')]}});
+  await assert.rejects(b.remove({files:[{id:first.id,version:2}]}),code('COLLAB_FORBIDDEN'));
+  assert.equal((await a.remove({files:[{id:first.id,version:2},{id:second.id,version:2}]})).count,2);
+  assert.equal((await a.list({})).items.length,0);assert.equal((await a.trash()).items.length,2);
+  await assert.rejects(a.download(first.id),code('COLLAB_FORBIDDEN'));await assert.rejects(b.download(first.id),code('COLLAB_FORBIDDEN'));
+  await assert.rejects(b.restore(first.id,{version:3}),code('COLLAB_FORBIDDEN'));
+  await assert.rejects(a.restore(first.id,{version:2}),code('COLLAB_ACCESS_CONFLICT'));
+  await a.restore(first.id,{version:3});assert.equal(Buffer.from((await a.download(first.id)).content,'base64').toString(),'retained version');
+  assert.equal((await a.trash()).items.length,1);
+  assert.equal(await db.operationLog.count({where:{action:'PERSONAL_FILE_DELETE'}}),2);
+});

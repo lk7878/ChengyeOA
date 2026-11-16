@@ -133,6 +133,9 @@ export default (app: Application) => {
   router.get('/api/v1/smart-case/cases/:id',controller.smartCase.caseDetail);
   router.get('/api/v1/personal-files',controller.personalFile.index);
   router.post('/api/v1/personal-files',controller.personalFile.create);
+  router.post('/api/v1/personal-files/delete',controller.personalFile.remove);
+  router.get('/api/v1/personal-files/trash',controller.personalFile.trash);
+  router.post('/api/v1/personal-files/:id/restore',controller.personalFile.restore);
   router.get('/api/v1/personal-files/people',controller.personalFile.people);
   router.put('/api/v1/personal-files/:id/content',controller.personalFile.replace);
   router.get('/api/v1/personal-files/:id/download',controller.personalFile.download);

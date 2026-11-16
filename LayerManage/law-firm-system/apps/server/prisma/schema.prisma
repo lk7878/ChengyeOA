@@ -2747,10 +2747,12 @@ model PersonalFile {
   version Int @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  deletedAt DateTime?
   owner User @relation(fields:[ownerId],references:[id],onDelete:Restrict,onUpdate:NoAction)
   parent PersonalFile? @relation("PersonalFileTree",fields:[parentId],references:[id],onDelete:Restrict,onUpdate:NoAction)
   children PersonalFile[] @relation("PersonalFileTree")
   @@index([ownerId,parentId], map: "personal_file_owner_parent")
+  @@index([deletedAt], map: "personal_file_deleted_at")
   @@map("personal_file")
 }
 

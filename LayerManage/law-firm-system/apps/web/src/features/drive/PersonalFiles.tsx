@@ -19,8 +19,9 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
   const [replacing,setReplacing]=useState<Item>();
   const [history,setHistory]=useState<{file:Item;versions:{version:number;name:string;size:number;sha256:string;parseStatus:string}[]}>();
   const [progress,setProgress]=useState<Record<string,string>>({});
+  const [selected,setSelected]=useState<string[]>([]),[deleting,setDeleting]=useState<Item[]>(),[trash,setTrash]=useState<{id:string;name:string;version:number;deletedAt:string}[]>();
   const [failed,setFailed]=useState<File[]>([]);
-  useEffect(()=>{let active=true;void get<typeof data>('/personal-files?'+new URLSearchParams({scope,...(parentId?{parentId}:{})})).then(d=>{if(active){setData(d);setError('');}}).catch(e=>{if(active){setData(undefined);setError(errorMessage(e));}});return()=>{active=false;};},[scope,parentId,revision]);
+  useEffect(()=>{let active=true;void get<typeof data>('/personal-files?'+new URLSearchParams({scope,...(parentId?{parentId}:{})})).then(d=>{if(active){setData(d);setSelected([]);setError('');}}).catch(e=>{if(active){setData(undefined);setError(errorMessage(e));}});return()=>{active=false;};},[scope,parentId,revision]);
   const sharingId=sharing?.id;
   useEffect(()=>{if(!sharingId)return;let active=true;const timer=setTimeout(()=>{void get<typeof people>('/personal-files/people?keyword='+encodeURIComponent(keyword)).then(p=>{if(active)setPeople(p);}).catch(e=>message.error(errorMessage(e)));},200);return()=>{active=false;clearTimeout(timer);};},[sharingId,keyword]);
   const refresh=useCallback(()=>bump(n=>n+1),[]);
@@ -41,6 +42,8 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
       <Button onClick={()=>setParent(undefined)}>文件根目录</Button>{data?.path.map(p=><Button key={p.id} type="link" onClick={()=>setParent(p.id)}>{p.name}</Button>)}
       {data?.canUpload&&<><Button loading={busy} onClick={()=>fileInput.current?.click()}>上传文件</Button><Button disabled={busy} onClick={()=>folderInput.current?.click()}>上传文件夹</Button><Button disabled={busy} onClick={()=>{setName('');setDialog({kind:'folder'});}}>新建文件夹</Button></>}
       <Button disabled={busy} onClick={refresh}>刷新文件</Button>
+      <Button danger disabled={busy||!selected.length} onClick={()=>setDeleting((data?.items??[]).filter(i=>selected.includes(i.id)))}>删除所选（{selected.length}）</Button>
+      {scope==='mine'&&<Button disabled={busy} onClick={()=>void get<{items:NonNullable<typeof trash>}>('/personal-files/trash').then(r=>setTrash(r.items)).catch(e=>message.error(errorMessage(e)))}>回收站</Button>}
     </Space>
     <p style={{color:'#667085',marginTop:8}}>文件按可用存储容量保存。分片上传可续传；上传成功与解析、模型可读状态分别记录。旧内容版本保留。</p>
     <input hidden type="file" ref={replaceInput} onChange={async e=>{const file=e.target.files?.[0];if(!file||!replacing)return;setBusy(true);try{
@@ -49,18 +52,21 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
     <input hidden type="file" multiple ref={fileInput} onChange={e=>void upload(e.target.files)}/><input hidden type="file" multiple {...{webkitdirectory:''}} ref={folderInput} onChange={e=>void upload(e.target.files)}/>
     {Object.entries(progress).map(([file,state])=><p key={file}>{file}：{state}</p>)}
     {failed.length>0&&<Button disabled={busy} onClick={()=>void upload(failed)}>重试失败文件（续传）</Button>}
-    <Table<Item> style={{marginTop:12}} rowKey="id" dataSource={data?.items??[]} pagination={{pageSize:10}} columns={[
+    <Table<Item> style={{marginTop:12}} rowKey="id" dataSource={data?.items??[]} pagination={{pageSize:10}} rowSelection={{selectedRowKeys:selected,onChange:keys=>setSelected(keys.map(String)),getCheckboxProps:r=>({disabled:busy||r.kind!=='FILE'||r.level<3})}} columns={[
       {title:'文件名称',dataIndex:'name',render:(_,r)=>r.kind==='FOLDER'?<Button type="link" onClick={()=>setParent(r.id)}>📁 {r.name}</Button>:r.name},
       {title:'权限',render:(_,r)=>['无权限','只读','编辑','管理'][r.level]},
       {title:'大小',render:(_,r)=>r.kind==='FILE'?Math.ceil(r.size/1024)+' KB':'文件夹'},
-      {title:'操作',render:(_,r)=><Space>
+      {title:'操作',render:(_,r)=><Space wrap>
         {r.kind==='FILE'&&<Button onClick={async()=>{try{await downloadVersion(r.id,r.contentVersion,r.name);}catch(e){message.error(errorMessage(e));}}}>下载</Button>}
         {r.kind==='FILE'&&<Button onClick={async()=>{try{setHistory({file:r,versions:await get('/personal-files/'+r.id+'/versions')});}catch(e){message.error(errorMessage(e));}}}>内容版本</Button>}
         {r.kind==='FILE'&&r.level>=2&&<Button disabled={busy} onClick={()=>{setReplacing(r);replaceInput.current?.click();}}>上传新版本</Button>}
         {r.level>=2&&<Button onClick={()=>{setName(r.name);setDialog({kind:'rename',item:r});}}>重命名</Button>}
+        {r.kind==='FILE'&&r.level>=3&&<Button danger disabled={busy} onClick={()=>setDeleting([r])}>删除</Button>}
         {r.level>=3&&<Button onClick={async()=>{try{share(await get<Sharing>('/personal-files/'+r.id+'/access'));}catch(e){message.error(errorMessage(e));}}}>分享与权限</Button>}
       </Space>},
     ]}/>
+    <Modal title="确认删除文件" open={!!deleting} confirmLoading={busy} onCancel={()=>setDeleting(undefined)} okText="移入回收站" onOk={async()=>{if(!deleting?.length)return;setBusy(true);try{await post('/personal-files/delete',{files:deleting.map(({id,version})=>({id,version}))});setDeleting(undefined);setHistory(undefined);setSelected([]);refresh();message.success('文件已移入所有者的回收站');}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}><p>将删除以下 {deleting?.length} 个文件。共享访问及任务材料读取将失效，正在引用这些材料的 AI 任务可能中断；已发布的知识快照与正式归档不受影响。文件所有者可从回收站恢复。</p><ul>{deleting?.map(f=><li key={f.id}>{f.name}</li>)}</ul></Modal>
+    <Drawer title="我的文件回收站" open={!!trash} onClose={()=>setTrash(undefined)} width={620}><p>删除的文件和内容版本保留，可恢复到原目录。恢复后沿用原有分享权限。</p><Table rowKey="id" dataSource={trash} columns={[{title:'文件名称',dataIndex:'name'},{title:'操作',render:(_,r)=><Button disabled={busy} onClick={async()=>{setBusy(true);try{await post('/personal-files/'+r.id+'/restore',{version:r.version});setTrash(p=>p?.filter(i=>i.id!==r.id));refresh();message.success('文件已恢复');}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}>恢复</Button>}]}/></Drawer>
     <Drawer title={'内容版本 · '+(history?.file.name??'')} open={!!history} onClose={()=>setHistory(undefined)} width={720}><p>原件保存与内容解析分别处理。未完成解析的格式仍可保存和下载；模型可读性由任务工具确认。</p>{history?.versions.map(v=><div key={v.version} style={{marginBottom:16}}>v{v.version} · {v.name} · {Math.ceil(v.size/1024)} KB<br/><small>SHA-256：{v.sha256}</small><p>上传：已保存 · 解析：{v.parseStatus==='PARSED'?'已解析':'待任务处理'} · 模型可读性：待任务确认</p><Button onClick={()=>void downloadVersion(history.file.id,v.version,v.name).catch(e=>message.error(errorMessage(e)))}>下载此版本</Button></div>)}</Drawer>
     <Modal title={dialog?.kind==='folder'?'新建文件夹':'重命名'} open={!!dialog} confirmLoading={busy} onCancel={()=>setDialog(undefined)} onOk={async()=>{if(!dialog)return;setBusy(true);try{if(dialog.kind==='folder')await post('/personal-files',{name,kind:'FOLDER',parentId:parentId??null});else await patch('/personal-files/'+dialog.item!.id,{name,version:dialog.item!.version});setDialog(undefined);refresh();}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}><Input aria-label="文件名称" value={name} onChange={e=>setName(e.target.value)} maxLength={150}/></Modal>
     <Drawer title={'分享与权限 · '+(sharing?.name??'')} open={!!sharing} onClose={()=>share(undefined)} width={620} extra={<Button type="primary" loading={busy} onClick={async()=>{if(!sharing)return;setBusy(true);try{await request.put('/v1/personal-files/'+sharing.id+'/access',{version:sharing.version,policy:sharing.policy},{suppressGlobalError:true});share(undefined);refresh();}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}>保存分享</Button>}>

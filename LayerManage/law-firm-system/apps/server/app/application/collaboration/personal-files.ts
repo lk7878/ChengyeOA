@@ -17,7 +17,7 @@ function fileBytes(name:string,content:unknown){
 }
 export class PersonalFiles extends CollaborationService {
   private async snapshot(tx:Prisma.TransactionClient=this.db){
-    const [rows,principals]=await Promise.all([tx.personalFile.findMany(),this.principals(tx)]);
+    const [rows,principals]=await Promise.all([tx.personalFile.findMany({where:{deletedAt:null}}),this.principals(tx)]);
     const byId=new Map(rows.map(r=>[r.id,r]));
     const root:Access={level:3,canCreate:true,canManageAccess:true,selfOnly:false,hidden:[],readonly:[],workspaceId:'personal',organizationId:null};
     const resolve=(id:string,trail:string[]=[]):{row:typeof rows[number];access:Access;path:{id:string;name:string}[]}|null=>{
@@ -114,6 +114,33 @@ export class PersonalFiles extends CollaborationService {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('personal-files',0))`;
     const {row}=await this.require(id,2,tx);if(row.version!==integer(v.version))fail('COLLAB_ACCESS_CONFLICT',409);
     await tx.personalFile.update({where:{id},data:{name:nameOf(v.name),version:{increment:1}}});return {version:row.version+1};});}
+  async remove(raw:unknown){
+    const v=exact(raw,['files']);
+    if(!Array.isArray(v.files)||v.files.length<1||v.files.length>1000)fail('COLLAB_INVALID_VALUE');
+    const files=(v.files as unknown[]).map(item=>{const ref=exact(item,['id','version']);return {id:text(ref.id),version:integer(ref.version)};});
+    if(new Set(files.map(f=>f.id)).size!==files.length)fail('COLLAB_INVALID_VALUE');
+    return this.db.$transaction(async tx=>{
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('personal-files',0))`;
+      // Validate the whole batch before any mutation, including inherited rights.
+      const snapshot=await this.snapshot(tx);
+      for(const file of files){const resolved=snapshot.resolve(file.id);if(!resolved||resolved.access.level<3)fail('COLLAB_FORBIDDEN',403);const {row}=resolved;if(row.kind!=='FILE')fail('COLLAB_INVALID_VALUE');if(row.version!==file.version)fail('COLLAB_ACCESS_CONFLICT',409);}
+      for(const file of files){await tx.personalFile.update({where:{id:file.id},data:{deletedAt:new Date(),version:{increment:1}}});await tx.operationLog.create({data:{userId:this.actor.userId,action:'PERSONAL_FILE_DELETE',targetType:'PERSONAL_FILE',targetId:file.id}});}
+      return {count:files.length};
+    });
+  }
+  async trash(){return {items:await this.db.personalFile.findMany({where:{ownerId:this.actor.userId,deletedAt:{not:null}},select:{id:true,name:true,version:true,deletedAt:true},orderBy:{deletedAt:'desc'}})};}
+  async restore(id:string,raw:unknown){
+    const v=exact(raw,['version']);return this.db.$transaction(async tx=>{
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('personal-files',0))`;
+      const row=await tx.personalFile.findUnique({where:{id}});
+      if(!row||row.ownerId!==this.actor.userId||!row.deletedAt)fail('COLLAB_FORBIDDEN',403);
+      if(row.version!==integer(v.version))fail('COLLAB_ACCESS_CONFLICT',409);
+      if(row.parentId)await this.require(row.parentId,2,tx);
+      await tx.personalFile.update({where:{id},data:{deletedAt:null,version:{increment:1}}});
+      await tx.operationLog.create({data:{userId:this.actor.userId,action:'PERSONAL_FILE_RESTORE',targetType:'PERSONAL_FILE',targetId:id}});
+      return {ok:true};
+    });
+  }
   async people(keyword:string){
     const q=keyword.slice(0,100);
     const [users,organizations,roles]=await Promise.all([
