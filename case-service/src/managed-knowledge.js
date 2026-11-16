@@ -1,0 +1,36 @@
+import {createHash} from 'node:crypto'
+import {readFile} from 'node:fs/promises'
+import {execFile} from 'node:child_process'
+import {promisify} from 'node:util'
+import path from 'node:path'
+import mammoth from 'mammoth'
+import {oa} from './oa-client.js'
+import {Store} from './atomic-store.js'
+import {callModel} from './model-probes.js'
+import {fail} from './admin-config.js'
+const execute=promisify(execFile)
+const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex')
+export class ManagedKnowledge {
+ constructor(root,policy,kb,{fetcher=fetch}={}){this.root=root;this.policy=policy;this.kb=kb;this.fetcher=fetcher;this.jobs=new Store(path.join(root,'knowledge-index-jobs.json'));this.running=false;this.jobs.update(s=>{if(s.status==='BUILDING'){s.status='FAILED';s.error='服务重启，请重建索引'}})}
+ signature(config){return this.policy.embeddingSignature(config)||'lexical'}
+ index(config){return new Store(path.join(this.root,'knowledge-index-'+this.signature(config)+'.json'))}
+ published(){return Object.values(this.kb.store.read()).filter(s=>s.status==='PUBLISHED')}
+ corpus(rows=this.published()){return hash(rows.map(s=>[s.id,s.source.sha256,s.revision||0]).sort((a,b)=>a[0].localeCompare(b[0])))}
+ ready(config){const index=this.index(config).read();return index.ready===true&&index.corpus===this.corpus()}
+ route(config,stage){const model=config.models.find(m=>m.id===config.knowledge[stage]);if(!model)return null;return {model,connection:config.connections.find(c=>c.id===model.connectionId),key:this.policy.secret(model.connectionId)}}
+ async vectors(config,texts){const route=this.route(config,'embedding');if(!route)return texts.map(()=>null);const rows=[];for(let i=0;i<texts.length;i+=16){const data=await(await callModel(route.connection,route.key,route.model,{input:texts.slice(i,i+16)},{endpoint:'embeddings',fetcher:this.fetcher})).json();const batch=data.data?.sort((a,b)=>a.index-b.index).map(x=>x.embedding);if(!batch||batch.length!==Math.min(16,texts.length-i)||batch.some(v=>!Array.isArray(v)||v.length!==route.model.dimensions||!v.every(Number.isFinite)))fail('向量服务返回维度或数量不一致，索引未切换',502);rows.push(...batch)}return rows}
+ async text(row){const file=path.join(this.root,'submission-files',row.id),ext=path.extname(row.source.name).toLowerCase();let content
+  if(['.txt','.md','.csv','.json','.html'].includes(ext))content=await readFile(file,'utf8')
+  else if(ext==='.docx')content=(await mammoth.extractRawText({path:file})).value
+  else if(ext==='.pdf')content=(await execute('/usr/bin/pdftotext',['-layout',file,'-'],{maxBuffer:8*1024*1024,timeout:60000})).stdout
+  if(!content?.trim()&&row.nativeId){const result=await this.kb.nativeApi('/chunks/'+encodeURIComponent(row.nativeId)+'?page_size=10000');const chunks=Array.isArray(result.data)?result.data:result.data?.items||[];content=chunks.map(c=>c.content||'').join('\n')}
+  if(!content?.trim())fail('材料没有可索引文本，请提交文字版或完成识别复核后重新投稿',409)
+  if(content.length>2000000)fail('知识材料过大，请拆分后投稿',409);return content
+ }
+ async document(config,row){const content=await this.text(row),texts=[];for(let i=0;i<content.length;i+=1600)texts.push(content.slice(i,i+1800));const vectors=await this.vectors(config,texts);return {id:row.id,kbId:row.kbId,sha256:row.source.sha256,revision:row.revision||0,chunks:texts.map((content,i)=>({content,vector:vectors[i],offset:i*1600}))}}
+ async rebuild(config,actor){if(this.running)fail('索引正在构建',409);this.running=true;const snapshot=structuredClone(config),rows=this.published(),corpus=this.corpus(rows),signature=this.signature(snapshot);this.jobs.update(s=>Object.assign(s,{status:'BUILDING',signature,total:rows.length,completed:0,error:null,startedAt:new Date().toISOString(),by:actor.id}));void(async()=>{try{const documents={};for(const row of rows){documents[row.id]=await this.document(snapshot,row);this.jobs.update(s=>{s.completed++})}if(this.corpus()!==corpus)fail('构建期间知识发布状态已变化，请重新构建',409);this.index(snapshot).update(s=>Object.assign(s,{ready:true,corpus,documents,builtAt:new Date().toISOString()}));this.jobs.update(s=>{s.status='READY'});this.policy.store.update(s=>this.policy.audit(s,actor,'BUILD_KNOWLEDGE_INDEX',{signature,documents:rows.length}))}catch(e){this.jobs.update(s=>{s.status='FAILED';s.error=e.statusCode?e.message:'知识索引构建失败，原索引未改变'})}finally{this.running=false}})();return this.jobs.read()}
+ async publish(row,actor){const release=this.policy.active();if(!release)fail('请先发布系统配置',409);const config=release.config,document=await this.document(config,row);if(this.policy.active()?.id!==release.id)fail('构建期间系统配置已变化，请重试发布',409);const current=this.kb.store.read()[row.id];if(current.status==='WITHDRAWN'||(current.revision||0)!==(row.revision||0))fail('知识状态已变化',409);const liveActor=actor.token?await oa(actor.token,'/smart-case/me'):actor;this.kb.authorize(row.kbId,liveActor.id,'review',liveActor.permissions);this.route(config,'embedding');this.index(config).update(s=>{s.documents??={};s.documents[row.id]=document});this.kb.store.update(s=>Object.assign(s[row.id],{status:'PUBLISHED',error:null,publishedAt:new Date().toISOString(),indexSignature:this.signature(config)}));this.index(config).update(s=>{s.ready=true;s.corpus=this.corpus()});return this.kb.store.read()[row.id]}
+ async search(kbId,user,permissions,query){this.kb.authorize(kbId,user,'read',permissions);const config=this.policy.active()?.config;if(!config)fail('知识检索配置尚未发布',409);const index=this.index(config).read();if(!index.ready)fail('知识索引尚未准备完成',409);const rows=this.published().filter(s=>s.kbId===kbId),live=new Map(rows.map(s=>[s.id,s]));const [vector]=await this.vectors(config,[query]);let hits=[];for(const document of Object.values(index.documents||{})){const row=live.get(document.id);if(!row||document.sha256!==row.source.sha256||(row.revision||0)!==document.revision)continue;for(const chunk of document.chunks){const score=vector?cosine(vector,chunk.vector):lexical(query,chunk.content);if(score>0)hits.push({knowledge_id:row.id,content:chunk.content,score,source:row.source.name,fileId:row.source.fileId,version:row.source.version,sha256:row.source.sha256,offset:chunk.offset})}}hits=hits.sort((a,b)=>b.score-a.score).slice(0,30);const rerank=this.route(config,'rerank');if(rerank&&hits.length){const data=await(await callModel(rerank.connection,rerank.key,rerank.model,{query,documents:hits.map(h=>h.content),top_n:10},{endpoint:'rerank',fetcher:this.fetcher})).json();if(!Array.isArray(data.results))fail('重排序服务返回无效结果',502);hits=data.results.filter(r=>Number.isSafeInteger(r.index)&&hits[r.index]&&Number.isFinite(r.relevance_score)).map(r=>({...hits[r.index],score:r.relevance_score}))}this.kb.authorize(kbId,user,'read',permissions);const still=new Set(this.published().map(s=>s.id));return {data:hits.filter(h=>still.has(h.knowledge_id)).slice(0,10)}}
+}
+function cosine(a,b){if(!Array.isArray(b)||a.length!==b.length)return 0;let dot=0,aa=0,bb=0;for(let i=0;i<a.length;i++){dot+=a[i]*b[i];aa+=a[i]*a[i];bb+=b[i]*b[i]}return aa&&bb?dot/Math.sqrt(aa*bb):0}
+function lexical(query,content){const terms=query.toLowerCase().match(/[a-z0-9]+|[\u3400-\u9fff]/g)||[];const text=content.toLowerCase();return terms.reduce((n,t)=>n+(text.includes(t)?1:0),0)/Math.max(terms.length,1)}

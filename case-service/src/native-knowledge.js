@@ -7,6 +7,7 @@ const fail=(message,statusCode=403)=>{throw Object.assign(Error(message),{status
 export async function registerNativeKnowledge(app){
  app.all('/knowledge-native/*',async(req,reply)=>{
   const kb=app.oaKnowledge,actor=req.oa,allowed=kb.libraries(actor.id,actor.permissions).filter(k=>k.canReview)
+  if(!actor.isSystemSuperAdmin)fail('知识管理请使用智慧办案统一入口');
   if(!allowed.length)fail('仅已授权知识库审核人可进入原生管理')
   reply.header('Cache-Control','private, no-store')
   const url=new URL(req.url,'http://native');url.pathname=url.pathname.replace(/^\/knowledge-native/,'')
@@ -29,9 +30,10 @@ export async function registerNativeKnowledge(app){
   if(req.method==='GET'&&route==='/tenants/kv/retrieval-config')return {success:true,data:{}}
   if(route==='/knowledge-bases'&&req.method==='GET'){const data=[];for(const lib of allowed){const result=await kb.native('/knowledge-bases/'+lib.id);data.push(result.data)}return {success:true,data}}
   if(['/system/info','/system/capabilities'].includes(route)&&req.method==='GET')return kb.native(route)
-  if(route==='/models'&&req.method==='GET'){const result=await kb.native(route);return {success:true,data:(result.data||[]).map(m=>({id:m.id,name:m.name,type:m.type,source:m.source,is_default:m.is_default,parameters:{}}))}}
+  if(route==='/models'&&req.method==='GET')return {success:true,data:[]}
   const library=route.match(/^\/knowledge-bases\/([a-f0-9-]{36})(?:\/(.*))?$/)
   if(library){kb.authorize(library[1],actor.id,'review',actor.permissions);if(req.method==='GET'&&['','knowledge','knowledge/folders','tags','activity','stats'].includes(library[2]||''))return kb.native(route+url.search);fail('请从工作台提交知识变更，审核并索引成功后发布',409)}
+  if(!['GET','HEAD'].includes(req.method))fail('知识发布与索引由统一管理入口控制');
   const item=route.match(/^\/(knowledge|chunks)\/([a-f0-9-]{36})(?:\/(.*))?$/)
   if(item){const result=await kb.native('/knowledge/'+item[2]),knowledge=result.data||result;kb.authorize(knowledge.knowledge_base_id,actor.id,'review',actor.permissions)
    if(req.method==='GET'&&item[1]==='knowledge'&&item[3]==='download'){const response=await fetch(process.env.WEKNORA_BASE+'/api/v1'+route,{headers:{'X-API-Key':process.env.WEKNORA_API_KEY},signal:AbortSignal.timeout(120000)});if(!response.ok)fail('原文下载失败',502);reply.type(response.headers.get('content-type')||'application/octet-stream');reply.header('Content-Disposition','attachment');return reply.send(response.body)}

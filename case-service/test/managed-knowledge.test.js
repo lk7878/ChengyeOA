@@ -1,0 +1,8 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {mkdir,writeFile} from 'node:fs/promises'
+import path from 'node:path'
+import {fixture} from './policy-fixture.js'
+import {KnowledgePublication} from '../src/knowledge-publication.js'
+import {ManagedKnowledge} from '../src/managed-knowledge.js'
+test('independent index switch, publish-only retrieval and withdrawal',async t=>{const {root,policy,admin}=await fixture(t);const kb=new KnowledgePublication(root);kb.acl.update(s=>{s.k={readers:['reader'],reviewers:['reviewer']}});const index=new ManagedKnowledge(root,policy,kb,{fetcher:async()=>{throw Error('synthetic provider failure')}});kb.managed=index;await mkdir(path.join(root,'submission-files'));await writeFile(path.join(root,'submission-files','s'),'合同履行争议，交付时间为五月。');kb.store.update(s=>{s.s={id:'s',kbId:'k',status:'APPROVED',source:{name:'sample.txt',sha256:'hash',version:1,fileId:'file'}}});await kb.publish('s',{id:'reviewer',permissions:['knowledge.review']});assert.equal((await index.search('k','reader',[],'合同')).data.length,1);const old=policy.active().config;const next=structuredClone(old);next.models.push({id:'embedding',modelId:'new-vector',connectionId:'service',dimensions:3});next.knowledge.embedding='embedding';assert.equal(index.ready(next),false);await index.rebuild(next,admin);while(index.running)await new Promise(r=>setTimeout(r,10));assert.equal(index.jobs.read().status,'FAILED');assert.equal(index.ready(old),true);assert.equal((await index.search('k','reader',[],'合同')).data.length,1);kb.withdraw('s',{id:'reviewer',permissions:['knowledge.review']});assert.deepEqual((await index.search('k','reader',[],'合同')).data,[]);await assert.rejects(index.search('k','stranger',[],'合同'),/授权/)})
