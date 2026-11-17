@@ -1,0 +1,76 @@
+--- a/internal/application/repository/chunk.go
++++ b/internal/application/repository/chunk.go
+@@ -53,14 +53,16 @@
+ 
+ 	db := r.db.WithContext(ctx)
+ 
+-	// SQLite doesn't support autoIncrement on non-PK columns,
+-	// so we must pre-assign SeqIDs manually (safe: single connection).
+-	// PostgreSQL / MySQL use DB sequences — skip to avoid duplicate key
+-	// races under concurrent inserts.
++	// Hold the single SQLite connection for both allocation and insertion.
++	// Separate statements can interleave even with MaxOpenConns(1), assigning
++	// the same MAX(seq_id)+1 to concurrent documents.
+ 	if db.Dialector.Name() == "sqlite" {
+-		if err := types.AssignChunkSeqIDs(db, chunks); err != nil {
+-			return fmt.Errorf("failed to assign chunk seq_ids: %w", err)
+-		}
++		return db.Transaction(func(tx *gorm.DB) error {
++			if err := types.AssignChunkSeqIDs(tx, chunks); err != nil {
++				return fmt.Errorf("failed to assign chunk seq_ids: %w", err)
++			}
++			return tx.Select("*").CreateInBatches(chunks, 100).Error
++		})
+ 	}
+ 
+ 	// Select("*") ensures zero-value fields (IsEnabled=false, Flags=0) are
+--- a/internal/application/repository/chunk_sqlite_test.go
++++ b/internal/application/repository/chunk_sqlite_test.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"context"
++	"sync"
+ 	"testing"
+ 	"unicode/utf8"
+ 
+@@ -361,3 +362,39 @@
+ 	require.Len(t, got, 2)
+ 	assert.ElementsMatch(t, []string{fromExplicitKB.ID, fromExplicitDocument.ID}, []string{got[0].ID, got[1].ID})
+ }
++
++// One connection does not serialize an allocation followed by a separate insert.
++func TestCreateChunks_SQLite_ConcurrentAllocation(t *testing.T) {
++	db := setupChunkTestDB(t)
++	sqlDB, err := db.DB()
++	require.NoError(t, err)
++	sqlDB.SetMaxOpenConns(1)
++	repo := NewChunkRepository(db)
++	const workers = 26
++	var wg sync.WaitGroup
++	errs := make(chan error, workers)
++	start := make(chan struct{})
++	for i := 0; i < workers; i++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			<-start
++			chunks := make([]*types.Chunk, 120)
++			for j := range chunks {
++				chunks[j] = makeChunk("kb", uuid.New().String(), "text")
++			}
++			errs <- repo.CreateChunks(context.Background(), chunks)
++		}()
++	}
++	close(start)
++	wg.Wait()
++	close(errs)
++	for err := range errs {
++		require.NoError(t, err)
++	}
++	var count, distinct int64
++	require.NoError(t, db.Model(&types.Chunk{}).Count(&count).Error)
++	require.NoError(t, db.Model(&types.Chunk{}).Distinct("seq_id").Count(&distinct).Error)
++	require.EqualValues(t, workers*120, count)
++	require.Equal(t, count, distinct)
++}

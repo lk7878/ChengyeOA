@@ -1,0 +1,2 @@
+# Unified patches intentionally prefix unchanged Go indentation with one space.
+deploy/integration/weknora-patches/sqlite-chunk-allocation.patch -whitespace
