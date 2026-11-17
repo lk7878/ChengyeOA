@@ -1,5 +1,7 @@
 export const AUTHORIZATION_CODES = {
   input: 'AUTHORIZATION_INPUT_INVALID',
+  managedRole: 'MANAGED_ROLE_PROTECTED',
+  smartCaseRole: 'SMART_CASE_ACCESS_ROLE_REQUIRED',
   authentication: 'AUTHENTICATION_REQUIRED',
   permission: 'PERMISSION_DENIED',
   scope: 'DATA_SCOPE_DENIED',

@@ -30,6 +30,8 @@ import { useAuthStore } from '@/stores/authStore';
 import { masterDataApi } from '@/features/master-data/api';
 import type { OrganizationNode, ProfessionalTeam } from '@/features/master-data/types';
 
+const isSmartCaseRole = (role: RoleAuthorizationView) => role.code === 'SMART_CASE_USER';
+
 type RoleForm = { name: string; code: string; description?: string };
 type ScopeForm = { name: string; scopeType: string; includeDescendants: boolean; organizationId?: string; professionalTeamId?: string };
 
@@ -195,6 +197,7 @@ export default function SecurityRolePage() {
     .filter(item => item.type !== 'MENU' && permissions.includes(item.code))
     .map(item => item.resource))], [catalog, permissions]);
 
+  const managedSmartCase = selected?.code === 'SMART_CASE_USER';
   const roleTabs = selected ? [
     { key: 'basic', label: '基本信息', children: <Form form={editForm} layout="vertical" onFinish={values => runMutation(() => authorizationAdminApi.roles.update(selected.id, { name: values.name, description: values.description || null, version: selected.version }))}>
       <Form.Item name="name" label="角色名称" rules={[{ required: true }]}><Input /></Form.Item>
@@ -211,7 +214,7 @@ export default function SecurityRolePage() {
         {[...new Set(catalog.filter(item=>(item.type==='MENU')===tab.menu && (!/^(quality\.|sop\.|menu\.(quality|sop_tasks|sop_templates)$)/.test(item.code) || permissions.includes(item.code))).map(item=>item.resource))].map(resource=><div key={resource} className="auth-scope-row">
           <strong>{businessLabel(resource)}</strong><Space wrap>{catalog.filter(item=>item.resource===resource && (item.type==='MENU')===tab.menu && (!/^(quality\.|sop\.|menu\.(quality|sop_tasks|sop_templates)$)/.test(item.code) || permissions.includes(item.code))).map(item=>
             <Checkbox key={item.code} disabled={!canManagePermissions || selected.type !== 'BUSINESS' || (item.businessRoleAssignable === false && !permissions.includes(item.code))} checked={permissions.includes(item.code)}
-              onChange={e=>setPermissions(prev=>e.target.checked?[...prev,item.code]:prev.filter(p=>p!==item.code))}>{item.name}{item.businessRoleAssignable === false && '（系统保留）'}</Checkbox>)}</Space>
+              onChange={e=>setPermissions(prev=>e.target.checked?[...prev,item.code]:prev.filter(p=>p!==item.code))}>{item.name}{item.code==='menu.smart_case' ? '（通过智慧办案使用者授权）' : item.businessRoleAssignable === false && '（系统保留）'}</Checkbox>)}</Space>
         </div>)}
         {canManagePermissions && selected.type==='BUSINESS' && <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => runMutation(() => authorizationAdminApi.roles.replacePermissions(selected.id, permissions, selected.version))}>保存{tab.label}</Button>}
       </section>})),
@@ -240,17 +243,17 @@ export default function SecurityRolePage() {
   ] : [];
 
   return <section className="auth-page">
-    <header className="auth-page-header"><div><h2>角色与权限</h2><p>可删除未被账号使用的业务角色，历史授权与审计记录保留。</p></div><Space wrap>{canManagePermissions&&<OfficeTemplate roles={roles} onSaved={()=>void load()}/>} {canManagePermissions && <WorksheetPermissions roles={roles.filter(r=>r.type==='BUSINESS'&&r.status==='ENABLED')} superAdmin={!!authorization?.isSystemSuperAdmin}/>}<Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button>{canCreate && <Button aria-label="新建角色" type="primary" icon={<PlusOutlined />} onClick={() => { setCreateOpen(true); }}>新建角色</Button>}</Space></header>
+    <header className="auth-page-header"><div><h2>角色与权限</h2><p>智慧办案使用资格统一在“智慧办案使用者”的成员中追加或移除，可与任意岗位角色组合。知识库另按账号逐库授权。</p></div><Space wrap>{canManagePermissions&&<OfficeTemplate roles={roles.filter(r=>!isSmartCaseRole(r))} onSaved={()=>void load()}/>} {canManagePermissions && <WorksheetPermissions roles={roles.filter(r=>r.type==='BUSINESS'&&r.status==='ENABLED'&&!isSmartCaseRole(r))} superAdmin={!!authorization?.isSystemSuperAdmin}/>}<Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button>{canCreate && <Button aria-label="新建角色" type="primary" icon={<PlusOutlined />} onClick={() => { setCreateOpen(true); }}>新建角色</Button>}</Space></header>
     <Table loading={loading} rowKey="id" dataSource={roles} pagination={false} scroll={{ x: 760 }} columns={[
       { title: '角色', dataIndex: 'name' },
       { title: '代码', dataIndex: 'code', render: value => <code>{value}</code> },
       { title: '类型', dataIndex: 'type', render: value => <Tag>{businessLabel(value)}</Tag> },
       { title: '状态', dataIndex: 'status', render: value => <Tag color={value === 'ENABLED' ? 'success' : 'default'}>{value === 'ENABLED' ? '启用' : '停用'}</Tag> },
       { title: '权限数', dataIndex: 'permissionCodes', render: (value: string[]) => value.length },
-      { title: '操作', fixed: 'right', width: 140, render: (_, role) => <Space><Button type="text" icon={<EditOutlined />} aria-label={`编辑${role.name}`} onClick={() => openRole(role)} />{canManageStatus && role.type === 'BUSINESS' && <Button type="link" danger onClick={() => setDeleteTarget(role)}>删除</Button>}</Space> },
+      { title: '操作', fixed: 'right', width: 140, render: (_, role) => <Space><Button type="text" icon={<EditOutlined />} aria-label={`编辑${role.name}`} onClick={() => openRole(role)} />{canManageStatus && role.type === 'BUSINESS' && !isSmartCaseRole(role) && <Button type="link" danger onClick={() => setDeleteTarget(role)}>删除</Button>}</Space> },
     ]} />
     <Drawer open={Boolean(selected)} onClose={() => setSelected(null)} title={selected ? `配置角色 · ${selected.name}` : ''} size="large" destroyOnHidden>
-      <Tabs items={[...roleTabs.filter(t=>t.key==='basic'),{
+      {managedSmartCase ? <><Alert type="info" title="智慧办案使用者 · 独立使用资格" description="本角色仅提供智慧办案入口，不授予其他人的案件、文件、任务或知识库。可追加给任何岗位；移除成员即撤销此项资格。超级管理员的系统权限不受此角色影响。"/><Tabs items={roleTabs.filter(t=>t.key==='members')} /></> : <><Tabs items={[...roleTabs.filter(t=>t.key==='basic'),{
         key:'worksheets',label:'应用与表格权限',children:selected&&<>
           <Collapse items={[{key:'defaults',label:'应用创建权限与新增表默认授权',children:<ApplicationDefaults role={selected} onSaved={acceptUpdatedRole} editable={!!authorization?.isSystemSuperAdmin&&selected.type==='BUSINESS'}/>}]} />
           <ApplicationPermissions key={selected.id+':'+selected.version} roleId={selected.id} changes={worksheetChanges} onChange={setWorksheetChanges}
@@ -269,7 +272,7 @@ export default function SecurityRolePage() {
                 .finally(()=>setSaving(false));
             }}>仅更新差异中列出的工作表。验证完成后会继续保存，取消验证会保留已选权限。</Modal>
         </>},...roleTabs.filter(t=>t.key==='members')]} />
-      <Collapse items={[{key:'advanced',label:'高级设置 · 操作代码、数据范围及字段规则',children:<Tabs items={roleTabs.filter(t=>!['basic','members'].includes(t.key))}/>}]} />
+      <Collapse items={[{key:'advanced',label:'高级设置 · 操作代码、数据范围及字段规则',children:<Tabs items={roleTabs.filter(t=>!['basic','members'].includes(t.key))}/>}]} /></>}
     </Drawer>
     <Modal open={Boolean(deleteTarget)} title={`删除角色 · ${deleteTarget?.name ?? ''}`} okText="确认删除" okButtonProps={{ danger: true }} confirmLoading={saving} onCancel={() => setDeleteTarget(null)} onOk={async () => {
       if (!deleteTarget) return;

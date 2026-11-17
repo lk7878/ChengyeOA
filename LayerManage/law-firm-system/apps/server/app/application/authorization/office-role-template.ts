@@ -1,3 +1,4 @@
+import { SMART_CASE_ROLE_CODE } from '../../domain/smart-case/access-role';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { PERMISSION_CATALOG } from '../../domain/authorization/permission-catalog';
 import { authorizationInputError } from '../../domain/authorization/authorization-errors';
@@ -40,6 +41,7 @@ export async function applyOfficeTemplate(db: PrismaClient, userId: string, raw:
     for(const selected of roles.sort((a,b)=>a.id.localeCompare(b.id))) {
       await tx.$queryRaw`SELECT id FROM role WHERE id=${selected.id} FOR UPDATE`;
       const role=await tx.role.findFirst({where:{id:selected.id,type:'BUSINESS',status:{not:'DELETED'}},include:{permissions:{include:{permission:true}}}});
+      if(role?.code === SMART_CASE_ROLE_CODE) fail('MANAGED_ROLE_PROTECTED',409);
       if(!role || role.version!==selected.version) fail('COLLAB_ACCESS_CONFLICT',409);
       const current=role.permissions.map(p=>p.permission.code);
       const old=(role.officeTemplateSnapshot as {permissionCodes?:string[]}|null)?.permissionCodes ?? [];

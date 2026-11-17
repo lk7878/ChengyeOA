@@ -1,3 +1,4 @@
+import { SMART_CASE_ROLE_CODE, SMART_CASE_PERMISSION } from '../../domain/smart-case/access-role';
 import { saveApplicationPolicy } from '../collaboration/application-role-policy';
 import type { AuthorizationContext } from './authorization-service';
 import { WorksheetPermissions } from '../collaboration/worksheet-permissions';
@@ -124,6 +125,7 @@ export class RoleAuthorizationService {
     const name = authorizationValue(() => normalizeName(input.name));
     const code = authorizationValue(() => normalizeStableCode(input.code ?? 'ROLE_' + randomUUID().replace(/-/g,'').slice(0,24).toUpperCase()));
     const description = authorizationValue(() => normalizeOptionalText(input.description, 500));
+    if (code === SMART_CASE_ROLE_CODE) throw new AuthorizationError(AUTHORIZATION_CODES.managedRole, 409);
     if (code === 'SYSTEM_SUPER_ADMIN') trustRootProtected();
     if (RESERVED_ROLE_CODES.has(code)) escalationBlocked();
     try {
@@ -131,6 +133,7 @@ export class RoleAuthorizationService {
         const template = await officeTemplate(tx);
         if(input.basicOffice !== undefined && typeof input.basicOffice !== 'boolean') authorizationInputError();
         const source = input.copyRoleId ? await lockRole(tx,input.copyRoleId) : null;
+        if(source?.code === SMART_CASE_ROLE_CODE) throw new AuthorizationError(AUTHORIZATION_CODES.smartCaseRole, 400);
         if(source && (source.type!=='BUSINESS' || source.status!=='ENABLED')) authorizationInputError();
         const permissions = [...new Set([
           ...(input.basicOffice === false ? [] : template.permissionCodes),
@@ -409,6 +412,7 @@ function normalizePermissionCodes(value: unknown): PermissionCode[] {
   if (!Array.isArray(value) || value.length > PERMISSION_CATALOG.length) authorizationInputError();
   const codes = value.map(item => typeof item === 'string' ? item : authorizationInputError());
   if (new Set(codes).size !== codes.length) authorizationInputError();
+  if (codes.includes(SMART_CASE_PERMISSION)) throw new AuthorizationError(AUTHORIZATION_CODES.smartCaseRole, 400);
   return codes.map(code => {
     const permission = PERMISSION_CATALOG.find(item => item.code === code && item.status === 'ENABLED');
     if (!permission) authorizationInputError();
@@ -473,6 +477,7 @@ function authorizationValue<T>(normalize: () => T): T {
 }
 
 function assertBusinessRole(role: RoleRecord) {
+  if (role.code === SMART_CASE_ROLE_CODE) throw new AuthorizationError(AUTHORIZATION_CODES.managedRole, 409);
   if (role.code === 'SYSTEM_SUPER_ADMIN') trustRootProtected();
   if (role.type !== 'BUSINESS' || RESERVED_ROLE_CODES.has(role.code)) escalationBlocked();
 }

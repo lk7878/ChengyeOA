@@ -1,3 +1,4 @@
+import { SMART_CASE_PERMISSION } from '../smart-case/access-role';
 import {
   PERMISSION_CODES,
   PermissionCatalogEntry,
@@ -16,7 +17,7 @@ export function businessRoleResourceAssignable(resource: string): boolean {
 }
 
 export function businessRolePermissionAssignable(permission: PermissionCatalogEntry): boolean {
-  return permission.status === 'ENABLED' &&
+  return permission.status === 'ENABLED' && permission.code !== SMART_CASE_PERMISSION &&
     (permission.code === 'permission.trace.self' || businessRoleResourceAssignable(permission.resource));
 }
 

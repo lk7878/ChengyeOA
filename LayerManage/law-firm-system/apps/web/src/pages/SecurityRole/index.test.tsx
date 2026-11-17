@@ -96,3 +96,17 @@ test('saves the selected business permissions while marking reserved governance 
   fireEvent.click(screen.getByRole('button',{name:/保存操作权限/}));
   await waitFor(()=>expect(authorizationAdminApi.roles.replacePermissions).toHaveBeenCalledWith(role.id,['employee.read','cost.read'],role.version));
 });
+
+test('smart case capability role exposes member management without job permissions or deletion', async () => {
+  const capability: RoleAuthorizationView = { ...role, id: 'smart-role', code: 'SMART_CASE_USER', name: '智慧办案使用者', permissionCodes: ['menu.smart_case'] };
+  vi.mocked(authorizationAdminApi.roles.list).mockResolvedValue({ list: [capability], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+  render(<SecurityRolePage />);
+  fireEvent.click(await screen.findByRole('button', { name: '编辑智慧办案使用者' }));
+  expect(await screen.findByText('智慧办案使用者 · 独立使用资格')).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: '成员' })).toBeInTheDocument();
+  expect(screen.queryByRole('tab', { name: '应用与表格权限' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '保存基本信息' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /删\s*除/ })).not.toBeInTheDocument();
+  expect(await screen.findByText('zhang')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /添\s*加\s*成\s*员/ })).toBeInTheDocument();
+});

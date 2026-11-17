@@ -21,7 +21,7 @@ const resources: Record<OrganizationRoleKey, string[]> = {
 const menus: Record<OrganizationRoleKey, string[]> = {
   PARTNER: ['menu.organization_personnel', 'menu.position', 'menu.employee', 'menu.professional_team', 'menu.customer', 'menu.lead_crm', 'menu.contract', 'menu.sop_tasks'],
   BRANCH_ADMIN: ['menu.organization_personnel', 'menu.position', 'menu.employee', 'menu.professional_team', 'menu.inventory'],
-  LAWYER: ['menu.customer', 'menu.contract', 'menu.sop_tasks', 'menu.smart_case'],
+  LAWYER: ['menu.customer', 'menu.contract', 'menu.sop_tasks'],
   RECEPTION: ['menu.lead_crm', 'menu.customer'], ADMIN: ['menu.inventory'],
   FINANCE: ['menu.invoice', 'menu.payment', 'menu.refund', 'menu.cost', 'menu.anomaly'],
   HR: ['menu.organization_personnel', 'menu.position', 'menu.employee', 'menu.professional_team'],

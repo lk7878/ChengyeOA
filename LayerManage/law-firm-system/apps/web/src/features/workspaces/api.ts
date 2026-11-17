@@ -20,6 +20,8 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  MANAGED_ROLE_PROTECTED: '智慧办案使用者是专用角色，请通过成员分配或移除资格。',
+  SMART_CASE_ACCESS_ROLE_REQUIRED: '请分配“智慧办案使用者”角色，不能将其使用资格复制到岗位角色。',
   AUTHORIZATION_IN_USE: '名称或编码已存在，或对象仍在使用中，请核对后重试。',
   AUTHORIZATION_INPUT_INVALID: '提交内容不符合授权规则，请核对填写内容和授权选项。',
   PRIVILEGE_ESCALATION_BLOCKED: '所选授权涉及受保护的角色或权限，请调整授权选项。',

@@ -57,6 +57,8 @@ export const authorizationAdminApi = {
 };
 
 const errorLabels: Record<string, string> = {
+  MANAGED_ROLE_PROTECTED: '智慧办案使用者是专用使用资格角色，请通过成员分配或移除资格。',
+  SMART_CASE_ACCESS_ROLE_REQUIRED: '智慧办案入口请通过追加“智慧办案使用者”角色授权，不再配置到岗位角色。',
   AUTHORIZATION_IN_USE: '对象仍在使用中，请先解除相关授权后再操作',
   VERSION_CONFLICT: '数据已被其他管理员更新，请刷新后重试',
   AUTHORIZATION_INPUT_INVALID: '提交内容不符合授权规则',

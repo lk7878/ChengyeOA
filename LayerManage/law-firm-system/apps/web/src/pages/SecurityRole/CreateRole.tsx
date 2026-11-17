@@ -34,7 +34,7 @@ export default function CreateRole({roles,onCreated,onClose,canAuthorize}:{roles
       </Form>}
       {step===1&&<><Form.Item label="复制已有角色的业务授权"><Select allowClear placeholder="自行配置或仅保留基础办公" disabled={!canAuthorize}
         value={source} onChange={id=>{setSource(id);setChanges([]);}} style={{width:'100%'}}
-        options={roles.filter(r=>r.type==='BUSINESS'&&r.status==='ENABLED').map(r=>({value:r.id,label:r.name}))}/></Form.Item>
+        options={roles.filter(r=>r.type==='BUSINESS'&&r.status==='ENABLED'&&r.code!=='SMART_CASE_USER').map(r=>({value:r.id,label:r.name}))}/></Form.Item>
         {source&&<Alert type="info" title={'授权来源 · '+roles.find(r=>r.id===source)?.name} description="将复制业务操作、数据范围、字段及表格规则。创建后可继续调整，成员需单独添加。"/>}
         {canAuthorize?<ApplicationPermissions key={source||'new'} roleId={source} changes={changes} onChange={setChanges} readOnly={!!source}/>:
           <p>当前可创建基础办公角色。业务授权由角色权限管理员配置。</p>}</>}
