@@ -51,6 +51,46 @@ test('creates normalized business roles with immutable non-reserved stable codes
   );
 });
 
+test('recreates a deleted role name with a new identity and no inherited grants or permissions', async () => {
+  let old = await service.create({ name: '律师', code: 'LAWYER', basicOffice: false });
+  old = await service.replacePermissions(old.id, { permissionCodes: ['employee.read'], version: old.version });
+  const user = await prisma.user.create({ data: { username: 'historical.lawyer', password: 'unused' } });
+  const grant = await prisma.userRole.create({ data: { userId: user.id, roleId: old.id, revokedAt: new Date(), revokedByUserId: user.id, revokeReason: 'Historical grant revoked for regression test' } });
+  await service.remove(old.id, { version: old.version });
+
+  const created = await service.create({ name: '律师', description: '总所律师', basicOffice: true, worksheets: [] });
+  assert.notEqual(created.id, old.id);
+  assert.notEqual(created.code, old.code);
+  assert.deepEqual(created.permissionCodes, [...basicOfficeCodes].sort());
+  assert.equal(await prisma.userRole.count({ where: { roleId: created.id } }), 0);
+  assert.equal((await prisma.userRole.findUniqueOrThrow({ where: { id: grant.id } })).roleId, old.id);
+  const historical = await prisma.role.findUniqueOrThrow({ where: { id: old.id } });
+  assert.equal(historical.name, '律师');
+  assert.equal(historical.status, 'DELETED');
+  assert.equal(await prisma.rolePermission.count({ where: { roleId: old.id } }), 1);
+  await assert.rejects(() => service.enable(old.id, historical.version), hasCode('AUTHORIZATION_OBJECT_NOT_FOUND'));
+  await assert.rejects(() => service.create({ name: '其他律师', code: 'LAWYER' }), hasCode('AUTHORIZATION_IN_USE'));
+});
+
+test('allows reuse of legacy deleted names but preserves enabled and disabled name uniqueness', async () => {
+  await prisma.role.create({ data: { name: '历史律师', code: 'OLD_LAWYER', type: 'BUSINESS', status: 'DELETED' } });
+  const created = await service.create({ name: '历史律师' });
+  await assert.rejects(() => service.create({ name: '历史律师' }), hasCode('AUTHORIZATION_IN_USE'));
+  await service.disable(created.id, created.version);
+  await assert.rejects(() => service.create({ name: '历史律师' }), hasCode('AUTHORIZATION_IN_USE'));
+  const other = await service.create({ name: '助理律师' });
+  await assert.rejects(() => service.update(other.id, { name: '历史律师', version: other.version }), hasCode('AUTHORIZATION_IN_USE'));
+});
+
+test('allows only one concurrent replacement of a deleted role name', async () => {
+  await prisma.role.create({ data: { name: '并发律师', code: 'OLD_CONCURRENT', type: 'BUSINESS', status: 'DELETED' } });
+  const results = await Promise.allSettled([service.create({ name: '并发律师' }), service.create({ name: '并发律师' })]);
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
+  const rejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  assert.ok(rejected && hasCode('AUTHORIZATION_IN_USE')(rejected.reason));
+  assert.equal(await prisma.role.count({ where: { name: '并发律师', status: { not: 'DELETED' } } }), 1);
+});
+
 test('atomically replaces business permissions, allows self trace, and blocks governance permissions', async () => {
   const role = await service.create({ name: 'HR', code: 'HR_STAFF' });
   const changed = await service.replacePermissions(role.id, {

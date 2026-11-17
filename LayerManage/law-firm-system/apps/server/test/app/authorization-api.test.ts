@@ -139,6 +139,21 @@ test('creates a reusable standard data scope without synthesizing roles or grant
     .expect(400);
 });
 
+test('creates a replacement for a historically deleted role from the role wizard payload', async () => {
+  const old = await prisma.role.create({ data: { name: '律师', code: 'LAWYER', type: 'BUSINESS', status: 'DELETED' } });
+  const payload = { name: '律师', description: '总所律师', basicOffice: true, worksheets: [] };
+  const created = await app.httpRequest().post('/api/v1/roles').set(bearer()).send(payload).expect(200);
+  assert.notEqual(created.body.data.id, old.id);
+  assert.match(created.body.data.code, /^ROLE_[A-F0-9]{24}$/);
+  assert.equal(created.body.data.name, '律师');
+  assert.equal(created.body.data.description, '总所律师');
+  assert.equal(await prisma.userRole.count({ where: { roleId: created.body.data.id } }), 0);
+  const duplicate = await app.httpRequest().post('/api/v1/roles').set(bearer()).send(payload).expect(409);
+  assert.equal(duplicate.body.message, 'AUTHORIZATION_IN_USE');
+  const listing = await app.httpRequest().get('/api/v1/roles?keyword=' + encodeURIComponent('律师')).set(bearer()).expect(200);
+  assert.deepEqual(listing.body.data.list.map((r: { id: string }) => r.id), [created.body.data.id]);
+});
+
 test('creates and versions a business role through strict DTOs without leaking secrets', async () => {
   const invalid = await app.httpRequest()
     .post('/api/v1/roles')

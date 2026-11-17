@@ -20,6 +20,10 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  AUTHORIZATION_IN_USE: '名称或编码已存在，或对象仍在使用中，请核对后重试。',
+  AUTHORIZATION_INPUT_INVALID: '提交内容不符合授权规则，请核对填写内容和授权选项。',
+  PRIVILEGE_ESCALATION_BLOCKED: '所选授权涉及受保护的角色或权限，请调整授权选项。',
+
   PERSONAL_FILE_PURGE_FAILED: '文件清理未完成，已禁止恢复；请在回收站点击“重试彻底删除”。',
   PERSONAL_FILE_PURGE_REFERENCED: '文件存储仍被其他文件引用，未执行删除，请联系管理员核对。',
   COLLAB_CUSTOMER_ROUTE_UNAVAILABLE: '对应律师客资表或同步字段不可用，客户修改未保存，请联系管理员检查。',

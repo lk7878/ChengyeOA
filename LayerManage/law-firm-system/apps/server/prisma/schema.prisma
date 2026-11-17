@@ -340,7 +340,7 @@ model StepUpGrant {
 model Role {
   officeTemplateSnapshot Json?
   id          String   @id @default(uuid())
-  name        String   @unique
+  name        String // Non-deleted names are unique via role_active_name_key.
   code        String   @unique
   type        String // SYSTEM | BUSINESS
   description String?
