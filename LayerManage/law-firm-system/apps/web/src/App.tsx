@@ -153,6 +153,7 @@ function SessionBootstrap() {
       <Routes>
         <Route path="/login" element={<LoginRoute />} />
         <Route path="/password-change" element={<PasswordChangeRoute />} />
+        <Route path="/smart-case" element={<PrivateRoute><AuthorizedPage permission="menu.smart_case"><SmartCaseLauncher /></AuthorizedPage></PrivateRoute>} />
         <Route
           element={
             <PrivateRoute>
@@ -451,14 +452,6 @@ function SessionBootstrap() {
             element={
               <AuthorizedPage permission="approval.read">
                 <ApprovalRedirect monitor />
-              </AuthorizedPage>
-            }
-          />
-          <Route
-            path="/smart-case"
-            element={
-              <AuthorizedPage permission="menu.smart_case">
-                <SmartCaseLauncher />
               </AuthorizedPage>
             }
           />

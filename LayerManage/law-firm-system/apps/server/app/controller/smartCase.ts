@@ -2,10 +2,17 @@ import { SmartCaseArchive } from '../application/smart-case/archive';
 import { Controller } from 'egg';
 import { SmartCaseIdentity } from '../application/smart-case/identity';
 import { buildCaseScopeWhere, requireCaseAccess } from '../application/case/case-scope';
+import { AuthorizationService } from '../application/authorization/authorization-service';
 export default class SmartCaseController extends Controller {
   private identity(){return new SmartCaseIdentity(this.ctx.prisma);}
   private respond(data:unknown){this.ctx.set('Cache-Control','no-store');this.ctx.body={code:200,data};}
-  async entryConfig(){this.respond({url:process.env.SMART_CASE_PUBLIC_URL?new URL('/api/auth/start',process.env.SMART_CASE_PUBLIC_URL).href:null});}
+  async entryConfig(){
+    new AuthorizationService().requireAction(this.ctx.state.authorization,'menu.smart_case');
+    const caseId=this.ctx.query.caseId;
+    if(caseId)await requireCaseAccess(this.ctx.prisma,this.ctx.state.authorization,caseId,'case.read');
+    const base=process.env.SMART_CASE_PUBLIC_URL;
+    this.respond({url:base?new URL('/api/auth/start',base).href:null,homeUrl:base?new URL('/wb/',base).href:null,userId:this.ctx.state.user.userId});
+  }
   async launch(){this.respond(await this.identity().issue(this.ctx.state.user,this.ctx.state.authorization,String(this.ctx.request.body?.challenge||'')));}
   async exchange(){this.respond(await this.identity().exchange(String(this.ctx.request.body?.code||''),this.ctx.get('x-smart-case-client'),String(this.ctx.request.body?.verifier||'')));}
   async me(){
