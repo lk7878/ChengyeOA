@@ -30,6 +30,10 @@ export async function registerOa(app){
   const p=req.url.split('?')[0]
   if(req.method==='OPTIONS')return
   if(['POST','PUT','PATCH','DELETE'].includes(req.method)&&req.headers.origin&&req.headers.origin!==allowedOrigin)return reply.code(403).send({error:'来源不允许'})
+  if(req.method==='POST'&&['/api/auth/logout','/api/oa/logout'].includes(p)){
+   if(req.headers.origin!==allowedOrigin)return reply.code(403).send({error:'来源不允许'})
+   return
+  }
   if(p==='/api/health'||p.startsWith('/api/auth/start')||p==='/api/auth/oa/callback')return
   try{const auth=await authenticate(req.headers);req.oa=auth.oa;req.user=auth.user}catch(error){return reply.code(error.statusCode===403?403:401).send({error:'OA 会话失效或权限已撤销'})}
   // These legacy paths expose shared runtimes/passwords or bypass OA authoritative files.
@@ -52,7 +56,15 @@ export async function registerOa(app){
   store.update(data=>{for(const [k,v]of Object.entries(data))if(v.expiresAt<Date.now())delete data[k];data[sha(token)]={token:result.token,expiresAt:Date.now()+result.expiresIn*1000}})
   reply.header('set-cookie',[cookie('oa_sid',token),cookie('oa_login','',0)]);reply.header('Cache-Control','no-store');reply.header('Referrer-Policy','no-referrer');const caseId=parseCookie(req.headers.cookie).oa_case;const home=new URL(process.env.WORKBENCH_HOME||'/','http://local');if(caseId)home.searchParams.set('caseId',caseId);return reply.redirect(home.pathname+home.search)
  })
- app.decorate('oaLogout',async(req,reply)=>{await oa(req.oa.token,'/smart-case/logout',{method:'POST',body:{}});const sid=parseCookie(req.headers.cookie).oa_sid;store.update(data=>delete data[sha(sid)]);reply.header('set-cookie',cookie('oa_sid','',0));return {ok:true}})
+ app.decorate('oaLogout',async(req,reply)=>{
+  const sid=parseCookie(req.headers.cookie).oa_sid,session=sid&&store.read()[sha(sid)];
+  // Revoke even expired/permission-revoked sessions. A network/storage failure
+  // must remain retryable; never tell the UI it logged out while the token lives.
+  if(session)await oa(session.token,'/smart-case/logout',{method:'POST',body:{}})
+  if(sid)store.update(data=>delete data[sha(sid)])
+  reply.header('set-cookie',[cookie('oa_sid','',0),cookie('oa_login','',0),cookie('oa_case','',0)])
+  reply.header('Cache-Control','no-store');return {ok:true}
+ })
  app.post('/api/oa/logout',async(req,reply)=>app.oaLogout(req,reply))
  app.get('/api/oa/files',async req=>oa(req.oa.token,'/personal-files?'+new URLSearchParams(req.query)))
  app.get('/api/oa/files/:id/versions',async req=>oa(req.oa.token,`/personal-files/${encodeURIComponent(req.params.id)}/versions`))

@@ -14,11 +14,12 @@ export interface TopBarProps {
   llm?: LlmStatus | null
   user: Account
   onLogout: () => void
+  loggingOut?: boolean
   showBalance?: boolean
 }
 
 export function TopBar({
-  title, subtitle, onOpenExternal, onNavigate, llm, user, onLogout, showBalance,
+  title, subtitle, onOpenExternal, onNavigate, llm, user, onLogout, showBalance, loggingOut,
 }: TopBarProps) {
   const balanceText = llm
     ? (llm.balance.hidden
@@ -71,7 +72,7 @@ export function TopBar({
               {user.roles.map((r) => ROLE_LABELS[r]).join(' · ')}
             </div>
           </div>
-          <button type="button" className="wb-topbar__logout" onClick={onLogout}>退出</button>
+          <button type="button" className="wb-topbar__logout" disabled={loggingOut} onClick={onLogout}>{loggingOut?'正在退出…':'退出'}</button>
         </div>
       </div>
     </header>

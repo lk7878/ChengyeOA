@@ -53,6 +53,8 @@ export default function App() {
   const [view, setView] = useState<ViewId>(new URLSearchParams(window.location.search).has('caseId')?'cases_general':'dashboard')
   const [user, setUser] = useState<Account | null>(null)
   const [authReady, setAuthReady] = useState(false)
+  const [logoutError, setLogoutError] = useState('')
+  const [loggingOut, setLoggingOut] = useState(false)
   const [accounts, setAccounts] = useState<Account[]>([])
   const llm = useLlmStatus(!!user)
 
@@ -97,10 +99,14 @@ export default function App() {
   }, [user, view])
 
   const handleLogout = async () => {
-    try { await logout() } catch { /* ignore */ }
-    setUser(null)
-    setAccounts([])
-    setView('dashboard')
+    if(loggingOut)return
+    setLoggingOut(true);setLogoutError('')
+    try {
+      await logout()
+      setUser(null);setAccounts([]);setView('dashboard')
+    } catch {
+      setLogoutError('退出未完成，请重试。登录状态尚未清除。')
+    } finally {setLoggingOut(false)}
   }
 
   if (!authReady) {
@@ -135,9 +141,11 @@ export default function App() {
           llm={canSeeBalance ? llm : null}
           user={user}
           onLogout={handleLogout}
+          loggingOut={loggingOut}
           showBalance={canSeeBalance}
         />
         <main className="wb-app__content">
+          {logoutError&&<p className="oa-error" role="alert">{logoutError}</p>}
           {view === 'dashboard' && (
             <Dashboard
               accounts={canManageAccounts ? accounts : []}
