@@ -184,3 +184,69 @@ test('team category supports trimmed Chinese creation, update and exact filterin
   assert.equal(changed.categoryCode, '刑事辩护');
   assert.equal((await service.list({ page: 1, pageSize: 20, categoryCode: ' 刑事辩护 ' })).list.length, 1);
 });
+
+
+test('recreates a deleted team with the same name and code without inheriting memberships or scopes', async () => {
+  const input = { code: 'REUSABLE', name: '医疗专业团队', categoryCode: '医疗', homeOrganizationId: rootId };
+  const old = await service.create(input);
+  const member = await prisma.professionalTeamMember.create({ data: { professionalTeamId: old.id, employeeId: employeeA, memberRole: 'LEAD', startedAt: new Date('2026-01-01') } });
+  const scope = await prisma.dataScope.create({ data: { name: '旧团队授权', scopeType: 'TEAM', professionalTeamId: old.id } });
+  await service.remove(old.id, old.version);
+  const recreated = await service.create(input);
+  assert.notEqual(recreated.id, old.id);
+  assert.equal(recreated.name, old.name);
+  assert.equal(recreated.code, old.code);
+  assert.deepEqual(recreated.members, []);
+  assert.equal(await prisma.dataScope.count({ where: { professionalTeamId: recreated.id } }), 0);
+  assert.equal((await prisma.dataScope.findUniqueOrThrow({ where: { id: scope.id } })).professionalTeamId, old.id);
+  const historicalMember = await prisma.professionalTeamMember.findUniqueOrThrow({ where: { id: member.id } });
+  assert.equal(historicalMember.professionalTeamId, old.id);
+  assert.ok(historicalMember.endedAt);
+  const historicalTeam = await prisma.professionalTeam.findUniqueOrThrow({ where: { id: old.id } });
+  assert.ok(historicalTeam.deletedAt);
+  assert.equal(historicalTeam.code, old.code);
+  await assert.rejects(() => service.enable(old.id, historicalTeam.version), hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'));
+  const listing = await service.list({ page: 1, pageSize: 10, keyword: input.name });
+  assert.deepEqual(listing.list.map(team => team.id), [recreated.id]);
+  await service.remove(recreated.id, recreated.version);
+  const third = await service.create(input);
+  assert.notEqual(third.id, recreated.id);
+  assert.equal(await prisma.professionalTeam.count({ where: { code: input.code } }), 3);
+});
+
+test('legacy deleted teams release codes while enabled and disabled teams reserve codes globally', async () => {
+  const input = { code: 'LEGACY_TEAM', name: '历史团队', categoryCode: 'LEGAL', homeOrganizationId: rootId };
+  const old = await prisma.professionalTeam.create({ data: { ...input, status: 'DISABLED', deletedAt: new Date() } });
+  const current = await service.create({ ...input, code: ' legacy_team ', homeOrganizationId: branchId });
+  assert.notEqual(current.id, old.id);
+  await assert.rejects(() => service.create(input), hasCode('MASTER_DATA_CODE_CONFLICT'));
+  await service.disable(current.id, current.version);
+  await assert.rejects(() => service.create(input), hasCode('MASTER_DATA_CODE_CONFLICT'));
+  // Names are descriptive, not unique identifiers; a different code remains valid.
+  const sameName = await service.create({ ...input, code: 'OTHER_TEAM' });
+  assert.equal(sameName.name, old.name);
+});
+
+test('concurrent recreation of a deleted team code creates only one replacement', async () => {
+  const input = { code: 'RACE_TEAM', name: '并发团队', categoryCode: 'LEGAL', homeOrganizationId: rootId };
+  const old = await service.create(input);
+  await service.remove(old.id, old.version);
+  const results = await Promise.allSettled([service.create(input), service.create({ ...input, homeOrganizationId: branchId })]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  assert.ok(rejected && hasCode('MASTER_DATA_CODE_CONFLICT')(rejected.reason));
+});
+
+test('failed team recreation rolls back the new identity and preserves deleted history', async () => {
+  const input = { code: 'ROLLBACK_REUSE', name: '重建回滚团队', categoryCode: 'LEGAL', homeOrganizationId: rootId };
+  const old = await service.create(input);
+  await service.remove(old.id, old.version);
+  const before = await prisma.professionalTeam.findUniqueOrThrow({ where: { id: old.id } });
+  await prisma.$executeRawUnsafe(`CREATE FUNCTION fail_team_audit() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'injected'; END; $$ LANGUAGE plpgsql`);
+  await prisma.$executeRawUnsafe(`CREATE TRIGGER fail_team_audit_trigger BEFORE INSERT ON "operation_log" FOR EACH ROW EXECUTE FUNCTION fail_team_audit()`);
+  await assert.rejects(() => service.create(input));
+  assert.equal(await prisma.professionalTeam.count({ where: { code: input.code } }), 1);
+  assert.deepEqual(await prisma.professionalTeam.findUniqueOrThrow({ where: { id: old.id } }), before);
+  await dropAuditTrigger();
+  assert.notEqual((await service.create(input)).id, old.id);
+});

@@ -337,3 +337,22 @@ test('SPEC-003-A rejects ordinary administrators on management endpoints while r
   assert.equal(options.body.data[0].id, rootId);
   assert.equal('manager' in options.body.data[0], false);
 });
+
+
+test('recreates deleted professional teams by name and code over HTTP without restoring old identities', async () => {
+  const input = { code: 'REUSE_TEAM', name: '医疗专业团队', categoryCode: '医疗', homeOrganizationId: rootId };
+  const old = (await app.httpRequest().post('/api/v1/professional-teams').set(bearer()).send(input).expect(200)).body.data;
+  await app.httpRequest().delete(`/api/v1/professional-teams/${old.id}`).set(bearer()).send({ version: old.version }).expect(200);
+  const created = (await app.httpRequest().post('/api/v1/professional-teams').set(bearer()).send(input).expect(200)).body.data;
+  assert.notEqual(created.id, old.id);
+  assert.equal(created.name, old.name);
+  assert.equal(created.code, old.code);
+  assert.deepEqual(created.members, []);
+  await app.httpRequest().get(`/api/v1/professional-teams/${old.id}`).set(bearer()).expect(404);
+  const conflict = await app.httpRequest().post('/api/v1/professional-teams').set(bearer()).send(input).expect(409);
+  assert.equal(conflict.body.message, 'MASTER_DATA_CODE_CONFLICT');
+  const listing = (await app.httpRequest().get('/api/v1/professional-teams?keyword=REUSE_TEAM').set(bearer()).expect(200)).body.data;
+  assert.deepEqual(listing.list.map((team: { id: string }) => team.id), [created.id]);
+  const ordinary = await tokenForRole('ORDINARY_TEAM_TEST', 'BUSINESS');
+  await app.httpRequest().post('/api/v1/professional-teams').set(bearer(ordinary)).send({ ...input, code: 'DENIED_TEAM' }).expect(403);
+});

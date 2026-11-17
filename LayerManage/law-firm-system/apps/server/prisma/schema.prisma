@@ -134,7 +134,7 @@ model ProfessionalTeam {
   sopTemplates SopTemplate[]
 
   id                 String   @id @default(uuid())
-  code               String   @unique
+  code               String // Non-deleted codes are unique via professional_team_active_code_key.
   name               String
   categoryCode       String
   homeOrganizationId String
@@ -150,6 +150,7 @@ model ProfessionalTeam {
   dataScopeTargets DataScopeTarget[]
   eventLogs        EventLog[]
 
+  @@index([code])
   @@index([homeOrganizationId, status])
   @@index([categoryCode, status])
   @@map("professional_team")
