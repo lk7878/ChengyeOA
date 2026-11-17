@@ -1,3 +1,4 @@
+import { deletedUsername } from '../system/deleted-username';
 import { Employee, Prisma, PrismaClient } from '@prisma/client';
 import { transferEmployeeResources } from './employee-resource-transfer';
 import { blockerCounts, employeeHandoverBlockers, employeeOffboardingOverview } from './employee-offboarding';
@@ -195,9 +196,9 @@ export class EmployeeService {
         const now = new Date();
           await endEmploymentTx(tx, before, before.leaveDate ?? (before.entryDate > now ? before.entryDate : now), now);
           // Preserve foreign keys and audit attribution while removing the login account from management lists.
-          if (input.deleteAccount && account) await tx.user.update({ where: { id: account.id }, data: { status: 'DELETED' } });
+          if (input.deleteAccount && account) await tx.user.update({ where: { id: account.id }, data: { status: 'DELETED', username: deletedUsername(account.id, account.username) } });
         const after = await tx.employee.findUniqueOrThrow({ where: { id } });
-        await writeMasterDataAudit(tx, { ...this.actor, action: 'DELETE', targetType: 'EMPLOYEE', targetId: id, before: employeeAudit(before), after: { ...employeeAudit(after), transferred, deleteAccount: input.deleteAccount === true } });
+        await writeMasterDataAudit(tx, { ...this.actor, action: 'DELETE', targetType: 'EMPLOYEE', targetId: id, before: employeeAudit(before), after: { ...employeeAudit(after), transferred, deleteAccount: input.deleteAccount === true, ...(input.deleteAccount && account ? { deletedAccountId: account.id, deletedAccountUsername: account.username } : {}) } });
       });
     } catch (error) {
       if (error instanceof MasterDataError && error.code === 'MASTER_DATA_IN_USE') throw new MasterDataError('EMPLOYEE_DELETE_IN_USE', 409, error.errors);

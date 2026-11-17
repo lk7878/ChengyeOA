@@ -569,6 +569,66 @@ test('sequential duplicate user creation returns the stable username conflict', 
   assert.equal(await prisma.user.count({ where: { username: 'duplicate.user' } }), 1);
 });
 
+test('a previously deleted username can create a fresh identity without reviving its sessions or resources', async () => {
+  const old = await prisma.user.create({ data: { username: 'deleted.reusable', password: 'old-hash' } });
+  const session = await createApiSession(prisma, old.id);
+  const workspace = await prisma.collabWorkspace.create({ data: { name: 'Historical private resources', organizationId: rootOrganizationId, ownerId: old.id } });
+  await prisma.user.update({ where: { id: old.id }, data: { status: 'DELETED' } });
+  const created = await app.httpRequest().post('/api/v1/users').set('Authorization', bearer)
+    .send({ username: '  DELETED.REUSABLE  ', password: 'Replacement-94!' }).expect(200);
+  const fresh = created.body.data;
+  assert.notEqual(fresh.id, old.id);
+  assert.equal(fresh.username, 'deleted.reusable');
+  assertNoPasswordProperty(created.body);
+  const retired = await prisma.user.findUniqueOrThrow({ where: { id: old.id } });
+  assert.equal(retired.status, 'DELETED');
+  assert.equal(retired.username, `deleted:${old.id}:deleted.reusable`);
+  assert.equal(retired.password, 'old-hash');
+  assert.equal((await prisma.collabWorkspace.findUniqueOrThrow({ where: { id: workspace.id } })).ownerId, old.id);
+  assert.equal(await prisma.userRole.count({ where: { userId: fresh.id } }), 0);
+  assert.equal(await prisma.userPermissionGrant.count({ where: { userId: fresh.id } }), 0);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: fresh.id } })).employeeId, null);
+  assert.equal(await prisma.operationLog.count({ where: { action: 'RELEASE_DELETED_USERNAME', targetId: old.id } }), 1);
+  await app.httpRequest().get('/api/v1/authorization/me').set('Authorization', `Bearer ${session.token}`).expect(401);
+});
+
+test('disabled usernames remain reserved and archived names cannot be registered', async () => {
+  const old = await prisma.user.create({ data: { username: 'disabled.reserved', password: 'unused', status: 'DISABLED' } });
+  await app.httpRequest().post('/api/v1/users').set('Authorization', bearer)
+    .send({ username: old.username, password: 'Replacement-94!' }).expect(409);
+  await app.httpRequest().post('/api/v1/users').set('Authorization', bearer)
+    .send({ username: `deleted:${old.id}:disabled.reserved`, password: 'Replacement-94!' }).expect(400);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: old.id } })).username, old.username);
+});
+
+test('concurrent reuse of a deleted username creates only one new identity', async () => {
+  const old = await prisma.user.create({ data: { username: 'reuse.concurrent', password: 'unused', status: 'DELETED' } });
+  await installInsertDelayTrigger('user');
+  try {
+    const responses = await Promise.all([1, 2].map(() => app.httpRequest().post('/api/v1/users').set('Authorization', bearer)
+      .send({ username: old.username, password: 'Replacement-94!' })));
+    assert.deepEqual(responses.map(r => r.status).sort(), [200, 409]);
+    assert.equal(await prisma.user.count({ where: { username: old.username } }), 1);
+    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: old.id } })).status, 'DELETED');
+    assert.equal(await prisma.operationLog.count({ where: { action: 'RELEASE_DELETED_USERNAME', targetId: old.id } }), 1);
+  } finally { await dropInsertDelayTrigger('user'); }
+});
+
+test('failed replacement creation rolls back both username release and its audit', async () => {
+  const old = await prisma.user.create({ data: { username: 'reuse.rollback', password: 'unused', status: 'DELETED' } });
+  await prisma.$executeRawUnsafe(`CREATE FUNCTION reject_replacement_for_test() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'injected insert failure'; END; $$ LANGUAGE plpgsql`);
+  await prisma.$executeRawUnsafe(`CREATE TRIGGER reject_replacement_for_test_trigger BEFORE INSERT ON "user" FOR EACH ROW EXECUTE FUNCTION reject_replacement_for_test()`);
+  try {
+    await app.httpRequest().post('/api/v1/users').set('Authorization', bearer)
+      .send({ username: old.username, password: 'Replacement-94!' }).expect(500);
+    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: old.id } })).username, old.username);
+    assert.equal(await prisma.operationLog.count({ where: { action: 'RELEASE_DELETED_USERNAME', targetId: old.id } }), 0);
+  } finally {
+    await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS reject_replacement_for_test_trigger ON "user"');
+    await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS reject_replacement_for_test()');
+  }
+});
+
 test('concurrent duplicate user creation maps the write-time unique race to stable 409', async () => {
   await installInsertDelayTrigger('user');
   try {

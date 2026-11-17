@@ -90,6 +90,7 @@ test('pause preserves employment and materials, revokes sessions, and completed 
   await assert.rejects(() => service.remove(employee.id, { version: departed.version, confirmed: true, deleteAccount: true }), hasCode('EMPLOYEE_TRANSFER_REQUIRED'));
   await service.remove(employee.id, { version: departed.version, confirmed: true, deleteAccount: true, recipientUserId: recipient.id });
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: source.id } })).status, 'DELETED');
+  assert.equal(await prisma.user.findUnique({ where: { username: 'departing' } }), null);
   assert.equal((await prisma.collabWorkspace.findUniqueOrThrow({ where: { id: workspace.id } })).ownerId, recipient.id);
   assert.ok((await prisma.employee.findUniqueOrThrow({ where: { id: employee.id } })).deletedAt);
 });

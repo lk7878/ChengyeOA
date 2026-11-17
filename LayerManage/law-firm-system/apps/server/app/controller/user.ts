@@ -22,6 +22,7 @@ import { SecurityError } from '../domain/security/security-errors';
 import { MasterDataError } from '../domain/master-data/master-data-errors';
 import { writeAuditLog } from '../application/system/audit-writer';
 import { retireUser } from '../application/system/retire-user';
+import { releaseDeletedUsername } from '../application/system/deleted-username';
 
 const passwordHasher = new BcryptPasswordHasher();
 
@@ -162,23 +163,26 @@ export default class UserController extends Controller {
     const existing = await ctx.prisma.user.findUnique({
       where: { username: normalizedUsername },
     });
-    if (existing) {
+    if (existing && existing.status !== 'DELETED') {
       ctx.throw(409, '用户名已存在');
     }
 
     const hashedPassword = await passwordHasher.hash(password);
 
-    const user = await ctx.prisma.user.create({
-      data: {
-        username: normalizedUsername,
-        password: hashedPassword,
-        status,
-        mustChangePassword: true,
-      },
-      select: {
-        ...SAFE_USER_SELECT,
-        employee: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
-      },
+    const user = await ctx.prisma.$transaction(async tx => {
+      await releaseDeletedUsername(tx, normalizedUsername, { userId: this.authorizationContext().userId, ip: ctx.ip });
+      return tx.user.create({
+        data: {
+          username: normalizedUsername,
+          password: hashedPassword,
+          status,
+          mustChangePassword: true,
+        },
+        select: {
+          ...SAFE_USER_SELECT,
+          employee: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
+        },
+      });
     }).catch(error => rethrowKnownUniqueConflict(error, ['username'], '用户名已存在'));
 
     ctx.body = {

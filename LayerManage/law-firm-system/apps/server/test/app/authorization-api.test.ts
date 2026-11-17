@@ -359,6 +359,10 @@ test('retires disabled accounts with session and grant history without breaking 
   await app.httpRequest().put(`/api/v1/users/${user.id}`).set(bearer()).send({ status: 'ENABLED' }).expect(404);
   const list = await app.httpRequest().get('/api/v1/users?keyword=retire-account').set(bearer()).expect(200);
   assert.equal(list.body.data.pagination.total, 0);
+  assert.equal(await prisma.user.findUnique({ where: { username: 'retire-account' } }), null);
+  const replacement = await app.httpRequest().post('/api/v1/users').set(bearer()).send({ username: 'retire-account', password: 'Replacement-94!' }).expect(200);
+  assert.notEqual(replacement.body.data.id, user.id);
+  assert.equal(await prisma.userRole.count({ where: { userId: replacement.body.data.id } }), 0);
   await app.httpRequest().get('/api/v1/authorization/me').set(bearer(session.token)).expect(401);
   await app.httpRequest().delete(`/api/v1/roles/${role.id}`).set(bearer()).send({ version: role.version }).expect(200);
   await app.httpRequest().get(`/api/v1/roles/${role.id}`).set(bearer()).expect(404);

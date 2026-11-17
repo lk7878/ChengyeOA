@@ -4,6 +4,7 @@ import { DataScopeService } from '../authorization/data-scope-service';
 import { transferUserResources } from '../master-data/employee-resource-transfer';
 import { assertAccountLifecycleMutable } from './trust-root-guard';
 import { writeAuditLog } from './audit-writer';
+import { deletedUsername } from './deleted-username';
 import { MasterDataError } from '../../domain/master-data/master-data-errors';
 import { assertExactKeys, normalizeRequiredText } from '../../domain/master-data/master-data-validation';
 
@@ -26,12 +27,12 @@ export async function retireUser(prisma: PrismaClient, actor: AuthorizationConte
     if (user.status !== 'DISABLED') throw new MasterDataError('请先禁用账号，再执行删除', 409);
     const transferred = await transferUserResources(tx, id, recipientUserId);
     const now = new Date();
-    await tx.user.update({ where: { id }, data: { status: 'DELETED', employeeId: null, credentialVersion: { increment: 1 } } });
+    await tx.user.update({ where: { id }, data: { status: 'DELETED', username: deletedUsername(user.id, user.username), employeeId: null, credentialVersion: { increment: 1 } } });
     if (user.employeeId) await tx.employee.update({ where: { id: user.employeeId }, data: { version: { increment: 1 } } });
     await tx.authSession.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: now, revokedReason: 'ACCOUNT_DELETED' } });
     const revocation = { revokedAt: now, revokedByUserId: actor.userId, revokeReason: 'Account deleted by administrator', version: { increment: 1 } };
     await tx.userRole.updateMany({ where: { userId: id, revokedAt: null }, data: revocation });
     await tx.userPermissionGrant.updateMany({ where: { userId: id, revokedAt: null }, data: revocation });
-    await writeAuditLog(tx, { userId: actor.userId, action: 'DELETE_USER', targetType: 'USER', targetId: id, newValues: JSON.stringify({ status: 'DELETED', transferred }), ip });
+    await writeAuditLog(tx, { userId: actor.userId, action: 'DELETE_USER', targetType: 'USER', targetId: id, oldValues: JSON.stringify({ username: user.username, status: user.status }), newValues: JSON.stringify({ username: deletedUsername(user.id, user.username), status: 'DELETED', transferred }), ip });
   });
 }
