@@ -39,6 +39,8 @@ export async function registerOa(app){
  app.get('/api/auth/start',async(req,reply)=>{
   let origin;try{origin=oaReturnOrigin(req.query.return)}catch(error){return reply.code(error.statusCode||400).send({error:error.message})}
   const verifier=randomBytes(32).toString('hex');const caseId=typeof req.query.caseId==='string'&&/^[a-zA-Z0-9-]{1,100}$/.test(req.query.caseId)?req.query.caseId:'';reply.header('set-cookie',[cookie('oa_login',verifier,120),cookie('oa_case',caseId,120)])
+  reply.header('Cache-Control','private, no-store');reply.header('Referrer-Policy','no-referrer')
+  if(req.query.response==='json')return {challenge:sha(verifier)}
   const url=new URL('/smart-case',origin);url.searchParams.set('challenge',sha(verifier));return reply.redirect(url.href)
  })
  app.get('/api/auth/oa/callback',async(req,reply)=>{
