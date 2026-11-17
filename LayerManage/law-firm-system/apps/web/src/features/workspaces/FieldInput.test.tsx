@@ -136,3 +136,17 @@ test('HR month-only dates retain their precision in grid and input; masked dates
  expect(change).toHaveBeenCalledWith('2024.07');
  expect(displayValue({...date,options:{dateOnly:true,hrSensitive:true}},'******',directory)).toBe('******');
 });
+
+test('prospect assignee picker uses server-scoped candidates and distinguishes cross-branch employees', async () => {
+ const directory={employees:[{id:'outsider',name:'未授权人员'}],organizations:[],users:[],teams:[]};
+ const change=vi.fn();
+ const assignee:Field={...field,type:'USER',name:'跟进人',options:{prospectAssignee:true,choices:[{id:'member',name:'同名员工',label:'同名员工（万州分所 · user1）'}]}};
+ const {rerender}=render(<FieldInput field={assignee} value={null} onChange={change} directory={directory} tableId="prospects" />);
+ fireEvent.mouseDown(screen.getByRole('combobox'));
+ expect(await screen.findByText('同名员工（万州分所 · user1）')).toBeInTheDocument();
+ expect(screen.queryByText('未授权人员')).not.toBeInTheDocument();
+ fireEvent.click(screen.getByText('同名员工（万州分所 · user1）'));
+ expect(change).toHaveBeenCalledWith('member');
+ rerender(<FieldInput field={{...assignee,writable:false}} value="member" onChange={change} directory={directory} tableId="prospects" />);
+ expect(screen.getByRole('combobox')).toBeDisabled();
+});

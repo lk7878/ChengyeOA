@@ -54,12 +54,12 @@ export function clipboardValue(field: Field, raw: string, directory: Directory):
   const value = raw.trim();
   const options =
     field.type === 'USER'
-      ? directory.employees
+      ? field.options.prospectAssignee ? field.options.choices ?? [] : directory.employees
       : field.type === 'ORGANIZATION'
         ? directory.organizations
         : field.options.choices || [];
   const option = (name: string) => {
-    const matches = options.filter((o) => o.name === name || o.id === name);
+    const matches = options.filter((o) => o.name === name || o.id === name || o.label === name);
     if (matches.length !== 1) throw new Error('选项或人员名称必须唯一匹配');
     return matches[0].id;
   };

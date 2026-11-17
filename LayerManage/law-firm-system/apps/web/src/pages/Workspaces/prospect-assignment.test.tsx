@@ -1,0 +1,33 @@
+import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {afterEach,expect,test,vi} from 'vitest';
+import {MemoryRouter} from 'react-router';
+import {WorkspaceEditor} from './index';
+import {get,post,patch} from '@/features/workspaces/api';
+vi.mock('@/features/workspaces/api',()=>({get:vi.fn(),post:vi.fn(),patch:vi.fn(),errorMessage:()=> '失败',errorStatus:()=>500,streamEvents:()=>new Promise(()=>{})}));
+afterEach(()=>{cleanup();vi.clearAllMocks();});
+test('assignee configuration opens above the drawer with existing values and preserves employee reference on save',async()=>{
+ const field={id:'f',name:'跟进人',type:'USER',required:false,writable:true,position:1,archived:false,defaultValue:'member',options:{prospectAssignee:true,assignmentOrganizationId:'department'}};
+ const table={id:'t',baseId:'b',name:'律师客资表',source:'CUSTOM',schemaVersion:3,canManage:true,position:0};
+ const access={level:4,canCreate:true,hidden:[],readonly:[]};
+ vi.mocked(get).mockImplementation(async url=>{
+  if(url==='/workspaces')return {workspaces:[{id:'w',name:'工作区',organizationId:'old-department',bases:[]}],canCreate:false} as never;
+  if(url.startsWith('/collaboration/options'))return {employees:[],users:[],teams:[],organizations:[],assignmentOrganizations:[{id:'department',name:'大数据中心',label:'总所 / 大数据中心',employees:[{id:'member',name:'员工',label:'员工（万州分所 · member）'}]}]} as never;
+  if(url==='/bases/b/tables')return {base:{id:'b',name:'客资',workspaceId:'w'},access,tables:[table]} as never;
+  if(url==='/tables/t')return {table,access,fields:[field],views:[]} as never;
+  throw new Error(url);
+ });
+ vi.mocked(post).mockResolvedValue({records:[],total:0});vi.mocked(patch).mockResolvedValue({id:'f'});
+ render(<MemoryRouter initialEntries={['/leads/follows?base=b&table=t']}><WorkspaceEditor businessMode/></MemoryRouter>);
+ fireEvent.click(await screen.findByRole('button',{name:'字段配置'}));
+ const drawer=document.querySelector<HTMLElement>('.ant-drawer-body')!;
+ expect(drawer).not.toBeNull();
+ fireEvent.click(within(drawer).getByRole('button',{name:/配\s*置/}));
+ await screen.findByText('配置字段',{selector:'.ant-modal-title'});
+ const modal=document.querySelector<HTMLElement>('.ant-modal')!;
+ await waitFor(()=>expect(within(modal).getByRole('textbox',{name:'名称'})).toHaveValue('跟进人'));
+ expect(within(modal).getByText('总所 / 大数据中心')).toBeInTheDocument();
+ expect(within(modal).getByText('员工（万州分所 · member）')).toBeInTheDocument();
+ await waitFor(()=>expect(document.querySelector('.ant-drawer-open')).toBeNull());
+ fireEvent.click(within(modal).getByRole('button',{name:/确\s*定/}));
+ await waitFor(()=>expect(patch).toHaveBeenCalledWith('/tables/t/fields/f',expect.objectContaining({name:'跟进人',type:'USER',defaultValue:'member',options:{prospectAssignee:true,assignmentOrganizationId:'department'},version:3}),expect.any(String)));
+});

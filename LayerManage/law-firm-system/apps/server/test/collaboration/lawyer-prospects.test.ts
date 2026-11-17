@@ -38,10 +38,16 @@ test('24-field template validates input, supports shared editing, soft deletion 
     const file = await db.collabAttachment.create({ data: {
       tableId: table.id, ownerId: user, name: '谈案报告.pdf', mimeType: 'application/pdf', size: 4, storageKey: key(),
     } });
+    const workspace = await db.collabWorkspace.findUniqueOrThrow({where:{id:workspaceId}});
+    const employee = await db.employee.create({data:{name:'跟进员工',employeeNo:key(),phone:'13800001234',type:'SALES',status:'FORMAL',entryDate:new Date('2025-01-01')}});
+    const position = await db.position.create({data:{organizationId:workspace.organizationId,code:key(),name:'跟进岗位',categoryCode:'SALES'}});
+    await db.employeeAssignment.create({data:{organizationId:workspace.organizationId,positionId:position.id,employeeId:employee.id,assignmentType:'PRIMARY',startedAt:new Date('2025-01-01')}});
+    const memberUser = (await db.user.create({ data: { username: key(), password: 'unused',employeeId:employee.id } })).id;
+    assert.equal(field('跟进人').type,'USER');
     const values = Object.fromEntries(detail.fields.filter(f => f.writable).map(f => [f.id,
       f.type === 'FILE' ? [file.id] : f.type === 'MULTI_SELECT' ? f.options.choices!.slice(0, 2).map(c => c.id) :
       f.type === 'SINGLE_SELECT' ? f.options.choices![0].id : f.type === 'DATETIME' ? '2026-11-03T04:00:00.000Z' :
-      f.type === 'NUMBER' ? 15 : f.type === 'CURRENCY' ? '1234.56' : '测试内容',
+      f.type === 'USER' ? employee.id : f.type === 'NUMBER' ? 15 : f.type === 'CURRENCY' ? '1234.56' : '测试内容',
     ]));
     await assert.rejects(svc.saveRecord(table.id, undefined, { schemaVersion: 1, values: {} }, key()), /COLLAB_REQUIRED/);
     await assert.rejects(svc.saveRecord(table.id, undefined, { schemaVersion: 1,
@@ -52,21 +58,20 @@ test('24-field template validates input, supports shared editing, soft deletion 
     assert.ok(initial.values[field('创建时间').id]);
     await assert.rejects(svc.saveRecord(table.id, row.id, { schemaVersion: 1, version: initial.version,
       values: { [field('创建时间').id]: '2000-01-01T00:00:00Z' } }, key()), /COLLAB_READONLY_FIELD/);
-    const memberUser = (await db.user.create({ data: { username: key(), password: 'unused' } })).id;
     const member = await db.collabMember.create({ data: { workspaceId, principalId: memberUser, role: 'READER', rowScope: 'ALL' } });
-    const editor = new CollaborationService(db, { ...svc.actor, userId: memberUser, isSystemSuperAdmin: false });
-    const patch = { schemaVersion: 1, version: initial.version, values: { [field('跟进人').id]: '协作修改' } };
+    const editor = new CollaborationService(db, { ...svc.actor, userId: memberUser, employeeId:employee.id, isSystemSuperAdmin: false });
+    const patch = { schemaVersion: 1, version: initial.version, values: { [field('对话聊天记录').id]: '协作修改' } };
     assert.equal((await editor.query(table.id, {})).total, 1);
     await assert.rejects(editor.saveRecord(table.id, row.id, patch, key()), /COLLAB_FORBIDDEN/);
     await assert.rejects(editor.deleteRecords(table.id, { schemaVersion: 1, records: [{ id: row.id, version: initial.version }] }, key()), /COLLAB_FORBIDDEN/);
     await db.collabMember.update({ where: { id: member.id }, data: { role: 'EDITOR' } });
     const edited = await editor.saveRecord(table.id, row.id, patch, key());
     const updated = (await svc.record(table.id, row.id)).record;
-    assert.equal(updated.values[field('跟进人').id], '协作修改');
+    assert.equal(updated.values[field('对话聊天记录').id], '协作修改');
     assert.equal(updated.values[field('创建时间').id], initial.values[field('创建时间').id]);
     assert.ok(String(updated.values[field('最后更新时间').id]) >= String(initial.values[field('最后更新时间').id]));
     await editor.reverseRecordOperation(table.id, edited.operationId, { direction: 'undo' }, key());
-    assert.equal((await svc.record(table.id, row.id)).record.values[field('跟进人').id], '测试内容');
+    assert.equal((await svc.record(table.id, row.id)).record.values[field('对话聊天记录').id], '测试内容');
     await editor.reverseRecordOperation(table.id, edited.operationId, { direction: 'redo' }, key());
     await svc.saveRecord(table.id, undefined, { schemaVersion: 1, values }, key());
     const rows = (await editor.query(table.id, {})).records;

@@ -1,4 +1,5 @@
 export interface Option {
+  label?: string;
   id: string;
   name: string;
   color?: string;
@@ -13,6 +14,8 @@ export interface Field extends Option {
   defaultValue: unknown;
   options: {
     choices?: Option[];
+    prospectAssignee?: boolean;
+    assignmentOrganizationId?: string;
     targetTableId?: string;
     targetSource?: 'LEADS' | 'CHANNELS';
     medicalRelation?:boolean; medicalAutofill?:string;
@@ -140,6 +143,7 @@ export interface RecordDetail {
   comments: { id: string; actorId: string; content: string; createdAt: string }[];
 }
 export interface Directory {
+  assignmentOrganizations?: (Option & {employees: Option[]})[];
   organizations: Option[];
   employees: Option[];
   teams: Option[];

@@ -1,3 +1,4 @@
+import { assignmentDepartmentPredicate, prospectField } from './prospect-assignment';
 import { departmentCreatorPredicate } from './department-scope';
 import { CollabField, Prisma } from '@prisma/client';
 import type { Access } from './collaboration-service';
@@ -79,7 +80,8 @@ export function recordFieldLevel(access: Access, id:string, field:string) {
 export function rowPredicate(rules: TableRule[] | undefined, fields: CollabField[], user: string, employee: string | null) {
   if (!rules || rules.some(r => r.rows === 'ALL')) return Prisma.sql`TRUE`;
   if (!rules.length) return Prisma.sql`FALSE`;
-  return Prisma.sql`(${Prisma.join(rules.map(r => ['DEPARTMENT','SUBDEPARTMENTS'].includes(r.rows) ? departmentCreatorPredicate(user,employee,r.rows==='SUBDEPARTMENTS') : r.rows === 'SELF' ? Prisma.sql`r."createdBy"=${user}` :
+  const assigned = prospectField(fields);
+  return Prisma.sql`(${Prisma.join(rules.map(r => ['DEPARTMENT','SUBDEPARTMENTS'].includes(r.rows) ? (assigned ? assignmentDepartmentPredicate(assigned,employee,r.rows==='SUBDEPARTMENTS') : departmentCreatorPredicate(user,employee,r.rows==='SUBDEPARTMENTS')) : r.rows === 'SELF' ? (assigned ? Prisma.sql`r.values->>${assigned.id}=${employee ?? ''}` : Prisma.sql`r."createdBy"=${user}`) :
     filterSql(r.filter, fields, user, employee)), ' OR ')})`;
 }
 export function ruleAllowsWrite(r: TableRule, fieldIds: string[], action: 'edit'|'add'|'remove') {

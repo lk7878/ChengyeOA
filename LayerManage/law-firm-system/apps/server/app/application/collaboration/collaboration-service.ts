@@ -1,3 +1,4 @@
+import { assignmentCandidates, assignmentOrganizations, assignmentPredicate, isProspectAssignee, isProspectTable, prospectField, resolveAssignment, validateAssignmentConfig, type ProspectAssignment } from './prospect-assignment';
 import { syncCustomerSource } from './customer-source-routing';
 import { prepareMedicalValues } from './medical-assessment';
 import { FIELD_CATALOG } from '../../domain/authorization/field-security-policy';
@@ -89,6 +90,7 @@ type MemberAccess = Pick<
   'role' | 'canCreate' | 'rowScope' | 'canManageAccess' | 'hiddenFields' | 'readonlyFields'
 >;
 export interface Access {
+  prospectAssignment?: ProspectAssignment;
   createOnly?:boolean;
   import?:boolean;
   previewCeiling?: Access;
@@ -115,6 +117,7 @@ export interface Access {
 
 function publicAccess(access: Access) {
   const visible = { ...access };
+  delete visible.prospectAssignment;
   delete visible.rules;
   delete visible.rowIds;
   delete visible.scopedRules;
@@ -324,7 +327,7 @@ export class CollaborationService {
           'role', m.role, 'canCreate', m."canCreate", 'rowScope', m."rowScope", 'canManageAccess', m."canManageAccess",
           'hiddenFields', m."hiddenFields", 'readonlyFields', m."readonlyFields")), '[]'::jsonb)
          FROM collab_member m WHERE m."workspaceId" = w.id AND (${principalWhere})) AS "_members",
-        (SELECT COALESCE(jsonb_agg(to_jsonb(f) ORDER BY f.position), '[]'::jsonb) FROM collab_field f WHERE f."tableId" = t.id AND (${withFields} OR EXISTS (SELECT 1 FROM worksheet_role_policy rp WHERE rp."tableId"=t.id))) AS "_fields",
+        (SELECT COALESCE(jsonb_agg(to_jsonb(f) ORDER BY f.position), '[]'::jsonb) FROM collab_field f WHERE f."tableId" = t.id AND (${withFields} OR f.options->>'prospectAssignee'='true' OR EXISTS (SELECT 1 FROM worksheet_role_policy rp WHERE rp."tableId"=t.id))) AS "_fields",
         ${folderChainSql(Prisma.sql`b.id`)} AS "_folderChain", dn."deletedAt" AS "_driveDeletedAt"
       FROM collab_table t JOIN collab_base b ON b.id = COALESCE(t."originBaseId",t."baseId")
       LEFT JOIN drive_node dn ON dn.id = b.id
@@ -437,6 +440,16 @@ export class CollaborationService {
       if (!canManageHr(this.actor)) { access.canCreate=false; access.readonly=[...new Set([...access.readonly,...table.fields.map(f=>f.id)])]; }
       if (!canReadHrPrivate(this.actor)) access.readonly=[...new Set([...access.readonly,...table.fields.filter(hrPrivate).map(f=>f.id)])];
     }
+    const assignee = table.source === 'CUSTOM' && prospectField(table.fields);
+    if (assignee) {
+      access.prospectAssignment = await resolveAssignment(tx,this.actor,assignee,access.organizationId);
+      assignee.options = json({...object(assignee.options),assignmentOrganizationId:access.prospectAssignment.organizationId}) as Prisma.JsonValue;
+      if (!access.prospectAssignment.canAssign) access.readonly.push(assignee.id);
+      if (access.selfOnly) {
+        access.selfOnly = false;
+        access.prospectAssignment = {...access.prospectAssignment, all:false, unassigned:false, employeeIds:access.prospectAssignment.employeeIds.filter(id=>id===this.actor.employeeId)};
+      }
+    }
     const visible = table.fields.filter(f => !f.archived && !access.hidden.includes(f.id));
     if (table.inventoryKind === 'ADMIN_SEAL' && !this.actor.isSystemSuperAdmin && !this.actor.permissionCodes.includes('inventory.seal.review'))
       access.readonly.push(...visible.filter(f => object(f.options).adminReview).map(f => f.id));
@@ -444,6 +457,11 @@ export class CollaborationService {
     if (access.rules?.every(r => r.rows !== 'ALL' || !!r.business)) {
       const rawFields = table.fields.filter(f => !f.archived);
       access.rowIds = await this.matchingRows(table, access, rawFields, access.rules, tx);
+    }
+    if (access.prospectAssignment && !access.prospectAssignment.all) {
+      const rows = await tx.$queryRaw<{id:string}[]>(Prisma.sql`SELECT r.id FROM collab_record r WHERE r."tableId"=${tableId} AND NOT r.archived AND ${assignmentPredicate(access.prospectAssignment)}`);
+      const permitted = new Set(rows.map(r=>r.id));
+      access.rowIds = access.rowIds ? access.rowIds.filter(id=>permitted.has(id)) : [...permitted];
     }
     const allowedIds=access.previewCeiling?.rowIds;
     if (allowedIds) {
@@ -511,6 +529,10 @@ export class CollaborationService {
   }
   private async checkRowWrite(table: CollabTable & {fields:CollabField[]}, access: Access, tx: Tx, id: string,
     fieldIds: string[], action: 'edit'|'add'|'remove') {
+    if (access.prospectAssignment) {
+      const visible = await tx.$queryRaw<{id:string}[]>(Prisma.sql`SELECT r.id FROM collab_record r WHERE r.id=${id} AND r."tableId"=${table.id} AND ${assignmentPredicate(access.prospectAssignment)}`);
+      if (!visible.length) fail('COLLAB_FORBIDDEN',403);
+    }
     if (!access.rules) return;
     const groups = fieldIds.length ? fieldIds.map(key => [key]) : [[]];
     for (const group of groups) {
@@ -1463,6 +1485,7 @@ export class CollaborationService {
       canCreateBusiness: await this.canCreateBusiness(table, access, fields),
       fields: fields.map((f) => ({
         ...f,
+        ...(isProspectAssignee(f) && access.prospectAssignment ? {options:{...object(f.options),assignmentOrganizationId:access.prospectAssignment.organizationId,choices:access.prospectAssignment.candidates}} : {}),
         ...(table.source === 'FOLLOWS' && object(f.options).businessKey === 'type'
           ? { type: 'SINGLE_SELECT', options: { ...object(f.options), choices: followTypeChoices } } : {}),
         ...(businessGridChoices(table.source, String(object(f.options).businessKey))
@@ -1691,7 +1714,10 @@ export class CollaborationService {
       if (fieldId && !previous) fail('COLLAB_NOT_FOUND', 404);
       if (fieldId && !fields.some((f) => f.id === fieldId)) fail('COLLAB_FORBIDDEN', 403);
       if (previous && (object(previous.options).businessKey || object(previous.options).customerRouteKey || lifecycleKey(previous))) fail('COLLAB_USE_BUSINESS_ACTION', 409);
-      const type = choice(input.type ?? previous?.type, FIELD_TYPES);
+      const assignmentField = !!previous && isProspectAssignee(previous) || isProspectTable(table) && text(input.name ?? previous?.name) === '跟进人';
+      const type = assignmentField ? 'USER' : choice(input.type ?? previous?.type, FIELD_TYPES);
+      if (assignmentField && input.archived === true) fail('COLLAB_ASSIGNMENT_FIELD_REQUIRED',409);
+      if (assignmentField && table.fields.some(f=>!f.archived && f.id!==fieldId && isProspectAssignee(f))) fail('COLLAB_ASSIGNMENT_FIELD_DUPLICATE',409);
       if (type === 'FORMULA') fail('COLLAB_READONLY_FIELD', 403);
       if (table.source !== 'CUSTOM' && isSystemField({ type })) fail('COLLAB_USE_BUSINESS_ACTION', 409);
       const countValues = (values: Prisma.JsonFilter) =>
@@ -1712,6 +1738,8 @@ export class CollaborationService {
         if (Number(missing[0].count)) fail('COLLAB_REQUIRED_BACKFILL_REQUIRED', 409);
       }
       const options = validateOptions(type, input.options ?? previous?.options ?? {});
+      if (assignmentField) options.prospectAssignee = true;
+      else if (options.prospectAssignee) fail('COLLAB_INVALID_OPTIONS');
       if (previous && ['SINGLE_SELECT', 'MULTI_SELECT'].includes(type)) {
         const nextIds = new Set((options.choices as Array<{ id: string }>).map((o) => o.id));
         const removed = ((object(previous.options).choices ?? []) as Array<{ id: string }>).filter(
@@ -1769,6 +1797,13 @@ export class CollaborationService {
         defaultValue === null || defaultValue === undefined
           ? Prisma.DbNull
           : json(validateValue(fake, defaultValue));
+      if (assignmentField) await validateAssignmentConfig(tx,this.actor,initial.access.organizationId,{...fake,defaultValue:defaultValue ?? null} as CollabField);
+      if (assignmentField && previous && object(previous.options).assignmentOrganizationId !== options.assignmentOrganizationId) {
+        const candidates = await assignmentCandidates(tx,String(options.assignmentOrganizationId || initial.access.organizationId));
+        const invalid = await tx.$queryRaw<{id:string}[]>(Prisma.sql`SELECT id FROM collab_record WHERE "tableId"=${tableId} AND NOT archived
+          AND COALESCE(values->>${previous.id},'')<>'' AND NOT (values->>${previous.id}=ANY(${candidates.map(e=>e.id)}::text[])) LIMIT 1`);
+        if (invalid.length) fail('COLLAB_ASSIGNMENT_ORGANIZATION_IN_USE',409);
+      }
       const field = fieldId
         ? await tx.collabField.update({
             where: { id: fieldId },
@@ -2409,6 +2444,11 @@ export class CollaborationService {
   ): Promise<ObjectValue> {
     const patch = object(input);
     const result = { ...existing };
+    if (creating && access.prospectAssignment && !access.prospectAssignment.canAssign) {
+      const assignment = access.prospectAssignment;
+      if (!assignment.candidates.some(e=>e.id===this.actor.employeeId)) fail('COLLAB_FORBIDDEN',403);
+      result[assignment.fieldId] = this.actor.employeeId;
+    }
     for (const [id, value] of Object.entries(patch)) {
       const field = fieldOf(fields, id);
       if (access.readonly.includes(id) || isSystemField(field) || syncedLifecycleKeys.includes(lifecycleKey(field)))
@@ -2433,7 +2473,12 @@ export class CollaborationService {
       }
       const value = result[field.id];
       if (value === null || value === undefined) continue;
-      if (field.type === 'USER') {
+      if (field.type === 'USER' && isProspectAssignee(field)) {
+        if (creating || Object.hasOwn(patch,field.id)) {
+          const assignment = access.prospectAssignment;
+          if (!assignment || !assignment.candidates.some(e=>e.id===value)) fail('COLLAB_MEMBER_UNAVAILABLE',422,{fieldId:field.id});
+        }
+      } else if (field.type === 'USER') {
         const person = await tx.employee.findFirst({
           where: {
             id: String(value),
@@ -3318,6 +3363,7 @@ export class CollaborationService {
             )[0]
           : null;
         if (recordId && !previous) fail('COLLAB_NOT_FOUND', 404);
+        if (previous && access.prospectAssignment) await this.checkRowWrite(table,access,tx,previous.id,Object.keys(object(input.values ?? {})),input.archived === true ? 'remove' : 'edit');
         if (previous && previous.version !== integer(input.version))
           fail('COLLAB_RECORD_CONFLICT', 409, { recordId, version: previous.version });
         const prepared = table.followSupportKind==='MEDICAL_ASSESSMENT' ? await prepareMedicalValues(tx as PrismaClient,this.actor,table.fields,input.values??{},previous?.values,restoreMedicalSnapshot) : input.values??{};
@@ -3501,14 +3547,15 @@ export class CollaborationService {
     return { list: rows, total: Number(count.total) };
   }
   async options(workspaceId?: string,tableId?:string) {
-    const access = tableId ? (await this.tableAccess(tableId)).access : workspaceId ? await this.access(workspaceId) : null;
+    const selected = tableId ? await this.tableAccess(tableId) : null;
+    const access = selected?.access ?? (workspaceId ? await this.access(workspaceId) : null);
     if (workspaceId && access?.workspaceId !== workspaceId) fail('COLLAB_FORBIDDEN',403);
     if (
       !access &&
       !this.actor.isSystemSuperAdmin &&
       !this.actor.permissionCodes.some((p) => String(p) === 'workspace.create')
     )
-      return { organizations: [], employees: [], teams: [], users: [], positions: [], roles: [] };
+      return { organizations: [] as {id:string;name:string}[], employees: [] as {id:string;name:string}[], teams: [] as {id:string;name:string}[], users: [] as {id:string;name:string}[], positions: [] as {id:string;name:string}[], roles: [] as {id:string;name:string}[], assignmentOrganizations: [] as {id:string;name:string;employees:{id:string;name:string}[]}[] };
     const organizations = await this.db.organization.findMany({
       where: {
         status: 'ENABLED',
@@ -3543,6 +3590,9 @@ export class CollaborationService {
       select: { id: true, name: true, user: { select: { id: true, status: true } } },
       take: 1000,
     });
+    const assignmentOrgs = access && selected && (isProspectTable(selected.table) || access.prospectAssignment) && (access.level>=3 || this.actor.isSystemSuperAdmin) ? await assignmentOrganizations(this.db,this.actor,access.organizationId) : [];
+    const assignmentDirectory = await Promise.all(assignmentOrgs.map(async o=>({id:o.id,name:o.name,label:o.label,employees:await assignmentCandidates(this.db,o.id)})));
+    const assignedEmployees = access?.prospectAssignment ? await assignmentCandidates(this.db,access.prospectAssignment.organizationId) : [];
     const teams = await this.db.professionalTeam.findMany({
       where: { homeOrganizationId: { in: organizations.map((o) => o.id) }, status: 'ENABLED' },
       select: { id: true, name: true },
@@ -3564,7 +3614,8 @@ export class CollaborationService {
           : [],
       positions: positions.map((p) => ({ id: p.id, name: p.organization.name + ' / ' + p.name })),
       organizations,
-      employees: employees.map((e) => ({ id: e.id, name: e.name })),
+      assignmentOrganizations: assignmentDirectory,
+      employees: [...new Map([...employees,...assignedEmployees].map(e=>[e.id,{id:e.id,name:e.name}])).values()],
       users:
         access?.canManageAccess || this.actor.isSystemSuperAdmin
           ? (

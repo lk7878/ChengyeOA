@@ -20,6 +20,7 @@ import { BusinessRecord } from '@/features/workspaces/BusinessRecord';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { Alert, Avatar, Button, Checkbox, Dropdown, Empty, Form, Input, InputNumber, Pagination, Select, Space, Spin, Table, Tabs, Tag, Tooltip, message } from 'antd';
+import type { FormInstance } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
 import {
   AppstoreOutlined,
@@ -57,6 +58,14 @@ import GridCell from '@/features/workspaces/GridCell';
 import { changedValues, rebaseDraft, initialValues } from '@/features/workspaces/editing';
 import FilterEditor from '@/features/workspaces/FilterEditor';
 import './workspace.css';
+
+// The draggable modal remounts its form on opening. Initialize after that mount,
+// so preserve=false cleanup cannot erase existing field settings.
+function DialogFormValues({form, values}: {form: FormInstance; values: Record<string, unknown>}) {
+  const initial = useRef(values);
+  useEffect(() => { form.setFieldsValue(initial.current); }, [form]);
+  return null;
+}
 
 const emptyDirectory: Directory = { organizations: [], employees: [], users: [], teams: [] };
 type Dialog = {
@@ -136,6 +145,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   const [dialog, setDialog] = useState<Dialog>();
   const [busy, setBusy] = useState(false);
   const [form] = Form.useForm();
+  const fieldName = Form.useWatch('name', form);
+  const assignmentField = dialog?.kind === 'field' && (dialog.field?.options.prospectAssignee || detail?.table.source === 'CUSTOM' && detail.table.name.includes('客资') && fieldName?.trim() === '跟进人');
   const [invite, setInvite] = useState<{tableId:string;version:number;invitations:Record<string,string>;users?:{id:string;name:string}[];roles:{id:string;name:string}[]}>();
   const [inlineDirty, setInlineDirty] = useState(false);
   const [viewVersion, setViewVersion] = useState(1);
@@ -484,10 +495,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       setMobileNav(false);
     }
   };
-  const openDialog = (next: Dialog) => {
-    mutationKey.current = crypto.randomUUID();
-    form.resetFields();
-    form.setFieldsValue({
+  const dialogValues = (next: Dialog) => ({
       name: next.field?.name || next.table?.name || (next.view && !next.duplicate ? next.view.name : ''),
       type: next.field?.type || next.view?.type || (next.kind === 'view' ? 'GRID' : 'TEXT'),
       template: 'BLANK',
@@ -495,11 +503,16 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       required: next.field?.required || false,
       choices: next.field?.options.choices?.map((o) => o.name).join('\n') || '',
       targetTableId: next.field?.options.targetTableId,
+      assignmentOrganizationId: next.field?.options.assignmentOrganizationId || workspaces.find(w=>w.id===base?.workspaceId)?.organizationId,
       helpText: next.field?.options.helpText,
       defaultValue: next.field?.defaultValue,
       position: next.field?.position,
       role: 'READER',
     });
+  const openDialog = (next: Dialog) => {
+    mutationKey.current = crypto.randomUUID();
+    form.resetFields();
+    if (next.kind === 'field') setSettings(null);
     setDialog(next);
     if (next.kind === 'share' && tableId) {
       setInvite(undefined);
@@ -549,7 +562,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       if (dialog?.kind === 'field' && detail) {
         const previous = dialog.field;
         const options: Field['options'] = {...(previous?.options.primary ? {primary:true} : {}), ...(values.helpText ? { helpText: values.helpText } : {})};
-        if (['SINGLE_SELECT', 'MULTI_SELECT'].includes(values.type))
+        if (assignmentField) { options.prospectAssignee = true; options.assignmentOrganizationId = values.assignmentOrganizationId; }
+        if (!assignmentField && ['SINGLE_SELECT', 'MULTI_SELECT'].includes(values.type))
           options.choices = String(values.choices || '')
             .split('\n')
             .map((v) => v.trim())
@@ -567,7 +581,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
           url,
           {
             name: values.name,
-            type: values.type,
+            type: assignmentField ? 'USER' : values.type,
             required: values.required,
             options,
             defaultValue: values.defaultValue ?? null,
@@ -1576,7 +1590,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   </Button>
                   <Button
                     danger
-                    disabled={!canManage || f.position === 0 || !!f.options.businessKey}
+                    disabled={!canManage || f.position === 0 || !!f.options.businessKey || !!f.options.prospectAssignee}
                     onClick={() =>
                       Modal.confirm({
                         okText: '确定',
@@ -1961,6 +1975,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
           layout="vertical"
           preserve={false}
         >
+          {dialog && <DialogFormValues form={form} values={dialogValues(dialog)} />}
           {dialog?.kind !== 'share' && (
             <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true }]}>
               <Input aria-label="名称" maxLength={120} />
@@ -2046,7 +2061,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
             <>
               <Form.Item name="type" label="字段类型" rules={[{ required: true }]}>
                 <Select
-                  options={Object.entries(fieldNames)
+                  disabled={!!assignmentField}
+                  options={assignmentField ? [{value:form.getFieldValue("type"),label:"人员（组织员工）"}] : Object.entries(fieldNames)
                     .filter(([type]) => type !== 'FORMULA')
                     .filter(
                       ([type]) =>
@@ -2056,6 +2072,12 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     .map(([value, label]) => ({ value, label }))}
                 />
               </Form.Item>
+              {assignmentField && <>
+                <Alert type="info" showIcon title="跟进人关联组织员工" description="在每条客资的跟进人单元格中选择具体员工。分配组织的负责人可向本部门、下属部门及同一律所体系的其他分所员工分配，并查看汇总；普通成员只查看自己的记录。成员仍需具备本表访问权限。默认跟进人仅用于新建记录，不会批量修改已有客资。" />
+                <Form.Item name="assignmentOrganizationId" label="跟进人所属组织" rules={[{required:true}]}>
+                  <Select showSearch optionFilterProp="label" onChange={()=>form.setFieldValue('defaultValue',null)} options={directory.assignmentOrganizations?.map(o=>({value:o.id,label:o.label ?? o.name}))} />
+                </Form.Item>
+              </>}
               <Form.Item name="required" valuePropName="checked">
                 <Checkbox>
                   {detail?.table.source === 'CUSTOM' ? '必填' : '必填（保存扩展信息时校验）'}
@@ -2063,7 +2085,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               </Form.Item>
               <Form.Item noStyle shouldUpdate>
                 {() =>
-                  ['SINGLE_SELECT', 'MULTI_SELECT'].includes(form.getFieldValue('type')) ? (
+                  !assignmentField && ['SINGLE_SELECT', 'MULTI_SELECT'].includes(form.getFieldValue('type')) ? (
                     <Form.Item name="choices" label="选项（每行一个，可留空后续配置）">
                       <Input.TextArea rows={4} />
                     </Form.Item>
@@ -2085,19 +2107,20 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   !['CREATED_AT', 'CREATED_BY', 'UPDATED_AT', 'UPDATED_BY', 'FILE', 'RELATION'].includes(
                     form.getFieldValue('type'),
                   ) && (
-                    <Form.Item label="默认值">
+                    <Form.Item name="defaultValue" label="默认值">
                       <FieldInput
                         field={{
                           id: dialog.field?.id || 'default',
                           name: '默认值',
-                          type: form.getFieldValue('type'),
+                          type: assignmentField ? 'USER' : form.getFieldValue('type'),
                           required: false,
                           writable: true,
                           position: 0,
                           archived: false,
                           defaultValue: null,
                           options: {
-                            choices: String(form.getFieldValue('choices') || '')
+                            prospectAssignee: !!assignmentField,
+                            choices: assignmentField ? directory.assignmentOrganizations?.find(o=>o.id===form.getFieldValue('assignmentOrganizationId'))?.employees ?? [] : String(form.getFieldValue('choices') || '')
                               .split('\n')
                               .filter(Boolean)
                               .map((name: string) => ({

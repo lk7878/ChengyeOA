@@ -13,7 +13,7 @@ export function lawyerProspectFields() {
     ['客户姓名', 'TEXT'],
     ['地区', 'TEXT'],
     ['对话聊天记录', 'LONG_TEXT'],
-    ['跟进人', 'LONG_TEXT'],
+    ['跟进人', 'USER'],
     ['跟进方式', 'MULTI_SELECT', '已添加微信|已申请微信|已电联'],
     ['标的范围', 'SINGLE_SELECT', '1万以下|1万—3万|3万—10万|10万以上'],
     ['案件类型', 'SINGLE_SELECT', '借款合同纠纷|劳动纠纷|侵权纠纷|婚姻家事|刑事案件|人格权纠纷|物权纠纷|知识产权纠纷|海事海商纠纷|公司股权|证券|票据纠纷|非诉|执行|租赁合同纠纷|合伙合同纠纷|建设工程施工合同|其它类合同纠纷|劳务费|工伤|交通事故'],
@@ -34,6 +34,7 @@ export function lawyerProspectFields() {
   return definitions.map(([name, type, choices], position) => {
     const options: Record<string, Prisma.InputJsonValue> = {};
     if (choices) options.choices = choices.split('|').map(name => ({ id: name, name }));
+    if (name === '跟进人') options.prospectAssignee = true;
     if (name === '客户姓名') options.primary = true;
     if (name === '联系方式') {
       options.helpText = '共享权限决定数据访问范围；有查看权限时显示完整联系方式。';

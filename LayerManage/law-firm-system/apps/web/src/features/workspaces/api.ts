@@ -20,6 +20,11 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  COLLAB_ASSIGNMENT_ORGANIZATION_IN_USE: '现有跟进人不在所选律所体系，请先处理相关客资的人员分配。',
+  COLLAB_ASSIGNMENT_ORGANIZATION_FORBIDDEN: '请选择本工作区或您负责的组织。',
+  COLLAB_ASSIGNMENT_FIELD_REQUIRED: '跟进人用于客资分配和数据权限，不能归档该字段。',
+  COLLAB_ASSIGNMENT_FIELD_DUPLICATE: '本表已有跟进人分配字段，请配置现有字段。',
+
   MANAGED_ROLE_PROTECTED: '智慧办案使用者是专用角色，请通过成员分配或移除资格。',
   SMART_CASE_ACCESS_ROLE_REQUIRED: '请分配“智慧办案使用者”角色，不能将其使用资格复制到岗位角色。',
   AUTHORIZATION_IN_USE: '名称或编码已存在，或对象仍在使用中，请核对后重试。',

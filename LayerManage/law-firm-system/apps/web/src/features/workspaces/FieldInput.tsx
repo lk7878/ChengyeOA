@@ -92,7 +92,7 @@ export default function FieldInput({
     return (
       <InputNumber
         aria-label={field.name}
-        disabled={disabled}
+        disabled={disabled || !!field.options.prospectAssignee && !field.writable}
         style={{ width: '100%' }}
         stringMode={
           field.type === 'CURRENCY' ||
@@ -120,14 +120,14 @@ export default function FieldInput({
   if (['SINGLE_SELECT', 'MULTI_SELECT', 'USER', 'ORGANIZATION', 'RELATION'].includes(field.type)) {
     const opts =
       field.type === 'USER'
-        ? directory.employees
+        ? field.options.prospectAssignee ? field.options.choices ?? [] : directory.employees
         : field.type === 'ORGANIZATION'
           ? directory.organizations
           : field.options.choices || [];
     return (
       <Select
         aria-label={field.name}
-        disabled={disabled}
+        disabled={disabled || !!field.options.prospectAssignee && !field.writable}
         style={{ width: '100%' }}
         allowClear
         showSearch
@@ -137,7 +137,7 @@ export default function FieldInput({
         mode={['MULTI_SELECT', 'RELATION'].includes(field.type) ? 'multiple' : undefined}
         value={value as string | string[] | undefined}
         onChange={(v) => onChange(v ?? null)}
-        options={field.type === 'RELATION' ? relations : opts.map((o) => ({ value: o.id, label: o.name }))}
+        options={field.type === 'RELATION' ? relations : opts.map((o) => ({ value: o.id, label: o.label ?? o.name }))}
       />
     );
   }

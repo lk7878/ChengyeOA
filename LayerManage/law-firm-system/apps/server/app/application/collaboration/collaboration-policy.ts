@@ -179,7 +179,12 @@ export function optionIds(options: ObjectValue): string[] {
   return options.choices.map((v) => text(object(v).id));
 }
 export function validateOptions(type: string, raw: unknown): ObjectValue {
-  const options = exact(raw ?? {}, ['choices', 'targetTableId', 'targetSource', 'primary', 'helpText', 'maskDisplay']);
+  const options = exact(raw ?? {}, ['choices', 'targetTableId', 'targetSource', 'primary', 'helpText', 'maskDisplay', 'prospectAssignee', 'assignmentOrganizationId']);
+  if (options.prospectAssignee !== undefined && (type !== 'USER' || options.prospectAssignee !== true)) fail('COLLAB_INVALID_OPTIONS');
+  if (options.assignmentOrganizationId !== undefined) {
+    if (!options.prospectAssignee) fail('COLLAB_INVALID_OPTIONS');
+    text(options.assignmentOrganizationId);
+  }
   if (options.maskDisplay !== undefined) { boolean(options.maskDisplay); options.maskDisplay = false; }
   if (options.primary !== undefined) boolean(options.primary);
   if (options.helpText !== undefined) text(options.helpText, 2000);
