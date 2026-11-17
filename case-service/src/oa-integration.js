@@ -22,6 +22,7 @@ export async function registerOa(app){
   const token=parseCookie(headers.cookie).oa_sid,session=token&&store.read()[sha(token)];
   if(!session||session.expiresAt<=Date.now())throw Object.assign(Error('请从 OA 登录'),{statusCode:401});
   const current=await oa(session.token,'/smart-case/me');
+  if(!current.permissions?.includes('menu.smart_case'))throw Object.assign(Error('智慧办案使用资格已撤销，请联系管理员分配“智慧办案使用者”角色'),{statusCode:403});
   const id=mappings.update(data=>data[current.id]??=('oa-'+current.id));
   return {oa:{token:session.token,...current},user:{id,oaUserId:current.id,appearance:current.appearance,username:current.username,displayName:current.displayName,isSystemSuperAdmin:current.isSystemSuperAdmin,status:'active',roles:current.permissions.includes('knowledge.review')?['public_admin']:['case_owner']}}
  }
@@ -35,7 +36,7 @@ export async function registerOa(app){
    return
   }
   if(p==='/api/health'||p.startsWith('/api/auth/start')||p==='/api/auth/oa/callback')return
-  try{const auth=await authenticate(req.headers);req.oa=auth.oa;req.user=auth.user}catch(error){return reply.code(error.statusCode===403?403:401).send({error:'OA 会话失效或权限已撤销'})}
+  try{const auth=await authenticate(req.headers);req.oa=auth.oa;req.user=auth.user}catch(error){return reply.code(error.statusCode===403?403:401).send({error:error.statusCode===403?'智慧办案使用资格已撤销，请联系管理员分配“智慧办案使用者”角色':'OA 会话已失效，请从 OA 重新登录'})}
   // These legacy paths expose shared runtimes/passwords or bypass OA authoritative files.
   if(/^\/api\/(accounts|sharing-groups|ai\/visible-sessions|go\/|knowledge-bases|knowledge\/)/.test(p)||p==='/api/auth/login'||/\/cases\/[^/]+\/(session|materials|raw|preview|session-files|files|export-word)(\/|$)/.test(p))return reply.code(410).send({error:'此旧接口已停用，请使用 OA 授权任务和知识投稿'})
  })
