@@ -1,5 +1,6 @@
 import { medicalOptions, medicalCustomer } from '../application/collaboration/medical-assessment';
 import { WorksheetPermissions } from '../application/collaboration/worksheet-permissions';
+import { PermissionOverview } from '../application/collaboration/permission-overview';
 import { isHrKind } from '../application/collaboration/hr-worksheets';
 import { canReadHrPrivate } from '../application/collaboration/hr-privacy';
 import { Controller } from 'egg';
@@ -24,6 +25,8 @@ export default class CollaborationController extends Controller {
   async policyInvite() { this.respond(await this.worksheets().change(this.ctx.params.tableId,this.ctx.request.body,true)); }
   async policyInvites() { this.respond(await this.worksheets().invitationOptions(this.ctx.params.tableId)); }
   async policyPreview() { this.respond(await this.worksheets().preview(this.ctx.params.tableId,this.ctx.request.body)); }
+  async permissionOverviewOptions() { this.respond(await new PermissionOverview(this.ctx.prisma,this.ctx.state.authorization).options()); }
+  async permissionOverview() { this.respond(await new PermissionOverview(this.ctx.prisma,this.ctx.state.authorization).query(this.ctx.request.body)); }
   async comments() { this.respond(await new RowComments(this.ctx.prisma, this.ctx.state.authorization).list(this.ctx.params.tableId, this.ctx.params.recordId, this.ctx.query.before)); }
   async commentPeople() { this.respond(await new RowComments(this.ctx.prisma, this.ctx.state.authorization).recipients(this.ctx.params.tableId, this.ctx.params.recordId, this.ctx.query.keyword || '')); }
   async saveComment() { this.respond(await new RowComments(this.ctx.prisma, this.ctx.state.authorization).save(this.ctx.params.tableId, this.ctx.params.recordId, this.ctx.params.commentId, this.ctx.request.body, this.key())); }

@@ -2,10 +2,25 @@ import { BROWSER_TITLE } from './src/product'
 import { configDefaults, defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'path'
-import { searchForWorkspaceRoot } from 'vite'
+import { readFile } from 'node:fs/promises'
+import { searchForWorkspaceRoot, transformWithOxc } from 'vite'
+
+const workflowSchemaPath = path.resolve(__dirname, '../server/app/domain/workflow/schema.ts')
+const workflowModuleId = '\0oa-workflow-schema'
 
 export default defineConfig({
-  plugins: [react(), { name: 'chengye-product-title', transformIndexHtml: html => html.replace(/<title>.*?<\/title>/, '<title>' + BROWSER_TITLE + '</title>') }],
+  plugins: [react(), {
+    // Publish only the shared workflow contract, without browser /@fs/ requests.
+    name: 'oa-workflow-contract', enforce: 'pre',
+    resolveId(source) {
+      if (source === '../../../../../server/app/domain/workflow/schema') return workflowModuleId
+    },
+    async load(id) {
+      if (id !== workflowModuleId) return
+      this.addWatchFile(workflowSchemaPath)
+      return (await transformWithOxc(await readFile(workflowSchemaPath, 'utf8'), workflowSchemaPath)).code
+    },
+  }, { name: 'chengye-product-title', transformIndexHtml: html => html.replace(/<title>.*?<\/title>/, '<title>' + BROWSER_TITLE + '</title>') }],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

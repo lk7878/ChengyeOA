@@ -49,6 +49,8 @@ export default (app: Application) => {
   router.post('/api/v1/tables/:tableId/export', controller.collaboration.exportRecords);
   router.post('/api/v1/tables/:tableId/business-records', controller.collaboration.createBusinessRecord);
   router.get('/api/v1/worksheet-permissions/tables', requirePermission('role.permission.manage'),controller.collaboration.policyCatalog);
+  router.get('/api/v1/permission-overview/options',requireOrganizationSuperAdmin,controller.collaboration.permissionOverviewOptions);
+  router.post('/api/v1/permission-overview',requireOrganizationSuperAdmin,controller.collaboration.permissionOverview);
   router.get('/api/v1/worksheet-permissions/:tableId',requirePermission('role.permission.manage'),controller.collaboration.policySettings);
   router.post('/api/v1/worksheet-permissions/:tableId',requirePermission('role.permission.manage'),controller.collaboration.policySave);
   router.get('/api/v1/tables/:tableId/invitations',controller.collaboration.policyInvites);
