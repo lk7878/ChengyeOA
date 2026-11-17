@@ -106,6 +106,7 @@ request.interceptors.response.use(
       response?.status === 401
       && config
       && !config._sessionRetry
+      && config.url !== '/v1/auth/logout'
       && runtimeSession.getAccessToken()
       && !isPublicAuthenticationPath(config.url)
     ) {
@@ -113,6 +114,7 @@ request.interceptors.response.use(
       try {
         const nextToken = await runtimeSession.refreshOnce();
         setHeader(config.headers, 'Authorization', `Bearer ${nextToken}`);
+        setHeader(config.headers, 'X-CSRF-Token', runtimeSession.getCsrfToken() || '');
         return request(config);
       } catch {
         terminateSession();

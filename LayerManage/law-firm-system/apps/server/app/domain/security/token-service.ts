@@ -35,8 +35,18 @@ export class JwtTokenService {
   }
 
   verifySessionAccess(token: string): SessionAccessClaims {
+    return this.verifyClaims(token, false);
+  }
+
+  // Signature/type validation still applies. Expiry is ignored solely for
+  // revoking the session identified by this credential, never for granting access.
+  verifyLogoutAccess(token: string): SessionAccessClaims {
+    return this.verifyClaims(token, true);
+  }
+
+  private verifyClaims(token: string, ignoreExpiration: boolean): SessionAccessClaims {
     try {
-      const claims = jwt.verify(token, this.key, { algorithms: [JWT_ALGORITHM] });
+      const claims = jwt.verify(token, this.key, { algorithms: [JWT_ALGORITHM], ignoreExpiration });
       if (
         typeof claims !== 'object'
         || claims.tokenType !== 'access'

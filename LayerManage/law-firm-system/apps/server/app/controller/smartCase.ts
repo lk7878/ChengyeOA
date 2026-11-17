@@ -20,7 +20,11 @@ export default class SmartCaseController extends Controller {
     const a=this.ctx.state.authorization;
     this.respond({appearance:user.appearance,id:user.id,username:user.username,displayName:user.employee?.name||user.username,isSystemSuperAdmin:a.isSystemSuperAdmin,permissions:a.permissionCodes});
   }
-  async logout(){await this.identity().revoke(this.ctx.get('authorization').slice(7));this.respond({ok:true});}
+  async logout(){
+    const token=/^Bearer (sc_[A-Za-z0-9_-]{43})$/.exec(this.ctx.get('authorization'))?.[1];
+    if(!token)this.ctx.throw(401,'TOKEN_INVALID');
+    await this.identity().revoke(token);this.respond({ok:true});
+  }
   async directory(){if(!this.ctx.state.authorization.isSystemSuperAdmin)this.ctx.throw(403);this.respond(await this.ctx.prisma.user.findMany({where:{status:'ENABLED'},select:{id:true,username:true,employee:{select:{name:true}}}}));}
   async cases(){const where=await buildCaseScopeWhere(this.ctx.prisma,this.ctx.state.authorization,'case.read');this.respond(await this.ctx.prisma.case.findMany({where,select:{id:true,caseNo:true,title:true,status:true,lawyer:{select:{id:true,name:true}}}}));}
   async archive(){this.respond(await new SmartCaseArchive(this.ctx.prisma,this.ctx.state.authorization).archive(this.ctx.request.body));}

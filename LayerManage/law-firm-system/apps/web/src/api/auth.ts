@@ -53,7 +53,7 @@ export const authApi = {
   }>>('/v1/auth/refresh'),
 
   me: () => request.get<ApiResponse<LoginUser>>('/v1/auth/me'),
-  logout: () => request.post<ApiResponse<null>>('/v1/auth/logout'),
+  logout: () => request.post<ApiResponse<null>>('/v1/auth/logout', {}),
 
   mfaStatus: () => request.get<ApiResponse<MfaStatusView>>('/v1/auth/mfa'),
   disableMfa: () => request.delete<ApiResponse<null>>('/v1/auth/mfa'),

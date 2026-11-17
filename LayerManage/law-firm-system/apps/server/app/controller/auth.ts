@@ -130,10 +130,11 @@ export default class AuthController extends Controller {
   }
 
   public async logout() {
-    await createAuthenticationServices(this.ctx).sessions.revokeCurrent(
-      this.ctx.state.user.sessionId,
-      'USER_LOGOUT',
-    );
+    const authorization = this.ctx.get('authorization');
+    const token = /^Bearer ([^ ]+)$/.exec(authorization)?.[1] || '';
+    if (authorization && !token) this.ctx.throw(401, 'TOKEN_INVALID');
+    await createAuthenticationServices(this.ctx).sessions.logoutPresented(token,
+      this.ctx.cookies.get('chengye_refresh', { signed: false }) || '');
     clearAuthenticationCookies(this.ctx);
     this.ctx.body = { code: 200, message: 'success', data: null };
   }

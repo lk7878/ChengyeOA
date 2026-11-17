@@ -141,6 +141,8 @@ const organizationBlockerLabels: Record<string, string> = {
 export function requestErrorMessage(error: unknown, fallback = '操作失败，请稍后重试'): string {
   const response = (error as RequestFailure | null)?.response;
   const code = response?.data?.message ?? (error instanceof Error ? error.message : undefined);
+  if (code === 'CSRF_INVALID') return '登录校验信息已更新，请刷新页面后重试';
+  if (code === 'LOGOUT_SESSION_CHANGED') return '账号已在其他标签页切换，请刷新页面确认当前账号后再退出';
   if (code === 'ORGANIZATION_DELETE_IN_USE') {
     const blockers = response?.data?.errors?.organizationDeleteBlockers;
     if (blockers && typeof blockers === 'object' && !Array.isArray(blockers)) {

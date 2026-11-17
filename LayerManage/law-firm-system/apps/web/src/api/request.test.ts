@@ -7,9 +7,38 @@ import { showRequestError } from './errors';
 import { runtimeSession } from '@/features/auth/runtime-session';
 
 beforeEach(() => {
+  document.cookie='chengye_csrf=; Max-Age=0; Path=/';
   window.localStorage.clear();
   runtimeSession.clear();
   vi.restoreAllMocks();
+});
+
+test('logout sends current shared CSRF with its own access proof and never refreshes into another account',async()=>{
+  runtimeSession.setAuthenticated({token:'own-access',csrfToken:'stale-csrf',expiresIn:900});
+  document.cookie='chengye_csrf=current-csrf; Path=/';
+  const original=request.defaults.adapter,refresh=vi.spyOn(runtimeSession,'refreshOnce');
+  vi.spyOn(message,'error').mockImplementation(()=>({}) as never);
+  request.defaults.adapter=async config=>{
+    expect(config.headers.Authorization).toBe('Bearer own-access');
+    expect(config.headers['X-CSRF-Token']).toBe('current-csrf');
+    throw new AxiosError('invalid',undefined,config,undefined,{config,status:401,statusText:'Unauthorized',headers:{},data:{code:401,message:'TOKEN_INVALID'}});
+  };
+  try{await expect(authApi.logout()).rejects.toMatchObject({response:{status:401}});expect(refresh).not.toHaveBeenCalled();}
+  finally{request.defaults.adapter=original;document.cookie='chengye_csrf=; Max-Age=0; Path=/';}
+});
+
+test('retried mutations replace the pre-refresh CSRF header along with the access token',async()=>{
+  runtimeSession.setAuthenticated({token:'old-access',csrfToken:'old-csrf',expiresIn:900});
+  vi.spyOn(runtimeSession,'refreshOnce').mockImplementation(async()=>{
+    runtimeSession.setAuthenticated({token:'new-access',csrfToken:'new-csrf',expiresIn:900});return 'new-access';
+  });
+  const original=request.defaults.adapter;let attempts=0;
+  request.defaults.adapter=async config=>{
+    if(attempts++===0)throw new AxiosError('expired',undefined,config,undefined,{config,status:401,statusText:'Unauthorized',headers:{},data:{code:401,message:'TOKEN_INVALID'}});
+    expect(config.headers.Authorization).toBe('Bearer new-access');expect(config.headers['X-CSRF-Token']).toBe('new-csrf');
+    return {config,status:200,statusText:'OK',headers:{},data:{code:200,data:null}};
+  };
+  try{await request.post('/v1/example-mutation',{});expect(attempts).toBe(2);}finally{request.defaults.adapter=original;}
 });
 
 test('a rejected login stays local to the form without an expired-session toast or a refresh attempt', async () => {

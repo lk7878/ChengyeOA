@@ -31,7 +31,7 @@ function cookieValue(name: string): string | null {
 }
 
 async function defaultRefresh(): Promise<RuntimeCredentials> {
-  const csrf = csrfToken ?? cookieValue('chengye_csrf');
+  const csrf = cookieValue('chengye_csrf') ?? csrfToken;
   const response = await axios.post<{
     code: number;
     data: RuntimeCredentials;
@@ -51,7 +51,7 @@ purgeLegacyStorage();
 
 export const runtimeSession = {
   getAccessToken: () => accessToken,
-  getCsrfToken: () => csrfToken ?? cookieValue('chengye_csrf'),
+  getCsrfToken: () => cookieValue('chengye_csrf') ?? csrfToken,
 
   setAuthenticated(credentials: RuntimeCredentials): void {
     credentialEpoch++;

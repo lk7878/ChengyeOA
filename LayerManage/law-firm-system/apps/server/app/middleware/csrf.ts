@@ -23,6 +23,10 @@ export function csrfMiddleware(trustedOrigins: readonly string[]) {
     const origin = ctx.get('origin');
     const header = ctx.get('x-csrf-token');
     const cookie = ctx.cookies.get('chengye_csrf', { signed: false }) ?? '';
+    // After cookies expire, logout can only revoke an explicitly presented
+    // bearer credential (or do nothing). Still reject foreign/missing origins.
+    if (ctx.path === '/api/v1/auth/logout' && allowed.has(origin) && !cookie
+      && !ctx.cookies.get('chengye_refresh', { signed: false })) { await next(); return; }
     if (!allowed.has(origin) || !safeEqual(header, cookie)) {
       throw new SecurityError('CSRF_INVALID', 403);
     }

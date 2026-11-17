@@ -2,8 +2,17 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { runtimeSession } from './runtime-session';
 
 beforeEach(() => {
+  document.cookie = 'chengye_csrf=; Max-Age=0; Path=/';
   runtimeSession.clear();
   localStorage.clear();
+});
+
+test('uses the shared current CSRF cookie when another tab rotates credentials', () => {
+  runtimeSession.setAuthenticated({token:'tab-a-access',csrfToken:'old-tab-a-csrf',expiresIn:900});
+  document.cookie='chengye_csrf=rotated-by-tab-b; Path=/';
+  expect(runtimeSession.getCsrfToken()).toBe('rotated-by-tab-b');
+  expect(runtimeSession.getAccessToken()).toBe('tab-a-access');
+  document.cookie='chengye_csrf=; Max-Age=0; Path=/';
 });
 
 test('keeps access and CSRF credentials only in module memory and purges legacy storage', () => {

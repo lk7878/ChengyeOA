@@ -237,6 +237,19 @@ export class SessionService {
     return this.credentials(outcome.session, nextRefreshToken, csrfToken);
   }
 
+  async logoutPresented(accessToken: string, refreshToken: string): Promise<void> {
+    const claims = accessToken ? this.tokens.verifyLogoutAccess(accessToken) : null;
+    const refreshSession = refreshToken ? await this.prisma.authSession.findUnique({
+      where: { refreshTokenHash: hashOpaqueToken(refreshToken) },
+    }) : null;
+    if (claims && refreshSession && (claims.sessionId !== refreshSession.id || claims.userId !== refreshSession.userId)) {
+      throw new SecurityError('LOGOUT_SESSION_CHANGED', 409);
+    }
+    const session = claims ? await this.prisma.authSession.findUnique({ where: { id: claims.sessionId } }) : refreshSession;
+    if (claims && session && claims.userId !== session.userId) throw new SecurityError('TOKEN_INVALID', 401);
+    if (session) await this.revokeCurrent(session.id, 'USER_LOGOUT');
+  }
+
   async revokeCurrent(sessionId: string, reason: string): Promise<void> {
     const now = this.clock();
     await this.prisma.$transaction(async tx => {
