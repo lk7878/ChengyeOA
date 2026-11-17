@@ -283,6 +283,14 @@ test('deletes unused positions and employee profiles, preserving historical refe
   assert.ok((await prisma.position.findUniqueOrThrow({ where: { id: position.id } })).deletedAt);
   assert.equal(await prisma.employeeAssignment.count({ where: { positionId: position.id } }), 2);
   await app.httpRequest().get(`/api/v1/positions/${position.id}`).set(bearer()).expect(404);
+  const recreated = (await app.httpRequest().post('/api/v1/positions').set(bearer())
+    .send({ organizationId: rootId, code: 'LAWYER', name: 'Lawyer', categoryCode: 'LEGAL', level: 1 }).expect(200)).body.data;
+  assert.notEqual(recreated.id, position.id);
+  assert.equal(await prisma.employeeAssignment.count({ where: { positionId: recreated.id } }), 0);
+  assert.equal(await prisma.employeeAssignment.count({ where: { positionId: position.id } }), 2);
+  const conflict = await app.httpRequest().post('/api/v1/positions').set(bearer())
+    .send({ organizationId: rootId, code: 'LAWYER', name: 'Lawyer', categoryCode: 'LEGAL', level: 1 }).expect(409);
+  assert.equal(conflict.body.message, 'MASTER_DATA_CODE_CONFLICT');
 });
 
 test('SPEC-003-A supports manager editing, nested copy and guarded deletion over HTTP', async () => {

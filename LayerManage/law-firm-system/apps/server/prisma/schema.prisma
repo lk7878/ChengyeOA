@@ -62,7 +62,8 @@ model Position {
   organization Organization         @relation(fields: [organizationId], references: [id])
   assignments  EmployeeAssignment[]
 
-  @@unique([organizationId, code])
+  // Non-deleted codes are unique per organization via position_active_org_code_key.
+  @@index([organizationId, code])
   @@index([organizationId, status])
   @@map("position")
 }

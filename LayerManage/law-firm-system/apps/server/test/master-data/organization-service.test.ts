@@ -458,6 +458,23 @@ test('SPEC-003-A deletes only unreferenced leaves, protects root and retains del
   await assert.rejects(() => service.remove(branch.id, 1), hasCode('ORGANIZATION_DELETE_IN_USE'));
 });
 
+test('recreates a deleted department with the same name, code and sorting number using a fresh identity', async () => {
+  const branch = await createOrganization('RECREATE_BRANCH', 'BRANCH');
+  const input = { code: 'RECREATE_DEPT', name: '行政部门', type: 'DEPARTMENT' as const, parentId: branch.id, sort: 100 };
+  const old = await service.create(input);
+  await service.remove(old.id, old.version);
+  const created = await service.create(input);
+  assert.notEqual(created.id, old.id);
+  assert.equal(created.name, old.name);
+  assert.equal(created.code, old.code);
+  assert.equal(created.sort, old.sort);
+  assert.notEqual(created.path, old.path);
+  assert.equal(await prisma.organization.findUnique({ where: { id: old.id } }), null);
+  assert.equal(await prisma.operationLog.count({ where: { targetId: old.id, action: 'DELETE' } }), 1);
+  await service.disable(created.id, created.version);
+  await assert.rejects(() => service.create({ ...input, sort: 101 }), hasCode('MASTER_DATA_CODE_CONFLICT'));
+});
+
 test('SPEC-003-A rolls back deletion if the audit cannot be written', async () => {
   const org = await createOrganization('DELETE_ROLLBACK', 'DEPARTMENT');
   await prisma.$executeRawUnsafe(`CREATE FUNCTION fail_master_data_audit() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'injected audit failure'; END; $$ LANGUAGE plpgsql`);

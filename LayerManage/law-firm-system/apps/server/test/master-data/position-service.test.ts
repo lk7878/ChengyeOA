@@ -42,6 +42,54 @@ test('deletes positions while preserving ended assignment history', async () => 
   assert.ok(await prisma.position.findUnique({ where: { id: position.id } }));
 });
 
+test('reuses a deleted position name and code without moving historical assignments', async () => {
+  const old = await createPosition();
+  const employee = await prisma.employee.create({ data: { employeeNo: 'REUSE-001', name: '历史员工', phone: '13800000000', type: 'LAWYER', status: 'LEAVED', entryDate: new Date('2026-01-01') } });
+  const assignment = await prisma.employeeAssignment.create({ data: { employeeId: employee.id, organizationId: old.organizationId, positionId: old.id, assignmentType: 'PRIMARY', startedAt: new Date('2026-01-01'), endedAt: new Date('2026-08-01') } });
+  await service.remove(old.id, old.version);
+  const created = await createPosition();
+  assert.notEqual(created.id, old.id);
+  assert.equal(created.name, old.name);
+  assert.equal(created.code, old.code);
+  assert.equal(created.activeAssignmentCount, 0);
+  assert.equal(await prisma.employeeAssignment.count({ where: { positionId: created.id } }), 0);
+  assert.equal((await prisma.employeeAssignment.findUniqueOrThrow({ where: { id: assignment.id } })).positionId, old.id);
+  assert.deepEqual((await service.list({ organizationId: branchId })).map(p => p.id), [created.id]);
+  await assert.rejects(() => service.enable(old.id, old.version + 1), hasCode('POSITION_NOT_FOUND'));
+  await service.remove(created.id, created.version);
+  const third = await createPosition();
+  assert.notEqual(third.id, created.id);
+  assert.equal(await prisma.position.count({ where: { organizationId: branchId, code: old.code } }), 3);
+});
+
+test('legacy deleted positions release codes while disabled positions still reserve them', async () => {
+  const legacy = await prisma.position.create({ data: { organizationId: branchId, code: 'LEGACY', name: '历史岗位', categoryCode: 'LEGAL', status: 'DISABLED', deletedAt: new Date() } });
+  const replacement = await createPosition(branchId, 'LEGACY');
+  assert.notEqual(replacement.id, legacy.id);
+  await assert.rejects(() => createPosition(branchId, 'LEGACY'), hasCode('MASTER_DATA_CODE_CONFLICT'));
+  await service.disable(replacement.id, replacement.version);
+  await assert.rejects(() => createPosition(branchId, 'LEGACY'), hasCode('MASTER_DATA_CODE_CONFLICT'));
+});
+
+test('allows updates to reuse deleted position codes but rejects occupied codes', async () => {
+  const old = await createPosition(branchId, 'OLD');
+  await service.remove(old.id, old.version);
+  const current = await createPosition(branchId, 'CURRENT');
+  const updated = await service.update(current.id, { code: old.code, name: old.name, version: current.version });
+  assert.equal(updated.code, old.code);
+  const occupied = await createPosition(branchId, 'OCCUPIED');
+  await assert.rejects(() => service.update(occupied.id, { code: old.code, version: occupied.version }), hasCode('MASTER_DATA_CODE_CONFLICT'));
+});
+
+test('concurrent reuse of a deleted position code creates only one replacement', async () => {
+  const old = await createPosition();
+  await service.remove(old.id, old.version);
+  const results = await Promise.allSettled([createPosition(), createPosition()]);
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
+  const rejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  assert.ok(rejected && hasCode('MASTER_DATA_CODE_CONFLICT')(rejected.reason));
+});
+
 function authorizationContext(permissionCodes: PermissionCode[], scopeIds = ['ALL']): AuthorizationContext {
   return {
     userId: 'position-test-actor',
