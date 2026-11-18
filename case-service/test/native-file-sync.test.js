@@ -8,9 +8,10 @@ const id = 'e367847c-27c4-46f2-8b1a-bc640202d505'
 const file = { path: 'reports/中国刑法.docx', name: '中国刑法.docx', size: 3000, sha256: 'a'.repeat(64) }
 file.key = `${file.path}:${file.sha256}`
 function setup({ items = [file], confirm = true, save, pathname = `/harness/${id}/` } = {}) {
-  const requests = [], notices = [], confirmations = [], providers = []
+  const requests = [], notices = [], confirmations = [], providers = [], opened = []
   const browser = {
     location: { pathname },
+    open: (...args) => opened.push(args),
     confirm: text => { confirmations.push(text); return confirm },
     fetch: async (url, options) => {
       requests.push({ url, options })
@@ -24,7 +25,7 @@ function setup({ items = [file], confirm = true, save, pathname = `/harness/${id
   } }
   registerOaFileSync(ctx, browser)
   const action = () => providers[0].resolve({ path: `/workspace/${file.path}` })[0]
-  return { action, requests, notices, confirmations, providers }
+  return { action, requests, notices, confirmations, providers, opened }
 }
 
 test('file menu matches generated paths only, including Chinese filenames', () => {
@@ -45,7 +46,7 @@ test('right-click sync confirms and submits exactly one current snapshot, never 
   assert.equal(s.requests[1].options.credentials, 'include')
   assert.deepEqual(JSON.parse(s.requests[1].options.body), { selection: [file.key] })
   assert.match(s.confirmations[0], /承业空间 → 我的资源 → 我的文件/)
-  assert.match(s.notices.at(-1)[0], /已同步到/)
+  assert.match(s.notices.at(-1)[0], /已保存到承业空间 → 我的资源/)
   assert.equal(s.notices.at(-1)[1], true)
 })
 
@@ -53,7 +54,7 @@ test('cancel, already saved, missing file do not upload', async () => {
   for (const options of [{ confirm: false }, { items: [{ ...file, saved: true }] }, { items: [] }]) {
     const s = setup(options); await s.action().run()
     assert.equal(s.requests.length, 1)
-    if (options.items?.length) assert.match(s.notices.at(-1)[0], /此版本已同步/)
+    if (options.items?.length) assert.match(s.notices.at(-1)[0], /此版本已保存/)
     if (options.items?.length === 0) assert.equal(s.notices.at(-1)[1], false)
   }
 })
@@ -95,4 +96,15 @@ test('shipped native bundle includes the menu and its declared service dependenc
   assert.equal(typeof plugin.apply, 'function')
   const pkg = JSON.parse(readFileSync(new URL('../../plugins/dsh-baiyou-brand/package.json', import.meta.url)))
   assert.ok(pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-context-menu'))
+})
+
+ test('successful and already-saved receipts offer an explicit safe OA file-list link', async () => {
+  for (const items of [[file], [{ ...file, saved: true }]]) {
+    const s = setup({ items }); await s.action().run()
+    assert.equal(s.opened.length, 0, 'never navigate automatically')
+    const action = s.notices.at(-1)[2]
+    assert.equal(action.label, '查看文件')
+    action.run()
+    assert.deepEqual(s.opened, [['/workspaces?workspace=__all__&scope=mine', '_blank', 'noopener,noreferrer']])
+  }
 })
