@@ -36,3 +36,14 @@ test('storage navigation preserves aggregate scope and does not query a syntheti
   expect(await screen.findByText('存储范围：__all__')).toBeInTheDocument();
   expect(vi.mocked(get).mock.calls.some(([url])=>url.includes('/drive?'))).toBe(false);
 });
+
+test('aggregate browsing explains its scope and links personal uploads to my resources', async () => {
+  render(<MemoryRouter initialEntries={['/workspaces?workspace=__all__&scope=all']}><CloudDrivePage /></MemoryRouter>);
+  await screen.findByText('跨区目录');
+  expect(screen.getByRole('button', {name:'跨工作区可访问资源'})).toBeInTheDocument();
+  const hint = screen.getByRole('alert');
+  expect(hint).toHaveTextContent('个人上传文件与已同步的智慧办案成果');
+  fireEvent.click(hint.querySelector('button')!);
+  expect(await screen.findByText('个人文件')).toBeInTheDocument();
+  await waitFor(()=>expect(vi.mocked(get).mock.calls.some(([url])=>url.includes('/workspaces/__all__/drive?')&&url.includes('scope=mine'))).toBe(true));
+});

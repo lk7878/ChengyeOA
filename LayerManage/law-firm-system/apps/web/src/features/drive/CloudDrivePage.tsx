@@ -448,7 +448,7 @@ export default function CloudDrivePage() {
       />
       <div className="drive-nav-title">资源目录</div>
       {[
-        ['all', '全部资源'],
+        ['all', allWorkspaces ? '跨工作区可访问资源' : '当前工作区资源'],
         ['mine', '我的资源'],
         ['shared', '与我共享'],
         ['shortcuts', '快捷方式'],
@@ -624,6 +624,7 @@ export default function CloudDrivePage() {
               }
             />
           )}
+          {scope === 'all' && <Alert type="info" showIcon title="个人上传文件与已同步的智慧办案成果，请到「我的资源」查看。" action={<Button onClick={() => change({ workspace: '__all__', scope: 'mine', folder: '', q: '' })}>我的资源</Button>} />}
           {!parentId&&['mine','shared'].includes(scope)&&<PersonalFiles key={scope} scope={scope as 'mine'|'shared'}/>}
           <p className="drive-caption">
             {allWorkspaces ? '全部工作区 · 可访问资源 · ' : `${listing?.workspace.name || '当前工作区'} · 当前工作区资源 · `}
@@ -639,7 +640,7 @@ export default function CloudDrivePage() {
                       ? '回收站'
                       : scope === 'shared'
                         ? '与我共享'
-                        : '全部资源'}{' '}
+                        : allWorkspaces ? '跨工作区可访问资源' : '当前工作区资源'}{' '}
             · {listing?.total ?? 0} 项
             {scope === 'trash'
               ? ' · 恢复后回到原目录'
