@@ -50,3 +50,16 @@ export function harnessFrameAllowed(data,isBinary=false,approvedPreset) {
   return ['item','end','cancel'].includes(frame.type)&&typeof frame.streamId==='string'
  }catch{return false}
 }
+
+// A denied subscription/RPC must not tear down unrelated conversations on the
+// same multiplexed connection. Unknown and binary frames still fail closed.
+export function harnessFrameRejection(data,isBinary=false) {
+ if(isBinary)return null
+ try {
+  const frame=JSON.parse(typeof data==='string'?data:data.toString('utf8'))
+  const error={code:'FORBIDDEN',message:'仅 OA 超级管理员可更改 AI 能力配置',details:{}}
+  if(frame?.type==='open'&&typeof frame.streamId==='string'&&frame.streamId&&typeof frame.endpoint==='string')return {type:'error',streamId:frame.streamId,error}
+  if(frame?.type==='client-request'&&typeof frame.rpcId==='string'&&frame.rpcId&&typeof frame.method==='string')return {type:'server-response',rpcId:frame.rpcId,result:{ok:false,error}}
+ }catch{}
+ return null
+}

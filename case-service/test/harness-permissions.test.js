@@ -40,15 +40,23 @@ test('HTTP, SSE and raw WebSocket use the same guard and existing connections st
  const stream=await fetch(prefix+'/__ws/stream?path=%2Frpc',{signal:abort.signal}),reader=stream.body.getReader();let buffer='',cid
  while(!cid){const {value,done}=await reader.read();assert.equal(done,false);buffer+=new TextDecoder().decode(value);for(const line of buffer.split('\n'))if(line.startsWith('data: ')){const p=JSON.parse(line.slice(6));if(p.t==='open')cid=p.cid}}
  const send=frames=>fetch(prefix+'/__ws/send',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({cid,frames})})
- const deny=await send([{d:rpc('session/prompt')},{d:rpc('pluginManager/install')}]);assert.equal(deny.status,403);await deny.body.cancel();assert.equal(seen.length,0,'reject whole batch before forwarding')
+ const invalid=await send([{d:rpc('session/prompt')},{d:'invalid'}]);assert.equal(invalid.status,403);await invalid.body.cancel();assert.equal(seen.length,0,'malformed frames reject the whole batch')
+ const deniedOpen=JSON.stringify({type:'open',streamId:'account-watch',endpoint:'account/watch',payload:{args:{}}})
+ const deny=await send([{d:rpc('session/prompt')},{d:rpc('pluginManager/install')},{d:deniedOpen}]);assert.equal(deny.status,200);await deny.body.cancel()
+ let rejected=false
+ while(!rejected){const {value,done}=await reader.read();assert.equal(done,false);buffer+=new TextDecoder().decode(value);rejected=buffer.includes('FORBIDDEN')&&buffer.includes('account-watch')}
+ assert.equal(seen.some(s=>s.includes('pluginManager/install')||s.includes('account/watch')),false,'denied RPC and subscriptions never reach upstream')
  const allow=await send([{d:rpc('skills/read')}]);assert.equal(allow.status,200);await allow.body.cancel()
  const socket=new WebSocket(prefix.replace(/^http/,'ws')+'/rpc',{origin:proxyBase});await once(socket,'open')
  let received=once(socket,'message');socket.send(rpc('session/prompt'));assert.equal((await received)[0].toString(),rpc('session/prompt'))
- const closed=once(socket,'close');socket.send(rpc('settings/mutate',{ns:'llm-pi-ai'}));assert.equal((await closed)[0],1008)
+ received=once(socket,'message');socket.send(rpc('settings/mutate',{ns:'llm-pi-ai'}));assert.equal(JSON.parse((await received)[0]).result.error.code,'FORBIDDEN')
+ received=once(socket,'message');socket.send(deniedOpen);const deniedStream=JSON.parse((await received)[0]);assert.equal(deniedStream.type,'error');assert.equal(deniedStream.streamId,'account-watch')
+ received=once(socket,'message');socket.send(rpc('session/prompt'));assert.equal((await received)[0].toString(),rpc('session/prompt'),'normal conversation survives denied requests')
+ socket.close()
  admin=true;const privileged=new WebSocket(prefix.replace(/^http/,'ws')+'/rpc',{origin:proxyBase});await once(privileged,'open')
  received=once(privileged,'message');privileged.send(rpc('settings/mutate',{ns:'llm-pi-ai'}));await received
  // Recheck identity per frame: removing superadmin while connection stays open must take effect.
- admin=false;const lostAdmin=once(privileged,'close');privileged.send(rpc('credentials/set'));assert.equal((await lostAdmin)[0],1008)
+ admin=false;received=once(privileged,'message');privileged.send(rpc('credentials/set'));assert.equal(JSON.parse((await received)[0]).result.error.code,'FORBIDDEN');privileged.close()
  const session=new WebSocket(prefix.replace(/^http/,'ws')+'/rpc',{origin:proxyBase});await once(session,'open')
  const lostEntry=once(session,'close');revoked=true;await lostEntry
  abort.abort()

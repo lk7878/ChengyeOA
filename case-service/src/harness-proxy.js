@@ -1,4 +1,4 @@
-import {canManageHarness,harnessBootstrap,isHarnessAdminRequest,harnessFrameAllowed,isHarnessStaticResource} from './harness-experience.js'
+import {canManageHarness,harnessBootstrap,isHarnessAdminRequest,harnessFrameAllowed,isHarnessStaticResource,harnessFrameRejection} from './harness-experience.js'
 import {randomUUID} from 'node:crypto'
 import http from 'node:http'
 import WebSocket from '../../runtime/upstream/harness/node_modules/.pnpm/ws@8.21.3/node_modules/ws/index.js'
@@ -188,7 +188,7 @@ export async function registerHarnessProxy(app){
   if(earlyClose){send(earlyClose);cleanup(false);return}
   ping=setInterval(()=>send({t:'ping'}),15000);ping.unref()
   authTimer=setInterval(async()=>{try{await app.oaTasks.runtime(req.params.id,req.user,req.oa.token)}catch{cleanup(true)}},2000);authTimer.unref()
-  tunnels.set(cid,{ws:upstream,taskId:req.params.id,userId:req.user.id,cleanup})
+  tunnels.set(cid,{ws:upstream,taskId:req.params.id,userId:req.user.id,cleanup,send})
   raw.on('close',()=>cleanup(true))
  })
 
@@ -197,8 +197,10 @@ export async function registerHarnessProxy(app){
   const entry=tunnels.get(req.body?.cid)
   if(!entry||entry.taskId!==req.params.id||entry.userId!==req.user.id||entry.ws.readyState!==WebSocket.OPEN)return reply.code(410).send({error:'通道已关闭'})
   const frames=Array.isArray(req.body?.frames)?req.body.frames:[]
-  if(!canManageHarness(req.user)&&frames.some(frame=>!harnessFrameAllowed(String(frame?.d??''),frame?.b===1,runtime.approvedPreset)))return reply.code(403).send({error:'仅 OA 超级管理员可更改 AI 能力配置'})
-  for(const frame of frames){
+  const checked=frames.map(frame=>{const denied=!canManageHarness(req.user)&&!harnessFrameAllowed(String(frame?.d??''),frame?.b===1,runtime.approvedPreset);return {frame,denied,rejection:denied?harnessFrameRejection(String(frame?.d??''),frame?.b===1):null}})
+  if(checked.some(item=>item.denied&&!item.rejection))return reply.code(403).send({error:'无效或未授权的 AI 请求'})
+  for(const {frame,denied,rejection} of checked){
+   if(denied){entry.send({t:'msg',d:JSON.stringify(rejection)});continue}
    if(frame?.b===1)entry.ws.send(Buffer.from(String(frame.d||''),'base64'))
    else entry.ws.send(String(frame?.d??''))
   }
@@ -264,7 +266,7 @@ export async function registerHarnessProxy(app){
     client.on('error',close);upstream.on('error',close);client.on('close',close);upstream.on('close',()=>{clearInterval(timer);client.close()})
     client.on('message',async(data,binary)=>{
      try{const fresh=await app.oaAuthenticate(req.headers);await app.oaTasks.runtime(match[1],fresh.user,fresh.oa.token)
-      if(!canManageHarness(fresh.user)&&!harnessFrameAllowed(data,binary,runtime.approvedPreset)){client.close(1008,'AI 配置由管理员管理');return}
+      if(!canManageHarness(fresh.user)&&!harnessFrameAllowed(data,binary,runtime.approvedPreset)){const rejection=harnessFrameRejection(data,binary);if(rejection)client.send(JSON.stringify(rejection));else client.close(1008,'AI 配置由管理员管理');return}
       if(upstream.readyState===WebSocket.OPEN)upstream.send(data,{binary})
      }catch{close()}
     })
