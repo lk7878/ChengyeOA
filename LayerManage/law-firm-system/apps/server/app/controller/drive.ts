@@ -22,10 +22,10 @@ export default class DriveController extends Controller {
     };
   }
   async index() {
-    this.respond(await this.drive().list(this.ctx.params.workspaceId, this.ctx.query));
+    this.respond(this.ctx.params.workspaceId === '__all__' ? await this.drive().listAll(this.ctx.query) : await this.drive().list(this.ctx.params.workspaceId, this.ctx.query));
   }
   async folders() {
-    this.respond(await this.drive().folders(this.ctx.params.workspaceId));
+    this.respond(this.ctx.params.workspaceId === '__all__' ? { folders: [], userId: this.ctx.state.authorization.userId } : await this.drive().folders(this.ctx.params.workspaceId));
   }
   async createFolder() {
     this.respond(

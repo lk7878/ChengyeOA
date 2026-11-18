@@ -13,7 +13,6 @@ type Grant={principalType:string;principalId:string;role:string;rowScope:string;
 type Sharing={id:string;name:string;version:number;ownerId:string;labels:Record<string,string>;path:{id:string;name:string}[];policy:{restricted:boolean;grants:Grant[]}};
 export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
   const authorization=useAuthStore(s=>s.authorization);
-  const [allFiles,setAllFiles]=useState<(Item&{ownerId:string})[]>(),[allError,setAllError]=useState('');
   const [parentId,setParent]=useState<string>(),[data,setData]=useState<{items:Item[];path:{id:string;name:string}[];canUpload:boolean}>(),[error,setError]=useState(''),[busy,setBusy]=useState(false),[revision,bump]=useState(0);
   const [sharing,share]=useState<Sharing>(),[people,setPeople]=useState<{value:string;label:string}[]>([]),[keyword,search]=useState('');
   const [dialog,setDialog]=useState<{kind:'folder'|'rename';item?:Item}>(),[name,setName]=useState('');
@@ -37,9 +36,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
     }message.success('已上传'+completed+'个文件');
   }catch(e){setError('已完成'+completed+'个文件，其余未上传：'+errorMessage(e));}finally{setFailed(failures);setBusy(false);refresh();if(fileInput.current)fileInput.current.value='';if(folderInput.current)folderInput.current.value='';}};
   return <section style={{border:'1px solid #e5e8ee',borderRadius:8,padding:16,marginBottom:20}} aria-label="个人文件">
-    {authorization?.isSystemSuperAdmin&&<Button onClick={async()=>{try{const r=await get<{items:(Item&{ownerId:string})[]}>('/all-personal-files');setAllFiles(r.items);setAllError('');}catch(e){setAllError(errorMessage(e));}}}>全员文件管理（只读审计）</Button>}
-    {allError&&<Alert type="error" title={allError}/>}
-    <Drawer title="全员文件管理 · 跨用户访问已记录审计" open={!!allFiles} onClose={()=>setAllFiles(undefined)} width={900}><p>仅查看和下载，修改、删除及批量导出不随全局查看权限授予。私人会话不在此入口内。</p><Table rowKey="id" dataSource={allFiles} columns={[{title:'文件',dataIndex:'name'},{title:'所有者',dataIndex:'ownerId'},{title:'操作',render:(_,r)=>r.kind==='FILE'&&<Button onClick={()=>void downloadVersion(r.id,r.contentVersion,r.name,true).catch(e=>message.error(errorMessage(e)))}>查看 / 下载</Button>}]}/></Drawer>
+    <p>个人文件未归属工作区。文件夹大小汇总可见文件的当前版本，不含历史版本和回收站；详细占用请查看侧栏“存储管理”。</p>
     <h2>{scope==='shared'?'共享给我的文件':'我的文件'}</h2>
     {error&&<Alert type="error" title={error}/>}<Space wrap>
       <Button onClick={()=>setParent(undefined)}>文件根目录</Button>{data?.path.map(p=><Button key={p.id} type="link" onClick={()=>setParent(p.id)}>{p.name}</Button>)}
@@ -55,7 +52,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
     <ResizableTable<Item> columnWidthsKey={`personal-files:${authorization?.userId??'anonymous'}:${scope}`} style={{marginTop:12}} rowKey="id" dataSource={data?.items??[]} pagination={{pageSize:10}} rowSelection={{columnWidth:48,selectedRowKeys:selected,onChange:keys=>setSelected(keys.map(String)),getCheckboxProps:r=>({disabled:busy||r.kind!=='FILE'||r.level<3})}} columns={[
       {title:'文件名称',dataIndex:'name',width:320,render:(_,r)=>r.kind==='FOLDER'?<Button type="link" onClick={()=>setParent(r.id)}>📁 {r.name}</Button>:r.name},
       {title:'权限',key:'permission',width:90,render:(_,r)=>['无权限','只读','编辑','管理'][r.level]},
-      {title:'大小',key:'size',width:120,render:(_,r)=>r.kind==='FILE'?Math.ceil(r.size/1024)+' KB':'文件夹'},
+      {title:'大小',key:'size',width:120,render:(_,r)=>Math.ceil(r.size/1024)+' KB'},
       {title:'操作',key:'actions',width:180,render:(_,r)=><Space wrap>
         {r.kind==='FILE'&&<Button onClick={()=>void downloadVersion(r.id,r.contentVersion,r.name).catch(e=>message.error(errorMessage(e)))}>下载</Button>}
         {(r.level>=2||(r.kind==='FILE'&&r.contentVersion>1))&&<Dropdown trigger={['click']} menu={{items:[

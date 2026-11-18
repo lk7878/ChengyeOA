@@ -1,3 +1,4 @@
+import StorageManager from './StorageManager';
 import PersonalFiles from './PersonalFiles';
 import Modal from '@/components/DraggableModal';
 import { moduleOptions, isBusinessSource } from '../crm/business-sources';
@@ -40,6 +41,7 @@ interface DriveItem {
   visitedAt?: string;
   name: string;
   workspaceId: string;
+  workspaceName?: string;
   parentId: string | null;
   baseId: string | null;
   ownerId: string;
@@ -87,6 +89,10 @@ export default function CloudDrivePage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [canCreateWorkspace, setCanCreateWorkspace] = useState(false);
   const workspaceId = params.get('workspace') || workspaces[0]?.id || '';
+  const allWorkspaces = workspaceId === '__all__';
+  const [storageWorkspaces, setStorageWorkspaces] = useState<{id:string;name:string}[]>([]);
+  const [chooseWorkspace, setChooseWorkspace] = useState(false);
+  const [destination, setDestination] = useState<string>();
   const parentId = params.get('folder') || '';
   const scope = params.get('scope') || 'all';
   const search = params.get('q') || '';
@@ -170,7 +176,7 @@ export default function CloudDrivePage() {
   }, [revision]);
   useEffect(() => {
     let active = true;
-    void get<Directory>('/collaboration/options' + (workspaceId ? '?workspaceId=' + workspaceId : ''))
+    void get<Directory>('/collaboration/options' + (workspaceId && !allWorkspaces ? '?workspaceId=' + workspaceId : ''))
       .then((r) => {
         if (active) setDirectory(r);
       })
@@ -180,9 +186,9 @@ export default function CloudDrivePage() {
     return () => {
       active = false;
     };
-  }, [workspaceId, revision]);
+  }, [workspaceId, allWorkspaces, revision]);
   useEffect(() => {
-    if (!workspaceId) return;
+    if (!workspaceId || scope === 'storage') return;
     let active = true,
       inflight = false;
     // A new route must never briefly display the previous folder's resources.
@@ -282,7 +288,7 @@ export default function CloudDrivePage() {
       }
     };
     void poll(true);
-    const timer = window.setInterval(() => void poll(), 2000);
+    const timer = window.setInterval(() => void poll(), allWorkspaces ? 15000 : 2000);
     const focus = () => void poll();
     window.addEventListener('focus', focus);
     return () => {
@@ -290,7 +296,7 @@ export default function CloudDrivePage() {
       clearInterval(timer);
       window.removeEventListener('focus', focus);
     };
-  }, [workspaceId, parentId, scope, search, sort, page, revision, setParams]);
+  }, [workspaceId, allWorkspaces, parentId, scope, search, sort, page, revision, setParams]);
   const openDialog = (kind: 'folder' | 'base' | 'workspace' | 'rename', item?: DriveItem) => {
     setName(item?.name || '');
     const source = params.get('module') || '';
@@ -322,7 +328,7 @@ export default function CloudDrivePage() {
       return;
     }
     if (item.kind === 'FOLDER') {
-      change({ folder: item.id, scope: 'all', q: '' });
+      change({ workspace: item.workspaceId, folder: item.id, scope: 'all', q: '' });
       return;
     }
     try {
@@ -428,13 +434,14 @@ export default function CloudDrivePage() {
         aria-label="工作区"
         value={workspaceId || undefined}
         placeholder="选择工作区"
-        options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
-        onChange={(id) => setParams({ workspace: id })}
+        options={[{value:'__all__',label:'全部工作区'}, ...(scope === 'storage' ? [{value:'__unassigned__',label:'未归属工作区（个人文件）'}] : []), ...(scope === 'storage' && storageWorkspaces.length ? storageWorkspaces : workspaces).map((w) => ({ value: w.id, label: w.name }))]}
+        onChange={(id) => setParams({ workspace: id, ...(scope === 'storage' ? {scope:'storage'} : {}) })}
       />
       <Input.Search
         key={workspaceId + parentId + scope + search}
         aria-label="搜索资源"
-        placeholder="搜索此工作区可访问的资源"
+        placeholder={allWorkspaces ? '搜索全部工作区可访问的资源' : '搜索此工作区可访问的资源'}
+        disabled={scope === 'storage'}
         defaultValue={search}
         allowClear
         onSearch={(q) => change({ q })}
@@ -446,18 +453,19 @@ export default function CloudDrivePage() {
         ['shared', '与我共享'],
         ['shortcuts', '快捷方式'],
         ['recent', '最近访问'],
-        ...(listing?.canManageAccess ? [['trash', '回收站']] : []),
+        ['storage', '存储管理'],
+        ...(listing?.canManageAccess && !allWorkspaces && scope !== 'storage' ? [['trash', '回收站']] : []),
       ].map(([value, label]) => (
         <Button
           key={value}
           type={scope === value && !parentId ? 'primary' : 'text'}
           block
-          onClick={() => change({ scope: value, folder: '', q: '' })}
+          onClick={() => change({ workspace: !workspaces.some(w=>w.id===workspaceId) ? '__all__' : workspaceId, scope: value, folder: '', q: '' })}
         >
           {label}
         </Button>
       ))}
-      {['mine', 'shared'].map((group) => {
+      {scope !== 'storage' && ['mine', 'shared'].map((group) => {
         const ids = new Set(
           folders
             .filter((f) => (f.ownerId === folderUserId) === (group === 'mine'))
@@ -490,7 +498,7 @@ export default function CloudDrivePage() {
         </Space>
         <Space wrap>
           {canCreateWorkspace && <Button onClick={() => openDialog('workspace')}>创建工作区</Button>}
-          {listing?.canManageAccess && (
+          {scope !== 'storage' && !allWorkspaces && listing?.canManageAccess && (
             <WorkspaceMembers
               key={workspaceId}
               workspaceId={workspaceId}
@@ -504,6 +512,7 @@ export default function CloudDrivePage() {
       <div className="drive-body">
         <aside className="drive-sidebar">{navigation}</aside>
         <main className="drive-main">
+          {scope === 'storage' ? <StorageManager workspace={workspaceId || '__all__'} onWorkspaces={setStorageWorkspaces} onMine={()=>change({workspace:'__all__',scope:'mine',folder:'',q:''})}/> : <>
           <div className="drive-toolbar">
             <Space wrap>
               <Button
@@ -531,7 +540,7 @@ export default function CloudDrivePage() {
                 ]}
               />
             </Space>
-            <Dropdown
+            {allWorkspaces ? <Button type="primary" onClick={()=>{setDestination(undefined);setChooseWorkspace(true);}}>选择工作区后新建</Button> : <Dropdown
               menu={{
                 items: [
                   { key: 'folder', label: '新建文件夹', disabled: !listing?.canCreateFolder },
@@ -550,7 +559,7 @@ export default function CloudDrivePage() {
               >
                 新建
               </Button>
-            </Dropdown>
+            </Dropdown>}
           </div>
           <div className="drive-toolbar">
             <span className="drive-caption">
@@ -561,7 +570,7 @@ export default function CloudDrivePage() {
                   ] || '浏览资源'}
             </span>
             <Space wrap>
-              {listing && scope !== 'trash' && (
+              {!allWorkspaces && listing && scope !== 'trash' && (
                 <Button
                   aria-label="添加快捷方式"
                   icon={<LinkOutlined />}
@@ -570,7 +579,7 @@ export default function CloudDrivePage() {
                   添加快捷方式
                 </Button>
               )}
-              {listing && scope === 'recent' && (
+              {!allWorkspaces && listing && scope === 'recent' && (
                 <Button onClick={() => openPersonal('clear')}>清空最近访问</Button>
               )}
               <Select
@@ -617,6 +626,7 @@ export default function CloudDrivePage() {
           )}
           {!parentId&&['mine','shared'].includes(scope)&&<PersonalFiles key={scope} scope={scope as 'mine'|'shared'}/>}
           <p className="drive-caption">
+            {allWorkspaces ? '全部工作区 · 可访问资源 · ' : `${listing?.workspace.name || '当前工作区'} · 当前工作区资源 · `}
             {search
               ? '搜索结果'
               : scope === 'mine'
@@ -679,7 +689,7 @@ export default function CloudDrivePage() {
                           : item.kind === 'FOLDER'
                             ? '文件夹'
                             : '多维表格'}{' '}
-                        · {item.ownerName}
+                        · {item.ownerName}{allWorkspaces && <span> · 所属工作区：{item.workspaceName}</span>}
                       </small>
                     </span>
                   </button>
@@ -690,7 +700,7 @@ export default function CloudDrivePage() {
                   </span>
                   <Dropdown
                     menu={{
-                      items:
+                      items: allWorkspaces ? [{key:'workspace',label:'打开所在工作区'},{key:'open',label:'打开'}] :
                         item.kind === 'SHORTCUT'
                           ? [
                               { key: 'open', label: '打开原资源' },
@@ -707,7 +717,8 @@ export default function CloudDrivePage() {
                                 { key: 'TRASH', label: '移入回收站', danger: true, disabled: !item.canTrash },
                               ],
                       onClick: ({ key: action }) => {
-                        if (action === 'open') void openItem(item);
+                        if (action === 'workspace') change({workspace:item.workspaceId,scope:'all',folder:'',q:''});
+                        else if (action === 'open') void openItem(item);
                         else if (action === 'rename') openDialog('rename', item);
                         else if (action === 'access') void showAccess(item);
                         else if (action === 'shortcut') setShortcutDialog({ target: item });
@@ -731,6 +742,7 @@ export default function CloudDrivePage() {
               onChange={(value) => change({ page: String(value) })}
             />
           )}
+          </>}
         </main>
       </div>
       <Drawer
@@ -742,6 +754,10 @@ export default function CloudDrivePage() {
       >
         {navigation}
       </Drawer>
+      <Modal title="选择目标工作区" open={chooseWorkspace} onCancel={()=>setChooseWorkspace(false)} okText="进入工作区" okButtonProps={{disabled:!destination}} onOk={()=>{if(destination){setParams({workspace:destination});setChooseWorkspace(false);}}}>
+        <p>请先选择文件夹或多维表格的目标工作区，再进行新建。个人上传文件目前不归属工作区，可在“我的资源”上传。</p>
+        <Select aria-label="新建目标工作区" style={{width:'100%'}} value={destination} onChange={setDestination} options={workspaces.map(w=>({value:w.id,label:w.name}))}/>
+      </Modal>
       <Modal
         title={
           dialog?.kind === 'rename'

@@ -8,6 +8,39 @@ type Snapshot = Awaited<ReturnType<DriveNavigationService['catalog']>>;
 
 // Navigation metadata never participates in canonical content authorization or the record/SSE hot path.
 export class DriveNavigationService extends DriveService {
+  async listAll(raw: unknown) {
+    const input = exact(raw, ['scope', 'q', 'sort', 'direction', 'page', 'pageSize']);
+    const scope = choice(input.scope ?? 'all', ['all', 'mine', 'shared', 'shortcuts', 'recent']);
+    const page = integer(Number(input.page ?? 1), 1, 100000);
+    const pageSize = integer(Number(input.pageSize ?? 50), 1, 100);
+    const sort = choice(input.sort ?? (scope === 'recent' ? 'visitedAt' : 'updatedAt'), scope === 'recent' ? ['visitedAt', 'updatedAt', 'name'] : ['updatedAt', 'name']);
+    const direction = choice(input.direction ?? (sort === 'name' ? 'asc' : 'desc'), ['asc', 'desc']);
+    const { workspaces } = await this.listWorkspaces();
+    const items: (Awaited<ReturnType<DriveNavigationService['list']>>['items'][number] & { workspaceName: string; visitedAt?: Date })[] = [];
+    for (const workspace of workspaces) {
+      try {
+        // Reuse canonical directory authorization. Never infer ownership from administrator status.
+        let part = 1;
+        while (true) {
+          const listing = await this.list(workspace.id, { ...input, scope, sort: sort === 'updatedAt' && scope === 'recent' ? 'visitedAt' : sort, page: part, pageSize: 100 });
+          items.push(...listing.items.map(item => ({ ...item, workspaceName: workspace.name })));
+          if (part * 100 >= listing.total) break;
+          part++;
+        }
+      } catch (error) {
+        if (!['COLLAB_FORBIDDEN', 'COLLAB_NOT_FOUND'].includes((error as { code: string }).code)) throw error;
+      }
+    }
+    items.sort((a, b) => {
+      const difference = sort === 'name' ? a.name.localeCompare(b.name, 'zh-CN') :
+        new Date(sort === 'visitedAt' ? a.visitedAt! : a.updatedAt).getTime() - new Date(sort === 'visitedAt' ? b.visitedAt! : b.updatedAt).getTime();
+      return (direction === 'asc' ? difference : -difference) || a.id.localeCompare(b.id);
+    });
+    return { items: items.slice((page - 1) * pageSize, page * pageSize), total: items.length, page, pageSize,
+      workspace: { id: '__all__', name: '全部工作区' }, path: [] as {id:string;name:string;kind:string;level:number;selfOnly:boolean}[], userId: this.actor.userId,
+      canManageAccess: false, workspaceLevel: 0, canCreateFolder: false, canCreateBase: false };
+  }
+
   private shortcutValue(link: DriveShortcut, snapshot: Snapshot) {
     if (link.deletedAt || link.workspaceId !== snapshot.workspace.id) return null;
     if (!link.parentId && link.ownerId !== this.actor.userId) return null;

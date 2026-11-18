@@ -1,4 +1,5 @@
 import { Controller } from 'egg';
+import { StorageManagement } from '../application/collaboration/storage-management';
 import { PersonalFileTransfer } from '../application/collaboration/personal-file-transfer';
 import { createReadStream } from 'node:fs';
 export default class PersonalFileController extends Controller {
@@ -24,6 +25,7 @@ export default class PersonalFileController extends Controller {
   async content(){const row=await this.svc().content(this.ctx.params.id,Number(this.ctx.params.version));this.ctx.set('Cache-Control','private, no-store');this.ctx.attachment(row.name);this.ctx.body=createReadStream(row.path);}
   async publication(){this.respond(await this.svc().publication(this.ctx.params.id,this.ctx.query.version?Number(this.ctx.query.version):undefined));}
   async grantPublication(){this.respond(await this.svc().grantPublication(this.ctx.params.id,this.ctx.request.body));}
+  async storage(){this.ctx.set('Cache-Control','private, no-store');this.respond(await new StorageManagement(this.ctx.prisma,this.ctx.state.authorization).report(this.ctx.query));}
   async allFiles(){this.respond(await this.svc().allFiles());}
   async globalContent(){const row=await this.svc().content(this.ctx.params.id,Number(this.ctx.params.version),true);this.ctx.set('Cache-Control','private, no-store');this.ctx.attachment(row.name);this.ctx.body=createReadStream(row.path);}
   async people(){this.respond(await this.svc().people(String(this.ctx.query.keyword??'')));}

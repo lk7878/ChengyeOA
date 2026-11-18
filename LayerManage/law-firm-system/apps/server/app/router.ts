@@ -122,6 +122,7 @@ export default (app: Application) => {
   router.put('/api/v1/personal-files/:id/publication',controller.personalFile.grantPublication);
   router.get('/api/v1/personal-files/:id/versions',controller.personalFile.versions);
   router.get('/api/v1/personal-files/:id/versions/:version/content',controller.personalFile.content);
+  router.get('/api/v1/storage-management',controller.personalFile.storage);
   router.get('/api/v1/all-personal-files',controller.personalFile.allFiles);
   router.get('/api/v1/all-personal-files/:id/versions/:version/content',controller.personalFile.globalContent);
   router.get('/api/v1/smart-case/config',controller.smartCase.entryConfig);

@@ -1,0 +1,8 @@
+.storage-manager { min-width: 0; }
+.storage-heading { margin-bottom: 12px; }
+.storage-heading h2 { margin: 0; }
+.storage-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 16px 0; }
+.storage-manager .ant-alert { margin-bottom: 12px; }
+.storage-filters { margin: 16px 0; }
+.storage-filters .ant-select { min-width: 140px; }
+.storage-hash { overflow-wrap: anywhere; }
