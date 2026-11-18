@@ -1,6 +1,6 @@
 from pathlib import Path
 import shutil,json,os,re
-root=Path(__file__).resolve().parents[2];bundle=root/'runtime/bundle';bundle.mkdir(exist_ok=True)
+root=Path(__file__).resolve().parents[2];bundle=Path(os.environ.get('OA_RUNTIME_BUNDLE_DIR',root/'runtime/bundle'));bundle.mkdir(exist_ok=True)
 for name in ['package','plugins','presets']:
  dst=bundle/name
  if dst.exists():shutil.rmtree(dst)
@@ -10,7 +10,6 @@ for name in ['package','plugins','presets']:
    try:s=f.read_text()
    except UnicodeError:continue
    s=s.replace('E:/A','/app').replace('E:\\\\A','/app').replace('pythonPath: python','pythonPath: python3').replace("spawn('python',","spawn('python3',")
-   if f.name=='agent.cordis.yml' and 'general-legal' in str(f):s=s.replace("name: '@deepseek-ai/dsh-skill-filesystem'", "name: '@deepseek-ai/dsh-skill-filesystem'\n  config:\n    bundledSkillDir: /app/package/general-legal/.agents/skills")
    f.write_text(s)
 if (bundle/'node_modules').is_symlink():(bundle/'node_modules').unlink()
 modules=bundle/'node_modules';modules.mkdir(exist_ok=True)

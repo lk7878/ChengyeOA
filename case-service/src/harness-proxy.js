@@ -1,7 +1,6 @@
-import {canManageHarness,harnessBootstrap,isHarnessAdminRequest} from './harness-experience.js'
+import {canManageHarness,harnessBootstrap,isHarnessAdminRequest,harnessFrameAllowed} from './harness-experience.js'
 import {randomUUID} from 'node:crypto'
 import http from 'node:http'
-import net from 'node:net'
 import WebSocket from '../../runtime/upstream/harness/node_modules/.pnpm/ws@8.21.3/node_modules/ws/index.js'
 
 function headers(input,runtime){const result={...input,host:new URL(runtime.base).host,cookie:runtime.cookie};for(const h of ['authorization','origin','referer','x-forwarded-host','x-forwarded-for','x-forwarded-proto'])delete result[h];return result}
@@ -138,7 +137,8 @@ window.WebSocket=PatchedWebSocket;
 })();\n`
 
 export async function registerHarnessProxy(app){
- const tunnels=new Map()
+ const tunnels=new Map(),webSockets=new WebSocket.WebSocketServer({noServer:true,maxPayload:32*1024*1024})
+ app.addHook('onClose',async()=>{for(const ws of webSockets.clients)ws.terminate();webSockets.close()})
  app.addHook('onClose',async()=>{for(const entry of tunnels.values())entry.cleanup(true);tunnels.clear()})
 
  app.get('/harness/:id/__ws/shim.js',async(req,reply)=>{
@@ -193,10 +193,12 @@ export async function registerHarnessProxy(app){
  })
 
  app.post('/harness/:id/__ws/send',async(req,reply)=>{
-  await app.oaTasks.runtime(req.params.id,req.user,req.oa.token)
+  const runtime=await app.oaTasks.runtime(req.params.id,req.user,req.oa.token)
   const entry=tunnels.get(req.body?.cid)
   if(!entry||entry.taskId!==req.params.id||entry.userId!==req.user.id||entry.ws.readyState!==WebSocket.OPEN)return reply.code(410).send({error:'通道已关闭'})
-  for(const frame of Array.isArray(req.body?.frames)?req.body.frames:[]){
+  const frames=Array.isArray(req.body?.frames)?req.body.frames:[]
+  if(!canManageHarness(req.user)&&frames.some(frame=>!harnessFrameAllowed(String(frame?.d??''),frame?.b===1,runtime.approvedPreset)))return reply.code(403).send({error:'仅 OA 超级管理员可更改 AI 能力配置'})
+  for(const frame of frames){
    if(frame?.b===1)entry.ws.send(Buffer.from(String(frame.d||''),'base64'))
    else entry.ws.send(String(frame?.d??''))
   }
@@ -219,8 +221,10 @@ export async function registerHarnessProxy(app){
   // An upstream launch token must never replace the backend-owned runtime credential.
   if(parsedSuffix.searchParams.has('token'))return reply.code(400).send({error:'无效连接参数'})
   if(!canManageHarness(req.user)){
-   const methods=[decodeURIComponent(parsedSuffix.pathname).replace(/^\/api\//,''),req.body?.method]
-   if(methods.some(method=>isHarnessAdminRequest(method,req.body?.payload?.args)))return reply.code(403).send({error:'仅 OA 超级管理员可管理 AI 助手设置'})
+   let envelope=req.body
+   if(typeof envelope==='string'){try{envelope=JSON.parse(envelope)}catch{envelope=null}}
+   const methods=[decodeURIComponent(parsedSuffix.pathname).replace(/^\/api\//,''),envelope?.method]
+   if(methods.some(method=>isHarnessAdminRequest(method,envelope?.payload?.args,runtime.approvedPreset)))return reply.code(403).send({error:'仅 OA 超级管理员可管理 AI 助手设置'})
   }
   const maybeHtml=req.method==='GET'&&(parsedSuffix.pathname==='/'||parsedSuffix.pathname.endsWith('.html'))
   return new Promise((resolve,reject)=>{
@@ -246,11 +250,26 @@ export async function registerHarnessProxy(app){
 
  app.server.on('upgrade',async(req,socket,head)=>{
   const match=req.url?.match(/^\/harness\/([a-f0-9-]{36})(\/.*)$/);if(!match){socket.destroy();return}
-  try{const expected=new URL(process.env.WORKBENCH_PUBLIC_BASE||'http://127.0.0.1:5180').origin;if(req.headers.origin!==expected)throw Error('来源不允许')
-   const auth=await app.oaAuthenticate(req.headers);const runtime=await app.oaTasks.runtime(match[1],auth.user,auth.oa.token),url=new URL(runtime.base)
-   const upstream=net.connect(Number(url.port),url.hostname);const timer=setInterval(async()=>{try{await app.oaTasks.runtime(match[1],auth.user,auth.oa.token)}catch{socket.destroy();upstream.destroy()}},2000);timer.unref()
-   const close=()=>{clearInterval(timer);socket.destroy();upstream.destroy()};upstream.on('error',close);socket.on('error',close);socket.on('close',close);upstream.on('close',()=>{clearInterval(timer);socket.destroy()});
-   upstream.on('connect',()=>{const h=headers(req.headers,runtime);upstream.write(`${req.method} ${match[2]} HTTP/1.1\r\n`+Object.entries(h).filter(([,v])=>v!=null).map(([k,v])=>`${k}: ${v}`).join('\r\n')+'\r\n\r\n');if(head.length)upstream.write(head);socket.pipe(upstream).pipe(socket)})
-  }catch{socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');socket.destroy()}
+  try{
+   const expected=new URL(process.env.WORKBENCH_PUBLIC_BASE||'http://127.0.0.1:5180').origin
+   if(req.headers.origin!==expected||new URL(match[2],'http://local').searchParams.has('token'))throw Error('来源不允许')
+   const auth=await app.oaAuthenticate(req.headers)
+   const runtime=await app.oaTasks.runtime(match[1],auth.user,auth.oa.token)
+   const upstream=new WebSocket(runtime.base.replace(/^http/,'ws')+match[2],{headers:{cookie:runtime.cookie},perMessageDeflate:false})
+   await new Promise((resolve,reject)=>{upstream.once('open',resolve);upstream.once('error',reject)})
+   if(socket.destroyed){upstream.terminate();return}
+   webSockets.handleUpgrade(req,socket,head,client=>{
+    const timer=setInterval(async()=>{try{await app.oaTasks.runtime(match[1],auth.user,auth.oa.token)}catch{client.terminate();upstream.terminate()}},2000);timer.unref()
+    const close=()=>{clearInterval(timer);client.terminate();upstream.terminate()}
+    client.on('error',close);upstream.on('error',close);client.on('close',close);upstream.on('close',()=>{clearInterval(timer);client.close()})
+    client.on('message',async(data,binary)=>{
+     try{const fresh=await app.oaAuthenticate(req.headers);await app.oaTasks.runtime(match[1],fresh.user,fresh.oa.token)
+      if(!canManageHarness(fresh.user)&&!harnessFrameAllowed(data,binary,runtime.approvedPreset)){client.close(1008,'AI 配置由管理员管理');return}
+      if(upstream.readyState===WebSocket.OPEN)upstream.send(data,{binary})
+     }catch{close()}
+    })
+    upstream.on('message',(data,binary)=>{if(client.readyState===WebSocket.OPEN)client.send(data,{binary})})
+   })
+  }catch{socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')}
  })
 }

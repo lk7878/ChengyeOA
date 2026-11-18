@@ -82,6 +82,9 @@
 # carries whatever the deployment registered globally (repository plugins).
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    bundledSkillDir: E:/A/package/general-legal/.agents/skills
+    includeDefaultRoots: false
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'

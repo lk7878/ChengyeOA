@@ -74,6 +74,7 @@
   name: '@deepseek-ai/dsh-skill-filesystem'
   config:
     bundledSkillDir: E:/A/package/traffic-accident/.agents/skills
+    includeDefaultRoots: false
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'

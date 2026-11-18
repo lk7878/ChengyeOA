@@ -36,6 +36,7 @@ test('proxy injects server-owned role and denies administration writes including
  }
  const disguised=await proxy.inject({url:url+'/api/session/create',method:'POST',payload:{method:'credentials/set'}})
  assert.equal(disguised.statusCode,403)
+ const textDisguised=await proxy.inject({url:url+'/api/session/create',method:'POST',headers:{'content-type':'text/plain'},payload:JSON.stringify({method:'credentials/set'})});assert.equal(textDisguised.statusCode,403)
  const chat=await proxy.inject({url:url+'/api/session/create',method:'POST',payload:{method:'session/create'}})
  assert.equal(chat.statusCode,200)
 })

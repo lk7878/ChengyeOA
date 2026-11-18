@@ -31,3 +31,8 @@ deploy/frp-extracted/
 **/*.7z
 **/output/
 **/outputs/
+
+# Public same-origin frontend links are source, not deployment secrets.
+!work_ui/src/config/
+work_ui/src/config/*
+!work_ui/src/config/links.ts

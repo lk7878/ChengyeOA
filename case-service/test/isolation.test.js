@@ -1,6 +1,8 @@
 import test from 'node:test'
+import {execFileSync} from 'node:child_process'
+import {fileURLToPath} from 'node:url'
 import assert from 'node:assert/strict'
-import {mkdtemp,mkdir,rm,readFile,open} from 'node:fs/promises'
+import {mkdtemp,mkdir,rm,readFile,open,writeFile} from 'node:fs/promises'
 import path from 'node:path'
 import {tmpdir} from 'node:os'
 import {launchIsolatedHarness,harnessRpc} from '../src/isolated-harness.js'
@@ -50,3 +52,22 @@ test('binary preview accepts 33 MiB while preserving a 128 MiB upper bound and w
   const outside=await (await read('/etc/passwd')).json();assert.equal(outside.result.ok,false);
  }finally{runtime?.stop();await rm(dir,{recursive:true,force:true})}
 })
+
+
+test('staged deployment exposes approved Skills for every preset and ignores workspace-installed Skills',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'oa-approved-skills-')),bundle=path.join(dir,'bundle');let runtime;
+ try{
+  execFileSync('python3',[fileURLToPath(new URL('../../deploy/integration/prepare-runtime.py',import.meta.url))],{env:{...process.env,OA_RUNTIME_BUNDLE_DIR:bundle}});
+  for(const box of ['materials','drafts','reports','.agents/skills/unapproved'])await mkdir(path.join(dir,'workspace',box),{recursive:true});
+  await writeFile(path.join(dir,'workspace/.agents/skills/unapproved/SKILL.md'),'---\nname: unapproved\ndescription: synthetic unapproved skill\n---\nDo not load this workspace skill.');
+  runtime=await launchIsolatedHarness({dir,id:crypto.randomUUID(),publicBase:'http://127.0.0.1:5180',bundlePath:bundle});
+  const work=await harnessRpc(runtime,'workspace/create',{request:{path:'/workspace'}});
+  for(const preset of ['general-legal','injury','medical-review','traffic-accident']){
+   const session=await harnessRpc(runtime,'session/create',{request:{workspaceId:work.workspace.workspaceId,agentPreset:preset}});
+   const catalog=await harnessRpc(runtime,'skills/list',{request:{sessionId:session.sessionId}});
+   assert.ok(catalog.skills.length>0,`approved Skills available for ${preset}`);
+   assert.ok(catalog.skills.every(skill=>skill.name!=='unapproved'));
+  }
+  assert.doesNotMatch(runtime.diagnostics(),/did not activate|failed to import|skipping profile bundle/);
+ }finally{if(runtime){const exit=new Promise(resolve=>runtime.child.once('exit',resolve));runtime.stop();await exit}await rm(dir,{recursive:true,force:true})}
+});

@@ -3,6 +3,7 @@ import {mkdir,writeFile,rename,readdir,lstat,open,rm,copyFile} from 'node:fs/pro
 import {createReadStream,createWriteStream} from 'node:fs'
 import {pipeline} from 'node:stream/promises'
 import path from 'node:path'
+import {AiPolicy} from './ai-policy.js'
 import {personalWorkspaceTitle} from './harness-experience.js'
 import {Store} from './atomic-store.js'
 import {outputSnapshots} from './output-snapshots.js'
@@ -14,7 +15,7 @@ const presets={general:'general-legal',disability:'injury',injury:'injury',malpr
 const fail=(message,statusCode=400)=>{throw Object.assign(new Error(message),{statusCode})}
 const hashFile=async file=>{const hash=createHash('sha256');for await(const part of createReadStream(file))hash.update(part);return hash.digest('hex')}
 export class OaTasks {
- constructor(root,knowledge){this.knowledge=knowledge;this.root=root;this.store=new Store(path.join(root,'tasks.json'));this.runtimes=new Map();this.busy=new Set();this.store.update(data=>{for(const t of Object.values(data))if(['PREPARING','RUNNING'].includes(t.status)){t.status='INTERRUPTED';t.error='服务重启，任务已中断，请重新启动';}})}
+ constructor(root,knowledge){this.aiPolicy=new AiPolicy(root);this.knowledge=knowledge;this.root=root;this.store=new Store(path.join(root,'tasks.json'));this.runtimes=new Map();this.busy=new Set();this.store.update(data=>{for(const t of Object.values(data))if(['PREPARING','RUNNING'].includes(t.status)){t.status='INTERRUPTED';t.error='服务重启，任务已中断，请重新启动';}})}
  list(owner){return Object.values(this.store.read()).filter(t=>t.owner===owner&&!t.deletedAt).map(({token,...t})=>t)}
  get(id,owner){const task=this.store.read()[id];if(!task||task.deletedAt||task.owner!==owner)fail('任务不存在',404);return task}
  update(id,patch){return this.store.update(data=>data[id]?.deletedAt?undefined:Object.assign(data[id],patch,{updatedAt:new Date().toISOString()}))}
@@ -33,14 +34,14 @@ export class OaTasks {
  }
  async manifest(task){const directory=path.join(this.directory(task.id),'workspace'),temp=path.join(directory,'.task-'+randomUUID());await writeFile(temp,JSON.stringify(task,null,2),{flag:'wx',mode:0o400});await rename(temp,path.join(directory,'task.json'))}
  async start(id,user,token){const task=this.get(id,user.id);if(task.status==='PREPARE_FAILED')fail('材料准备未完成，请重新创建任务',409);if(this.busy.has(id))fail('任务操作进行中',409);if(this.runtimes.has(id))return this.get(id,user.id);this.busy.add(id)
-  try{await this.validate(task,token);if(task.caseId)task.caseSnapshot=await oa(token,'/smart-case/cases/'+encodeURIComponent(task.caseId));await this.manifest(task);this.update(id,{status:'PREPARING',error:null});
+  try{await this.validate(task,token);task.aiPolicy=this.aiPolicy.snapshot(task.kind);this.update(id,{aiPolicy:task.aiPolicy});if(task.caseId)task.caseSnapshot=await oa(token,'/smart-case/cases/'+encodeURIComponent(task.caseId));await this.manifest(task);this.update(id,{status:'PREPARING',error:null});
    const broker=await createTaskBroker({task,token,validate:this.validate.bind(this),knowledge:this.knowledge});
-   let runtime;try{runtime=await launchIsolatedHarness({dir:this.directory(id),id,publicBase:process.env.WORKBENCH_PUBLIC_BASE||'http://127.0.0.1:5180',brokerSocket:broker.socket,preset:presets[task.kind]})}catch(e){broker.close();throw e};const stopRuntime=runtime.stop;runtime.stop=()=>{stopRuntime();broker.close()};
-   try{const w=await harnessRpc(runtime,'workspace/create',{request:{path:runtime.workspacePath||'/workspace'}});if(w.created||w.workspace.title==='workspace')await harnessRpc(runtime,'workspace/rename',{request:{workspaceId:w.workspace.workspaceId,title:personalWorkspaceTitle(user)}});const s=await harnessRpc(runtime,'session/create',{request:{workspaceId:w.workspace.workspaceId,agentPreset:presets[task.kind]}});this.runtimes.set(id,{...runtime,token});this.update(id,{status:'RUNNING',sessionId:s.sessionId,workspaceId:w.workspace.workspaceId});runtime.child.on('exit',()=>{if(this.runtimes.has(id)){this.runtimes.delete(id);this.update(id,{status:'INTERRUPTED',error:'运行进程退出，已有个人成果保留'})}})}catch(e){runtime.stop();throw e}
+   let runtime;try{runtime=await launchIsolatedHarness({dir:this.directory(id),id,publicBase:process.env.WORKBENCH_PUBLIC_BASE||'http://127.0.0.1:5180',brokerSocket:broker.socket,preset:task.aiPolicy?.preset||presets[task.kind],policy:task.aiPolicy})}catch(e){broker.close();throw e};const stopRuntime=runtime.stop;runtime.stop=()=>{stopRuntime();broker.close()};
+   try{const w=await harnessRpc(runtime,'workspace/create',{request:{path:runtime.workspacePath||'/workspace'}});if(w.created||w.workspace.title==='workspace')await harnessRpc(runtime,'workspace/rename',{request:{workspaceId:w.workspace.workspaceId,title:personalWorkspaceTitle(user)}});const s=await harnessRpc(runtime,'session/create',{request:{workspaceId:w.workspace.workspaceId,agentPreset:task.aiPolicy?.preset||presets[task.kind]}});this.runtimes.set(id,{...runtime,token});this.update(id,{status:'RUNNING',sessionId:s.sessionId,workspaceId:w.workspace.workspaceId});runtime.child.on('exit',()=>{if(this.runtimes.has(id)){this.runtimes.delete(id);this.update(id,{status:'INTERRUPTED',error:'运行进程退出，已有个人成果保留'})}})}catch(e){runtime.stop();throw e}
    return this.get(id,user.id)
   }catch(e){this.update(id,{status:'FAILED',error:e.message});throw e}finally{this.busy.delete(id)}
  }
- async runtime(id,user,token){const task=this.get(id,user.id);await this.validate(task,token);this.get(id,user.id);const runtime=this.runtimes.get(id);if(!runtime)fail('任务未运行',409);return runtime}
+ async runtime(id,user,token){const task=this.get(id,user.id);await this.validate(task,token);this.get(id,user.id);const runtime=this.runtimes.get(id);if(!runtime)fail('任务未运行',409);return {...runtime,approvedPreset:task.aiPolicy?.preset||presets[task.kind]}}
  stop(id,owner,reason='用户停止'){this.get(id,owner);const runtime=this.runtimes.get(id);this.runtimes.delete(id);runtime?.stop();this.update(id,{status:'INTERRUPTED',error:reason})}
  async candidates(id,user,token){
   const task=this.get(id,user.id);await this.validate(task,token);const dir=this.directory(id),items=[];

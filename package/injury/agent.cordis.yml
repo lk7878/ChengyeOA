@@ -125,6 +125,7 @@
   name: '@deepseek-ai/dsh-skill-filesystem'
   config:
     bundledSkillDir: E:/A/package/injury/.agents/skills
+    includeDefaultRoots: false
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'

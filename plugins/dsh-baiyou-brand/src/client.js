@@ -174,6 +174,13 @@ export function apply(ctx) {
   // Hide the owning settings surface too: keyboard shortcuts must not open it.
   // This flag is injected by the authenticated OA proxy before the native app boots.
   if (window.__oaHarness?.isSuperAdmin !== true) {
+    for (const name of ['conversation.input.model','conversation.hero.agentPreset','conversation.input.permission']) {
+      ctx.slots.inject(name, () => ctx.slots.register({name,priority:-100},HiddenSettings))
+    }
+    ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({name:'conversation.session.header.actions',id:'agent-preset',priority:-100},HiddenSettings))
+    for (const id of ['plugins','schedules']) {
+      ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({name:'sidebar.panellist',id,priority:-100},HiddenSettings))
+    }
     ctx.slots.inject('sidebar.settings', () => ctx.slots.register({
       name: 'sidebar.settings', priority: -10,
     }, HiddenSettings))
