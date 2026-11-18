@@ -20,3 +20,9 @@
   .auth-scope-row, .auth-self-filter { grid-template-columns: 1fr; }
   .auth-trace-form .ant-form-item, .auth-trace-form .ant-select, .auth-trace-form .ant-btn { width: 100%; }
 }
+
+.auth-self-account-note {
+  margin-top: 4px;
+  color: var(--ant-color-text-secondary, #666);
+  font-size: 12px;
+}

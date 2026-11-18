@@ -27,7 +27,8 @@ beforeEach(() => {
 
 test('disables self modification and opens the audited grant workflow for another user', async () => {
   render(<MemoryRouter><SecurityUserPage /></MemoryRouter>);
-  expect(await screen.findByRole('button', { name: '管理 admin 的授权' })).toBeDisabled();
+  expect(await screen.findByRole('button', { name: '查看 admin 的授权' })).toBeEnabled();
+  expect(screen.getByText('当前账号 · 不可自改授权')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '管理 lawyer 的授权' }));
   await waitFor(() => expect(authorizationAdminApi.users.authorization).toHaveBeenCalledWith('target-user'));
   expect(await screen.findByRole('button', { name: '授予角色' })).toBeInTheDocument();
@@ -55,4 +56,55 @@ test('member overview opens preview with the expected target and identity',async
   expect(handler).toHaveBeenCalledOnce();
   expect((handler.mock.calls[0][0] as CustomEvent).detail).toEqual({table:'table-fixture',target:'MEMBER',id:'target-user'});
  }finally{window.removeEventListener(previewEvent,handler)}
+});
+
+function selfAuthorization() {
+  vi.mocked(authorizationAdminApi.users.authorization).mockResolvedValue({
+    userId: 'self-user', status: 'ENABLED',
+    roleGrants: ['ACTIVE', 'PENDING'].map((state, index) => ({
+      id: `role-grant-${index}`, userId: 'self-user', roleId: `role-${index}`,
+      roleCode: 'SYSTEM_SUPER_ADMIN', roleName: `本人角色${index}`, source: 'PERMANENT',
+      validFrom: '2026-01-01T00:00:00.000Z', validUntil: null, revokedAt: null,
+      version: 1, state: state as 'ACTIVE' | 'PENDING',
+    })),
+    specialGrants: [{ id: 'special-grant', userId: 'self-user', permissionCode: 'employee.high_sensitive.read',
+      dataScopeId: 'scope', scopeType: 'ALL', validFrom: '2026-01-01T00:00:00.000Z',
+      validUntil: '2026-12-31T00:00:00.000Z', revokedAt: null, version: 1, state: 'ACTIVE' }],
+  });
+}
+
+function expectNoMutation() {
+  expect(screen.queryByRole('button', { name: '授予角色' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '授予临时特权' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '撤销授权' })).not.toBeInTheDocument();
+  expect(authorizationAdminApi.users.grantRole).not.toHaveBeenCalled();
+  expect(authorizationAdminApi.users.grantSpecial).not.toHaveBeenCalled();
+  expect(authorizationAdminApi.users.revokeRole).not.toHaveBeenCalled();
+  expect(authorizationAdminApi.users.revokeSpecial).not.toHaveBeenCalled();
+}
+
+test('self details show active and pending grants without any mutation controls', async () => {
+  selfAuthorization();
+  render(<MemoryRouter><SecurityUserPage /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button', { name: '查看 admin 的授权' }));
+  expect(await screen.findByText('本人角色0')).toBeInTheDocument();
+  expect(screen.getByText('本人角色1')).toBeInTheDocument();
+  expect(screen.getByRole('alert', { name: '当前账号授权只读' })).toHaveTextContent('当前账号 · 不可自改授权');
+  expect(authorizationAdminApi.users.authorization).toHaveBeenCalledWith('self-user');
+  expectNoMutation();
+  fireEvent.click(screen.getByRole('tab', { name: '临时特权' }));
+  expect(await screen.findByText('employee.high_sensitive.read')).toBeInTheDocument();
+  expectNoMutation();
+  fireEvent.click(screen.getByRole('tab', { name: '有效表格权限与共享来源' }));
+  expect(await screen.findByRole('button', { name: '预览合成表格' })).toBeInTheDocument();
+  expectNoMutation();
+});
+
+test('a direct self-details link opens read-only instead of being ignored', async () => {
+  selfAuthorization();
+  vi.mocked(authorizationAdminApi.users.detail).mockResolvedValue(page.list[0]);
+  render(<MemoryRouter initialEntries={['/security/users?userId=self-user']}><SecurityUserPage /></MemoryRouter>);
+  expect(await screen.findByText('本人角色0')).toBeInTheDocument();
+  expect(screen.getByRole('alert', { name: '当前账号授权只读' })).toHaveTextContent('当前账号 · 不可自改授权');
+  expectNoMutation();
 });
