@@ -43,3 +43,9 @@ Event-center releases use an additive migration and start with `EVENT_WORKER_ENA
 Enable one Worker instance, restart it through the normal deployment mechanism, and observe `events:check -- --mode=canary` for the complete configured window (15 minutes by default). `READY` permits completion, `DEGRADED` extends observation and requires investigation, and `BLOCKED` requires immediate rollback. Rollback sets `EVENT_WORKER_ENABLED=false`, confirms `DISABLED` and no new claims, and preserves all event, delivery, HandlerLog, notification idempotency, and audit evidence.
 
 The guarded local rehearsal is `npm.cmd --prefix apps/server run rehearse:event-observability`. It additionally requires the exact resettable localhost test target, the reset guard, and the dedicated event-observability rehearsal guard. It rejects target aliases and URL differences before connecting, performs only dependency injection for the availability drill, and always cleans its fixture in `finally`. Do not use it against a production database. Full operating steps and source/portable commands are in `../../../docs/superpowers/runbooks/reliable-event-center-outbox.md`.
+
+## 承业空间文件预览
+
+Word、Excel 和 PowerPoint 的新旧格式由 OA API 在本机转为临时 PDF。Linux API 主机需要安装 LibreOffice Writer、Calc、Impress、中文字体、Bubblewrap 和 util-linux，并允许服务账号使用 Bubblewrap 创建隔离命名空间。默认安装目录为 `/usr/lib/libreoffice`，便携安装可将 API 环境变量 `OA_PREVIEW_OFFICE_ROOT` 指向包含 `program/soffice` 的目录。发布后可用含中文的 DOCX、XLSX、PPTX 在“我的资源”点“预览”验证转换与字体。
+
+单次 Office 预览支持 64 MiB 以内的原件；PDF 和图片支持 128 MiB，文本、HTML 和 Markdown 支持 4 MiB。预览按内容版本读取，每次检查原有文件权限。转换产生的 PDF 临时文件在请求处理后清理。

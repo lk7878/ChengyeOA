@@ -1,3 +1,4 @@
+import FilePreviewButton from '@/features/files/FilePreviewButton';
 import Modal from '@/components/DraggableModal';
 import { downloadBlob } from "@/api/approval-materials";
 import { useEffect, useState } from "react";
@@ -413,6 +414,7 @@ function SubmissionContent({
         data.materials.map((m) => (
           <div key={m.code + m.fileId}>
             {m.name} ·{" "}
+            <FilePreviewButton link name={m.name} url={`/api/v1/sop/submissions/${data.id}/materials/${m.fileId}`} />
             <Button type="link" onClick={() => void download(m.fileId)}>
               {m.fileName}
             </Button>

@@ -1,3 +1,4 @@
+import { servePreview } from '../application/files/preview';
 import { Controller } from 'egg';
 import { StorageManagement } from '../application/collaboration/storage-management';
 import { PersonalFileTransfer } from '../application/collaboration/personal-file-transfer';
@@ -22,11 +23,18 @@ export default class PersonalFileController extends Controller {
   async chunk(){const stream=await this.ctx.getFileStream();try{this.respond(await this.svc().chunk(this.ctx.params.id,Number(this.ctx.query.offset),stream));}finally{stream.resume();}}
   async complete(){this.respond(await this.svc().complete(this.ctx.params.id));}
   async versions(){this.respond(await this.svc().versions(this.ctx.params.id));}
-  async content(){const row=await this.svc().content(this.ctx.params.id,Number(this.ctx.params.version));this.ctx.set('Cache-Control','private, no-store');this.ctx.attachment(row.name);this.ctx.body=createReadStream(row.path);}
+  async content() { await this.sendContent(false); }
+  private async sendContent(global: boolean) {
+    const row = await this.svc().content(this.ctx.params.id, Number(this.ctx.params.version), global);
+    if (this.ctx.query.preview === '1') return servePreview(this.ctx, row.name, row.path);
+    this.ctx.set('Cache-Control', 'private, no-store');
+    this.ctx.attachment(row.name);
+    this.ctx.body = createReadStream(row.path);
+  }
   async publication(){this.respond(await this.svc().publication(this.ctx.params.id,this.ctx.query.version?Number(this.ctx.query.version):undefined));}
   async grantPublication(){this.respond(await this.svc().grantPublication(this.ctx.params.id,this.ctx.request.body));}
   async storage(){this.ctx.set('Cache-Control','private, no-store');this.respond(await new StorageManagement(this.ctx.prisma,this.ctx.state.authorization).report(this.ctx.query));}
   async allFiles(){this.respond(await this.svc().allFiles());}
-  async globalContent(){const row=await this.svc().content(this.ctx.params.id,Number(this.ctx.params.version),true);this.ctx.set('Cache-Control','private, no-store');this.ctx.attachment(row.name);this.ctx.body=createReadStream(row.path);}
+  async globalContent() { await this.sendContent(true); }
   async people(){this.respond(await this.svc().people(String(this.ctx.query.keyword??'')));}
 }

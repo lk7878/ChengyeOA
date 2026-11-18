@@ -1,5 +1,6 @@
+import FilePreviewButton from '@/features/files/FilePreviewButton';
 import {useAuthStore} from '@/stores/authStore';
-import {uploadFile,downloadVersion} from './file-transfer';
+import {uploadFile,downloadVersion,versionUrl} from './file-transfer';
 import { useCallback,useEffect,useRef,useState } from 'react';
 import { Alert,Button,Checkbox,Dropdown,Input,Select,Space,Table,message } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
@@ -50,10 +51,11 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
     {Object.entries(progress).map(([file,state])=><p key={file}>{file}：{state}</p>)}
     {failed.length>0&&<Button disabled={busy} onClick={()=>void upload(failed)}>重试失败文件（续传）</Button>}
     <ResizableTable<Item> columnWidthsKey={`personal-files:${authorization?.userId??'anonymous'}:${scope}`} style={{marginTop:12}} rowKey="id" dataSource={data?.items??[]} pagination={{pageSize:10}} rowSelection={{columnWidth:48,selectedRowKeys:selected,onChange:keys=>setSelected(keys.map(String)),getCheckboxProps:r=>({disabled:busy||r.kind!=='FILE'||r.level<3})}} columns={[
-      {title:'文件名称',dataIndex:'name',width:320,render:(_,r)=>r.kind==='FOLDER'?<Button type="link" onClick={()=>setParent(r.id)}>📁 {r.name}</Button>:r.name},
+      {title:'文件名称',dataIndex:'name',width:320,render:(_,r)=>r.kind==='FOLDER'?<Button type="link" onClick={()=>setParent(r.id)}>📁 {r.name}</Button>:<FilePreviewButton link url={versionUrl(r.id,r.contentVersion)} name={r.name}>{r.name}</FilePreviewButton>},
       {title:'权限',key:'permission',width:90,render:(_,r)=>['无权限','只读','编辑','管理'][r.level]},
       {title:'大小',key:'size',width:120,render:(_,r)=>Math.ceil(r.size/1024)+' KB'},
-      {title:'操作',key:'actions',width:180,render:(_,r)=><Space wrap>
+      {title:'操作',key:'actions',width:242,render:(_,r)=><Space wrap>
+        {r.kind==='FILE'&&<FilePreviewButton url={versionUrl(r.id,r.contentVersion)} name={r.name}/>}
         {r.kind==='FILE'&&<Button onClick={()=>void downloadVersion(r.id,r.contentVersion,r.name).catch(e=>message.error(errorMessage(e)))}>下载</Button>}
         {(r.level>=2||(r.kind==='FILE'&&r.contentVersion>1))&&<Dropdown trigger={['click']} menu={{items:[
           ...(r.kind==='FILE'&&r.level>=2?[{key:'update',label:'更新文件'}]:[]),
@@ -87,7 +89,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
       }catch(e){message.error(errorMessage(e));setPurging(undefined);setTrashSelected([]);}
       finally{try{setTrash((await get<{items:TrashItem[]}>('/personal-files/trash')).items);}catch{message.error('回收站刷新失败，请重新打开后重试');}setBusy(false);}
     }}><p>{purging?.all?'将清空本次确认的回收站文件':'将彻底删除所选文件'}，共 {purging?.files.length??0} 个：</p><ul>{purging?.files.slice(0,20).map(f=><li key={f.id}>{f.name}</li>)}</ul>{(purging?.files.length??0)>20&&<p>其余 {(purging?.files.length??0)-20} 个文件也将删除。</p>}<Alert type="warning" showIcon title="原文件及全部历史版本将被永久删除，无法恢复。"/><p>共享用户和 AI 任务将无法再读取这些文件。已单独保存的知识库副本和正式归档文件不受影响。确认后新移入回收站的文件不包含在本次删除范围内。</p></Modal>
-    <Drawer title={'历史版本 · '+(history?.file.name??'')} open={!!history} onClose={()=>setHistory(undefined)} width={620}><p>更新文件会保留旧版本。已有 AI 任务和已投稿知识继续使用当时选定的版本。</p>{history?.versions.map((v,index)=><section key={v.version} style={{marginBottom:20,paddingBottom:16,borderBottom:'1px solid #e5e8ee'}}><h3>版本 {v.version}{index===0?'（最新）':''}</h3><p>{v.name} · {Math.ceil(v.size/1024)} KB</p><p>保存于：{new Date(v.createdAt).toLocaleString('zh-CN',{hour12:false})}</p><Button onClick={()=>void downloadVersion(history.file.id,v.version,v.name).catch(e=>message.error(errorMessage(e)))}>下载此版本</Button><details style={{marginTop:12}}><summary style={{cursor:'pointer'}}>技术信息</summary><p style={{overflowWrap:'anywhere'}}>文件校验码（SHA-256）：{v.sha256}</p><p>解析状态：{v.parseStatus==='PARSED'?'已解析':'待任务处理'}；模型可读性由任务工具确认。</p></details></section>)}</Drawer>
+    <Drawer title={'历史版本 · '+(history?.file.name??'')} open={!!history} onClose={()=>setHistory(undefined)} width={620}><p>更新文件会保留旧版本。已有 AI 任务和已投稿知识继续使用当时选定的版本。</p>{history?.versions.map((v,index)=><section key={v.version} style={{marginBottom:20,paddingBottom:16,borderBottom:'1px solid #e5e8ee'}}><h3>版本 {v.version}{index===0?'（最新）':''}</h3><p>{v.name} · {Math.ceil(v.size/1024)} KB</p><p>保存于：{new Date(v.createdAt).toLocaleString('zh-CN',{hour12:false})}</p><FilePreviewButton url={versionUrl(history.file.id,v.version)} name={v.name}>预览此版本</FilePreviewButton> <Button onClick={()=>void downloadVersion(history.file.id,v.version,v.name).catch(e=>message.error(errorMessage(e)))}>下载此版本</Button><details style={{marginTop:12}}><summary style={{cursor:'pointer'}}>技术信息</summary><p style={{overflowWrap:'anywhere'}}>文件校验码（SHA-256）：{v.sha256}</p><p>解析状态：{v.parseStatus==='PARSED'?'已解析':'待任务处理'}；模型可读性由任务工具确认。</p></details></section>)}</Drawer>
     <Modal title="更新文件" open={!!replacing} destroyOnHidden confirmLoading={busy} closable={!busy} maskClosable={!busy} keyboard={!busy} cancelButtonProps={{disabled:busy}} okButtonProps={{disabled:!replacing?.upload}} okText="确认更新" cancelText="取消" onCancel={()=>{if(!busy)setReplacing(undefined);}} onOk={async()=>{
       if(!replacing?.upload)return;const {file,upload:next}=replacing;setBusy(true);
       try{await uploadFile(next,{fileId:file.id,version:file.version},offset=>setProgress(p=>({...p,[next.name]:Math.round(offset/Math.max(next.size,1)*100)+'%'})));setProgress(p=>({...p,[next.name]:'更新完成'}));message.success('文件已更新，旧版本和分享权限已保留');setReplacing(undefined);refresh();}

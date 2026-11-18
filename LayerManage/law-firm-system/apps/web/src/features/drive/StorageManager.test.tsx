@@ -5,7 +5,6 @@ import { get } from '../workspaces/api';
 import { useAuthStore } from '@/stores/authStore';
 
 vi.mock('../workspaces/api', () => ({ get: vi.fn(), errorMessage: () => '查询失败' }));
-vi.mock('./file-transfer', () => ({ downloadVersion: vi.fn() }));
 const auth = (isSystemSuperAdmin: boolean) => ({ userId: 'me', employeeId: null, isSystemSuperAdmin, isSystemAdmin: false, permissions: [], menus: [], fieldCapabilities: {}, validUntil: null, evaluatedAt: new Date().toISOString() });
 const report = (name = '本人文件'): StorageReport => ({ audience: 'mine', workspace: '__all__', workspaces: [{ id: 'w1', name: '工作区一' }], disk: null,
   measured: { bytes: 100, allocatedBytes: 4096, objects: 1, unavailable: 0 }, totals: { files: 1, versions: 1, logicalBytes: 100, currentBytes: 100, historyBytes: 0, trashBytes: 0, aiBytes: 0, duplicateGroups: 0, potentialDuplicateBytes: 0 },

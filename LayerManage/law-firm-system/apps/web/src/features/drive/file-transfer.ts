@@ -18,8 +18,11 @@ export async function uploadFile(file:File, target:{parentId?:string;fileId?:str
   }
   const result=await post<{id:string;version:number}>('/personal-files/uploads/'+id+'/complete',{});localStorage.removeItem(key);return result;
 }
+export function versionUrl(id:string,version:number,global=false){
+  return `/api/v1/${global?'all-personal-files':'personal-files'}/${encodeURIComponent(id)}/versions/${version}/content`;
+}
 export async function downloadVersion(id:string,version:number,name:string,global=false){
-  const response=await fetch(`/api/v1/${global?'all-personal-files':'personal-files'}/${id}/versions/${version}/content`,{headers:{Authorization:'Bearer '+runtimeSession.getAccessToken()}});
+  const response=await fetch(versionUrl(id,version,global),{headers:{Authorization:'Bearer '+runtimeSession.getAccessToken()}});
   if(!response.ok)throw new Error('文件访问被拒绝或版本不存在');
   const url=URL.createObjectURL(await response.blob()),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }

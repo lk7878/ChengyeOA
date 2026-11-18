@@ -1,3 +1,4 @@
+import { servePreview } from '../application/files/preview';
 import { medicalOptions, medicalCustomer } from '../application/collaboration/medical-assessment';
 import { WorksheetPermissions } from '../application/collaboration/worksheet-permissions';
 import { PermissionOverview } from '../application/collaboration/permission-overview';
@@ -450,20 +451,20 @@ export default class CollaborationController extends Controller {
       this.respond({ id: file.id, name: file.name, mimeType: file.mimeType, size: file.size });
       return;
     }
-    this.ctx.set('Content-Type', file.mimeType);
-    this.ctx.set('X-Content-Type-Options', 'nosniff');
-    this.ctx.set('Cache-Control', 'no-store');
-    this.ctx.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`);
-    this.ctx.body = await fs.readFile(
-      path.join(process.cwd(), 'var', 'storage', 'collaboration', file.storageKey),
-    );
     await this.ctx.prisma.operationLog.create({
       data: {
         userId: this.ctx.state.user.userId,
-        action: 'file.download',
+        action: this.ctx.query.preview === '1' ? 'file.preview' : 'file.download',
         targetType: 'COLLAB',
         targetId: file.id,
       },
     });
+    const source = path.join(process.cwd(), 'var', 'storage', 'collaboration', file.storageKey);
+    if (this.ctx.query.preview === '1') return servePreview(this.ctx, file.name, source);
+    this.ctx.set('Content-Type', file.mimeType);
+    this.ctx.set('X-Content-Type-Options', 'nosniff');
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`);
+    this.ctx.body = await fs.readFile(source);
   }
 }

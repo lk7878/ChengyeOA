@@ -1,3 +1,4 @@
+import FilePreviewButton from '@/features/files/FilePreviewButton';
 import Modal from '@/components/DraggableModal';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
@@ -619,9 +620,10 @@ function IssueContent({ data, refresh }: { data: Issue; refresh: () => void }) {
         <Card key={r.id} title={'第 ' + r.number + ' 次 · ' + actions[r.action]} style={{ marginTop: 12 }}>
           <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{r.content || '已记录操作'}</p>
           {r.attachments.map((a) => (
-            <Button key={a.fileId} type="link" onClick={() => void download(a.fileId)}>
-              {a.file.fileName}
-            </Button>
+            <Space key={a.fileId}>
+              <FilePreviewButton link name={a.file.fileName} url={`/api/v1/quality/issues/${data.id}/materials/${a.fileId}`}>{a.file.fileName}</FilePreviewButton>
+              <Button type="link" onClick={() => void download(a.fileId)}>下载</Button>
+            </Space>
           ))}
         </Card>
       ))}

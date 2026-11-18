@@ -1,3 +1,4 @@
+import FilePreviewButton from '@/features/files/FilePreviewButton';
 import { useEffect, useState } from 'react';
 import { Button, DatePicker, Input, InputNumber, Select, Space, Upload, message } from 'antd';
 import dayjs from 'dayjs';
@@ -177,10 +178,11 @@ export default function WorkflowForm({
                 <Space direction="vertical">
                   {(Array.isArray(value) ? (value as string[]) : []).map((id, index) => (
                     <Space key={id}>
+                      <FilePreviewButton name={`附件 ${index + 1}`} url={`/api/v1/workflows/files/${id}${instanceId ? '?instance=' + encodeURIComponent(instanceId) : ''}`}>预览附件 {index + 1}</FilePreviewButton>
                       <Button
                         onClick={() => download(id, instanceId).catch((e) => message.error(errorText(e)))}
                       >
-                        附件 {index + 1}
+                        下载附件 {index + 1}
                       </Button>
                       {!disabled && (
                         <Button

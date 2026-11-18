@@ -1,3 +1,4 @@
+import FilePreviewButton from '@/features/files/FilePreviewButton';
 import FieldInput from '@/features/workspaces/FieldInput';
 import { initialValues } from '@/features/workspaces/editing';
 import ConflictCheck from './ConflictCheck';
@@ -1277,6 +1278,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
                   renderItem={(file) => (
                     <List.Item
                       actions={[
+                        <FilePreviewButton key="preview" link name={file.fileName} url={`/api/v1/files/${file.id}/download`} />,
                         <Button
                           key="download"
                           type="link"

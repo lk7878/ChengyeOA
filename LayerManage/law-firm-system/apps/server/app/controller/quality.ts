@@ -1,3 +1,4 @@
+import { servePreview } from '../application/files/preview';
 import { AnalysisService } from '../application/quality/analysis-service';
 import { Controller } from 'egg';
 import { QualityService } from '../application/quality/quality-service';
@@ -61,6 +62,8 @@ export default class QualityController extends Controller {
     this.respond(await this.qualityService().materialOptions(this.ctx.params.id));
   }
   async download() {
-    this.respond(await this.qualityService().download(this.ctx.params.id, this.ctx.params.fileId));
+    const file = await this.qualityService().download(this.ctx.params.id, this.ctx.params.fileId);
+    if (this.ctx.query.preview === '1') return servePreview(this.ctx, file.fileName, Buffer.from(file.base64, 'base64'));
+    this.respond(file);
   }
 }

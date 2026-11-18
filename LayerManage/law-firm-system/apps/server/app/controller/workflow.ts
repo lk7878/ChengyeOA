@@ -1,3 +1,4 @@
+import { servePreview } from '../application/files/preview';
 import { Controller } from 'egg';
 import { WorkflowService } from '../application/workflow/workflow-service';
 import {
@@ -90,6 +91,7 @@ export default class WorkflowController extends Controller {
   }
   async download() {
     const f = await this.workflows().download(this.ctx.params.id, this.ctx.query.instance);
+    if (this.ctx.query.preview === '1') return servePreview(this.ctx, f.name, f.bytes);
     this.ctx.set('Cache-Control', 'no-store');
     this.respond({ name: f.name, mime: f.mime, base64: f.bytes.toString('base64') });
   }

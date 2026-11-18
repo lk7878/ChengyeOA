@@ -1,3 +1,4 @@
+import { servePreview } from '../application/files/preview';
 import { SopSubmissionService } from '../application/sop/submission-service';
 import { SopSourceFileService } from '../application/sop/source-file-service';
 import { SopContinuationService } from '../application/sop/continuation-service';
@@ -12,13 +13,21 @@ export default class SopController extends Controller {
   async sourceContext() { this.respond(await this.execution().sourceContext(this.ctx.query)); }
   async sourceMaterials() { this.respond(await this.sourceFiles().list(this.ctx.params.id,this.ctx.query)); }
   async uploadSourceMaterial() { this.respond(await this.sourceFiles().upload(this.ctx.params.id,this.ctx.request.body)); }
-  async sourceMaterial() { this.respond(await this.sourceFiles().download(this.ctx.params.id,this.ctx.params.fileId)); }
+  async sourceMaterial() {
+    const file = await this.sourceFiles().download(this.ctx.params.id, this.ctx.params.fileId);
+    if (this.ctx.query.preview === '1') return servePreview(this.ctx, file.fileName, Buffer.from(file.base64, 'base64'));
+    this.respond(file);
+  }
   async continuations() { this.respond(await this.continuationService().list(this.ctx.params.id)); }
   async continuationOptions() { this.respond(await this.continuationService().options(this.ctx.params.id)); }
   async continueInstance() { this.respond(await this.continuationService().create(this.ctx.params.id,this.ctx.request.body)); }
   private submissionsService() { return new SopSubmissionService(this.ctx.prisma,auditActor(this.ctx),this.ctx.state.authorization); }
   async submissions() { this.respond(await this.submissionsService().list(this.ctx.params.id)); }
-  async material() { this.respond(await this.submissionsService().downloadMaterial(this.ctx.params.id,this.ctx.params.fileId)); }
+  async material() {
+    const file = await this.submissionsService().downloadMaterial(this.ctx.params.id, this.ctx.params.fileId);
+    if (this.ctx.query.preview === '1') return servePreview(this.ctx, file.fileName, Buffer.from(file.base64, 'base64'));
+    this.respond(file);
+  }
   async submission() { this.respond(await this.submissionsService().get(this.ctx.params.id)); }
   async submit() { this.respond(await this.submissionsService().submit(this.ctx.params.id,this.ctx.request.body)); }
   async assignReview() { this.respond(await this.submissionsService().assign(this.ctx.params.id,this.ctx.request.body)); }

@@ -1,3 +1,4 @@
+import { servePreview } from '../application/files/preview';
 // SPEC-033 Task 3: case HTTP 控制器（整体替代 SPEC-001 遗留原型——直连 ctx.prisma、无权限门禁、
 // 无校验/审计/测试，本版本替换为薄控制器调正规 service 层）。
 // 薄控制器纪律（仿 payment.ts / approval.ts）：传输层解析 → 调 case 服务 → 包络响应
@@ -111,7 +112,9 @@ export default class CaseController extends Controller {
 
   /** GET /api/v1/files/:id/download（case.file.read，SPEC-042）：下载文件（base64 信封）。 */
   async downloadFile() {
-    this.respond(await caseFileService(this.ctx).download(this.ctx.params.id));
+    const file = await caseFileService(this.ctx).download(this.ctx.params.id);
+    if (this.ctx.query.preview === '1') return servePreview(this.ctx, file.fileName, Buffer.from(file.base64, 'base64'));
+    this.respond(file);
   }
 
   /** DELETE /api/v1/files/:id（case.file.manage，SPEC-042）：删除文件（删盘 + 记录）。 */

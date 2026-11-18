@@ -1,3 +1,4 @@
+import FilePreviewButton from '@/features/files/FilePreviewButton';
 import { useRef, useState } from 'react';
 import { Alert, Button, Card, Input, Space } from 'antd';
 import { useAuthStore } from '@/stores/authStore';
@@ -41,7 +42,8 @@ function FileList({ taskId }: { taskId: string }) {
       {live.error && <Alert type="error" title={live.error} />}{' '}
       {live.data?.list.map((f) => (
         <p key={f.id}>
-          <Button onClick={() => void download(f.id)}>{f.fileName}</Button> {f.fileSize} 字节
+          <FilePreviewButton link name={f.fileName} url={`/api/v1/sop/tasks/${taskId}/source-materials/${f.id}`}>{f.fileName}</FilePreviewButton>
+          <Button onClick={() => void download(f.id)}>下载</Button> {f.fileSize} 字节
         </p>
       ))}
       {live.data && !live.data.list.length && <p>暂无材料</p>}

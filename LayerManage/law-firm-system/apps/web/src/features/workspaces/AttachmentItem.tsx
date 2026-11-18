@@ -1,4 +1,5 @@
-import Modal from '@/components/DraggableModal';
+import FilePreviewButton from '@/features/files/FilePreviewButton';
+import { decodeAttachment, downloadBlob } from '@/api/approval-materials';
 import { useEffect, useState } from 'react';
 import { Button, message } from 'antd';
 import { authenticatedFetch, get } from './api';
@@ -15,7 +16,7 @@ export default function AttachmentItem({ tableId, id }: { tableId: string; id: s
       }
     } catch { /* Invalid file references remain unavailable. */ }
   }
-  const [preview, setPreview] = useState<string>();
+
   useEffect(() => {
     let alive = true;
     if (id.startsWith('case-file:')) return;
@@ -28,67 +29,21 @@ export default function AttachmentItem({ tableId, id }: { tableId: string; id: s
       alive = false;
     };
   }, [tableId, id]);
-  useEffect(
-    () => () => {
-      if (preview) URL.revokeObjectURL(preview);
-    },
-    [preview],
-  );
-  const open = async () => {
+  if (!metadata) return <Button type="link" disabled>附件不可访问</Button>;
+  const caseFile = id.startsWith('case-file:') ? JSON.parse(id.slice(10)) : undefined;
+  const url = caseFile ? '/api/v1/files/' + encodeURIComponent(caseFile.id) + '/download'
+    : '/api/v1/tables/' + encodeURIComponent(tableId) + '/files/' + encodeURIComponent(id);
+  const name = metadata.name;
+  async function download() {
     try {
-      const caseFile = id.startsWith('case-file:') ? JSON.parse(id.slice(10)) : null;
-      const response = await authenticatedFetch(
-        caseFile
-          ? '/api/v1/files/' + encodeURIComponent(caseFile.id) + '/download'
-          : '/api/v1/tables/' + tableId + '/files/' + id,
-      );
+      const response = await authenticatedFetch(url);
       if (!response.ok) throw new Error('unavailable');
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      if (metadata?.mimeType.startsWith('image/') || metadata?.mimeType === 'application/pdf')
-        setPreview(url);
-      else {
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = metadata?.name || '附件';
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }
-    } catch {
-      message.error('附件已不可访问，请刷新记录。');
-    }
-  };
-  return (
-    <>
-      <Button
-        size="small"
-        type="link"
-        disabled={!metadata}
-        onClick={() => {
-          void open();
-        }}
-      >
-        {metadata?.name || '附件不可访问'}
-      </Button>
-      <Modal
-        open={!!preview}
-        title={metadata?.name}
-        onCancel={() => setPreview(undefined)}
-        footer={null}
-        destroyOnHidden
-        width={800}
-      >
-        {preview &&
-          (metadata?.mimeType.startsWith('image/') ? (
-            <img alt={metadata.name} src={preview} style={{ maxWidth: '100%', maxHeight: '70vh' }} />
-          ) : (
-            <iframe
-              title={metadata?.name}
-              src={preview}
-              style={{ width: '100%', height: '70vh', border: 0 }}
-            />
-          ))}
-      </Modal>
-    </>
-  );
+      const blob = caseFile ? new Blob([decodeAttachment((await response.json()).data.base64)]) : await response.blob();
+      downloadBlob(blob, name);
+    } catch { message.error('附件已不可访问，请刷新记录。'); }
+  }
+  return <>
+    <FilePreviewButton link name={name} url={url}>{name}</FilePreviewButton>
+    <Button size="small" type="link" onClick={() => void download()}>下载</Button>
+  </>;
 }

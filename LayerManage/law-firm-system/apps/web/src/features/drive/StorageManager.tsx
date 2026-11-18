@@ -1,8 +1,9 @@
+import FilePreviewButton from '@/features/files/FilePreviewButton';
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Input, Select, Space, Statistic, Table, Tabs, Tag, message } from 'antd';
 import { useAuthStore } from '@/stores/authStore';
 import { errorMessage, get } from '../workspaces/api';
-import { downloadVersion } from './file-transfer';
+import { downloadVersion, versionUrl } from './file-transfer';
 import './storage.css';
 
 const formatBytes = (bytes: number) => {
@@ -10,7 +11,7 @@ const formatBytes = (bytes: number) => {
   const unit = bytes >= 1024 ** 3 ? 3 : bytes >= 1024 ** 2 ? 2 : bytes >= 1024 ? 1 : 0;
   return `${(bytes / 1024 ** unit).toLocaleString('zh-CN', { maximumFractionDigits: unit ? 2 : 0 })} ${['B', 'KB', 'MB', 'GB'][unit]}`;
 };
-type Row = { id: string; fileId: string; version: number; name: string; kind: string; ownerId: string; ownerName: string;
+type Row = { tableId?: string; id: string; fileId: string; version: number; name: string; kind: string; ownerId: string; ownerName: string;
   department: string; workspaceName: string; location: string; size: number; current: boolean; trash: boolean;
   sha256: string; updatedAt: string; source: string; referenceCount: number; candidates: string[]; versionCount: number };
 type Group = { name: string; versions: number; bytes: number };
@@ -91,7 +92,7 @@ export default function StorageManager({ workspace, onWorkspaces, onMine }: {
         { title: '大小', dataIndex: 'size', render: formatBytes, width: 110 },
         { title: '版本 / 状态', width: 180, render: (_, row) => <>v{row.version} / 共{row.versionCount}版<div>{row.trash ? '回收站' : row.current ? '当前版本' : '历史版本'}</div>{row.candidates.map(c => <Tag key={c}>{candidates[c]}</Tag>)}</> },
         { title: '更新 / 引用', width: 180, render: (_, row) => <>{new Date(row.updatedAt).toLocaleString()}<div>归档记录 {row.referenceCount} 项</div></> },
-        { title: '操作', render: (_, row) => row.kind === 'PERSONAL' && !row.trash ? <Button onClick={() => void downloadVersion(row.fileId, row.version, row.name, effectiveAudience === 'organization').catch(e => message.error(errorMessage(e)))}>查看 / 下载</Button> : '请在原资源中管理' },
+        { title: '操作', render: (_, row) => row.kind === 'PERSONAL' && !row.trash ? <Space><FilePreviewButton url={versionUrl(row.fileId, row.version, effectiveAudience === 'organization')} name={row.name} /><Button onClick={() => void downloadVersion(row.fileId, row.version, row.name, effectiveAudience === 'organization').catch(e => message.error(errorMessage(e)))}>下载</Button></Space> : row.tableId && !row.trash ? <FilePreviewButton url={`/api/v1/tables/${row.tableId}/files/${row.fileId}`} name={row.name} /> : '请在原资源中管理' },
       ]} />
     {data && <><Alert type="warning" title="清理候选需人工核对" description={data.referenceNotice} /><p>统计时间：{new Date(data.computedAt).toLocaleString()}</p></>}
   </section>;

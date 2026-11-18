@@ -8,7 +8,6 @@ vi.mock('../workspaces/api',()=>({get:vi.fn(),post:vi.fn(),patch:vi.fn(),errorMe
 vi.mock('@/stores/authStore',()=>({useAuthStore:()=>({userId:'owner',isSystemSuperAdmin:false})}));
 // Test the confirmation state without relying on portal closing animations in jsdom.
 vi.mock('@/components/DraggableModal',()=>({DragSurface:({children}:{children:ReactNode})=><>{children}</>,default:(props:ModalProps)=>props.open?<section role="dialog" aria-label={String(props.title)}>{props.children}<button onClick={props.onCancel}>{props.cancelText??'取消'}</button><button disabled={props.confirmLoading} onClick={props.onOk}>{props.okText??'确定'}</button></section>:null}));
-vi.mock('./file-transfer',()=>({uploadFile:vi.fn(),downloadVersion:vi.fn()}));
 const file={id:'deleted-file',name:'待删除.txt',version:4,deletedAt:'2026-11-16'};
 let trashItems:(typeof file & {purging?:boolean})[]=[];
 beforeEach(()=>{vi.clearAllMocks();trashItems=[file];vi.mocked(get).mockImplementation(async(url)=>url==='/personal-files/trash'?{items:trashItems}:{items:[],path:[],canUpload:false});vi.mocked(post).mockImplementation(async(_url,body)=>{const files=(body as {files:{id:string}[]}).files;trashItems=trashItems.filter(f=>!files.some(r=>r.id===f.id));return {count:files.length,failed:[]};});});

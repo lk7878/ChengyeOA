@@ -6,6 +6,7 @@ import { CollaborationService } from './collaboration-service';
 import { choice, exact, fail, integer, text } from './collaboration-policy';
 
 export type StorageRow = {
+  tableId?: string;
   id: string; fileId: string; version: number; name: string; kind: 'PERSONAL' | 'ATTACHMENT';
   ownerId: string; ownerName: string; department: string; workspaceId: string | null; workspaceName: string;
   location: string; size: number; current: boolean; trash: boolean; sha256: string; updatedAt: string;
@@ -107,7 +108,7 @@ export class StorageManagement {
       const table = tableById.get(attachment.tableId), wid = table?.base.workspaceId || null;
       // An ordinary user only sees their own uploads in workspaces they can still access.
       if (!all && (!wid || !workspaceNames.has(wid))) continue;
-      rows.push({ id: `attachment:${attachment.id}`, fileId: attachment.id, version: 1, name: attachment.name, kind: 'ATTACHMENT',
+      rows.push({ id: `attachment:${attachment.id}`, fileId: attachment.id, version: 1, name: attachment.name, kind: 'ATTACHMENT', tableId: table?.id,
         ownerId: attachment.ownerId, ...(owner.get(attachment.ownerId) || { ownerName: attachment.ownerId, department: '未绑定部门' }),
         workspaceId: wid, workspaceName: wid ? workspaceNames.get(wid) || '已移除工作区' : '未归属工作区（历史附件）',
         location: table ? `${table.base.name} / ${table.name}` : '历史附件', size: attachment.size,
