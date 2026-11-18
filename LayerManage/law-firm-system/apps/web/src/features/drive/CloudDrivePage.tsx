@@ -96,6 +96,13 @@ export default function CloudDrivePage() {
   const parentId = params.get('folder') || '';
   const scope = params.get('scope') || 'all';
   const search = params.get('q') || '';
+  const currentWorkspace = workspaces.find(w => w.id === workspaceId);
+  const tableOnly = currentWorkspace?.tableLinks !== undefined;
+  const personalScope = !parentId && ['mine', 'shared'].includes(scope);
+  const linkedTables = scope === 'all' && !parentId
+    ? (allWorkspaces ? workspaces : currentWorkspace ? [currentWorkspace] : []).flatMap(w =>
+        (w.tableLinks ?? []).filter(t => (t.baseName + ' ' + t.name).toLocaleLowerCase().includes(search.toLocaleLowerCase())))
+    : [];
   const sort =
     scope === 'recent'
       ? params.get('sort') === 'name'
@@ -106,10 +113,15 @@ export default function CloudDrivePage() {
         : 'updatedAt';
   const layout = params.get('layout') === 'cards' ? 'cards' : 'list';
   const page = Number(params.get('page') || 1);
-  const [listing, setListing] = useState<Listing>();
-  const [folders, setFolders] = useState<DriveItem[]>([]);
+  const [loadedListing, setListing] = useState<Listing>();
+  const listing = !tableOnly && loadedListing?.workspace.id === workspaceId ? loadedListing : undefined;
+  const [loadedFolders, setFolders] = useState<DriveItem[]>([]);
+  const folders = listing ? loadedFolders : [];
   const [folderUserId, setFolderUserId] = useState('');
   const [directory, setDirectory] = useState<Directory>(emptyDirectory);
+  const [directoryDenied, setDirectoryDenied] = useState(false);
+  const [workspacesDenied, setWorkspacesDenied] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
@@ -156,22 +168,35 @@ export default function CloudDrivePage() {
   }, [selected]);
   useEffect(() => {
     let active = true;
-    void get<{ workspaces: Workspace[]; canCreate: boolean }>('/workspaces')
+    let request = 0;
+    const load = () => {
+      const current = ++request;
+      return get<{ workspaces: Workspace[]; canCreate: boolean }>('/workspaces?driveLinks=1')
       .then((r) => {
-        if (active) {
+        if (active && current === request) {
+          setWorkspaceError('');
+          setWorkspacesDenied(false);
           setWorkspaces(r.workspaces);
           setCanCreateWorkspace(r.canCreate);
           setLoading(false);
         }
       })
       .catch((e) => {
-        if (active) {
-          setError(errorMessage(e));
+        if (active && current === request) {
+          setWorkspaces([]);
+          setWorkspacesDenied(errorStatus(e) === 403);
+          setWorkspaceError(errorStatus(e) === 403 ? '' : errorMessage(e));
           setLoading(false);
         }
       });
+    };
+    void load();
+    window.addEventListener('focus', load);
+    const timer = window.setInterval(load, 30000);
     return () => {
       active = false;
+      window.removeEventListener('focus', load);
+      clearInterval(timer);
     };
   }, [revision]);
   useEffect(() => {
@@ -188,7 +213,7 @@ export default function CloudDrivePage() {
     };
   }, [workspaceId, allWorkspaces, revision]);
   useEffect(() => {
-    if (!workspaceId || scope === 'storage') return;
+    if (!workspaceId || scope === 'storage' || tableOnly) return;
     let active = true,
       inflight = false;
     // A new route must never briefly display the previous folder's resources.
@@ -196,6 +221,9 @@ export default function CloudDrivePage() {
       if (inflight || !active) return;
       inflight = true;
       if (initial) {
+        setDirectoryDenied(false);
+        setAccessError('');
+        setError('');
         setListing(undefined);
         setFolders([]);
         setSelected(undefined);
@@ -213,6 +241,7 @@ export default function CloudDrivePage() {
           get<{ folders: DriveItem[]; userId: string }>('/workspaces/' + workspaceId + '/drive/folders'),
         ]);
         if (!active) return;
+        setDirectoryDenied(false);
         setListing(list);
         setFolders(tree.folders);
         setFolderUserId(tree.userId);
@@ -258,7 +287,8 @@ export default function CloudDrivePage() {
         }
       } catch (e) {
         if (!active) return;
-        setError(errorMessage(e));
+        setDirectoryDenied(errorStatus(e) === 403);
+        setError(errorStatus(e) === 403 ? '' : errorMessage(e));
         // Fail closed, including interrupted refreshes: a stale catalogue is not an authorization cache.
         setListing(undefined);
         setFolders([]);
@@ -296,7 +326,7 @@ export default function CloudDrivePage() {
       clearInterval(timer);
       window.removeEventListener('focus', focus);
     };
-  }, [workspaceId, allWorkspaces, parentId, scope, search, sort, page, revision, setParams]);
+  }, [workspaceId, allWorkspaces, tableOnly, parentId, scope, search, sort, page, revision, setParams]);
   const openDialog = (kind: 'folder' | 'base' | 'workspace' | 'rename', item?: DriveItem) => {
     setName(item?.name || '');
     const source = params.get('module') || '';
@@ -428,6 +458,12 @@ export default function CloudDrivePage() {
       .filter((f) => f.parentId === parent)
       .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
       .map((f) => ({ key: f.id, title: f.name, icon: <FolderOutlined />, children: tree(f.id, nodes) }));
+  const emptyActions = (
+    <Space>
+      <Button onClick={() => change({scope: 'mine', folder: '', q: ''})}>进入我的资源</Button>
+      <Button onClick={() => setMobile(true)}>切换工作区</Button>
+    </Space>
+  );
   const navigation = (
     <>
       <Select
@@ -528,7 +564,7 @@ export default function CloudDrivePage() {
                   {
                     title: (
                       <button onClick={() => change({ folder: '', scope: 'all', q: '' })}>
-                        {listing?.workspace.name || '工作区'}
+                        {listing?.workspace.name || currentWorkspace?.name || '工作区'}
                       </button>
                     ),
                   },
@@ -607,11 +643,12 @@ export default function CloudDrivePage() {
               />
             </Space>
           </div>
-          {(error || accessError) && (
+          {personalScope && <PersonalFiles key={scope} scope={scope as 'mine'|'shared'} />}
+          {(workspaceError || (!tableOnly && workspaceId && (error || accessError))) && (
             <Alert
               type="error"
-              title={error || accessError}
-              action={
+              title={workspaceError || error || accessError}
+              action={!accessError &&
                 <Button
                   aria-label="重试"
                   onClick={() => {
@@ -624,8 +661,22 @@ export default function CloudDrivePage() {
               }
             />
           )}
-          {scope === 'all' && <Alert type="info" showIcon title="个人上传文件与已同步的智慧办案成果，请到「我的资源」查看。" action={<Button onClick={() => change({ workspace: '__all__', scope: 'mine', folder: '', q: '' })}>我的资源</Button>} />}
-          {!parentId&&['mine','shared'].includes(scope)&&<PersonalFiles key={scope} scope={scope as 'mine'|'shared'}/>}
+          {scope === 'all' && !tableOnly && !directoryDenied && !workspacesDenied && <Alert type="info" showIcon title="个人上传文件与已同步的智慧办案成果，请到「我的资源」查看。" action={<Button onClick={() => change({ workspace: '__all__', scope: 'mine', folder: '', q: '' })}>我的资源</Button>} />}
+          {linkedTables.length > 0 && (
+            <section aria-label="已授权表格">
+              <h3>已授权表格</h3>
+              {linkedTables.map(t => <Button key={t.id} type="link" icon={<TableOutlined />}
+                onClick={() => setParams({ base: t.baseId, table: t.id, driveReturn: params.toString() || 'workspace=' + workspaceId })}>
+                {t.baseName === t.name ? t.name : t.baseName + ' / ' + t.name}
+              </Button>)}
+            </section>
+          )}
+          {(tableOnly || directoryDenied || workspacesDenied || !workspaceId) && !personalScope && !linkedTables.length && !workspaceError && !loading && (
+            <Empty description={search ? '未找到匹配的已授权资源' : '暂无获授权的工作区资源'}>
+              {emptyActions}
+            </Empty>
+          )}
+          {!tableOnly && !directoryDenied && !workspacesDenied && workspaceId && <>
           <p className="drive-caption">
             {allWorkspaces ? '全部工作区 · 可访问资源 · ' : `${listing?.workspace.name || '当前工作区'} · 当前工作区资源 · `}
             {search
@@ -654,16 +705,18 @@ export default function CloudDrivePage() {
           </p>
           {loading ? (
             <Spin />
-          ) : !listing?.items.length ? (
+          ) : !listing?.items.length && linkedTables.length ? null : !listing?.items.length ? (
             <Empty
               description={
                 error
                   ? '目录暂不可用，请重试或返回工作区'
-                  : workspaceId
+                  : scope === 'all' && !parentId && !search
+                    ? '暂无获授权的工作区资源'
+                    : workspaceId
                     ? '暂无可访问的资源'
                     : '暂无工作区，请创建或联系负责人授权'
               }
-            />
+            >{!error && scope === 'all' && !parentId && !search && emptyActions}</Empty>
           ) : (
             <div className={'drive-resources drive-' + layout + (scope === 'recent' ? ' drive-recent' : '')}>
               {listing.items.map((item) => (
@@ -743,6 +796,7 @@ export default function CloudDrivePage() {
               onChange={(value) => change({ page: String(value) })}
             />
           )}
+          </>}
           </>}
         </main>
       </div>

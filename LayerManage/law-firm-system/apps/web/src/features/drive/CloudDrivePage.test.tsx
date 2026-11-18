@@ -11,7 +11,7 @@ const listing = { items: [{id:'f',kind:'FOLDER',name:'跨区目录',workspaceId:
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(get).mockImplementation(async url => {
-    if(url==='/workspaces')return {workspaces:[{id:'w1',name:'工作区一'}],canCreate:false};
+    if(url==='/workspaces?driveLinks=1')return {workspaces:[{id:'w1',name:'工作区一'}],canCreate:false};
     if(url.includes('/collaboration/options'))return {organizations:[],employees:[],users:[],teams:[]};
     if(url.endsWith('/folders'))return {folders:[],userId:'me'};
     return listing;
@@ -46,4 +46,21 @@ test('aggregate browsing explains its scope and links personal uploads to my res
   fireEvent.click(hint.querySelector('button')!);
   expect(await screen.findByText('个人文件')).toBeInTheDocument();
   await waitFor(()=>expect(vi.mocked(get).mock.calls.some(([url])=>url.includes('/workspaces/__all__/drive?')&&url.includes('scope=mine'))).toBe(true));
+});
+
+test('table-only members can open their authorized worksheet and personal files independently', async () => {
+  vi.mocked(get).mockImplementation(async url => {
+    if (url === '/workspaces?driveLinks=1') return {
+      workspaces: [{ id: 'restricted', name: '案件管理', tableLinks: [
+        { id: 'table1', baseId: 'base1', baseName: '售后管理表', name: '案件管理表' },
+      ] }], canCreate: false,
+    };
+    return { organizations: [], employees: [], users: [], teams: [] };
+  });
+  render(<MemoryRouter initialEntries={['/workspaces']}><CloudDrivePage /></MemoryRouter>);
+  expect(await screen.findByRole('button', {name:/售后管理表.*案件管理表/})).toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole('button', {name:'我的资源'})[0]);
+  expect(await screen.findByText('个人文件')).toBeInTheDocument();
+  expect(screen.queryByRole('button', {name:'重试'})).not.toBeInTheDocument();
+  expect(vi.mocked(get).mock.calls.some(([url]) => url.includes('/restricted/drive'))).toBe(false);
 });

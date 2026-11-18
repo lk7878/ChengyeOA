@@ -711,7 +711,7 @@ export class CollaborationService {
     });
   }
   async listWorkspaces(raw: unknown = {}) {
-    const input = exact(raw, ['source']);
+    const input = exact(raw, ['source', 'driveLinks']);
     const source = this.moduleSource(input.source);
     const group = source ? moduleGroup(source) : null;
     const members = await this.db.collabMember.findMany({
@@ -725,27 +725,37 @@ export class CollaborationService {
       include: { bases: { orderBy: { name: 'asc' } } },
       orderBy: { name: 'asc' },
     });
-    const available: typeof workspaces = [];
+    type TableLink = { baseId: string; baseName: string; id: string; name: string };
+    const available: (typeof workspaces[number] & { tableLinks?: TableLink[] })[] = [];
     const provisionParents: { id: string; name: string }[] = [];
     for (const workspace of workspaces) {
+      let directoryAllowed = true;
       try {
         const access = await this.access(workspace.id);
         if (group && !workspace.moduleGroup && access.level >= 3) provisionParents.push({ id: workspace.id, name: workspace.name });
         if (group && (workspace.moduleGroup !== group || (access.level < 3 && !access.canCreate))) continue;
       } catch (e) { if ((e as {code:string}).code !== 'COLLAB_FORBIDDEN') throw e;
-        if (group || !direct.some(t=>t.workspaceId===workspace.id)) continue; }
-      available.push(workspace);
+        if (group || !direct.some(t=>t.workspaceId===workspace.id)) continue;
+        directoryAllowed = false;
+      }
+      const tableLinks: TableLink[] = [];
       const permitted = [] as typeof workspace.bases;
       for (const base of workspace.bases) {
         try {
           await this.baseAccess(base.id);
+          if (!directoryAllowed && input.driveLinks === '1') {
+            const directory = await this.listTables(base.id);
+            for (const table of directory.tables.filter(t => !t.archived)) {
+              tableLinks.push({ baseId: base.id, baseName: base.name, id: table.id, name: table.name });
+            }
+          }
           permitted.push({ ...base, accessPolicy: null as null });
         } catch (error) {
           if ((error as { code?: string }).code !== 'COLLAB_FORBIDDEN') throw error;
         }
       }
-      workspace.bases = permitted;
-      if (!permitted.length && !members.some(m=>m.workspaceId===workspace.id) && !applicationGrants.some(p=>p.workspaceId===workspace.id&&p.canCreate)) available.pop();
+      if (!permitted.length && !members.some(m=>m.workspaceId===workspace.id) && !applicationGrants.some(p=>p.workspaceId===workspace.id&&p.canCreate)) continue;
+      available.push({ ...workspace, bases: permitted, ...(!directoryAllowed && input.driveLinks === '1' ? { tableLinks } : {}) });
     }
     return {
       workspaces: available,

@@ -82,6 +82,7 @@ export interface Base extends Option {
   workspaceId: string;
 }
 export interface Workspace extends Option {
+  tableLinks?: { baseId: string; baseName: string; id: string; name: string }[];
   organizationId: string;
   bases: Base[];
 }
