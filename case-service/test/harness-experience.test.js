@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import Fastify from 'fastify'
-import {canManageHarness,personalWorkspaceTitle,isHarnessAdminRequest} from '../src/harness-experience.js'
+import {canManageHarness,personalWorkspaceTitle,isHarnessAdminRequest,isHarnessStaticResource} from '../src/harness-experience.js'
 import {registerHarnessProxy} from '../src/harness-proxy.js'
 
 test('native administration uses the real OA superadmin flag; chat and display preferences remain available',()=>{
@@ -14,6 +14,31 @@ test('native administration uses the real OA superadmin flag; chat and display p
  assert.equal(isHarnessAdminRequest('settings/mutate',{ns:'llm-pi-ai'}),true)
  assert.equal(isHarnessAdminRequest('settings/mutate',{ns:'ui-theme'}),false)
  for(const method of ['settings/describe','session/create','session/prompt','workspace/rename'])assert.equal(isHarnessAdminRequest(method),false)
+})
+
+test('browser bundle exception is limited to static HTTP reads, never management or RPC',()=>{
+ const paths=['/plugins/??@deepseek-ai/dsh-client-modules/client.js&rev=59ce49505625','/plugins/??p1/client.js,@scope/p2/client.js&rev=abcd','/plugins/@scope/p/client.chunk-abc.js?rev=abcd','/plugins/@scope/p/assets/icons/file.svg']
+ for(const url of paths){
+  for(const method of ['GET','HEAD'])assert.equal(isHarnessStaticResource(method,url),true,url)
+  for(const method of ['POST','PUT','DELETE'])assert.equal(isHarnessStaticResource(method,url),false,url)
+ }
+ for(const url of ['/api/plugins/install','/plugins/install','/plugins/events','/plugins/??p/client.node.js&rev=abcd','/plugins/p/client.node.js?rev=abcd','/plugins/p/client.node.chunk.js?rev=abcd','/plugins/p/assets/%2e%2e/secret','/plugins/p/client.js?rev=abcd&method=install'])assert.equal(isHarnessStaticResource('GET',url),false,url)
+ assert.equal(isHarnessAdminRequest('plugins/install'),true)
+})
+
+test('ordinary users load native startup bundles after task authorization; management remains forbidden',async t=>{
+ const upstream=Fastify(),proxy=Fastify();let authorized=true,hits=0
+ t.after(async()=>{await proxy.close();await upstream.close()})
+ upstream.all('/plugins/*',async(_req,reply)=>{hits++;return reply.type('text/javascript').send('window.__ModuleLoader__.load({id:"bootstrap"})')})
+ const base=await upstream.listen({host:'127.0.0.1',port:0})
+ proxy.decorate('oaTasks',{runtime:async()=>{if(!authorized)throw Object.assign(Error('forbidden'),{statusCode:403});return {base,cookie:'test-only'}}})
+ proxy.addHook('preHandler',async req=>{req.user={id:'ordinary',isSystemSuperAdmin:false};req.oa={token:'test-only'}})
+ await registerHarnessProxy(proxy)
+ const prefix='/harness/00000000-0000-0000-0000-000000000001',bundle='/plugins/??@deepseek-ai/dsh-client-modules/client.js&rev=59ce49505625'
+ for(const method of ['GET','HEAD']){const r=await proxy.inject({url:prefix+bundle,method});assert.equal(r.statusCode,200);assert.match(r.headers['content-type'],/javascript/)}
+ for(const [method,url]of [['POST',bundle],['GET','/plugins/install'],['GET','/api/plugins/install'],['GET','/plugins/p/client.node.js?rev=abcd']])assert.equal((await proxy.inject({url:prefix+url,method})).statusCode,403)
+ assert.equal(hits,2)
+ authorized=false;assert.equal((await proxy.inject(prefix+bundle)).statusCode,403);assert.equal(hits,2)
 })
 
 test('proxy injects server-owned role and denies administration writes including mismatched RPC method',async t=>{

@@ -1,4 +1,4 @@
-import {canManageHarness,harnessBootstrap,isHarnessAdminRequest,harnessFrameAllowed} from './harness-experience.js'
+import {canManageHarness,harnessBootstrap,isHarnessAdminRequest,harnessFrameAllowed,isHarnessStaticResource} from './harness-experience.js'
 import {randomUUID} from 'node:crypto'
 import http from 'node:http'
 import WebSocket from '../../runtime/upstream/harness/node_modules/.pnpm/ws@8.21.3/node_modules/ws/index.js'
@@ -223,7 +223,7 @@ export async function registerHarnessProxy(app){
   if(!canManageHarness(req.user)){
    let envelope=req.body
    if(typeof envelope==='string'){try{envelope=JSON.parse(envelope)}catch{envelope=null}}
-   const methods=[decodeURIComponent(parsedSuffix.pathname).replace(/^\/api\//,''),envelope?.method]
+   const methods=[...(isHarnessStaticResource(req.method,suffix)?[]:[decodeURIComponent(parsedSuffix.pathname).replace(/^\/api\//,'')]),envelope?.method]
    if(methods.some(method=>isHarnessAdminRequest(method,envelope?.payload?.args,runtime.approvedPreset)))return reply.code(403).send({error:'仅 OA 超级管理员可管理 AI 助手设置'})
   }
   const maybeHtml=req.method==='GET'&&(parsedSuffix.pathname==='/'||parsedSuffix.pathname.endsWith('.html'))

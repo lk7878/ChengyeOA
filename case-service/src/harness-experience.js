@@ -10,6 +10,17 @@ export function harnessBootstrap(user) {
  return `<script>window.__oaHarness=${JSON.stringify({isSuperAdmin:canManageHarness(user)})};</script>`
 }
 
+// The native /plugins/ carrier serves published browser bundles, not plugin
+// management RPCs. Keep this HTTP-only exception separate from the RPC guard.
+export function isHarnessStaticResource(method, url) {
+ if(!['GET','HEAD'].includes(method))return false
+ const parsed=new URL(url,'http://local'),packageName='(?:@[a-zA-Z0-9._-]+/)?[a-zA-Z0-9._-]+'
+ if(parsed.pathname==='/plugins/')return new RegExp(`^\\?\\?${packageName}/client\\.js(?:\\.map)?(?:,${packageName}/client\\.js(?:\\.map)?)*&rev=[a-f0-9]+$`).test(parsed.search)
+ if(new RegExp(`^/plugins/${packageName}/client(?:\\.[a-zA-Z0-9_-]+)*\\.js(?:\\.map)?$`).test(parsed.pathname))return !/\/client\.node[.]/.test(parsed.pathname)&&/^\?rev=[a-f0-9]+$/.test(parsed.search)
+ // The upstream registry additionally verifies package exports and file paths.
+ return new RegExp(`^/plugins/${packageName}/assets/[a-zA-Z0-9_./-]+$`).test(parsed.pathname)&&!parsed.pathname.split('/').some(segment=>segment==='.'||segment==='..')
+}
+
 // Native chat uses read-only configuration at startup and persists UI preferences.
 // Administration writes are separate from those normal conversation operations.
 export function isHarnessAdminRequest(method,args={},approvedPreset) {
