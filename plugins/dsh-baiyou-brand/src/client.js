@@ -4,7 +4,7 @@ import { registerOaFileSync } from './oa-file-sync.js'
 
 export const inject = ['slots', 'theme', 'contextMenus']
 
-const TITLE = '承业智慧办案 · AI 助手'
+const TITLE = '智慧办案 AI助手'
 const CSS_ID = 'dsh-baiyou-brand/css'
 const MARK = '<rect width="32" height="32" rx="9" fill="#3370ff"/><text x="16" y="23" text-anchor="middle" fill="white" font-size="23" font-family="sans-serif" font-weight="700">承</text>'
 const FAVICON = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${MARK}</svg>`)}`

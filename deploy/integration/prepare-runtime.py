@@ -85,3 +85,7 @@ start=text.index('    installSettingsSection(');end=text.index('    ctxAny.web.r
 shutil.copy2(root/'deploy/integration/task-bridge.mjs',bundle/'task-bridge.mjs')
 
 f=bundle/'package/record-parse/parse-records.mjs';text=f.read_text();text=re.sub(r"const CLOSE_BASE = '[^']+'", "const CLOSE_BASE = 'http://127.0.0.1:8090/ocr/v1'",text);text=re.sub(r"const ALIYUN_BASE = '[^']+'", "const ALIYUN_BASE = 'http://127.0.0.1:8090/ocr/v1'",text);f.write_text(text)
+
+# Brand initial HTML before any upstream JavaScript or plugins execute.
+import subprocess
+subprocess.run([os.environ.get("NODE_BINARY", "node"), str(root/"deploy/integration/brand-entrypoints.mjs"), str(root)], check=True)
