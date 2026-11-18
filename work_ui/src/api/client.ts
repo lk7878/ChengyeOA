@@ -59,6 +59,7 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: 'include',
   })
   if (!res.ok) {
+    if(res.status===401)window.dispatchEvent(new Event('wb:session-expired'))
     let msg = `HTTP ${res.status}`
     try { const j = await res.json(); if (j?.error) msg = j.error } catch { /* ignore */ }
     throw new ApiError(res.status, msg)

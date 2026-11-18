@@ -5,8 +5,7 @@ import { listCases } from '@/api/client'
 import { Button } from '@/components/Button'
 import { Tag } from '@/components/Tag'
 import { StageTag, PriorityTag } from '@/components/StatusTags'
-import { IconSpark, IconBook, IconExternal, IconCase, IconAccount, IconChevron } from '@/components/icons'
-import { EXTERNAL_LINKS } from '@/config/links'
+import { IconSpark, IconBook, IconCase, IconAccount, IconChevron } from '@/components/icons'
 import './Dashboard.css'
 
 export interface DashboardProps {
@@ -58,8 +57,8 @@ export function Dashboard({ accounts, onNavigate, onOpenExternal, showAccounts, 
           </p>
           <div className="wb-dash__heroActions">
             <Button variant="primary" icon={<IconSpark size={16} />} onClick={() => onOpenExternal('ai_assistant')}>
-              打开 AI 助手
-              <IconExternal size={13} />
+              进入 AI 任务
+
             </Button>
             <Button variant="outline" icon={<IconBook size={16} />} onClick={() => onNavigate('knowledge')}>
               知识库
@@ -170,9 +169,9 @@ export function Dashboard({ accounts, onNavigate, onOpenExternal, showAccounts, 
       <section className="wb-dash__links">
         <LinkCard
           icon={<IconSpark size={20} />}
-          title={EXTERNAL_LINKS.ai_assistant.label}
+          title="AI 任务"
           desc="进入通用法律助手。任务与私人会话仅本人可见，材料需要明确选择。"
-          href="从案件进入"
+          href="创建任务或打开已有 AI 会话"
           onClick={() => onOpenExternal('ai_assistant')}
           primary
         />
@@ -182,7 +181,6 @@ export function Dashboard({ accounts, onNavigate, onOpenExternal, showAccounts, 
           desc="查看获授权知识库的已发布条目与内容。"
           href="工作台 · 知识库"
           onClick={() => onNavigate('knowledge')}
-          external={false}
         />
       </section>
     </div>
@@ -227,7 +225,7 @@ function LinkCard({
   href,
   onClick,
   primary,
-  external = true,
+
 }: {
   icon: React.ReactNode
   title: string
@@ -235,7 +233,6 @@ function LinkCard({
   href: string
   onClick: () => void
   primary?: boolean
-  external?: boolean
 }) {
   return (
     <button className={primary ? 'wb-dash__link is-primary' : 'wb-dash__link'} onClick={onClick}>
@@ -243,7 +240,7 @@ function LinkCard({
       <div className="wb-dash__linkBody">
         <div className="wb-dash__linkTitle">
           {title}
-          {external && <IconExternal size={14} />}
+
         </div>
         <div className="wb-dash__linkDesc">{desc}</div>
         <div className="wb-dash__linkHref">{href}</div>

@@ -1,7 +1,6 @@
 import { Button } from './Button'
-import { IconSpark, IconBook, IconExternal } from './icons'
+import { IconSpark, IconBook } from './icons'
 import type { Account, ViewId } from '@/types'
-import { EXTERNAL_LINKS } from '@/config/links'
 import { ROLE_LABELS } from '@/types'
 import { formatBalance, type LlmStatus } from '@/api/client'
 import './TopBar.css'
@@ -58,8 +57,7 @@ export function TopBar({
           onClick={() => onOpenExternal('ai_assistant')}
           icon={<IconSpark size={16} />}
         >
-          {EXTERNAL_LINKS.ai_assistant.label}
-          <IconExternal size={13} />
+          AI 任务
         </Button>
 
         <div className="wb-topbar__user">

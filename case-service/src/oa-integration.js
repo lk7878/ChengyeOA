@@ -1,3 +1,4 @@
+import {registerEntryPages,safeWorkbenchNext} from './entry-pages.js'
 import { randomBytes,createHash } from 'node:crypto'
 import path from 'node:path'
 import {readFile} from 'node:fs/promises'
@@ -15,6 +16,7 @@ function oaReturnOrigin(requested){
  return configured.origin
 }
 export async function registerOa(app){
+ registerEntryPages(app)
  const store=new Store(path.join(process.env.DATA_DIR,'oa-sessions.json'))
  const mappings=new Store(path.join(process.env.DATA_DIR,'oa-user-map.json'))
  const allowedOrigin=new URL(process.env.WORKBENCH_PUBLIC_BASE||'http://127.0.0.1:5180').origin
@@ -36,14 +38,16 @@ export async function registerOa(app){
    return
   }
   if(p==='/api/health'||p.startsWith('/api/auth/start')||p==='/api/auth/oa/callback')return
-  try{const auth=await authenticate(req.headers);req.oa=auth.oa;req.user=auth.user}catch(error){return reply.code(error.statusCode===403?403:401).send({error:error.statusCode===403?'智慧办案使用资格已撤销，请联系管理员分配“智慧办案使用者”角色':'OA 会话已失效，请从 OA 重新登录'})}
+  try{const auth=await authenticate(req.headers);req.oa=auth.oa;req.user=auth.user}catch(error){return reply.code(error.statusCode===403?403:error.statusCode===401?401:503).send({error:error.statusCode===403?'智慧办案使用资格已撤销，请联系管理员分配“智慧办案使用者”角色':error.statusCode===401?'OA 会话已失效，请从 OA 重新登录':'OA 身份验证服务暂时不可用，请稍后重试'})}
   // These legacy paths expose shared runtimes/passwords or bypass OA authoritative files.
   if(/^\/api\/(accounts|sharing-groups|ai\/visible-sessions|go\/|knowledge-bases|knowledge\/)/.test(p)||p==='/api/auth/login'||/\/cases\/[^/]+\/(session|materials|raw|preview|session-files|files|export-word)(\/|$)/.test(p))return reply.code(410).send({error:'此旧接口已停用，请使用 OA 授权任务和知识投稿'})
  })
  app.get('/api/oa/theme.js',async(_req,reply)=>{reply.type('application/javascript').header('Cache-Control','private, no-store');return readFile(new URL('../../work_ui/public/oa-theme.js',import.meta.url),'utf8')})
  app.get('/api/auth/start',async(req,reply)=>{
   let origin;try{origin=oaReturnOrigin(req.query.return)}catch(error){return reply.code(error.statusCode||400).send({error:error.message})}
-  const verifier=randomBytes(32).toString('hex');const caseId=typeof req.query.caseId==='string'&&/^[a-zA-Z0-9-]{1,100}$/.test(req.query.caseId)?req.query.caseId:'';reply.header('set-cookie',[cookie('oa_login',verifier,120),cookie('oa_case',caseId,120)])
+  const next=req.query.next?safeWorkbenchNext(req.query.next):null
+  if(req.query.next&&!next)return reply.code(400).send({error:'返回页面无效'})
+  const verifier=randomBytes(32).toString('hex');const caseId=typeof req.query.caseId==='string'&&/^[a-zA-Z0-9-]{1,100}$/.test(req.query.caseId)?req.query.caseId:'';reply.header('set-cookie',[cookie('oa_login',verifier,120),cookie('oa_case',caseId,120),cookie('oa_next',next?encodeURIComponent(next):'',120)])
   reply.header('Cache-Control','private, no-store');reply.header('Referrer-Policy','no-referrer')
   if(req.query.response==='json')return {challenge:sha(verifier)}
   const url=new URL('/smart-case',origin);url.searchParams.set('challenge',sha(verifier));return reply.redirect(url.href)
@@ -55,7 +59,7 @@ export async function registerOa(app){
   await oa(result.token,'/smart-case/me')
   const token=randomBytes(32).toString('base64url')
   store.update(data=>{for(const [k,v]of Object.entries(data))if(v.expiresAt<Date.now())delete data[k];data[sha(token)]={token:result.token,expiresAt:Date.now()+result.expiresIn*1000}})
-  reply.header('set-cookie',[cookie('oa_sid',token),cookie('oa_login','',0)]);reply.header('Cache-Control','no-store');reply.header('Referrer-Policy','no-referrer');const caseId=parseCookie(req.headers.cookie).oa_case;const home=new URL(process.env.WORKBENCH_HOME||'/','http://local');if(caseId)home.searchParams.set('caseId',caseId);return reply.redirect(home.pathname+home.search)
+  reply.header('set-cookie',[cookie('oa_sid',token),cookie('oa_login','',0),cookie('oa_next','',0),cookie('oa_case','',0)]);reply.header('Cache-Control','no-store');reply.header('Referrer-Policy','no-referrer');const caseId=parseCookie(req.headers.cookie).oa_case;let next;try{next=safeWorkbenchNext(decodeURIComponent(parseCookie(req.headers.cookie).oa_next||''))}catch{}const home=new URL(next||process.env.WORKBENCH_HOME||'/','http://local');if(caseId)home.searchParams.set('caseId',caseId);return reply.redirect(home.pathname+home.search)
  })
  app.decorate('oaLogout',async(req,reply)=>{
   const sid=parseCookie(req.headers.cookie).oa_sid,session=sid&&store.read()[sha(sid)];
@@ -63,7 +67,7 @@ export async function registerOa(app){
   // must remain retryable; never tell the UI it logged out while the token lives.
   if(session)await oa(session.token,'/smart-case/logout',{method:'POST',body:{}})
   if(sid)store.update(data=>delete data[sha(sid)])
-  reply.header('set-cookie',[cookie('oa_sid','',0),cookie('oa_login','',0),cookie('oa_case','',0)])
+  reply.header('set-cookie',[cookie('oa_sid','',0),cookie('oa_login','',0),cookie('oa_case','',0),cookie('oa_next','',0)])
   reply.header('Cache-Control','no-store');return {ok:true}
  })
  app.post('/api/oa/logout',async(req,reply)=>app.oaLogout(req,reply))

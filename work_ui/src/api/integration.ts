@@ -1,4 +1,10 @@
-export async function api<T>(url:string,body?:unknown):Promise<T>{const r=await fetch(url,{credentials:'include',...(body!==undefined?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:{})});const data=await r.json();if(!r.ok)throw Error(data.message||data.error||'操作失败');return data}
+export class IntegrationError extends Error {constructor(public status:number,message:string){super(message)}}
+export async function api<T>(url:string,body?:unknown):Promise<T>{
+ const r=await fetch(url,{credentials:'include',...(body!==undefined?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:{})})
+ const data=await r.json().catch(()=>({message:'服务暂时不可用，请稍后重试'}))
+ if(!r.ok){if(r.status===401)window.dispatchEvent(new Event('wb:session-expired'));throw new IntegrationError(r.status,data.message||data.error||'操作失败')}
+ return data
+}
 export type FileRow={id:string;name:string;kind:string;contentVersion:number;size:number}
 export type Version={version:number;sha256:string;name:string;size:number}
 export type Task={id:string;title:string;kind:string;caseId:string|null;status:string;error?:string;sessionId?:string;workspaceId?:string;knowledgeBases?:string[];inputs:{fileId:string;version:number;name:string;sha256:string}[];outputs:Record<string,{name:string;status:string;error?:string;fileId?:string;version?:number;archives?:Record<string,string>}>}
