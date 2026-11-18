@@ -49,3 +49,5 @@ The guarded local rehearsal is `npm.cmd --prefix apps/server run rehearse:event-
 Word、Excel 和 PowerPoint 的新旧格式由 OA API 在本机转为临时 PDF。Linux API 主机需要安装 LibreOffice Writer、Calc、Impress、中文字体、Bubblewrap 和 util-linux，并允许服务账号使用 Bubblewrap 创建隔离命名空间。默认安装目录为 `/usr/lib/libreoffice`，便携安装可将 API 环境变量 `OA_PREVIEW_OFFICE_ROOT` 指向包含 `program/soffice` 的目录。发布后可用含中文的 DOCX、XLSX、PPTX 在“我的资源”点“预览”验证转换与字体。
 
 单次 Office 预览支持 64 MiB 以内的原件；PDF 和图片支持 128 MiB，文本、HTML 和 Markdown 支持 4 MiB。预览按内容版本读取，每次检查原有文件权限。转换产生的 PDF 临时文件在请求处理后清理。
+
+如果 Linux 服务账号无法创建 Bubblewrap 命名空间，可为 API 配置本地 WebAssembly 转换器。使用 Node 22.19 或更高版本，在独立工具目录安装 `@deepseek-ai/libreoffice-kit@0.2.3` 和 `@deepseek-ai/libreoffice-kit-wasm@0.2.3`，将 `OA_PREVIEW_WASM_CLI` 设为该目录下 `node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js` 的绝对路径。此模式支持 DOC、DOCX、XLS、XLSX、PPT、PPTX 及 ODF。

@@ -1,7 +1,7 @@
 import type { Context } from 'egg';
 import { execFile } from 'node:child_process';
 import { constants, createReadStream } from 'node:fs';
-import { access, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -17,38 +17,57 @@ const formats: Record<string, string> = {
 };
 let conversions = 0;
 
-// Only the selected input is mounted. Keep the Office profile, auxiliary files and network private.
+async function nativeOfficePdf(installation: string, input: string, extension: string, output: string) {
+  await writeFile(output, '', { mode: 0o600 });
+  const document = '/input/document.' + extension;
+  // LibreOffice saves by rename, so export in tmpfs and copy the completed PDF to the single writable mount.
+  await run('/usr/bin/bwrap', [
+    '--unshare-all', '--die-with-parent', '--new-session', '--clearenv',
+    '--ro-bind', '/usr/bin', '/usr/bin', '--ro-bind', '/usr/lib', '/usr/lib', '--ro-bind-try', '/usr/lib64', '/usr/lib64',
+    '--ro-bind', '/usr/share', '/usr/share', '--symlink', 'usr/bin', '/bin', '--symlink', 'usr/lib', '/lib',
+    '--symlink', 'usr/lib64', '/lib64', '--ro-bind-try', '/etc/fonts', '/etc/fonts',
+    '--ro-bind-try', '/etc/libreoffice', '/etc/libreoffice', '--ro-bind', installation, '/office',
+    '--proc', '/proc', '--dev', '/dev', '--size', String(384 * MiB), '--tmpfs', '/tmp',
+    '--ro-bind', input, document, '--bind', output, '/result.pdf', '--chdir', '/tmp',
+    '--setenv', 'PATH', '/usr/bin', '--setenv', 'HOME', '/tmp', '--setenv', 'LANG', 'C.UTF-8',
+    '--setenv', 'SAL_USE_VCLPLUGIN', 'svp', '--setenv', 'MALLOC_ARENA_MAX', '2',
+    '--setenv', 'MAX_CONCURRENCY', '2', '--',
+    '/usr/bin/prlimit', '--as=5368709120', '--cpu=45', '--fsize=' + (128 * MiB), '--',
+    '/bin/sh', '-ec', '/office/program/soffice -env:UserInstallation=file:///tmp/profile --headless --norestore --convert-to pdf --outdir /tmp "$1"; test -s /tmp/document.pdf; cat /tmp/document.pdf > /result.pdf',
+    'preview', document,
+  ], { timeout: 60000, killSignal: 'SIGKILL', maxBuffer: 128 * 1024 });
+}
+
 async function officePdf(source: string | Buffer, extension: string) {
   const installation = process.env.OA_PREVIEW_OFFICE_ROOT || '/usr/lib/libreoffice';
-  try { await Promise.all(['/usr/bin/bwrap', path.join(installation, 'program/soffice')].map(file => access(file, constants.X_OK))); }
+  const wasmCli = process.env.OA_PREVIEW_WASM_CLI;
+  if (wasmCli && extension === 'rtf') fail('FILE_PREVIEW_UNSUPPORTED', 415);
+  try {
+    if (wasmCli) await access(wasmCli, constants.R_OK);
+    else await Promise.all(['/usr/bin/bwrap', path.join(installation, 'program/soffice')].map(file => access(file, constants.X_OK)));
+  }
   catch { fail('FILE_PREVIEW_CONVERTER_UNAVAILABLE', 503); }
   if (conversions >= 2) fail('FILE_PREVIEW_BUSY', 429);
   conversions++;
   let directory: string | undefined;
   try {
     directory = await mkdtemp(path.join(tmpdir(), 'oa-file-preview-'));
-    const input = typeof source === 'string' ? source : path.join(directory, 'input');
-    if (Buffer.isBuffer(source)) await writeFile(input, source, { mode: 0o600 });
-    // Mount only an empty output file writable, never a host directory.
     const output = path.join(directory, 'preview.pdf');
-    await writeFile(output, '', { mode: 0o600 });
-    const document = '/input/document.' + extension;
-    // LibreOffice saves by rename, so export in tmpfs and copy the completed PDF to the single writable mount.
-    await run('/usr/bin/bwrap', [
-      '--unshare-all', '--die-with-parent', '--new-session', '--clearenv',
-      '--ro-bind', '/usr/bin', '/usr/bin', '--ro-bind', '/usr/lib', '/usr/lib', '--ro-bind-try', '/usr/lib64', '/usr/lib64',
-      '--ro-bind', '/usr/share', '/usr/share', '--symlink', 'usr/bin', '/bin', '--symlink', 'usr/lib', '/lib',
-      '--symlink', 'usr/lib64', '/lib64', '--ro-bind-try', '/etc/fonts', '/etc/fonts',
-      '--ro-bind-try', '/etc/libreoffice', '/etc/libreoffice', '--ro-bind', installation, '/office',
-      '--proc', '/proc', '--dev', '/dev', '--size', String(384 * MiB), '--tmpfs', '/tmp',
-      '--ro-bind', input, document, '--bind', output, '/result.pdf', '--chdir', '/tmp',
-      '--setenv', 'PATH', '/usr/bin', '--setenv', 'HOME', '/tmp', '--setenv', 'LANG', 'C.UTF-8',
-      '--setenv', 'SAL_USE_VCLPLUGIN', 'svp', '--setenv', 'MALLOC_ARENA_MAX', '2',
-      '--setenv', 'MAX_CONCURRENCY', '2', '--',
-      '/usr/bin/prlimit', '--as=5368709120', '--cpu=45', '--fsize=' + (128 * MiB), '--',
-      '/bin/sh', '-ec', '/office/program/soffice -env:UserInstallation=file:///tmp/profile --headless --norestore --convert-to pdf --outdir /tmp "$1"; test -s /tmp/document.pdf; cat /tmp/document.pdf > /result.pdf',
-      'preview', document,
-    ], { timeout: 60000, killSignal: 'SIGKILL', maxBuffer: 128 * 1024 });
+    if (wasmCli) {
+      // The portable engine opens a copy with its original extension in a WASM virtual filesystem.
+      const staged = path.join(directory, 'document.' + extension);
+      if (typeof source === 'string') await copyFile(source, staged);
+      else await writeFile(staged, source, { mode: 0o600 });
+      await run(process.execPath, [
+        wasmCli, 'convert', '--input', staged, '--output', output,
+        '--timeout-ms', '60000', '--max-input-bytes', String(64 * MiB), '--max-output-bytes', String(128 * MiB),
+      ], { cwd: directory, env: { HOME: directory, TMPDIR: directory, LANG: 'C.UTF-8', PATH: path.dirname(process.execPath) },
+        timeout: 65000, killSignal: 'SIGKILL', maxBuffer: 128 * 1024 });
+    } else {
+      const input = typeof source === 'string' ? source : path.join(directory, 'input');
+      if (Buffer.isBuffer(source)) await writeFile(input, source, { mode: 0o600 });
+      await nativeOfficePdf(installation, input, extension, output);
+    }
     const pdf = await readFile(output);
     if (pdf.subarray(0, 5).toString() !== '%PDF-') throw new Error('Invalid conversion');
     return pdf;
