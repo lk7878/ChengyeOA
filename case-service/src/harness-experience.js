@@ -26,7 +26,7 @@ export function isHarnessStaticResource(method, url) {
 export function isHarnessAdminRequest(method,args={},approvedPreset) {
  if(typeof method!=='string')return false
  const name=method.replace(/^\/(?:api\/)?/,'')
- if (/^(account|credentials|pluginManager|pluginMarket|plugins?|mcpManager|cordis|hostRunner|terminal)\//i.test(name)) return true
+ if (/^(account|credentials|pluginManager|pluginMarket|plugins?|mcpManager|cordis|hostRunner|terminal|schedules?)\//i.test(name)) return true
  if (/^src\//.test(name))return true
  if (/^skills?\//i.test(name)&&!/^skills?\/(list|read|search)$/.test(name))return true
  if (/^(session\/(selectModel|selectAccountModel|initializeDefaultModel)|agentPresets\/select|permissionPresets\/(select|set|update))$/.test(name)) return true

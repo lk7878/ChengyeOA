@@ -7,6 +7,7 @@ import cors from '@fastify/cors'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {registerOa} from './oa-integration.js'
+import {registerTaskUploads} from './task-uploads.js'
 import {registerTasks} from './oa-tasks.js'
 import {registerKnowledge} from './knowledge-publication.js'
 import {registerKnowledgeAccess} from './knowledge-access.js'
@@ -19,7 +20,7 @@ const release=await acquireWriter(process.env.DATA_DIR)
 const app=Fastify({logger:{redact:['req.headers.authorization','req.headers.cookie'],serializers:{req:req=>({method:req.method,url:req.url?.split('?')[0]})}},bodyLimit:32*1024*1024})
 app.decorateRequest('user',null);app.decorateRequest('oa',null)
 await app.register(cors,{origin:process.env.WORKBENCH_PUBLIC_BASE||'http://127.0.0.1:5180',credentials:true})
-await registerOa(app);await registerKnowledge(app);await registerAiPolicy(app,()=>[...new Set([process.env.CHAT_MODEL,...(modelConfig?.provider.models||[]).map(m=>m.id)].filter(Boolean))]);await registerTasks(app);await registerHarnessProxy(app);await registerNativeKnowledge(app);await registerKnowledgeAccess(app)
+await registerOa(app);await registerKnowledge(app);await registerAiPolicy(app,()=>[...new Set([process.env.CHAT_MODEL,...(modelConfig?.provider.models||[]).map(m=>m.id)].filter(Boolean))]);await registerTasks(app);await registerTaskUploads(app);await registerHarnessProxy(app);await registerNativeKnowledge(app);await registerKnowledgeAccess(app)
 app.get('/api/health',async()=>({ok:true,service:'oa-smart-case'}))
 app.get('/api/me',async req=>({user:req.user}))
 app.get('/api/users',async req=>({users:[req.user]}))

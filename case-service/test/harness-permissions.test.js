@@ -9,7 +9,7 @@ import {harnessFrameAllowed,isHarnessAdminRequest} from '../src/harness-experien
 const rpc=(method,args={})=>JSON.stringify({type:'client-request',rpcId:'test',method,payload:{args}})
 const taskId='00000000-0000-0000-0000-000000000001'
 test('administration guard covers model, plugin, preset, slash-command and binary bypasses while allowing approved Skills',()=>{
- for(const method of ['pluginManager/install','pluginMarket/install','account/watch','credentials/set','session/selectModel','session/initializeDefaultModel','agentPresets/select','skills/install'])assert.equal(harnessFrameAllowed(rpc(method)),false,method)
+ for(const method of ['pluginManager/install','pluginMarket/install','account/watch','credentials/set','session/selectModel','session/initializeDefaultModel','agentPresets/select','skills/install','schedules/create','schedule/delete','schedules/list'])assert.equal(harnessFrameAllowed(rpc(method)),false,method)
  assert.equal(harnessFrameAllowed(rpc('commands/execute',{line:'/permission danger-full-access'})),false)
  assert.equal(harnessFrameAllowed(rpc('session/create',{request:{agentPreset:'traffic-accident'}}),false,'general-legal'),false)
  assert.equal(harnessFrameAllowed(rpc('session/create',{request:{agentPreset:'general-legal'}}),false,'general-legal'),true)

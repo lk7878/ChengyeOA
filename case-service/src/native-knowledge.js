@@ -6,6 +6,7 @@ const root=fileURLToPath(new URL('../../WeKnora/frontend/dist/',import.meta.url)
 const fail=(message,statusCode=403)=>{throw Object.assign(Error(message),{statusCode})}
 export async function registerNativeKnowledge(app){
  app.all('/knowledge-native/*',async(req,reply)=>{
+  if(req.oa?.isSystemSuperAdmin!==true)fail('知识库维护仅对超级管理员开放')
   const kb=app.oaKnowledge,actor=req.oa,allowed=kb.libraries(actor.id,actor.permissions).filter(k=>k.canReview)
   if(!allowed.length)fail('仅已授权知识库审核人可进入原生管理')
   reply.header('Cache-Control','private, no-store')

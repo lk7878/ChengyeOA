@@ -119,7 +119,7 @@ export default function App() {
   }
 
   const canManageAccounts = hasRole(user, 'platform_admin')
-  const canWriteKb = hasRole(user, 'platform_admin', 'public_admin')
+  const canWriteKb = user.isSystemSuperAdmin === true
   const canSeeBalance = hasRole(user, 'platform_admin')
 
   return (

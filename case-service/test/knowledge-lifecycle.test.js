@@ -110,7 +110,7 @@ test('HTTP workflow requires reviewer access and observed revision; reader sees 
  process.env.DATA_DIR=dir
  const app=Fastify()
  app.decorateRequest('oa',null)
- app.addHook('onRequest',async req=>{req.oa=req.headers['x-test-reader']?{id:'reader',permissions:[]}:actor})
+ app.addHook('onRequest',async req=>{req.oa=req.headers['x-test-reader']?{id:'reader',permissions:[]}:{...actor,isSystemSuperAdmin:true}})
  await registerKnowledge(app)
  if(previous===undefined)delete process.env.DATA_DIR;else process.env.DATA_DIR=previous
  t.after(async()=>{await app.close();await rm(dir,{recursive:true,force:true})})
@@ -127,10 +127,10 @@ test('HTTP workflow requires reviewer access and observed revision; reader sees 
  assert.equal(registration.statusCode,200)
  const row=registration.json()
  assert.equal((await app.inject({url:'/api/kb',headers:reader})).json().items[0].count,0)
- assert.equal((await app.inject({url:`/api/submissions/${row.id}/content`,headers:reader})).statusCode,404)
+ assert.equal((await app.inject({url:`/api/submissions/${row.id}/content`,headers:reader})).statusCode,403)
  assert.equal((await app.inject({method:'POST',url:`/api/submissions/${row.id}/review`,payload:{decision:'approve',checks}})).statusCode,200)
  await reconcilePublications(kb)
  assert.equal((await app.inject({url:'/api/kb',headers:reader})).json().items[0].count,1)
  assert.equal((await app.inject({url:'/api/kb/kb/documents',headers:reader})).json().items[0].name,native.file_name)
- assert.equal((await app.inject({url:'/api/submissions',headers:reader})).json().items.length,0)
+ assert.equal((await app.inject({url:'/api/submissions',headers:reader})).statusCode,403)
 })

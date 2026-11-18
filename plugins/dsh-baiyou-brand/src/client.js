@@ -1,6 +1,7 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 import { registerOaFileSync } from './oa-file-sync.js'
+import { bindOaUpload } from './oa-upload.js'
 
 export const inject = ['slots', 'theme', 'contextMenus']
 
@@ -27,12 +28,16 @@ const EXACT = new Map([
 ])
 
 const CSS = [
+  'html[data-oa-harness-role=member] nav[class*="_panelList"]{display:none!important}',
+  'html[data-oa-harness-role=member] [data-composer-card]:has(.oa-upload-trigger) button[class*="_add"]{display:none!important}.oa-upload-trigger{border:0;border-radius:50%;min-width:28px;height:28px;cursor:pointer;background:var(--dsw-alias-background-secondary,#f4f5f7);color:inherit;font-size:18px}.oa-upload-trigger[data-admin]{border-radius:6px;font-size:13px;padding:0 8px}',
+  '.oa-upload-dialog{width:min(620px,90vw);max-height:80vh;overflow:auto;padding:24px;border:1px solid #dce2ee;border-radius:16px;background:var(--dsw-alias-background-primary,#fff);color:var(--dsw-alias-label-primary,#182238)}.oa-upload-dialog::backdrop{background:#0006}.oa-upload-dialog p{line-height:1.7}.oa-upload-dialog button{margin:8px;padding:8px 12px;border:1px solid #ccc;border-radius:6px;cursor:pointer}.oa-upload-list>div{display:flex;flex-direction:column;gap:8px;padding:12px 0;overflow-wrap:anywhere}',
   '.by-mark{display:inline-flex;flex:none;border-radius:8px;overflow:hidden}',
   '.by-name{display:flex;flex-direction:column;justify-content:center;line-height:normal;gap:2px;min-width:0;white-space:nowrap}',
-  '.by-name__zh{line-height:18px}.by-name__en{line-height:14px}',
+  '.by-name__zh{line-height:21px}.by-name__en{line-height:17px}',
+  '[class*="_brandIdentity"]:has(.by-name){gap:10px}.by-name{text-align:left;letter-spacing:normal}.by-sidebar-mark text{font-size:20px;font-weight:400}',
   '[class*=\"_brandName\"]:has(.by-name),[class*=\"_brandIdentity\"]:has(.by-name){height:auto;min-height:36px}',
-  '.by-name__zh{font-size:13px;font-weight:700;letter-spacing:.04em;color:var(--dsw-alias-label-primary)}',
-  '.by-name__en{font-size:10px;font-weight:600;letter-spacing:.14em;color:var(--dsw-alias-label-secondary)}',
+  '.by-name__zh{font-size:15px;font-weight:600;letter-spacing:normal;color:var(--dsw-alias-label-primary)}',
+  '.by-name__en{font-size:12px;font-weight:400;letter-spacing:normal;color:var(--dsw-alias-label-secondary)}',
 ].join('')
 
 function ensureCss() {
@@ -50,11 +55,11 @@ function markSvg(size) {
   return `<svg class="by-mark" viewBox="0 0 32 32" width="${px}" height="${px}" aria-hidden="true">${MARK}</svg>`
 }
 
-function BrandMark({ size = 24 }) {
+function BrandMark({ size = 24, className = '' }) {
   ensureCss()
   const px = Number(size) || 24
   return jsxs('svg', {
-    className: 'by-mark',
+    className: 'by-mark '+className,
     viewBox: '0 0 32 32',
     width: px,
     height: px,
@@ -63,6 +68,8 @@ function BrandMark({ size = 24 }) {
     dangerouslySetInnerHTML: { __html: MARK },
   })
 }
+
+function SidebarBrandMark() { return jsx(BrandMark, {size:32,className:'by-sidebar-mark'}) }
 
 function BrandName() {
   ensureCss()
@@ -168,6 +175,12 @@ function HiddenSettings() { return null }
 
 export function apply(ctx) {
   registerOaFileSync(ctx)
+  function UploadBinding({inputActions,sessionId}) {
+    const anchor=useRef(null),isAdmin=window.__oaHarness?.isSuperAdmin===true
+    useEffect(()=>bindOaUpload(ctx,inputActions,window,anchor.current),[inputActions,sessionId])
+    return jsx('button',{ref:anchor,type:'button',className:'oa-upload-trigger','data-admin':isAdmin?'':undefined,'aria-label':'上传文件到 OA 和当前任务',children:isAdmin?'上传文件':'＋'})
+  }
+  ctx.slots.inject('conversation.input.left',()=>ctx.slots.register({name:'conversation.input.left',id:'oa-upload'},UploadBinding))
   ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
     name: 'settings.onboarding', id: 'welcome-notice', order: -100, priority: -10,
   }, SkipPreviewNotice))
@@ -178,8 +191,9 @@ export function apply(ctx) {
       ctx.slots.inject(name, () => ctx.slots.register({name,priority:-100},HiddenSettings))
     }
     ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({name:'conversation.session.header.actions',id:'agent-preset',priority:-100},HiddenSettings))
+    document.documentElement.dataset.oaHarnessRole = 'member'
     for (const id of ['plugins','schedules']) {
-      ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({name:'sidebar.panellist',id,priority:-100},HiddenSettings))
+      ctx.slots.inject('main', () => ctx.slots.register({name:'main',key:id,priority:-100},HiddenSettings))
     }
     ctx.slots.inject('sidebar.settings', () => ctx.slots.register({
       name: 'sidebar.settings', priority: -10,
@@ -202,7 +216,7 @@ export function apply(ctx) {
 
   const brandSeat = { priority: -1 }
   ctx.slots.inject('sidebar.brand.mark', () => ctx.slots.inject('sidebar.brand.name', function* () {
-    yield ctx.slots.register({ name: 'sidebar.brand.mark', ...brandSeat }, BrandMark)
+    yield ctx.slots.register({ name: 'sidebar.brand.mark', ...brandSeat }, SidebarBrandMark)
     yield ctx.slots.register({ name: 'sidebar.brand.name', ...brandSeat }, BrandName)
   }))
   ctx.slots.inject('conversation.hero.brand.mark', function* () {
