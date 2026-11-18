@@ -62,9 +62,13 @@ function Preview({ url, name }: { url: string; name: string }) {
         const blob = await response.blob();
         if (format === 'pdf' && !(await blob.slice(0, 1024).text()).includes('%PDF-')) throw new Error('PDF 文件内容无效。');
         if (controller.signal.aborted) return;
-        objectUrl = URL.createObjectURL(blob.slice(0, blob.size, format === 'pdf' ? 'application/pdf' : format));
-        view = format === 'pdf' ? <iframe title={name} src={objectUrl} style={style} />
-          : <img alt={name} src={objectUrl} style={{ display: 'block', maxWidth: '100%', maxHeight: '68vh', margin: 'auto' }} onError={() => setError('无法显示此图片，请下载原件查看。')} />;
+        if (format === 'pdf') {
+          const { default: PdfPages } = await import('./PdfPages');
+          view = <PdfPages bytes={blob} name={name} />;
+        } else {
+          objectUrl = URL.createObjectURL(blob.slice(0, blob.size, format));
+          view = <img alt={name} src={objectUrl} style={{ display: 'block', maxWidth: '100%', maxHeight: '68vh', margin: 'auto' }} onError={() => setError('无法显示此图片，请下载原件查看。')} />;
+        }
       }
       if (!controller.signal.aborted) setContent(view);
     }

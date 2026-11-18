@@ -2,7 +2,7 @@ import { BROWSER_TITLE } from './src/product'
 import { configDefaults, defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'path'
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { searchForWorkspaceRoot, transformWithOxc } from 'vite'
 
 const workflowSchemaPath = path.resolve(__dirname, '../server/app/domain/workflow/schema.ts')
@@ -10,6 +10,16 @@ const workflowModuleId = '\0oa-workflow-schema'
 
 export default defineConfig({
   plugins: [react(), {
+    name: 'oa-pdf-reader-assets', apply: 'build',
+    async generateBundle() {
+      for (const folder of ['cmaps', 'standard_fonts', 'wasm']) {
+        const directory = path.resolve(__dirname, 'node_modules/pdfjs-dist', folder)
+        for (const name of await readdir(directory)) {
+          this.emitFile({ type: 'asset', fileName: `pdf-assets/${folder}/${name}`, source: await readFile(path.join(directory, name)) })
+        }
+      }
+    },
+  }, {
     // Publish only the shared workflow contract, without browser /@fs/ requests.
     name: 'oa-workflow-contract', enforce: 'pre',
     resolveId(source) {
