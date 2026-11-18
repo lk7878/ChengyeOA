@@ -2736,7 +2736,15 @@ export class CollaborationService {
     return this.db.$transaction(async tx=>{
       const service=new CollaborationService(tx as PrismaClient,this.actor,this.preview);
       const detail=await service.describe(tableId);
-      if(detail.access.copy===false) fail('COLLAB_FORBIDDEN',403);
+      const {table,access}=await service.tableAccess(tableId,tx);
+      if(access.copy===false) fail('COLLAB_FORBIDDEN',403);
+      // Bind export and field visibility to the same contributing rule and matching rows.
+      // A read-all rule must not widen a separate export-own rule.
+      const exportRules=access.rules?.filter(rule=>rule.copy && (!rule.viewIds || rule.viewIds.includes(String(input.viewId ?? detail.views[0]?.id))));
+      if(exportRules && !exportRules.length)fail('COLLAB_FORBIDDEN',403);
+      const exportScopes=exportRules ? await Promise.all(exportRules.map(async rule=>({rule,
+        ids:rule.rows==='ALL'&&!rule.business ? undefined : new Set(await service.matchingRows(table,access,table.fields,[rule],tx)),
+      }))) : undefined;
       const rows:Awaited<ReturnType<CollaborationService['query']>>['records']=[];
       for(let page=1;page<=50;page++) {
         const result=await service.query(tableId,{...input,page,pageSize:200});
@@ -2750,7 +2758,9 @@ export class CollaborationService {
         const policy=FIELD_CATALOG.find(p=>p.resource===caps.resource && p.field===object(f.options).businessKey);
         return !policy || projection.canExportField(this.actor,policy.resource,policy.code,(caps.basic.find(p=>p.endsWith('.read'))||'lead.read') as never);
       });
-      return {fields:fields.map(f=>({id:f.id,name:f.name})),records:rows.map(r=>({id:r.id,values:Object.fromEntries(fields.map(f=>[f.id,r.values[f.id]]))}))};
+      return {fields:fields.map(f=>({id:f.id,name:f.name})),records:rows
+        .filter(r=>!exportScopes || exportScopes.some(s=>!s.ids||s.ids.has(r.id)))
+        .map(r=>({id:r.id,values:Object.fromEntries(fields.filter(f=>!exportScopes || exportScopes.some(s=>(!s.ids||s.ids.has(r.id)) && (s.rule.fields[f.id]??'EDIT')!=='HIDDEN')).map(f=>[f.id,r.values[f.id]]))}))};
     },{isolationLevel:'RepeatableRead',timeout:30000});
   }
 

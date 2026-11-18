@@ -1094,3 +1094,24 @@ test('super administrator invites without table membership while ordinary admins
   await assert.rejects(policy.change(t.id,{userId:recipient.id,roleId:'EDITOR',version:1},true),code('COLLAB_MEMBER_UNAVAILABLE'));
   assert.equal((await db.worksheetRolePolicy.findUniqueOrThrow({where:{tableId:t.id}})).version,1);
 });
+
+test('read-all plus edit/export-own cannot edit or export another rule’s rows and fields',async()=>{
+ const {WorksheetPermissions}=await import('../../app/application/collaboration/worksheet-permissions');
+ const {defaultRule}=await import('../../app/application/collaboration/worksheet-roles');
+ const policy=new WorksheetPermissions(db,svc.actor),t=await table('CUSTOM');
+ const field=t.detail.fields.find(f=>f.type==='TEXT')!;
+ const secret=await svc.saveField(t.id,undefined,{name:'仅可在线查看',type:'TEXT',version:1},key());
+ const own=await svc.saveRecord(t.id,undefined,{values:{[field.id]:'本人',[secret.id]:'不可导出'},schemaVersion:2},key());
+ const other=await svc.saveRecord(t.id,undefined,{values:{[field.id]:'他人',[secret.id]:'保密'},schemaVersion:2},key());
+ const r1=await db.role.create({data:{code:key(),name:'全部只读',type:'BUSINESS'}}),r2=await db.role.create({data:{code:key(),name:'本人编辑导出',type:'BUSINESS'}});
+ const account=await db.user.create({data:{username:key(),password:'unused',userRoles:{create:[{roleId:r1.id},{roleId:r2.id}]}}});
+ await db.collabRecord.update({where:{id:own.id},data:{createdBy:account.id}});
+ await policy.change(t.id,{roleId:r1.id,rule:{...defaultRule('READER'),copy:false},version:0},false);
+ await policy.change(t.id,{roleId:r2.id,rule:{...defaultRule('EDITOR'),rows:'SELF',copy:true,fields:{[secret.id]:'HIDDEN'}},version:1},false);
+ const member=new CollaborationService(db,{...svc.actor,userId:account.id,employeeId:null,isSystemSuperAdmin:false});
+ assert.equal((await member.query(t.id,{})).total,2);
+ await assert.rejects(member.saveRecord(t.id,other.id,{values:{[field.id]:'非法'},schemaVersion:2,version:1},key()),code('COLLAB_FORBIDDEN'));
+ const result=await member.exportRecords(t.id,{});
+ assert.deepEqual(result.records.map(r=>r.id),[own.id]);assert.equal(result.records[0].values[secret.id],undefined);
+ await member.saveRecord(t.id,own.id,{values:{[field.id]:'合法修改'},schemaVersion:2,version:1},key());
+});

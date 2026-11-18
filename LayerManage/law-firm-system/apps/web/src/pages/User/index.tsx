@@ -8,8 +8,9 @@ import {
   PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined,
   SyncOutlined, SafetyOutlined, KeyOutlined
 } from '@ant-design/icons';
-import { userApi, roleApi } from '@/api/user';
-import type { User, Role } from '@/types';
+import { useNavigate } from 'react-router';
+import { userApi } from '@/api/user';
+import type { User } from '@/types';
 import dayjs from 'dayjs';
 import EmployeeTreeSelect, { type SelectedEmployee } from '@/features/master-data/components/EmployeeTreeSelect';
 import { masterDataApi } from '@/features/master-data/api';
@@ -21,10 +22,7 @@ const UserPage: React.FC = () => {
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
   const [searchKeyword, setSearchKeyword] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
-  const [roleModal, setRoleModal] = useState(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const navigate = useNavigate();
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<SelectedEmployee | null>(null);
   const [form] = Form.useForm();
@@ -49,7 +47,7 @@ const UserPage: React.FC = () => {
   }
 
   const { current: currentPage, pageSize } = pagination;
-  const onPageChange = useEffectEvent(() => { void fetchData(); void fetchRoles(); });
+  const onPageChange = useEffectEvent(() => { void fetchData(); });
   useEffect(() => { onPageChange(); }, [currentPage, pageSize]);
 
   async function fetchData() {
@@ -65,16 +63,6 @@ const UserPage: React.FC = () => {
     } finally { setLoading(false); }
   };
 
-  async function fetchRoles() {
-    try {
-      const res = await roleApi.list();
-      if (res.code === 200) {
-        const list = res.data.list || res.data;
-        setRoles(list.filter((role: Role) => role.type === 'BUSINESS' && role.status === 'ENABLED'));
-      }
-    } catch { /* Request errors are handled by the shared interceptor. */ }
-  };
-
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -82,12 +70,7 @@ const UserPage: React.FC = () => {
     finally { setDeleting(false); }
   };
 
-  const handleAssignRoles = (user: User) => {
-    setCurrentUser(user);
-    const currentRoleIds = user.userRoles?.filter(ur => roles.some(role => role.id === ur.roleId)).map(ur => ur.roleId) || [];
-    setSelectedRoles(currentRoleIds);
-    setRoleModal(true);
-  };
+  const handleAssignRoles = (user: User) => navigate('/security/users?userId='+encodeURIComponent(user.id));
 
   const handleSubmit = async (v: Record<string, unknown>) => {
     const username = String(v.username ?? '').trim();
@@ -115,15 +98,6 @@ const UserPage: React.FC = () => {
     fetchData();
   };
 
-  const handleRoleSubmit = async () => {
-    if (!currentUser) return;
-    try {
-      await userApi.assignRoles(currentUser.id, selectedRoles);
-      message.success('角色分配成功');
-      setRoleModal(false);
-      fetchData();
-    } catch { /* Request errors are handled by the shared interceptor. */ }
-  };
 
   const handleResetPassword = async (values: { password: string; confirmation: string }) => {
     if (!resetTarget) return;
@@ -227,24 +201,7 @@ const UserPage: React.FC = () => {
       </Modal>
 
       {/* 分配角色 */}
-      <Modal title="分配角色" open={roleModal} onCancel={() => setRoleModal(false)} onOk={handleRoleSubmit}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {roles.map(role => (
-            <label key={role.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, cursor: 'pointer', borderRadius: 4, background: selectedRoles.includes(role.id) ? '#e6f7ff' : 'transparent' }}>
-              <input
-                type="checkbox"
-                checked={selectedRoles.includes(role.id)}
-                onChange={(e) => {
-                  if (e.target.checked) setSelectedRoles([...selectedRoles, role.id]);
-                  else setSelectedRoles(selectedRoles.filter(id => id !== role.id));
-                }}
-              />
-              <span>{role.name}</span>
-              <Tag>{role.type === 'SYSTEM' ? '系统' : '自定义'}</Tag>
-            </label>
-          ))}
-        </div>
-      </Modal>
+
 
       {/* 重置密码 */}
       <Modal title={`重置密码 · ${resetTarget?.username ?? ''}`} open={Boolean(resetTarget)} onCancel={() => setResetTarget(null)} onOk={() => resetForm.submit()} confirmLoading={resetSaving} destroyOnHidden>

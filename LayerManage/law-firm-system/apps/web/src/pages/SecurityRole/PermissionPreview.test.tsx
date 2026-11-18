@@ -23,7 +23,7 @@ test('all tables plus a member loads an effective overview and can open a single
   await waitFor(() => expect(get).toHaveBeenCalledWith('/permission-overview/options'));
   fireEvent.mouseDown(screen.getByRole('combobox', { name: '预览对象' }));
   fireEvent.click(await screen.findByText('成员 · 沈红梅（chengyeshm）', { selector: '.ant-select-item-option-content' }));
-  await waitFor(() => expect(post).toHaveBeenCalledWith('/permission-overview', { target: 'MEMBER', id: 'u1', offset: 0 }));
+  await waitFor(() => expect(post).toHaveBeenCalledWith('/permission-overview', { operation:'read', target: 'MEMBER', id: 'u1', offset: 0 }));
   expect(await screen.findByText('律师部 / 案件应用 / 案件管理表')).toBeInTheDocument();
   vi.mocked(post).mockResolvedValue({ fields: [], records: [], total: 0, canEdit: false, canDelete: false, canAdd: false, source: 'CUSTOM', actions: [] });
   fireEvent.click(screen.getByRole('button', { name: '预览表格' }));
@@ -35,7 +35,7 @@ test('one table plus all members queries every member rather than a fake member 
   fireEvent.click(screen.getByRole('button', { name: '权限预览' }));
   fireEvent.mouseDown(screen.getByRole('combobox', { name: '预览对象' }));
   fireEvent.click(await screen.findByText('全部成员', { selector: '.ant-select-item-option-content' }));
-  await waitFor(() => expect(post).toHaveBeenCalledWith('/permission-overview', { tableId: 't1', target: 'ALL_MEMBERS', offset: 0 }));
+  await waitFor(() => expect(post).toHaveBeenCalledWith('/permission-overview', { operation:'read', tableId: 't1', target: 'ALL_MEMBERS', offset: 0 }));
   expect(await screen.findByRole('region', { name: '授权汇总' })).toBeInTheDocument();
 });
 
@@ -45,7 +45,7 @@ test('overview continues bounded batches and marks partial failures instead of c
   expect(await screen.findByText('连接中断')).toBeInTheDocument();
   expect(screen.getByRole('status')).toHaveTextContent('查询未完成');
   expect(screen.getByRole('status')).toHaveTextContent('1 项授权');
-  expect(post).toHaveBeenNthCalledWith(2, '/permission-overview', { target: 'ALL', offset: 40 });
+  expect(post).toHaveBeenNthCalledWith(2, '/permission-overview', { operation:'read', target: 'ALL', offset: 40 });
 });
 
 test('changing subject discards late results from the previous request', async () => {

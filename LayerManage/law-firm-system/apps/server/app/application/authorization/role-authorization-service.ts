@@ -1,9 +1,10 @@
+import { otherFunctionGroups, functionCodes } from './other-functions';
 import { SMART_CASE_ROLE_CODE, SMART_CASE_PERMISSION } from '../../domain/smart-case/access-role';
 import { saveApplicationPolicy } from '../collaboration/application-role-policy';
 import type { AuthorizationContext } from './authorization-service';
 import { WorksheetPermissions } from '../collaboration/worksheet-permissions';
 import { exact, fail } from '../collaboration/collaboration-policy';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { basicOfficeCodes, officeTemplate } from './office-role-template';
 import { retiredPermission } from '../../domain/module-availability';
 import { Prisma, PrismaClient } from '@prisma/client';
@@ -301,21 +302,73 @@ export class RoleAuthorizationService {
     });
   }
 
-  async remove(id: string, input: { version: number }): Promise<void> {
-    assertAuthorizationExactKeys(input, ['version']);
+  async otherFunctions(id: string) {
+    const role = await this.detail(id);
+    return { groups: otherFunctionGroups.map(g => ({ ...g, codes: g.codes.filter(c => PERMISSION_CATALOG.some(p => p.code === c)),
+      selected: role.permissionCodes.filter(c => g.codes.includes(c)),
+      scopeBindings: role.dataScopeBindings.filter(b => g.resources.includes(b.resource)),
+      scopeIds: [...new Set(role.dataScopeBindings.filter(b => g.resources.includes(b.resource)).map(b => b.dataScopeId))] })), role };
+  }
+
+  async saveOtherFunctions(id: string, raw: { version: number; groupId: string; permissionCodes: string[]; scopeIds?: string[] }) {
+    assertAuthorizationExactKeys(raw, ['version', 'groupId', 'permissionCodes', 'scopeIds']);
+    const group = otherFunctionGroups.find(g => g.id === raw.groupId);
+    if (!group || !Array.isArray(raw.permissionCodes) || raw.permissionCodes.some(c => !group.codes.includes(c)) ||
+      (raw.scopeIds !== undefined && (!Array.isArray(raw.scopeIds) || raw.scopeIds.some(s => typeof s !== 'string')))) authorizationInputError();
+    const codes = normalizePermissionCodes(functionCodes(group, raw.permissionCodes).filter(c=>PERMISSION_CATALOG.some(p=>p.code===c)));
+    const version = authorizationValue(() => normalizeVersion(raw.version));
+    return this.mutate(id, version, 'SAVE_OTHER_FUNCTIONS', async (tx, role) => {
+      const scopes = await tx.dataScope.findMany({ where: { id: { in: raw.scopeIds ?? [] }, status: 'ENABLED' } });
+      if (scopes.length !== new Set(raw.scopeIds ?? []).size || scopes.some(s => group.resources.some(r => !scopeCompatible(r as ResourceCode, s.scopeType)))) authorizationInputError();
+      // Modify only this explicitly selected function group. Preserve all unmapped historical grants and fields.
+      const removed = [...group.codes, ...group.menus.filter(m => m !== 'menu.organization_personnel')];
+      await tx.rolePermission.deleteMany({ where: { roleId: id, permission: { code: { in: removed } } } });
+      const existing = new Set(role.permissions.filter(p => !removed.includes(p.permission.code)).map(p => p.permission.code));
+      const added = codes.filter(c => !existing.has(c));
+      if (added.length) await tx.rolePermission.createMany({ data: added.map(c => ({ roleId: id, permissionId: 'permission:'+c })) });
+      // Omitted scopeIds preserves each resource's original bindings, including different legacy ranges.
+      if (raw.scopeIds !== undefined) {
+        await tx.roleDataScope.deleteMany({ where: { roleId: id, resource: { in: group.resources } } });
+        if (codes.length && scopes.length) await tx.roleDataScope.createMany({ data: group.resources.flatMap(resource => scopes.map(scope => ({ roleId: id, resource, dataScopeId: scope.id }))) });
+      }
+      await incrementRoleVersion(tx, id, version);
+    }, { permissionCodes: codes, resourceCodes: group.resources, ...(raw.scopeIds===undefined?{purpose:'保留各资源原有范围'}:{scopeIds:raw.scopeIds}) });
+  }
+
+  async deletionImpact(id: string) {
+    const role = await this.prisma.role.findUnique({ where: { id }, include: ROLE_INCLUDE });
+    if (!role || role.status === 'DELETED') objectNotFound();
+    assertBusinessRole(role);
+    return roleDeletionImpact(this.prisma, role);
+  }
+
+  async remove(id: string, input: { version: number; revokeMembers?: boolean; impactToken?: string; reason?: string }): Promise<void> {
+    assertAuthorizationExactKeys(input, ['version', 'revokeMembers', 'impactToken', 'reason']);
     const version = authorizationValue(() => normalizeVersion(input.version));
+    if (input.revokeMembers !== undefined && typeof input.revokeMembers !== 'boolean') authorizationInputError();
+    if (input.revokeMembers && (!this.authorization || (!this.authorization.isSystemSuperAdmin &&
+      !this.authorization.permissionCodes.includes('user_role.membership.manage')))) escalationBlocked();
+    if (input.revokeMembers && (typeof input.reason !== 'string' || input.reason.trim().length < 10 || input.reason.length > 500)) authorizationInputError();
     await this.prisma.$transaction(async tx => {
       const role = await lockRole(tx, id);
       assertBusinessRole(role);
       if (role.version !== version) versionConflict();
-      // Include scheduled grants; expired and revoked grants remain as history.
-      const grant = await tx.userRole.findFirst({ where: {
-        roleId: id, revokedAt: null, user: { status: { not: 'DELETED' } },
-        OR: [{ validUntil: null }, { validUntil: { gt: new Date() } }],
-      }, select: { id: true } });
-      if (grant) inUse();
+      const impact = await roleDeletionImpact(tx, role);
+      if (impact.blockers.length) inUse();
+      if (input.revokeMembers && input.impactToken !== impact.token) versionConflict();
+      if (impact.members.length && !input.revokeMembers) inUse();
+      if (input.revokeMembers) {
+        if (!this.authorization?.isSystemSuperAdmin && impact.members.some(m => m.userId === this.actor.actorUserId)) escalationBlocked();
+        for (const member of impact.members) {
+          await tx.userRole.update({ where: { id: member.id }, data: { revokedAt: new Date(), revokedByUserId: this.actor.actorUserId,
+            revokeReason: input.reason!.trim(), version: { increment: 1 } } });
+          await writeAuthorizationAudit(tx, { ...this.actor, action: 'REVOKE_USER_ROLE', targetType: 'USER_ROLE_GRANT', targetId: member.id,
+            changes: { userId: member.userId, roleId: id, reason: input.reason!, state: 'REVOKED' } });
+        }
+      }
       await tx.role.update({ where: { id }, data: { status: 'DELETED', version: { increment: 1 } } });
-      await writeAuthorizationAudit(tx, { ...this.actor, action: 'DELETE_ROLE', targetType: 'ROLE_AUTHORIZATION', targetId: id, changes: { status: 'DELETED', version: version + 1 } });
+      await writeAuthorizationAudit(tx, { ...this.actor, action: 'DELETE_ROLE', targetType: 'ROLE_AUTHORIZATION', targetId: id,
+        changes: { status: 'DELETED', version: version + 1, targetCount: impact.members.length, reason: input.reason ?? '' } });
     });
   }
 
@@ -491,3 +544,21 @@ function versionConflict(): never { throw new AuthorizationError(AUTHORIZATION_C
 function inUse(): never { throw new AuthorizationError(AUTHORIZATION_CODES.inUse, 409); }
 function escalationBlocked(): never { throw new AuthorizationError(AUTHORIZATION_CODES.escalation, 403); }
 function trustRootProtected(): never { throw new AuthorizationError(AUTHORIZATION_CODES.trustRoot, 409); }
+
+async function roleDeletionImpact(db: PrismaClient | Prisma.TransactionClient, role: RoleRecord) {
+  const members = await db.userRole.findMany({ where: { roleId: role.id, revokedAt: null,
+    user: { status: { not: 'DELETED' } }, OR: [{ validUntil: null }, { validUntil: { gt: new Date() } }] },
+    select: { id: true, userId: true, version: true, validFrom: true, validUntil: true, user: { select: { username: true } } }, orderBy: { id: 'asc' } });
+  const definitions = await db.approvalDefinition.findMany({ where: { status: 'ACTIVE' }, select: { id: true, name: true, approverRule: true, nodeSchema: true } });
+  const references = (value: unknown): boolean => {
+    if (!value || typeof value !== 'object') return false;
+    const v = value as Record<string, unknown>;
+    if (v.type === 'ROLE' && Array.isArray(v.roleCodes) && v.roleCodes.includes(role.code)) return true;
+    return Object.values(v).some(references);
+  };
+  const blockers = definitions.filter(d => references(d.approverRule) || references(d.nodeSchema)).map(d => ({ id: d.id, name: d.name, reason: '审批流程仍使用此角色，请先调整审批人' }));
+  const policies = await db.worksheetRolePolicy.findMany({ where: { table: { archived: false } }, select: { tableId: true, invitations: true } });
+  const sharedTables = policies.filter(p => Object.values((p.invitations ?? {}) as Record<string, unknown>).includes(role.id)).map(p => p.tableId).sort();
+  const token = createHash('sha256').update(JSON.stringify({ version: role.version, members, blockers, sharedTables })).digest('hex');
+  return { members, blockers, sharedTables, token };
+}

@@ -39,6 +39,11 @@ export default class RoleController extends Controller {
     this.respond(await this.roleAuthorizationService().disable(this.ctx.params.id, this.ctx.request.body?.version));
   }
 
+  async otherFunctions() { this.respond(await this.roleAuthorizationService().otherFunctions(this.ctx.params.id)); }
+  async saveOtherFunctions() { this.respond(await this.roleAuthorizationService().saveOtherFunctions(this.ctx.params.id,this.ctx.request.body)); }
+
+  async deletionImpact() { this.respond(await this.roleAuthorizationService().deletionImpact(this.ctx.params.id)); }
+
   async destroy() {
     await this.roleAuthorizationService().remove(this.ctx.params.id, this.ctx.request.body);
     this.respond(null);
@@ -49,17 +54,11 @@ export default class RoleController extends Controller {
   }
 
   async replaceWorksheets() { this.respond(await this.roleAuthorizationService().replaceWorksheets(this.ctx.params.id,this.ctx.request.body)); }
-  async replacePermissions() {
-    this.respond(await this.roleAuthorizationService().replacePermissions(this.ctx.params.id, this.ctx.request.body));
-  }
+  async replacePermissions() { this.ctx.throw(409, '旧操作代码配置已改为只读诊断，请通过应用与表格权限或其他功能权限保存'); }
 
-  async replaceDataScopes() {
-    this.respond(await this.roleAuthorizationService().replaceDataScopes(this.ctx.params.id, this.ctx.request.body));
-  }
+  async replaceDataScopes() { this.ctx.throw(409, '旧操作代码配置已改为只读诊断，请通过应用与表格权限或其他功能权限保存'); }
 
-  async replaceFieldPermissions() {
-    this.respond(await this.roleAuthorizationService().replaceFieldPermissions(this.ctx.params.id, this.ctx.request.body));
-  }
+  async replaceFieldPermissions() { this.ctx.throw(409, '旧字段规则保留为只读诊断，请通过对应表格的字段设置保存'); }
 
   private roleAuthorizationService(): RoleAuthorizationService {
     return new RoleAuthorizationService(this.ctx.prisma, {

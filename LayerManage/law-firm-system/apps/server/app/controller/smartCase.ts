@@ -1,3 +1,4 @@
+import { ensureKnowledgeReviewers } from '../application/smart-case/knowledge-review-eligibility';
 import { SmartCaseArchive } from '../application/smart-case/archive';
 import { Controller } from 'egg';
 import { SmartCaseIdentity } from '../application/smart-case/identity';
@@ -25,6 +26,7 @@ export default class SmartCaseController extends Controller {
     if(!token)this.ctx.throw(401,'TOKEN_INVALID');
     await this.identity().revoke(token);this.respond({ok:true});
   }
+  async ensureReviewers(){this.respond(await ensureKnowledgeReviewers(this.ctx.prisma,this.ctx.state.authorization,this.ctx.request.body?.userIds));}
   async directory(){if(!this.ctx.state.authorization.isSystemSuperAdmin)this.ctx.throw(403);this.respond(await this.ctx.prisma.user.findMany({where:{status:'ENABLED'},select:{id:true,username:true,employee:{select:{name:true}}}}));}
   async cases(){const where=await buildCaseScopeWhere(this.ctx.prisma,this.ctx.state.authorization,'case.read');this.respond(await this.ctx.prisma.case.findMany({where,select:{id:true,caseNo:true,title:true,status:true,lawyer:{select:{id:true,name:true}}}}));}
   async archive(){this.respond(await new SmartCaseArchive(this.ctx.prisma,this.ctx.state.authorization).archive(this.ctx.request.body));}

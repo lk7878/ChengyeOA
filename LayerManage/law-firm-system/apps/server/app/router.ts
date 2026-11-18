@@ -127,6 +127,7 @@ export default (app: Application) => {
   router.get('/api/v1/smart-case/config',controller.smartCase.entryConfig);
   router.post('/api/v1/smart-case/launch',controller.smartCase.launch);
   router.post('/api/v1/smart-case/exchange',controller.smartCase.exchange);
+  router.post('/api/v1/smart-case/knowledge-reviewers/ensure', requireOrganizationSuperAdmin, controller.smartCase.ensureReviewers);
   router.get('/api/v1/smart-case/directory',controller.smartCase.directory);
   router.get('/api/v1/smart-case/me',controller.smartCase.me);
   router.post('/api/v1/smart-case/logout',controller.smartCase.logout);
@@ -228,6 +229,9 @@ export default (app: Application) => {
   router.get('/api/v1/roles/:id/members', requireAnyPermission(['role.read', 'user_role.membership.manage']), controller.role.members);
   router.post('/api/v1/roles', requirePermission('role.create'), controller.role.create);
   router.patch('/api/v1/roles/:id', requirePermission('role.update'), controller.role.update);
+  router.get('/api/v1/roles/:id/other-functions', requirePermission('role.permission.manage'), controller.role.otherFunctions);
+  router.put('/api/v1/roles/:id/other-functions', requirePermission('role.permission.manage'), controller.role.saveOtherFunctions);
+  router.get('/api/v1/roles/:id/deletion-impact', requirePermission('role.status.manage'), controller.role.deletionImpact);
   router.delete('/api/v1/roles/:id', requirePermission('role.status.manage'), controller.role.destroy);
   router.post('/api/v1/roles/:id/disable', requirePermission('role.status.manage'), controller.role.disable);
   router.post('/api/v1/roles/:id/enable', requirePermission('role.status.manage'), controller.role.enable);

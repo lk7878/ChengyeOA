@@ -1,3 +1,4 @@
+import OtherFunctions from './OtherFunctions';
 import ApplicationDefaults from './ApplicationDefaults';
 import OfficeTemplate from './OfficeTemplate';
 import CreateRole from './CreateRole';
@@ -6,7 +7,7 @@ import request from '@/api/request';
 import { WorksheetPermissions } from './WorksheetPermissions';
 import { businessLabel } from '@/locales/business-labels';
 import Table from '@/components/ResizableTable';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Button, DatePicker, Form, Input, message, Select, Space, Switch, Tabs, Tag, Checkbox, Collapse } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
 import Modal from '@/components/DraggableModal';
@@ -17,10 +18,8 @@ import {
 } from '@/features/authorization/admin-api';
 import type {
   DataScopeOption,
-  FieldCapability,
   FieldCatalogEntry,
   PermissionCatalogEntry,
-  PermissionCode,
   RoleAuthorizationView,
   RoleMember,
   AuthorizationUser,
@@ -48,9 +47,11 @@ export default function SecurityRolePage() {
   const [scopeCatalog, setScopeCatalog] = useState<DataScopeOption[]>([]);
   const [selected, setSelected] = useState<RoleAuthorizationView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RoleAuthorizationView | null>(null);
-  const [permissions, setPermissions] = useState<PermissionCode[]>([]);
-  const [scopeBindings, setScopeBindings] = useState<Record<string, string[]>>({});
-  const [fieldRules, setFieldRules] = useState<FieldCapability[]>([]);
+  const [deleteImpact, setDeleteImpact] = useState<{members:{id:string;userId:string;user:{username:string}}[];blockers:{id:string;name:string;reason:string}[];sharedTables:string[];token:string}|null>(null);
+  const [deleteError,setDeleteError]=useState('');
+  const [revokeOnDelete,setRevokeOnDelete]=useState(false);
+  const [deleteReason,setDeleteReason]=useState('');
+  useEffect(()=>{if(!deleteTarget)return;let active=true;void request.get<{data:NonNullable<typeof deleteImpact>}>('/v1/roles/'+deleteTarget.id+'/deletion-impact').then(r=>{if(active)setDeleteImpact(r.data);}).catch(e=>{if(active)setDeleteError(authorizationErrorMessage(e));});return()=>{active=false;};},[deleteTarget]);
   const [createOpen, setCreateOpen] = useState(false);
   const [scopeCreateOpen, setScopeCreateOpen] = useState(false);
   const [organizations, setOrganizations] = useState<OrganizationNode[]>([]);
@@ -109,9 +110,6 @@ export default function SecurityRolePage() {
     setSelected(role);
     setWorksheetChanges([]);
     editForm.setFieldsValue({ name: role.name, code: role.code, description: role.description ?? undefined });
-    setPermissions(role.permissionCodes);
-    setScopeBindings(groupBindings(role));
-    setFieldRules(role.fieldPermissions);
     void loadMembers(role.id);
   };
 
@@ -163,9 +161,6 @@ export default function SecurityRolePage() {
   const acceptUpdatedRole = (role: RoleAuthorizationView) => {
     setSelected(role);
     setRoles(current => current.map(item => item.id === role.id ? role : item));
-    setPermissions(role.permissionCodes);
-    setScopeBindings(groupBindings(role));
-    setFieldRules(role.fieldPermissions);
   };
 
   const runMutation = async (mutate: () => Promise<RoleAuthorizationView>) => {
@@ -193,10 +188,6 @@ export default function SecurityRolePage() {
     } catch { message.error('数据范围目标加载失败'); }
   };
 
-  const scopeResources = useMemo(() => [...new Set(catalog
-    .filter(item => item.type !== 'MENU' && permissions.includes(item.code))
-    .map(item => item.resource))], [catalog, permissions]);
-
   const managedSmartCase = selected?.code === 'SMART_CASE_USER';
   const roleTabs = selected ? [
     { key: 'basic', label: '基本信息', children: <Form form={editForm} layout="vertical" onFinish={values => runMutation(() => authorizationAdminApi.roles.update(selected.id, { name: values.name, description: values.description || null, version: selected.version }))}>
@@ -207,29 +198,6 @@ export default function SecurityRolePage() {
         {canManageStatus && <Button danger={selected.status === 'ENABLED'} loading={saving} onClick={() => runMutation(() => selected.status === 'ENABLED' ? authorizationAdminApi.roles.disable(selected.id, selected.version) : authorizationAdminApi.roles.enable(selected.id, selected.version))}>{selected.status === 'ENABLED' ? '停用角色' : '启用角色'}</Button>}
       </Space>
     </Form> },
-    ...[{key:'permissions',label:'操作权限',menu:false},{key:'pages',label:'页面权限',menu:true}].map(tab => ({
-      key:tab.key,label:tab.label,children:<section className="auth-editor-section">
-        {selected.type==='BUSINESS' && catalog.some(item=>item.businessRoleAssignable===false && permissions.includes(item.code)) &&
-          <p role="alert">此角色包含系统保留权限，请取消勾选后保存：{catalog.filter(item=>item.businessRoleAssignable===false && permissions.includes(item.code)).map(item=>item.name).join('、')}</p>}
-        {[...new Set(catalog.filter(item=>(item.type==='MENU')===tab.menu && (!/^(quality\.|sop\.|menu\.(quality|sop_tasks|sop_templates)$)/.test(item.code) || permissions.includes(item.code))).map(item=>item.resource))].map(resource=><div key={resource} className="auth-scope-row">
-          <strong>{businessLabel(resource)}</strong><Space wrap>{catalog.filter(item=>item.resource===resource && (item.type==='MENU')===tab.menu && (!/^(quality\.|sop\.|menu\.(quality|sop_tasks|sop_templates)$)/.test(item.code) || permissions.includes(item.code))).map(item=>
-            <Checkbox key={item.code} disabled={!canManagePermissions || selected.type !== 'BUSINESS' || (item.businessRoleAssignable === false && !permissions.includes(item.code))} checked={permissions.includes(item.code)}
-              onChange={e=>setPermissions(prev=>e.target.checked?[...prev,item.code]:prev.filter(p=>p!==item.code))}>{item.name}{item.code==='menu.smart_case' ? '（通过智慧办案使用者授权）' : item.businessRoleAssignable === false && '（系统保留）'}</Checkbox>)}</Space>
-        </div>)}
-        {canManagePermissions && selected.type==='BUSINESS' && <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => runMutation(() => authorizationAdminApi.roles.replacePermissions(selected.id, permissions, selected.version))}>保存{tab.label}</Button>}
-      </section>})),
-    { key: 'scopes', label: '数据范围', children: <section className="auth-editor-section">
-      {canManagePermissions && <div><Button icon={<PlusOutlined />} onClick={() => void openScopeCreate()}>新建数据范围</Button></div>}
-      {scopeResources.length === 0 ? <p>请先为角色选择需要数据范围的操作权限。</p> : scopeResources.map(resource => <div className="auth-scope-row" key={resource}>
-        <strong title={resource}>{businessLabel(resource)}</strong>
-        <Select mode="multiple" disabled={!canManagePermissions} aria-label={`${resource} 数据范围`} value={scopeBindings[resource] ?? []} onChange={values => setScopeBindings(current => ({ ...current, [resource]: values }))} options={scopeCatalog.filter(scope => scopeCompatible(resource, scope.scopeType)).map(scope => ({ value: scope.id, label: `${scope.name} · ${businessLabel(scope.scopeType)}${scope.includeDescendants ? '（含下级）' : ''}` }))} />
-      </div>)}
-      {canManagePermissions && <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => runMutation(() => authorizationAdminApi.roles.replaceDataScopes(selected.id, Object.entries(scopeBindings).filter(([resource]) => scopeResources.includes(resource)).flatMap(([resource, ids]) => ids.map(dataScopeId => ({ resource, dataScopeId }))), selected.version))}>保存数据范围</Button>}
-    </section> },
-    { key: 'fields', label: '字段权限', children: <section className="auth-editor-section">
-      <Table rowKey="code" size="small" pagination={false} dataSource={fieldCatalog.filter(field => scopeResources.includes(field.resource))} columns={fieldColumns(fieldRules, setFieldRules, canManagePermissions)} />
-      {canManagePermissions && <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => runMutation(() => authorizationAdminApi.roles.replaceFieldPermissions(selected.id, fieldRules.filter(rule => scopeResources.includes(rule.resource)), selected.version))}>保存字段权限</Button>}
-    </section> },
     { key: 'members', label: '成员', children: <section className="auth-editor-section">
       {canManageMembers && <Button type="primary" icon={<UserAddOutlined />} loading={saving} onClick={() => void openAddMember()}>添加成员</Button>}
       <Table rowKey="id" size="small" pagination={false} loading={membersLoading} dataSource={members} columns={[
@@ -250,7 +218,7 @@ export default function SecurityRolePage() {
       { title: '类型', dataIndex: 'type', render: value => <Tag>{businessLabel(value)}</Tag> },
       { title: '状态', dataIndex: 'status', render: value => <Tag color={value === 'ENABLED' ? 'success' : 'default'}>{value === 'ENABLED' ? '启用' : '停用'}</Tag> },
       { title: '权限数', dataIndex: 'permissionCodes', render: (value: string[]) => value.length },
-      { title: '操作', fixed: 'right', width: 140, render: (_, role) => <Space><Button type="text" icon={<EditOutlined />} aria-label={`编辑${role.name}`} onClick={() => openRole(role)} />{canManageStatus && role.type === 'BUSINESS' && !isSmartCaseRole(role) && <Button type="link" danger onClick={() => setDeleteTarget(role)}>删除</Button>}</Space> },
+      { title: '操作', fixed: 'right', width: 140, render: (_, role) => <Space><Button type="text" icon={<EditOutlined />} aria-label={`编辑${role.name}`} onClick={() => openRole(role)} />{canManageStatus && role.type === 'BUSINESS' && !isSmartCaseRole(role) && <Button type="link" danger onClick={() => {setDeleteImpact(null);setDeleteError('');setRevokeOnDelete(false);setDeleteReason('');setDeleteTarget(role);}}>删除</Button>}</Space> },
     ]} />
     <Drawer open={Boolean(selected)} onClose={() => setSelected(null)} title={selected ? `配置角色 · ${selected.name}` : ''} size="large" destroyOnHidden>
       {managedSmartCase ? <><Alert type="info" title="智慧办案使用者 · 独立使用资格" description="本角色仅提供智慧办案入口，不授予其他人的案件、文件、任务或知识库。可追加给任何岗位；移除成员即撤销此项资格。超级管理员的系统权限不受此角色影响。"/><Tabs items={roleTabs.filter(t=>t.key==='members')} /></> : <><Tabs items={[...roleTabs.filter(t=>t.key==='basic'),{
@@ -271,20 +239,27 @@ export default function SecurityRolePage() {
                   ? '已取消验证，授权尚未保存；已选权限保留，可重新保存。' : authorizationErrorMessage(error));})
                 .finally(()=>setSaving(false));
             }}>仅更新差异中列出的工作表。验证完成后会继续保存，取消验证会保留已选权限。</Modal>
-        </>},...roleTabs.filter(t=>t.key==='members')]} />
-      <Collapse items={[{key:'advanced',label:'高级设置 · 操作代码、数据范围及字段规则',children:<Tabs items={roleTabs.filter(t=>!['basic','members'].includes(t.key))}/>}]} /></>}
+        </>},{key:'other-functions',label:'其他功能权限',children:selected&&canManagePermissions&&<><Button onClick={()=>void openScopeCreate()}>新建数据范围</Button><OtherFunctions role={selected} catalog={catalog} scopes={scopeCatalog} editable={selected.type==='BUSINESS'} onSaved={acceptUpdatedRole}/></>},...roleTabs.filter(t=>t.key==='members')]} />
+      <Collapse items={[{key:'advanced',label:'权限明细与诊断（只读）',children:<><Alert type="info" title="逐表授权在使用该表时生效，不会复制成全局权限。以下历史规则保留原有效果；无法等价映射的规则待迁移，不会因保存表格而清空。"/><p>操作来源：本角色历史授权。实际成员还可能通过其他角色、临时授权及直接共享获得权限，请在权限检查中核对。</p><Table rowKey="code" size="small" pagination={{pageSize:10}} dataSource={selected?.permissionCodes.map(code=>({code,name:catalog.find(p=>p.code===code)?.name||code,resource:catalog.find(p=>p.code===code)?.resource||''}))||[]} columns={[{title:'功能',dataIndex:'name'},{title:'来源',render:()=> '历史角色规则（保留）'},{title:'数据范围',render:(_,p)=>selected?.dataScopeBindings.filter(b=>b.resource===p.resource).map(b=>scopeCatalog.find(s=>s.id===b.dataScopeId)?.name||b.scopeType).join('、')||'由业务规则约束'}]}/><p>字段规则：{selected?.fieldPermissions.map(f=>`${fieldCatalog.find(c=>c.code===f.fieldCode)?.field||f.fieldCode}：${f.readLevel}${f.canWrite?' / 可写':''}${f.canExport?' / 可导出':''}`).join('；')||'使用业务默认字段规则'}</p></>}]} /></>}
     </Drawer>
-    <Modal open={Boolean(deleteTarget)} title={`删除角色 · ${deleteTarget?.name ?? ''}`} okText="确认删除" okButtonProps={{ danger: true }} confirmLoading={saving} onCancel={() => setDeleteTarget(null)} onOk={async () => {
+    <Modal open={Boolean(deleteTarget)} title={`删除角色 · ${deleteTarget?.name ?? ''}`} okText="确认删除" okButtonProps={{ danger: true, disabled: !deleteImpact || !!deleteImpact.blockers.length || (!!deleteImpact.members.length && (!revokeOnDelete || deleteReason.trim().length<10)) }} confirmLoading={saving} onCancel={() => setDeleteTarget(null)} onOk={async () => {
       if (!deleteTarget) return;
       setSaving(true);
       try {
-        await authorizationAdminApi.roles.remove(deleteTarget.id, deleteTarget.version);
+        await request.delete('/v1/roles/'+deleteTarget.id,{data:{version:deleteTarget.version,...(revokeOnDelete?{revokeMembers:true,impactToken:deleteImpact?.token,reason:deleteReason.trim()}: {})}});
         if (selected?.id === deleteTarget.id) setSelected(null);
         setDeleteTarget(null);
         await load();
         message.success('角色已删除');
       } catch (error) { message.error(authorizationErrorMessage(error)); } finally { setSaving(false); }
-    }}><p>删除后不再显示或分配此角色。请先撤销账号对该角色的有效授权（包括尚未生效的授权）。历史记录保留。</p></Modal>
+    }}><p>删除后不再显示或分配此角色，历史审计保留。同名新角色不会继承原授权。</p>
+      {deleteError&&<Alert type="error" title={deleteError}/>}
+      {!deleteImpact&&!deleteError&&<p>正在核对成员与业务依赖…</p>}
+      {deleteImpact&&<><p>有效及待生效授权：{deleteImpact.members.length} 项；使用该角色分享的表格：{deleteImpact.sharedTables.length} 张。</p>
+      <ul>{deleteImpact.members.map(m=><li key={m.id}>{m.user.username}</li>)}</ul>
+      {deleteImpact.blockers.map(b=><Alert key={b.id} type="error" title={b.name} description={b.reason}/>)}
+      {!!deleteImpact.members.length&&canManageMembers&&<><Checkbox checked={revokeOnDelete} onChange={e=>setRevokeOnDelete(e.target.checked)}>已核对影响，撤销以上成员授权并删除角色</Checkbox><Input.TextArea aria-label="撤销并删除原因" value={deleteReason} onChange={e=>setDeleteReason(e.target.value)} placeholder="请输入至少 10 字的操作原因" maxLength={500}/></>}
+      <p>成员授权与角色删除在同一事务内完成；审批依赖必须先处理。其他角色或直接共享的独立授权仍保留。</p></>}</Modal>
     {createOpen&&<CreateRole roles={roles} canAuthorize={canManagePermissions} onClose={()=>setCreateOpen(false)}
       onCreated={created=>{setRoles(current=>[created,...current]);setCreateOpen(false);openRole(created);}}/>}
     <Modal open={scopeCreateOpen} title="新建数据范围" onCancel={() => setScopeCreateOpen(false)} onOk={() => scopeForm.submit()} confirmLoading={saving} destroyOnHidden>
@@ -328,34 +303,6 @@ export default function SecurityRolePage() {
   </section>;
 }
 
-function groupBindings(role: RoleAuthorizationView): Record<string, string[]> {
-  return role.dataScopeBindings.reduce<Record<string, string[]>>((result, binding) => {
-    result[binding.resource] = [...(result[binding.resource] ?? []), binding.dataScopeId];
-    return result;
-  }, {});
-}
-
-function scopeCompatible(resource: string, scopeType: string): boolean {
-  if (scopeType === 'TEAM') return ['employee', 'professional_team', 'professional_team_member', 'user'].includes(resource);
-  if (scopeType === 'SELF' || scopeType === 'SELF_AND_SUBORDINATES') return resource !== 'organization';
-  return ['ALL', 'HQ_SCOPE', 'ORG', 'BRANCH', 'CUSTOM'].includes(scopeType);
-}
-
 function flattenOrganizations(nodes: OrganizationNode[]): OrganizationNode[] {
   return nodes.flatMap(node => [node, ...flattenOrganizations(node.children)]);
-}
-
-function fieldColumns(rules: FieldCapability[], setRules: (rules: FieldCapability[]) => void, editable: boolean) {
-  const get = (field: FieldCatalogEntry) => rules.find(rule => rule.fieldCode === field.code) ?? { resource: field.resource, fieldCode: field.code, readLevel: field.defaultReadLevel, canWrite: false, canExport: false };
-  const update = (field: FieldCatalogEntry, patch: Partial<FieldCapability>) => {
-    const next = { ...get(field), ...patch };
-    if (next.readLevel === 'NONE') { next.canWrite = false; next.canExport = false; }
-    setRules([...rules.filter(rule => rule.fieldCode !== field.code), next]);
-  };
-  return [
-    { title: '字段', dataIndex: 'code', render: (value: string, field: FieldCatalogEntry) => <Space wrap><code>{value}</code><Tag>{businessLabel(field.classification)}</Tag></Space> },
-    { title: '读取', render: (_: unknown, field: FieldCatalogEntry) => <Select disabled={!editable} aria-label={`${field.code} 读取级别`} value={get(field).readLevel === 'MASKED' ? 'READ' : get(field).readLevel} style={{ width: 110 }} onChange={readLevel => update(field, { readLevel })} options={['NONE', 'READ'].map(value => ({ value, label: businessLabel(value) }))} /> },
-    { title: '写入', render: (_: unknown, field: FieldCatalogEntry) => <Switch aria-label={`${field.code} 写入`} disabled={!editable || get(field).readLevel === 'NONE'} checked={get(field).canWrite} onChange={canWrite => update(field, { canWrite })} /> },
-    { title: '导出', render: (_: unknown, field: FieldCatalogEntry) => <Switch aria-label={`${field.code} 导出`} disabled={!editable || get(field).readLevel === 'NONE'} checked={get(field).canExport} onChange={canExport => update(field, { canExport })} /> },
-  ];
 }

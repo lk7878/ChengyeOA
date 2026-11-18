@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Input, Space, Table, Tag } from 'antd';
+import { Alert, Button, Input, Space, Table, Tag, Select } from 'antd';
 import { errorMessage, post } from '@/features/workspaces/api';
 import { allTables, tableOptions, type TableOption } from './worksheet-permission-options';
 export type OverviewSubject = { id: string; target: 'MEMBER' | 'ROLE'; label: string };
 type Row = { tableId: string; tableName: string; subject: OverviewSubject; level: number;
+  operations?:string[];sources?:string[];missingEmployee?:boolean;
   limitedRows: boolean; limitedFields: boolean; limitedViews: boolean };
 type Batch = { rows: Row[]; checked: number; totalCandidates: number; nextOffset: number | null };
 
 export default function PermissionOverview({ table, subject, tables, onPreview }:
   { table?: string; subject: string; tables: TableOption[]; onPreview: (table: string, subject: string) => void }) {
+  const [operation,setOperation]=useState('read');
+  const operationNames:Record<string,string>={read:'查看',edit:'编辑记录',remove:'删除记录',export:'导出',share:'共享转授权',manage:'表结构管理'};
   const [rows, setRows] = useState<Row[]>([]);
   const [progress, setProgress] = useState({ checked: 0, total: 0, loading: true });
   const [error, setError] = useState('');
@@ -25,7 +28,7 @@ export default function PermissionOverview({ table, subject, tables, onPreview }
         do {
           const batch = await post<Batch>('/permission-overview', {
             ...(table && table !== allTables ? { tableId: table } : {}), target,
-            ...(['MEMBER', 'ROLE'].includes(target) ? { id } : {}), offset,
+            ...(['MEMBER', 'ROLE'].includes(target) ? { id } : {}), offset, operation,
           });
           if (!live) return;
           collected.push(...batch.rows);
@@ -40,15 +43,15 @@ export default function PermissionOverview({ table, subject, tables, onPreview }
     };
     void load();
     return () => { live = false; };
-  }, [table, subject, revision]);
+  }, [table, subject, revision, operation]);
   const names = new Map(tableOptions(tables).map(t => [t.value, t.label]));
   const filtered = rows.filter(r => `${names.get(r.tableId) || r.tableName} ${r.subject.label}`.toLowerCase().includes(keyword.trim().toLowerCase()));
   return <section aria-label="授权汇总">
-    <h2>授权汇总</h2>
+    <h2>权限检查</h2>
     <Alert type="info" title="显示当前生效的访问权限，包含角色授权、工作区成员及直接分享。角色行表示单个角色，成员行合并该成员的全部有效授权。"
-      description="仅汇总启用成员和业务角色。没有数据记录的表仍会列出；记录范围、字段和业务操作限制继续生效。此查询不会修改授权。" />
+      description="仅汇总启用成员和业务角色。没有数据记录的表仍会列出；记录范围、字段和业务操作限制继续生效。此查询不会修改授权。操作能力表示表级上限，具体记录和字段仍按各自来源的范围计算；可预览表格核对可见记录。" />
     <Space wrap style={{ margin: '16px 0' }}>
-      <Input aria-label="筛选授权结果" placeholder="搜索表格、成员或角色名称" value={keyword} onChange={e => { setKeyword(e.target.value); setPage(1); }} allowClear />
+      <Select aria-label="检查操作" value={operation} onChange={value=>{setOperation(value);setRows([]);setError('');setPage(1);setProgress({checked:0,total:0,loading:true});}} options={Object.entries(operationNames).map(([value,label])=>({value,label}))}/><Input aria-label="筛选授权结果" placeholder="搜索表格、成员或角色名称" value={keyword} onChange={e => { setKeyword(e.target.value); setPage(1); }} allowClear />
       <span role="status">{progress.loading ? `正在核对 ${progress.checked} / ${progress.total} 项` : error ? '查询未完成，以下为部分结果' : `已核对 ${progress.total} 项`} · {rows.length} 项授权</span>
       <Button disabled={progress.loading} onClick={() => { setRows([]); setError(''); setPage(1); setProgress({ checked: 0, total: 0, loading: true }); setRevision(r => r + 1); }}>刷新汇总</Button>
     </Space>
@@ -60,6 +63,8 @@ export default function PermissionOverview({ table, subject, tables, onPreview }
         { title: '表格 / 所属应用', key: 'table', render: (_, r) => names.get(r.tableId) || r.tableName },
         { title: '授权对象', key: 'subject', render: (_, r) => <><Tag>{r.subject.target === 'MEMBER' ? '成员' : '角色'}</Tag>{r.subject.label}</> },
         { title: '权限等级', dataIndex: 'level', render: (level: number) => ['无权限', '查看', '编辑', '管理', '所有者'][level] },
+        { title:'授权来源',render:(_,r)=><>{r.sources?.join('；')}{r.missingEmployee&&<div>未绑定员工：本人/部门范围需进一步核对</div>}</> },
+        { title:'操作能力',render:(_,r)=>r.operations?.map(op=>operationNames[op]).join('、') },
         { title: '范围限制', key: 'limits', render: (_, r) => [r.limitedRows && '记录范围', r.limitedFields && '字段限制', r.limitedViews && '视图限制'].filter(Boolean).join('、') || '按业务规则' },
         { title: '操作', key: 'action', render: (_, r) => <Button onClick={() => onPreview(r.tableId, `${r.subject.target}:${r.subject.id}`)}>预览表格</Button> },
       ]} />

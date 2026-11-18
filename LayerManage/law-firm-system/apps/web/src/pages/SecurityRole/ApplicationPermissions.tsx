@@ -15,8 +15,8 @@ type CatalogTable = {id:string;name:string;source:string;inventoryKind?:string;b
 type Settings = {inherited?:{roleId:string;source:string;level:string}[];version:number;rules:Record<string,TableRule>;fields:Field[];views:{id:string;name:string}[];
   capabilities:{permissionNames?:Record<string,string>;scopeTypes?:string[];selfMeaning?:string;resource:string|null;basic:string[];edit:string[];scoped:boolean;special:{code:string;name:string}[]}};
 type Scope = {id:string;name:string;scopeType:string};
-const levels=[{value:'DENY',label:'无权限'},{value:'READER',label:'查看'},{value:'EDITOR',label:'编辑'},{value:'MANAGER',label:'管理'}];
-const fieldModes=[{value:'HIDDEN',label:'隐藏'},{value:'READ',label:'完整查看'},{value:'EDIT',label:'编辑'}];
+const levels=[{value:'DENY',label:'未授予'},{value:'READER',label:'查看'},{value:'EDITOR',label:'编辑'},{value:'MANAGER',label:'管理'}];
+const fieldModes=[{value:'MASK',label:'历史只读（完整查看）'},{value:'HIDDEN',label:'隐藏'},{value:'READ',label:'完整查看'},{value:'EDIT',label:'编辑'}];
 const emptyRule=():TableRule=>({level:'DENY',rows:'ALL',fields:{},add:false,remove:false,copy:false,analytics:true,automate:false,share:false,import:false});
 export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,superAdmin=false}:
   {roleId?:string;changes:WorksheetChange[];onChange:(value:WorksheetChange[])=>void;readOnly?:boolean;superAdmin?:boolean}) {
@@ -52,9 +52,15 @@ export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,s
       if(patch.level!==undefined) {rule.add=writable; if(!writable){rule.remove=false;rule.import=false;rule.automate=false;}if(level!=='MANAGER')rule.share=false;}
       // Preserve advanced legacy rules until the administrator explicitly edits this table.
       if(!old.business && old.level==='DENY') rule.fields={...Object.fromEntries(config.fields.filter(f=>f.options?.hrSensitive || ['phone','wechat','intake.customerPhone'].includes(String(f.options?.businessKey))).map(f=>[f.id,'READ'])),...rule.fields};
+      if(!old.business && old.level!=='DENY' && !patch.business) {
+        // A level/field edit does not authorize migration of an unknown legacy business scope.
+        const value={tableId:id,version:config.version,rule};
+        const at=next.findIndex(c=>c.tableId===id);if(at<0)next.push(value);else next[at]=value;
+        continue;
+      }
       if(!old.business) rule.business={permissions:[],scopeIds:config.capabilities.scoped?['worksheet:self']:[]};
       const business=patch.business ?? rule.business!;
-      if(patch.rows&&['DEPARTMENT','SUBDEPARTMENTS'].includes(patch.rows)&&config.capabilities.scoped)business.scopeIds=['ALL'];
+      // Row conditions only narrow access; they must never silently widen business scopes.
       rule.business={...business,permissions:[...new Set([
         ...config.capabilities.basic,...(writable?config.capabilities.edit:[]),
         ...business.permissions.filter(code=>!config.capabilities.basic.includes(code)&&!config.capabilities.edit.includes(code)),
@@ -69,22 +75,22 @@ export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,s
   const scopeLabel=(id:string)=>{const rule=ruleFor(id);if(rule.rows==='FILTER')return '自定义条件（高级）';if(rule.rows==='SELF')return '本人创建';if(rule.rows==='DEPARTMENT')return '本人及所在部门';if(rule.rows==='SUBDEPARTMENTS')return '本人及下属部门（负责人）';
     if(!rule.business)return '沿用现有业务数据范围';
     if(!settings[id]?.capabilities.scoped)return '全部授权记录';
-    return rule.business.scopeIds.map(id=>id==='ALL'?'全公司':scopes.find(s=>s.id===id)?.name || id).join('、') || '未授权记录';};
+    return rule.business.scopeIds.map(id=>id==='ALL'?'全所':scopes.find(s=>s.id===id)?.name || id).join('、') || '未授权记录';};
   return <>
     {error&&<Alert type="error" title={error}/>}
     <p>查看包含浏览、筛选和个人视图。编辑增加录入及修改授权记录。管理增加字段、共享视图和表设置维护。</p>
-    <Alert type="info" title="成员按多个角色和直接分享合并获得权限。本角色设为无权限，仅撤销本角色这一来源的授权。"/>
+    <Alert type="info" title="成员按多个角色和直接分享合并获得权限。本角色设为未授予，仅撤销本角色这一来源的授权。"/>
     <div style={{display:'grid',gridTemplateColumns:'150px minmax(0,1fr)',gap:16,marginTop:16}}>
       <Menu selectedKeys={currentGroup?[currentGroup]:[]} onClick={e=>{setGroup(e.key);setSelected([]);}}
         items={groups.map(g=>{const table=tables.find(t=>groupKey(t)===g)!;return {key:g,label:sourceGroup(table.base.moduleSource,table.base.workspace.name)};})}/>
       <section>
-        {!readOnly&&<Space style={{marginBottom:12}}>批量设置
+        {!readOnly&&<Space wrap style={{marginBottom:12}}>已选 {selected.length} 张表（勾选仅用于批量设置，不代表授权）
           <Select aria-label="批量权限等级" placeholder="选择权限等级" disabled={!selected.length} style={{width:150}}
             options={levels} onChange={level=>change(selected.map(String),{level})}/></Space>}
         <Table rowKey="id" size="small" dataSource={visible} pagination={{pageSize:10}}
           rowSelection={readOnly?undefined:{selectedRowKeys:selected,onChange:setSelected}}
           columns={[
-            {title:'表名',render:(_,t)=><>{t.name}{settings[t.id]?.inherited?.filter(g=>g.roleId===roleId).map(g=><div key={g.source}><small>{g.source} · {levels.find(l=>l.value===g.level)?.label||g.level}</small></div>)}</>},
+            {title:'表名',render:(_,t)=><>{t.name}{changes.some(c=>c.tableId===t.id)&&<Tag color="orange">待保存</Tag>}{settings[t.id]?.inherited?.filter(g=>g.roleId===roleId).map(g=><div key={g.source}><small>{g.source} · {levels.find(l=>l.value===g.level)?.label||g.level}</small></div>)}</>},
             {title:'权限等级',render:(_,t)=><Select aria-label={t.name+'权限'} style={{width:100}} options={levels}
               disabled={readOnly||!settings[t.id]} value={ruleFor(t.id).level} onChange={level=>change([t.id],{level})}/>},
             {title:'数据范围',render:(_,t)=>scopeLabel(t.id)},
@@ -95,11 +101,11 @@ export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,s
     </div>
     <Drawer title={t?.name+' · 表格权限'} open={!!editing} width={640} onClose={()=>setEditing(undefined)}>
       {t&&s&&r&&<Form layout="vertical" disabled={readOnly}>
-        {!r.business && <Alert type="warning" title="该表使用原有权限规则。未修改的表不会被本次保存覆盖；修改前请核对高级设置。"/>}
-        <p>本表将自动补齐 {([...s.capabilities.basic,...(['EDITOR','MANAGER'].includes(r.level)?s.capabilities.edit:[])].map(code=>s.capabilities.permissionNames?.[code]||code).join('、'))||'基础协作能力'}。</p>
+        {!r.business && <Alert type="warning" title="该表使用原有权限规则。未修改的表不会被本次保存覆盖；该历史规则暂未迁移，现有效果保留；修改本表前请核对权限明细与诊断。"/>}
+        <p>仅在本表及其授权范围内自动启用 {([...s.capabilities.basic,...(['EDITOR','MANAGER'].includes(r.level)?s.capabilities.edit:[])].map(code=>s.capabilities.permissionNames?.[code]||code).join('、'))||'基础协作能力'}。</p>
         <Form.Item label="数据范围">
           {s.capabilities.scoped?<Select mode="multiple" value={r.business?.scopeIds || []} aria-label="业务数据范围"
-            options={[{value:'ALL',label:'全公司'},...scopes.filter(x=>(s.capabilities.scopeTypes||['SELF','ORG','BRANCH']).includes(x.scopeType)).map(x=>({value:x.id,label:x.id==='worksheet:self'?s.capabilities.selfMeaning||x.name:x.name}))]}
+            options={[{value:'ALL',label:'全所'},...scopes.filter(x=>(s.capabilities.scopeTypes||['SELF','ORG','BRANCH']).includes(x.scopeType)).map(x=>({value:x.id,label:x.id==='worksheet:self'?s.capabilities.selfMeaning||x.name:x.name}))]}
             onChange={scopeIds=>change([t.id],{business:{permissions:r.business?.permissions||[],scopeIds}})}/>:
             <p>此表使用独立记录。可通过高级条件按“人员”或“组织”关联字段限定范围。文字姓名或部门不能可靠对应登录账号。</p>}
         </Form.Item>
@@ -116,8 +122,8 @@ export function ApplicationPermissions({roleId,changes,onChange,readOnly=false,s
         </Space></Form.Item>
         <Table rowKey="id" size="small" dataSource={s.fields} pagination={{pageSize:8}} columns={[
           {title:'字段名称',dataIndex:'name'},
-          {title:'字段权限',render:(_,f)=><Select aria-label={f.name+'字段权限'} style={{width:130}} options={fieldModes.map(m=>({...m,disabled:m.value==='EDIT'&&!['EDITOR','MANAGER'].includes(r.level)}))}
-            value={r.fields[f.id]==='MASK'?'READ':r.fields[f.id]||(['EDITOR','MANAGER'].includes(r.level)?'EDIT':'READ')}
+          {title:'字段权限',render:(_,f)=><Select aria-label={f.name+'字段权限'} style={{width:130}} options={fieldModes.map(m=>({...m,disabled:m.value==='MASK'||m.value==='EDIT'&&!['EDITOR','MANAGER'].includes(r.level)}))}
+            value={r.fields[f.id]||(['EDITOR','MANAGER'].includes(r.level)?'EDIT':'READ')}
             onChange={mode=>change([t.id],{fields:{...r.fields,[f.id]:mode}})}/>},
         ]}/>
         <Collapse style={{marginTop:16}} items={[{key:'advanced',label:'高级设置 · 自定义条件及共享视图',children:<>

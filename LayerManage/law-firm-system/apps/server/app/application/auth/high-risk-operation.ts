@@ -26,7 +26,7 @@ export function administratorOnlyOperation(method: string, path: string, body: R
   body ??= {};
   if (method === 'POST' && /^\/api\/v1\/worksheet-permissions\/[^/]+$/.test(path)) return '修改工作表角色权限';
   if (['POST','PUT','DELETE'].includes(method) && (
-    /^\/api\/v1\/roles(?:\/[^/]+(?:\/(permissions|data-scopes|field-permissions|worksheets|applications|disable|enable|apply))?)?$/.test(path)
+    /^\/api\/v1\/roles(?:\/[^/]+(?:\/(permissions|data-scopes|field-permissions|other-functions|worksheets|applications|disable|enable|apply))?)?$/.test(path)
     || /^\/api\/v1\/users\/[^/]+\/(role-grants|roles|special-grants)(?:\/[^/]+\/revoke)?$/.test(path)
     || /^\/api\/v1\/employees\/[^/]+\/account-binding$/.test(path)
   )) return '修改关键管理权限或账号身份关联';

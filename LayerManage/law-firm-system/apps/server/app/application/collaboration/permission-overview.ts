@@ -4,11 +4,12 @@ import { AuthorizationContextLoader } from '../authorization/authorization-conte
 import { CollaborationService } from './collaboration-service';
 import { choice, exact, fail, integer, text } from './collaboration-policy';
 import { WorksheetPermissions } from './worksheet-permissions';
-import { worksheetContext } from './worksheet-business-grants';
+import { worksheetContext, tableBusinessCapabilities } from './worksheet-business-grants';
 
 type Subject = { id: string; target: 'MEMBER' | 'ROLE'; label: string };
 export type PermissionOverviewRow = {
   tableId: string; tableName: string; subject: Subject; level: number;
+  operations: string[]; sources: string[]; missingEmployee: boolean;
   limitedRows: boolean; limitedFields: boolean; limitedViews: boolean;
 };
 
@@ -37,7 +38,8 @@ export class PermissionOverview {
 
   async query(raw: unknown) {
     this.requireAdmin();
-    const input = exact(raw, ['tableId', 'target', 'id', 'offset', 'limit']);
+    const input = exact(raw, ['tableId', 'target', 'id', 'offset', 'limit', 'operation']);
+    const operation = choice(input.operation ?? 'read',['read','edit','remove','export','share','manage']);
     const target = choice(input.target, ['MEMBER', 'ROLE', 'ALL', 'ALL_MEMBERS', 'ALL_ROLES']);
     const id = target === 'MEMBER' || target === 'ROLE' ? text(input.id) : undefined;
     const tableId = input.tableId === undefined ? undefined : text(input.tableId);
@@ -69,7 +71,17 @@ export class PermissionOverview {
         const svc = new CollaborationService(this.db, effective, subject.target === 'ROLE' ? { roleId: subject.id } : undefined);
         const { access } = await svc.tableAccess(table.id);
         if (access.viewIds?.length === 0) continue;
-        rows.push({ tableId: table.id, tableName: table.name, subject, level: access.level,
+        const operations=['read',...(access.level>=2?['edit']:[]),...(access.level>=3?['manage']:[]),...(access.remove&&access.level>=2?['remove']:[]),...(access.copy!==false&&(effective.isSystemSuperAdmin||effective.permissionCodes.includes('data.bulk_export'))?['export']:[]),...(access.canManageAccess?['share']:[])];
+        if(!operations.includes(operation))continue;
+        const roleIds=effective.activeRoleIds||[];
+        const roles=await this.db.role.findMany({where:{id:{in:roleIds}},select:{id:true,name:true}});
+        const tablePolicy=await this.db.worksheetRolePolicy.findUnique({where:{tableId:table.id}});
+        const rules=(tablePolicy?.rules||{}) as Record<string,{level:string}>;
+        const sources=[...roles.filter(r=>rules[r.id]?.level && rules[r.id].level!=='DENY').map(r=>'表格角色：'+r.name),
+          ...roles.filter(r=>context!.grants.some(g=>g.sourceRoleId===r.id&&g.resource===tableBusinessCapabilities(table).resource&&!g.sourceId.startsWith('worksheet:'))).map(r=>'角色/历史规则：'+r.name)];
+        if((tablePolicy?.invitations as Record<string,string>|null)?.[effective.userId])sources.push('表格直接共享');
+        if(!sources.length)sources.push(effective.isSystemSuperAdmin?'系统超级管理员':'工作区成员、应用或表格共享（受父级权限限制）');
+        rows.push({ operations,sources,missingEmployee:!effective.employeeId,tableId: table.id, tableName: table.name, subject, level: access.level,
           limitedRows: access.selfOnly || access.rowIds !== undefined || !!access.rules?.some(r => r.rows !== 'ALL' || !!r.business),
           limitedFields: !!(access.hidden.length || access.readonly.length || access.masked?.length || access.conditional?.length),
           limitedViews: access.viewIds !== undefined });

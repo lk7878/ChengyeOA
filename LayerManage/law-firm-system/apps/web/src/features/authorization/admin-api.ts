@@ -40,6 +40,7 @@ export const authorizationAdminApi = {
     members: (id: string) => data(request.get<ApiResponse<RoleMember[]>>(`/v1/roles/${id}/members`)),
   },
   users: {
+    detail: (id: string) => data(request.get<ApiResponse<AuthorizationUser>>(`/v1/users/${id}`)),
     list: (params: { page?: number; pageSize?: number; keyword?: string } = {}) => data(request.get<ApiResponse<Page<AuthorizationUser>>>('/v1/users', { params })),
     authorization: (id: string) => data(request.get<ApiResponse<UserAuthorizationView>>(`/v1/users/${id}/authorization`)),
     grantRole: (id: string, input: { roleId: string; source: 'PERMANENT' | 'TEMPORARY'; validFrom: string; validUntil: string | null; reason: string | null }) => data(request.post<ApiResponse<RoleGrant>>(`/v1/users/${id}/role-grants`, input)),

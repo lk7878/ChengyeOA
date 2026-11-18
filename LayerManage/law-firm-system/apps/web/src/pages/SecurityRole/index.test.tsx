@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import SecurityRolePage from './index';
+import request from '@/api/request';
+vi.mock('@/api/request',()=>({default:{get:vi.fn(),delete:vi.fn()}}));
 import { authorizationAdminApi } from '@/features/authorization/admin-api';
 import type { RoleAuthorizationView } from '@/features/authorization/types';
 import { useAuthStore } from '@/stores/authStore';
@@ -21,6 +23,8 @@ afterEach(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(request.get).mockResolvedValue({data:{members:[],blockers:[],sharedTables:[],token:"impact"}});
+  vi.mocked(request.delete).mockResolvedValue({data:null});
   useAuthStore.setState({ authorization: { userId: 'root', employeeId: null, isSystemSuperAdmin: true, isSystemAdmin: false, permissions: [], menus: [], fieldCapabilities: {}, validUntil: null, evaluatedAt: new Date().toISOString() } });
   vi.mocked(authorizationAdminApi.roles.list).mockResolvedValue({ list: [role], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
   vi.mocked(authorizationAdminApi.catalogs.permissions).mockResolvedValue([{ id: 'permission:employee.read', code: 'employee.read', name: '查看员工', type: 'ACTION', resource: 'employee', action: 'read', riskLevel: 'MEDIUM', status: 'ENABLED', route: null }]);
@@ -47,8 +51,9 @@ test('deletes a business role only after confirmation with its current version',
   render(<SecurityRolePage />);
   fireEvent.click(await screen.findByRole('button', { name: /删\s*除/ }));
   expect(authorizationAdminApi.roles.remove).not.toHaveBeenCalled();
+  await waitFor(()=>expect(screen.getByRole('button',{name:'确认删除'})).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
-  await waitFor(() => expect(authorizationAdminApi.roles.remove).toHaveBeenCalledWith('role-1', 2));
+  await waitFor(() => expect(request.delete).toHaveBeenCalledWith('/v1/roles/role-1', {data:{version:2}}));
 });
 
 test('members tab lists role members and adds a member via grantRole', async () => {
@@ -80,21 +85,13 @@ test('members tab requires user_role.membership.manage (or super admin) to manag
   expect(screen.getByRole('button', { name: /移\s*除/ })).toBeDisabled();
 }, 90000);
 
-test('saves the selected business permissions while marking reserved governance controls unavailable', async () => {
-  const catalog = [
-    { code:'cost.read' as const, name:'查看成本', resource:'cost', businessRoleAssignable:true },
-    { code:'role.permission.manage' as const, name:'管理角色权限',resource:'role',businessRoleAssignable:false }
-  ].map(entry=>({...entry,id:'permission:'+entry.code,type:'ACTION' as const,action:'read',riskLevel:'MEDIUM' as const,status:'ENABLED',route:null}));
-  vi.mocked(authorizationAdminApi.catalogs.permissions).mockResolvedValue(catalog);
-  vi.mocked(authorizationAdminApi.roles.replacePermissions).mockResolvedValue({...role,permissionCodes:['employee.read','cost.read'],version:3});
-  render(<SecurityRolePage/>);
-  fireEvent.click(await screen.findByRole('button',{name:/编辑重庆分所负责人/}));
-  fireEvent.click(await screen.findByText('高级设置 · 操作代码、数据范围及字段规则'));
-  fireEvent.click(await screen.findByRole('tab',{name:'操作权限'}));
-  expect(screen.getByRole('checkbox',{name:'管理角色权限（系统保留）'})).toBeDisabled();
-  fireEvent.click(screen.getByRole('checkbox',{name:'查看成本'}));
-  fireEvent.click(screen.getByRole('button',{name:/保存操作权限/}));
-  await waitFor(()=>expect(authorizationAdminApi.roles.replacePermissions).toHaveBeenCalledWith(role.id,['employee.read','cost.read'],role.version));
+test('historical permission diagnosis is read-only and retains existing grants', async()=>{
+ render(<SecurityRolePage/>);
+ fireEvent.click(await screen.findByRole('button',{name:/编辑重庆分所负责人/}));
+ fireEvent.click(await screen.findByText('权限明细与诊断（只读）'));
+ expect(await screen.findByText('查看员工')).toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:/保存操作权限|保存数据范围|保存字段权限/})).not.toBeInTheDocument();
+ expect(authorizationAdminApi.roles.replacePermissions).not.toHaveBeenCalled();
 });
 
 test('smart case capability role exposes member management without job permissions or deletion', async () => {

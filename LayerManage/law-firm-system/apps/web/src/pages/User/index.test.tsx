@@ -1,3 +1,4 @@
+import {MemoryRouter} from 'react-router';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { ConfigProvider, message } from 'antd';
@@ -17,7 +18,7 @@ test('a branch super administrator can be deleted after confirmation while admin
     { id: 'protected', username: 'admin', status: 'DISABLED', createdAt: '2026-09-01' },
   ], pagination: { page: 1, pageSize: 10, total: 2, totalPages: 1 } } });
   vi.mocked(userApi.delete).mockResolvedValue({ code: 200, message: 'success', data: null });
-  render(<ConfigProvider theme={{token:{motion:false}}}><UserPage /></ConfigProvider>);
+  render(<ConfigProvider theme={{token:{motion:false}}}><MemoryRouter><UserPage /></MemoryRouter></ConfigProvider>);
   const branch = (await screen.findByText('branch-admin')).closest('tr')!;
   expect(within(screen.getByText('admin').closest('tr')!).getByRole('button', { name: /删\s*除/ })).toBeDisabled();
   fireEvent.click(within(branch).getByRole('button', { name: /删\s*除/ }));

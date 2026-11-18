@@ -165,7 +165,7 @@ test('creates and versions a business role through strict DTOs without leaking s
   const created = await app.httpRequest()
     .post('/api/v1/roles')
     .set(bearer())
-    .send({ name: 'Branch Reader', code: 'BRANCH_READER', description: 'Branch read access' })
+    .send({ name: 'Branch Reader', code: 'BRANCH_READER', description: 'Branch read access', basicOffice: false })
     .expect(200);
   assert.equal(created.body.data.version, 1);
   assert.deepEqual(created.body.data.permissionCodes, []);
@@ -417,4 +417,23 @@ test('account retirement requires and atomically transfers private documents to 
   assert.equal((await prisma.driveNode.findUniqueOrThrow({ where: { id: node.id } })).ownerId, recipient.id);
   assert.equal((await prisma.collabWorkspace.findUniqueOrThrow({ where: { id: workspace.id } })).ownerId, recipient.id);
   assert.equal((await prisma.collabMember.findFirstOrThrow({ where: { workspaceId: workspace.id, principalId: recipient.id } })).role, 'OWNER');
+});
+
+
+test('permission editors expose bounded function updates, keep legacy endpoints read-only, and delete with explicit impact confirmation',async()=>{
+ const user=await prisma.user.create({data:{username:'permission-editor-fixture',password:'unused'}});
+ const created=await app.httpRequest().post('/api/v1/roles').set(bearer()).send({name:'合成功能角色',basicOffice:false}).expect(200);
+ const role=created.body.data;
+ for(const endpoint of ['permissions','data-scopes','field-permissions'])await app.httpRequest().put(`/api/v1/roles/${role.id}/${endpoint}`).set(bearer()).send({version:role.version}).expect(409);
+ const updated=await app.httpRequest().put(`/api/v1/roles/${role.id}/other-functions`).set(bearer()).send({version:role.version,groupId:'employee',permissionCodes:['employee.update']}).expect(200);
+ assert.ok(updated.body.data.permissionCodes.includes('employee.read'));
+ const ordinary=await createUserWithRole('EDITOR_NO_ADMIN','BUSINESS');
+ await app.httpRequest().put(`/api/v1/roles/${role.id}/other-functions`).set(bearer(ordinary.token)).send({version:updated.body.data.version,groupId:'employee',permissionCodes:[]}).expect(403);
+ await prisma.userRole.create({data:{userId:user.id,roleId:role.id}});
+ const impact=await app.httpRequest().get(`/api/v1/roles/${role.id}/deletion-impact`).set(bearer()).expect(200);
+ assert.equal(impact.body.data.members.length,1);
+ await app.httpRequest().delete(`/api/v1/roles/${role.id}`).set(bearer()).send({version:updated.body.data.version}).expect(409);
+ await app.httpRequest().delete(`/api/v1/roles/${role.id}`).set(bearer()).send({version:updated.body.data.version,revokeMembers:true,impactToken:impact.body.data.token,reason:'核对合成账号授权后撤销并删除角色'}).expect(200);
+ assert.equal(await prisma.userRole.count({where:{roleId:role.id,revokedAt:null}}),0);
+ assert.equal((await prisma.role.findUniqueOrThrow({where:{id:role.id}})).status,'DELETED');
 });
