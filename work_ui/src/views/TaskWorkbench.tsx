@@ -57,7 +57,7 @@ export function TaskWorkbench({kind='general',accountId,currentVersion}:{kind?:C
   return()=>{active=false}
  },[scope,parent,reload])
  const run=async(fn:()=>Promise<unknown>)=>{setBusy(true);setError('');try{await fn();await refresh()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
- return <div className="oa-workspace">
+ return <>
   <section className="oa-panel"><h2>新建任务</h2><p>未创建的任务会在当前浏览器标签页保留，切换栏目或刷新后可继续填写。</p><p>选取 OA 文件的具体版本。原件已保存不代表已解析，模型可读性由任务工具确认。AI 只使用本任务材料，生成成果需在下方勾选确认后保存到我的文件；正式归档需另行复核确认。</p>
   {storageError&&<p role="alert">{storageError}</p>}{notice&&<p role="status">{notice}</p>}<fieldset disabled={!ready||busy} style={{border:0,padding:0,minWidth:0}}><div className="oa-fields"><label>任务名称<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="例如：合同履行争议分析"/></label><label>关联 OA 案件<select value={caseId} onChange={e=>setCase(e.target.value)}><option value="">独立个人任务</option>{cases.map(c=><option key={c.id} value={c.id}>{c.caseNo} · {c.title} · {c.status}</option>)}</select></label></div>
   <button disabled={busy||!ready} onClick={()=>void run(async()=>{
@@ -83,5 +83,5 @@ export function TaskWorkbench({kind='general',accountId,currentVersion}:{kind?:C
   <button disabled={busy} onClick={()=>void run(()=>loadOutputs(t.id))}>查看 / 刷新待确认成果</button><button disabled={busy||t.status==='PREPARING'} onClick={()=>{if(window.confirm(`确认删除任务“${t.title}”？运行中的任务将停止，任务会从列表移除，未保存成果将无法再从任务页面访问，请先勾选保存需要的文件。OA 原始文件和已保存成果不受影响。`))void run(()=>api(`/api/tasks/${t.id}/delete`,{}))}}>删除任务</button></div>
   {outputs[t.id]&&<fieldset><legend>确认保存到 OA 的成果</legend><p>只保存勾选的文件版本，默认不选。修改后的内容需刷新并重新确认；此操作不等同于正式归档。</p>{outputs[t.id].length===0&&<p>暂无稳定成果，生成结束后请刷新。</p>}{outputs[t.id].map(o=><label key={o.key} style={{display:'block',margin:'8px 0'}}><input type="checkbox" disabled={busy||o.saved} checked={chosen[t.id]?.includes(o.key)||false} onChange={e=>setChosen(p=>({...p,[t.id]:e.target.checked?[...(p[t.id]||[]),o.key]:(p[t.id]||[]).filter(k=>k!==o.key)}))}/>{o.path} · {Math.ceil(o.size/1024)} KB · {o.sha256.slice(0,10)}{o.saved?' · 此版本已保存':''}</label>)}<button disabled={busy||!chosen[t.id]?.length} onClick={()=>void run(async()=>{try{await api(`/api/tasks/${t.id}/save`,{selection:chosen[t.id]})}finally{await loadOutputs(t.id);await refresh()}})}>保存已勾选成果（{chosen[t.id]?.length||0}）</button></fieldset>}
   {Object.values(t.outputs).map(o=><div className="oa-output" key={o.name+o.fileId+o.version}>{o.name}{o.version&&` · v${o.version}`} · {o.status==='SAVED'?<>已保存到承业空间 → 我的资源 · <a href="/workspaces?workspace=__all__&scope=mine" target="_blank" rel="noopener noreferrer">查看文件</a></>:'待保存'}{o.error&&<span className="oa-error"> {o.error}</span>}{t.caseId&&o.archives?.[t.caseId]&&<span> · 已正式归档</span>}{o.fileId&&t.caseId&&!o.archives?.[t.caseId]&&<button disabled={busy} onClick={()=>{if(window.confirm('已完成律师复核，确认将此版本正式归档到关联 OA 案件？'))void run(()=>api(`/api/tasks/${t.id}/archive`,{fileId:o.fileId,version:o.version}))}}>复核后正式归档</button>}</div>)}</section>)}
- </div>
+ </>
 }

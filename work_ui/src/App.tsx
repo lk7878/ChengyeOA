@@ -170,11 +170,11 @@ export default function App() {
             />
           )}
           {viewToKind(view) && (
-            <><section className="oa-panel"><label>办案类型 <select value={viewToKind(view)!} onChange={e=>updateLocation({view:`cases_${e.target.value as CaseKind}`,preset:e.target.value})}>
+            <div className="oa-workspace"><section className="oa-panel"><label>办案类型 <select value={viewToKind(view)!} onChange={e=>updateLocation({view:`cases_${e.target.value as CaseKind}`,preset:e.target.value})}>
              {!choices?.items.some(p=>p.id===viewToKind(view))&&<option value={viewToKind(view)!}>请选择已获配预设</option>}
              {choices?.items.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
              <p aria-live="polite">{choicesError||(!choices?'正在读取办案授权…':choices.items.find(p=>p.id===viewToKind(view))?.hint||'当前类型未获配，请选择已授权预设或联系管理员。')}</p>{choicesError&&<button onClick={()=>setRetryChoices(n=>n+1)}>重新校验草稿</button>}</section>
-            {choices?.items.some(p=>p.id===viewToKind(view))&&<TaskWorkbench key={user.id+viewToKind(view)!} accountId={user.id} kind={viewToKind(view)!} currentVersion={choices.items.find(p=>p.id===viewToKind(view))!.version}/>}</>
+            {choices?.items.some(p=>p.id===viewToKind(view))&&<TaskWorkbench key={user.id+viewToKind(view)!} accountId={user.id} kind={viewToKind(view)!} currentVersion={choices.items.find(p=>p.id===viewToKind(view))!.version}/>}</div>
           )}
           {view === 'knowledge' && (
             <KnowledgeBase key={user.id} canWrite={canWriteKb} canOpenConsole={canWriteKb} />

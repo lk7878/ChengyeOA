@@ -84,6 +84,15 @@ try{
  await expect(page).toHaveURL(/view=cases_injury/);await expect(page.getByLabel('办案类型')).toHaveValue('injury')
  await expect(sidebar.getByRole('button',{name:'AI助手'})).toHaveClass(/wb-sidebar__item--active/)
  await expect(page.getByLabel('办案类型').locator('option')).toHaveCount(1);assertions++
+ await page.route('**/api/tasks',route=>route.fulfill({json:{items:[{id:'scroll-task',kind:'injury',title:'滚动验收',status:'READY',inputs:[],knowledgeBases:[],outputs:{}}]}}))
+ await page.setViewportSize({width:1060,height:900});await page.reload()
+ const removeTask=page.getByRole('button',{name:'删除任务',exact:true})
+ await expect(removeTask).toBeVisible()
+ for(const size of [{width:1060,height:900},{width:780,height:600}]){
+  await page.setViewportSize(size);await page.mouse.move(size.width-100,size.height-80);await page.mouse.wheel(0,2500)
+  await expect(removeTask).toBeInViewport({ratio:1})
+ }
+ assertions++
  assert.deepEqual(errors,[]);assert.equal(requests.some(([method,p])=>method==='POST'&&p.endsWith('/start')),false)
  console.log(`${assertions} browser scenarios passed: drafts, versions, empty KB choice, navigation/history, account isolation, validation, entry errors, knowledge states and race protection. No real backend used.`)
 }finally{await browser.close();await new Promise(r=>server.close(r))}
