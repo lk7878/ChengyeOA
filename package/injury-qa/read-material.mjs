@@ -20,7 +20,8 @@ export function apply(ctx){
     if((await file.stat()).size>8*1024*1024)throw Error('文本超过读取上限，请分段上传')
     const first=Math.max(1,Math.floor(paragraph)||1)
     const lines=(await file.readFile('utf8')).split(/\r?\n/)
-    return {source:ref.name,version,paragraph:first,content:lines.slice(first-1,first+38).join('\n').slice(0,16000)}
+    const paragraphs=lines.slice(first-1,first+38).map((text,index)=>({paragraph:first+index,text:text.slice(0,4000)})).filter(row=>row.text.trim())
+    return {source:ref.name,version,paragraphs}
    }finally{await file.close()}
   }
  }))

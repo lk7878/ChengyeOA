@@ -93,7 +93,7 @@ export const CASE_KIND_LABELS: Record<CaseKind, string> = {
 export const CASE_KIND_HINTS: Record<CaseKind, string> = {
   general: '检索、分析、起草与复核',
   disability: '人体损伤致残程度鉴定，管理伤残案件材料与意见书',
-  injury: '人体损伤程度鉴定，管理伤情案件材料与意见书',
+  injury: '支持问答与检索，专项文书待验收',
   malpractice: '医疗损害过错、原因力与损害后果鉴定',
   traffic: '车速、痕迹、重建、车辆、信号灯与交通设施鉴定',
 }

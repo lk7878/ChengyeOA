@@ -6,7 +6,7 @@ export function localSearch(file,kbId,published,query,signal){
  if(!published.length||!query.trim())return Promise.resolve([])
  signal?.throwIfAborted()
  return new Promise((resolve,reject)=>{
-  const worker=new Worker(new URL(import.meta.url),{workerData:{file,kbId,ids:published.map(p=>p.nativeId),query:query.trim().slice(0,500)}})
+  const worker=new Worker(new URL(import.meta.url),{execArgv:[],workerData:{file,kbId,ids:published.map(p=>p.nativeId),query:query.trim().slice(0,500)}})
   const abort=()=>{void worker.terminate();reject(Error('本地检索已取消或超时'))}
   const timer=setTimeout(abort,20000)
   signal?.addEventListener('abort',abort,{once:true})

@@ -36,6 +36,16 @@ export class BusinessPresets{
    })
   }
   this.recover()
+  // A deployment may update one business workflow without advancing its siblings.
+  for(const component of catalog){
+   const current=this.definition(component.id)
+   if((current.revision||1)>=(component.revision||1)||this.store.read().audit.some(e=>e.component===component.id&&e.revision===component.revision))continue
+   this.store.update(s=>{
+    const next={...current,revision:component.revision,runtimeVersion:component.runtimeVersion,version:current.version+1}
+    s.versions[component.id].push(next)
+    s.audit.push({action:'升级运行组件',actor:'deployment',component:component.id,revision:component.revision,before:current.version,after:next.version,at:new Date().toISOString()})
+   })
+  }
  }
  recover(){
   const pending=this.store.read().pending
