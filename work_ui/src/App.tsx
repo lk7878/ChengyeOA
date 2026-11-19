@@ -20,7 +20,6 @@ import './App.css'
 
 const TITLES: Record<ViewId, { title: string; subtitle: string }> = {
   cases_general:{title:'AI助手',subtitle:'通用法律能力 · 资料整理 → 分析 → 起草 → 复核'},
-  specialized:{title:'专项能力',subtitle:'伤残、伤情、医疗损害与交通事故专业流程'},
   settings:{title:'AI 与授权管理',subtitle:'身份与组织由 OA 统一管理'},
   dashboard: { title: '概览', subtitle: '四类鉴定分库管理，快捷进入 AI 助手与知识库' },
   cases_disability: { title: CASE_KIND_LABELS.disability, subtitle: CASE_KIND_HINTS.disability },
@@ -180,8 +179,14 @@ export default function App() {
           {view === 'knowledge' && (
             <KnowledgeBase key={user.id} canWrite={canWriteKb} canOpenConsole={canWriteKb} />
           )}
-          {view==='specialized'&&<div className="oa-workspace"><div className="oa-specialties">{(choices?.items||[]).filter(p=>p.id!=='general').map(({id:k,name,hint})=><button className="oa-panel" key={k} onClick={()=>setView(`cases_${k}`)}><h2>{name}</h2><p>{hint}</p></button>)}</div></div>}
-          {view==='settings'&&user.isSystemSuperAdmin&&<div className="oa-workspace"><section className="oa-panel"><h2>账号与权限</h2><p>账号创建、停用、组织和业务权限由 OA 管理。知识审核仅对明确授权的目标库生效。</p><h2>模型与运行</h2><p>在此配置模型连接、OCR 和任务策略。知识索引沿用部署配置。任务材料和会话独立隔离。</p>{(user as Account&{isSystemSuperAdmin?:boolean}).isSystemSuperAdmin&&<><BusinessPresets/><KnowledgeAccess/><AiCapabilities/></>}<h2>开源组件</h2><p>DeepSeek Harness（MIT）、WeKnora 及法律 Skills 的原许可证与来源声明保留在部署包中。</p></section></div>}
+          {view==='settings'&&user.isSystemSuperAdmin&&(
+            <div className="oa-workspace">
+              <BusinessPresets/>
+              <KnowledgeAccess/>
+              <AiCapabilities/>
+              <section className="oa-panel"><h2>开源组件</h2><p>DeepSeek Harness（MIT）、WeKnora 及法律 Skills 的原许可证与来源声明保留在部署包中。</p></section>
+            </div>
+          )}
 
         </main>
       </div>

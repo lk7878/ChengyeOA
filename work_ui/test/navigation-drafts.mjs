@@ -45,7 +45,7 @@ try{
  await expect(title).toHaveValue('保留草稿');await expect(page.getByLabel('测试材料.docx版本')).toHaveValue('1');await expect(law).not.toBeChecked();if(process.env.UI_SNAPSHOT_DIR)await page.screenshot({path:path.join(process.env.UI_SNAPSHOT_DIR,'draft.png'),fullPage:true});assertions++
  await page.reload();await expect(title).toBeEnabled();await expect(title).toHaveValue('保留草稿');await expect(law).not.toBeChecked();assertions++
  await page.goBack();await expect(page.getByRole('heading',{name:'知识库概览'})).toBeVisible();await page.goForward();await expect(title).toHaveValue('保留草稿');assertions++
- await sidebar.getByRole('button',{name:'专项能力'}).click();await page.getByRole('button',{name:/伤情鉴定/}).click();await expect(title).toBeEnabled();await expect(title).toHaveValue('');await title.fill('专项草稿');await task();await expect(title).toHaveValue('保留草稿');assertions++
+ await expect(sidebar.getByRole('button',{name:'专项能力'})).toHaveCount(0);await page.getByLabel('办案类型').selectOption('injury');await expect(sidebar.getByRole('button',{name:'AI助手'})).toHaveAttribute('aria-current','page');await expect(title).toBeEnabled();await expect(title).toHaveValue('');await title.fill('专项草稿');await task();await expect(title).toHaveValue('保留草稿');assertions++
  failCreate=true;await page.getByRole('button',{name:/创建任务 · 已选/}).click();await expect(page.getByRole('alert')).toContainText('模拟创建失败');await page.reload();await expect(title).toHaveValue('保留草稿');await expect(title).toBeEnabled();assertions++
  account='b';await page.reload();await expect(title).toBeEnabled();await expect(title).toHaveValue('');await title.fill('B 的草稿');account='a';await page.reload();await expect(title).toHaveValue('保留草稿');await expect(title).toBeEnabled();assertions++
  failCreate=false;await page.getByRole('button',{name:/创建任务 · 已选/}).click();await expect(title).toHaveValue('');assert.deepEqual(creates.at(-1).knowledgeBases,[]);assert.deepEqual(creates.at(-1).inputs,[{fileId:'f1',version:1}]);assert.equal(await page.evaluate(()=>sessionStorage.getItem('wb:task-draft:v1:a:general')),null);assertions++
@@ -71,6 +71,7 @@ try{
  await page.route('**/api/kb-access',route=>route.fulfill({json:{libraries:[],users:[]}}))
  await page.route(/\/api\/(ai-capabilities|model-connections)$/,route=>route.fulfill({json:null}))
  await page.goto(base+'?view=settings')
+ await expect(page.locator('main h2').first()).toHaveText('用户办案授权');await expect(page.getByRole('heading',{name:/^(账号与权限|模型与运行)$/})).toHaveCount(0)
  const search=page.getByLabel('搜索账号或姓名')
  await search.fill('罗');await expect(page.getByRole('list',{name:'匹配账号'}).getByRole('button')).toHaveCount(2)
  await search.fill('罗致洪');const match=page.getByRole('button',{name:'罗致洪（chengyelzh）',exact:true});await expect(match).toBeVisible();await match.click()
@@ -78,6 +79,11 @@ try{
  await expect(editor).toBeVisible();await search.fill('不存在的账号');await expect(page.getByText('未找到匹配账号，请核对账号或姓名。')).toBeVisible();await expect(editor).toBeHidden()
  await search.fill('  CHENGYELMJ  ');await search.press('Enter');await expect(page.getByLabel('选择人员')).toHaveValue('1')
  assert.equal(requests.some(([method,p])=>method==='POST'&&p.startsWith('/api/business-grants')),false);assertions++
+ await page.route('**/api/my-presets',route=>route.fulfill({json:{defaultKind:'injury',items:[{id:'injury',name:'伤情鉴定',version:2,available:[],recommended:[]}]}}))
+ await page.goto(base+'?view=specialized&preset=general')
+ await expect(page).toHaveURL(/view=cases_injury/);await expect(page.getByLabel('办案类型')).toHaveValue('injury')
+ await expect(sidebar.getByRole('button',{name:'AI助手'})).toHaveClass(/wb-sidebar__item--active/)
+ await expect(page.getByLabel('办案类型').locator('option')).toHaveCount(1);assertions++
  assert.deepEqual(errors,[]);assert.equal(requests.some(([method,p])=>method==='POST'&&p.endsWith('/start')),false)
  console.log(`${assertions} browser scenarios passed: drafts, versions, empty KB choice, navigation/history, account isolation, validation, entry errors, knowledge states and race protection. No real backend used.`)
 }finally{await browser.close();await new Promise(r=>server.close(r))}

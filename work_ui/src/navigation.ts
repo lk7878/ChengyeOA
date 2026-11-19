@@ -1,4 +1,4 @@
-import {useCallback,useSyncExternalStore} from 'react'
+import {useCallback,useEffect,useSyncExternalStore} from 'react'
 import type {ViewId} from './types'
 const event='wb:navigation'
 function subscribe(cb:()=>void){window.addEventListener('popstate',cb);window.addEventListener(event,cb);return()=>{window.removeEventListener('popstate',cb);window.removeEventListener(event,cb)}}
@@ -11,8 +11,17 @@ export function updateLocation(values:Record<string,string|null>,replace=false){
 }
 export function useLocationParams(){const search=useSyncExternalStore(subscribe,()=>window.location.search);return new URLSearchParams(search)}
 export function readView(params:URLSearchParams):ViewId{
- const allowed=['dashboard','specialized','knowledge','settings','cases_general','cases_disability','cases_injury','cases_malpractice','cases_traffic']
+ const allowed=['dashboard','knowledge','settings','cases_general','cases_disability','cases_injury','cases_malpractice','cases_traffic']
  const view=params.get('view')
+ if(view==='specialized')return 'cases_general'
  return (view&&allowed.includes(view)?view:!view&&params.has('caseId')?'cases_general':'dashboard') as ViewId
 }
-export function useNavigation(){const params=useLocationParams();const setView=useCallback((view:ViewId)=>updateLocation({view}),[]);return {view:readView(params),setView}}
+export function useNavigation(){
+ const params=useLocationParams()
+ const legacySpecialized=params.get('view')==='specialized'
+ useEffect(()=>{
+  if(legacySpecialized)updateLocation({view:'cases_general',preset:null},true)
+ },[legacySpecialized])
+ const setView=useCallback((view:ViewId)=>updateLocation({view}),[])
+ return {view:readView(params),setView}
+}

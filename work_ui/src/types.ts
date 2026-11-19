@@ -143,7 +143,6 @@ export interface SharingGroup {
 
 export type ViewId =
   | 'cases_general'
-  | 'specialized'
   | 'settings'
   | 'dashboard'
   | 'cases_disability'
