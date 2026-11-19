@@ -24,6 +24,11 @@ export function SettlementEditor({ view, period, row, close, saved }: Props) {
     [error, setError] = useState('');
   const p = view.policies.find((p) => p.teamId === team);
   const memberRule = (employeeId: string) => p?.memberRules?.find((rule) => rule.employeeId === employeeId);
+  const inputFields = new Set([
+    ...(p?.teamInputFields ?? []),
+    ...lines.flatMap((line) => memberRule(line.employeeId)?.inputFields ?? []),
+  ]);
+  const stale = !!row && !!p && row.snapshot.policyVersion !== p.version;
   const members = view.members
     .filter((m) => m.professionalTeamId === team)
     .map((m) => ({ value: m.employee.id, label: m.employee.name + ' · ' + m.employee.employeeNo }));
@@ -47,7 +52,7 @@ export function SettlementEditor({ view, period, row, close, saved }: Props) {
       title={row ? '编辑案件结算' : '新建案件结算'}
       onCancel={close}
       confirmLoading={busy}
-      okText="保存草稿"
+      okText={stale ? '按最新规则重算并保存' : '保存草稿'}
       okButtonProps={{ disabled: !p || !source }}
       onOk={() =>
         run(async () => {
@@ -68,6 +73,7 @@ export function SettlementEditor({ view, period, row, close, saved }: Props) {
     >
       {error && <Alert type="error" title={error} />}
       <Form layout="vertical">
+        {stale && <Alert type="info" title={'草稿使用规则 v' + row.snapshot.policyVersion + '，保存后按 v' + p.version + ' 重新计算。'} />}
         <Space wrap>
           <Form.Item label="结算月份">{period}</Form.Item>
           <Form.Item label="专业团队">
@@ -132,7 +138,7 @@ export function SettlementEditor({ view, period, row, close, saved }: Props) {
               <Form.Item label={'本期基数（元，按' + (p.basis === 'received' ? '到款' : '代理费') + '）'}>
                 <Input value={basis} onChange={(e) => setBasis(e.target.value)} />
               </Form.Item>
-              {p.fields.map((f) => (
+              {p.fields.filter((field) => inputFields.has(field)).map((f) => (
                 <Form.Item label={f} key={f}>
                   <Input
                     value={inputs[f] ?? ''}

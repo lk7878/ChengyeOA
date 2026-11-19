@@ -4,7 +4,8 @@ import { Link, useSearchParams } from 'react-router';
 import { useAuthStore } from '@/stores/authStore';
 import Modal from '@/components/DraggableModal';
 import { get, post } from '@/features/workspaces/api';
-import { payError, payUrl, statusName, type PayView, type Settlement } from './case-pay-types';
+import { SettlementRecipient } from './SettlementRecipient';
+import { amountInCents, displayCents, payError, payUrl, statusName, type PayView, type Settlement } from './case-pay-types';
 import { SettlementEditor, SettlementPolicy } from './SettlementEditor';
 
 const month = () => {
@@ -86,6 +87,13 @@ export default function CasePerformancePage() {
         ...r.lines.map((l) => l.name),
       ].some((s) => s.includes(q.trim())),
   );
+  const staleDrafts = filtered.filter((r) => r.status === 'DRAFT' && view?.editable.includes(r.teamId) &&
+    view.policies.some((p) => p.teamId === r.teamId && p.version !== r.snapshot.policyVersion));
+  const submitting = action?.kind === 'submit' ? action.row : undefined;
+  const remainder = submitting ? amountInCents(submitting.pool) -
+    submitting.lines.reduce((sum, line) => sum + amountInCents(line.amount), 0n) : 0n;
+  const leaders = submitting ? (view?.members ?? []).filter((m) =>
+    m.professionalTeamId === submitting.teamId && m.memberRole === 'LEAD') : [];
   const teamName = (id: string) => view?.teams.find((t) => t.id === id)?.name ?? '历史团队';
   const sourceCell = (r: Settlement) => (
     <>
@@ -163,8 +171,7 @@ export default function CasePerformancePage() {
         amount: 0n,
         cases: [],
       };
-      const [whole, frac = ''] = String(l.amount).split('.');
-      item.amount += BigInt(whole) * 100n + BigInt(frac.padEnd(2, '0'));
+      item.amount += amountInCents(l.amount);
       item.cases.push(r);
       totals.set(l.employeeId, item);
     }
@@ -213,11 +220,15 @@ export default function CasePerformancePage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <Button onClick={refresh}>刷新</Button>
+
       </Space>
       {error && <Alert type="error" title={error} showIcon />}
       {notice && <Alert type="success" title={notice} closable />}
+      {staleDrafts.map((r) => <Alert key={r.id} type="warning" showIcon
+        title={r.snapshot.source.caseNo + ' 的草稿按旧规则计算，请核对后更新分配明细。'}
+        action={<Button size="small" onClick={() => setEdit(r)}>按最新规则重算</Button>} />)}
       <Tabs
+        tabBarExtraContent={<Button size="small" onClick={refresh}>刷新数据</Button>}
         activeKey={tab === 'finance' && !view?.finance.length ? 'settlements' : tab}
         onChange={(v) => setParams({ tab: v })}
         items={[
@@ -305,8 +316,7 @@ export default function CasePerformancePage() {
                           { title: '案件数', render: (_, t) => t.cases.length },
                           {
                             title: '已确认绩效合计（元）',
-                            render: (_, t) =>
-                              String(t.amount / 100n) + '.' + String(t.amount % 100n).padStart(2, '0'),
+                            render: (_, t) => displayCents(t.amount),
                           },
                         ]}
                       />
@@ -385,19 +395,20 @@ export default function CasePerformancePage() {
                     })
                   : post(payUrl + '/' + action.row.id + (action.kind === 'paid' ? '/paid' : '/action'), {
                       ...v,
+                      remainder: submitting && remainder > 0n ? displayCents(remainder) : undefined,
                       expiresAt: v.expiresAt ? new Date(v.expiresAt).toISOString() : undefined,
                       action: action.kind === 'share' ? v.mode : action.kind,
                       version: action.row.version,
                     }),
               )
             }
-            initialValues={{ mode: 'share' }}
+            initialValues={{ mode: 'share', leaderId: leaders.length === 1 ? leaders[0].employee.id : undefined }}
           >
             {error && <Alert type="error" title={error} />}
             {action.kind === 'share' && (
               <>
-                <Form.Item name="username" label="接收账号" rules={[{ required: true }]}>
-                  <Input />
+                <Form.Item name="userId" label="接收账号" rules={[{ required: true, message: '请选择接收账号' }]}>
+                  <SettlementRecipient settlementId={action.row.id} />
                 </Form.Item>
                 <Form.Item name="mode" label="共享方式">
                   <Select
@@ -424,8 +435,18 @@ export default function CasePerformancePage() {
             )}
             {action.kind === 'paid' && <p>请核对实际发放凭证后登记。系统将检查此工资批次的主任审批记录。</p>}
             {action.kind === 'submit' && <p>确认将本期结算和成员分配提交给本团队获授权的财务人员？</p>}
+            {submitting && remainder < 0n && <Alert type="error" title={'已超额分配 ' + displayCents(-remainder) + ' 元，请先修改草稿。'} />}
+            {submitting && remainder > 0n && <>
+              <p>剩余 {displayCents(remainder)} 元将计入所选负责人的调整额。若明细中尚无该负责人，将以 0% 提成比例新增一行。</p>
+              <Form.Item label="差额接收负责人" name="leaderId" rules={[{ required: true, message: '请选择团队负责人' }]}>
+                <Select placeholder="选择本团队负责人" options={leaders.map(({ employee }) => ({
+                  value: employee.id, label: employee.name + ' · ' + employee.employeeNo,
+                }))} />
+              </Form.Item>
+              {!leaders.length && <Alert type="warning" title="当前团队没有在任负责人，请先配置负责人或手动分配差额。" />}
+            </>}
             {action.kind === 'delete' && <p>确认删除此草稿和对应分配明细？</p>}
-            <Button loading={busy} type="primary" htmlType="submit">
+            <Button loading={busy} disabled={!!submitting && (remainder < 0n || (remainder > 0n && !leaders.length))} type="primary" htmlType="submit">
               确认
             </Button>
           </Form>

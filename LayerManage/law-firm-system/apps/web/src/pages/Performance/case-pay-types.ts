@@ -39,7 +39,8 @@ export type Settlement = {
   };
 };
 export type Policy = {
-  memberRules: { employeeId: string; rate: string; formula?: string }[];
+  teamInputFields: string[];
+  memberRules: { inputFields: string[]; employeeId: string; rate: string; formula?: string }[];
   teamId: string;
   version: number;
   basis: string;
@@ -54,7 +55,7 @@ export type PayView = {
   editable: string[];
   finance: string[];
   admin: boolean;
-  members: { professionalTeamId: string; employee: { id: string; name: string; employeeNo: string } }[];
+  members: { professionalTeamId: string; memberRole: string; employee: { id: string; name: string; employeeNo: string } }[];
   accounts: { id: string; username: string; employee: { name: string } | null }[];
   policies: Policy[];
   drafts: { id: string; title: string; version: number }[];
@@ -72,3 +73,15 @@ export function payError(error: unknown) {
   return e.response?.data?.message || e.message || '操作失败，请重试';
 }
 export const payUrl = '/case-performance';
+
+// Settlement amounts returned by the API have at most two decimal places.
+export function amountInCents(amount: string) {
+  const negative = amount.startsWith('-');
+  const [whole, fraction = ''] = (negative ? amount.slice(1) : amount).split('.');
+  const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+  return negative ? -cents : cents;
+}
+export function displayCents(value: bigint) {
+  const abs = value < 0n ? -value : value;
+  return (value < 0n ? '-' : '') + String(abs / 100n) + '.' + String(abs % 100n).padStart(2, '0');
+}

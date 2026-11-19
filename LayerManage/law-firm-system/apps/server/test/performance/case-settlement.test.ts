@@ -98,7 +98,7 @@ test('team settlement, limited sharing, frozen payroll and director approval', a
       version: 0,
       basis: 'amount',
       formula: '(基数 - 成本) * 比例 / 100',
-      fields: ['成本', '比例'],
+      fields: ['成本', '比例', '提成比例'],
       directorId: reviewer.actor.userId,
       financeIds: [f.actor.userId],
     };
@@ -171,6 +171,32 @@ test('team settlement, limited sharing, frozen payroll and director approval', a
     await assert.rejects(succeed(b, 'submit'), /无法提交/);
     await succeed(a, 'unshare', { username: 'B' });
     assert.equal((await b.view(period)).rows.length, 0);
+    assert.deepEqual((await a.recipients(id, 'B')).map((u) => u.id), [b.actor.userId]);
+    await assert.rejects(b.recipients(id, 'A'), /无权/);
+    await succeed(a, 'share', { userId: b.actor.userId, expiresAt: '2099-01-01' });
+    await succeed(a, 'unshare', { userId: b.actor.userId });
+    assert.deepEqual((await a.view(period)).policies.find((p) => p.teamId === ta)?.teamInputFields, ['成本', '比例']);
+    const over = await a.save({ ...body, period: '2026-09', lines: [{ ...body.lines[1], rate: 100, adjustment: 1, reason: '调整' }] });
+    await assert.rejects(a.action(over, { action: 'submit', version: 1 }), /超过可分配金额/);
+    await a.action(over, { action: 'delete', version: 1 });
+    for (const existingLead of [false, true]) {
+      const lines = existingLead ? [{ ...body.lines[0], adjustment: 10, reason: '奖金' }] : [body.lines[1]];
+      const scratch = await a.save({ ...body, period: '2026-10', lines });
+      const before = await db.casePayLine.findMany({ where: { settlementId: scratch } });
+      const gap = existingLead ? '3590.00' : '8400.00';
+      const submit = { action: 'submit', version: 1, leaderId: a.actor.employeeId, remainder: gap };
+      await assert.rejects(a.action(scratch, { ...submit, remainder: '1.00' }), /核对差额/);
+      await assert.rejects(a.action(scratch, { ...submit, leaderId: member.actor.employeeId }), /负责人/);
+      await a.action(scratch, submit);
+      const billed = await db.casePayLine.findMany({ where: { settlementId: scratch } });
+      assert.equal(billed.reduce((sum, line) => sum.add(line.amount), new D(0)).toFixed(2), '12000.00');
+      const leader = billed.find((line) => line.employeeId === a.actor.employeeId)!;
+      assert.equal(leader.rate.toString(), existingLead ? '60' : '0');
+      assert.equal(leader.adjustment.toString(), existingLead ? '3600' : '8400');
+      await f.action(scratch, { action: 'return', version: 2, reason: '复核' });
+      assert.deepEqual(await db.casePayLine.findMany({ where: { settlementId: scratch } }), before);
+      await a.action(scratch, { action: 'delete', version: 3 });
+    }
     await succeed(a, 'submit');
     assert.deepEqual(
       (await f.view(period)).rows[0].lines.map((l) => l.amount.toString()),

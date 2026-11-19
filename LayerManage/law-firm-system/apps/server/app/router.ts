@@ -10,6 +10,7 @@ export default (app: Application) => {
   router.get('/api/v1/case-performance/sources', casePayAccess, controller.casePerformance.sources);
   router.post('/api/v1/case-performance/policy', casePayAccess, controller.casePerformance.policy);
   router.post('/api/v1/case-performance/save', casePayAccess, controller.casePerformance.save);
+  router.get('/api/v1/case-performance/:id/recipients', casePayAccess, controller.casePerformance.recipients);
   router.post('/api/v1/case-performance/:id/action', casePayAccess, controller.casePerformance.action);
   router.post('/api/v1/case-performance/payroll/:id', casePayAccess, controller.casePerformance.payroll);
   router.post('/api/v1/case-performance/payroll/:id/release', casePayAccess, controller.casePerformance.release);

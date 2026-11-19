@@ -21,6 +21,9 @@ export default class CasePerformanceController extends Controller {
       ),
     );
   }
+  async recipients() {
+    this.ok(await this.settlements().recipients(this.ctx.params.id, String(this.ctx.query.q ?? '').trim().slice(0, 100)));
+  }
   async policy() {
     this.ok(await this.settlements().policy(this.ctx.request.body));
   }

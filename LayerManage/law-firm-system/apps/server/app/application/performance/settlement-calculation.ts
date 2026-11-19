@@ -11,6 +11,11 @@ export function decimal(value: unknown, label: string, places = 2) {
   return n;
 }
 
+export function referencedFields(fields: string[], formulas: string[]) {
+  const names = new Set(formulas.flatMap((formula): string[] => formula.match(/[\p{L}_][\p{L}\p{N}_]*/gu) ?? []));
+  return fields.filter((field) => names.has(field));
+}
+
 // Tokenize the complete formula, then parse only arithmetic. Names map to numeric fields.
 export function calculate(expression: string, values: Record<string, Prisma.Decimal>, validateOnly = false) {
   check(typeof expression === 'string' && expression.length <= 250, '公式最长 250 字');

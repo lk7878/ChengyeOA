@@ -6,9 +6,11 @@ import { buildContractScopeWhere } from '../contract/contract-scope';
 import { buildCaseScopeWhere } from '../case/case-scope';
 import { check } from '../../domain/workflow/schema';
 import { object, text } from '../collaboration/collaboration-policy';
-import { calculate, decimal, D, policyFields } from './settlement-calculation';
+import { calculate, decimal, D, policyFields, referencedFields } from './settlement-calculation';
 
 import { readMemberRules, type MemberRule } from './settlement-member-rules';
+
+import { allocateRemainder, undoRemainder } from './settlement-remainder';
 
 type Tx = Prisma.TransactionClient;
 const activeTeam: Prisma.ProfessionalTeamWhereInput = { deletedAt: null, status: 'ENABLED' } as const;
@@ -97,7 +99,7 @@ export class SettlementService {
         endedAt: null,
         employee: activeEmployee,
       },
-      select: { professionalTeamId: true, employee: employees },
+      select: { professionalTeamId: true, memberRole: true, employee: employees },
     });
     const accounts = r.admin
       ? await this.db.user.findMany({
@@ -150,12 +152,29 @@ export class SettlementService {
       })),
       policies: r.policies.map((p) => ({
         ...p,
-        memberRules: r.admin ? p.memberRules : editable.includes(p.teamId)
-          ? (p.memberRules as MemberRule[]).map(({ employeeId, rate }) => ({ employeeId, rate }))
+        teamInputFields: referencedFields(policyFields(p.fields), [p.formula]),
+        memberRules: editable.includes(p.teamId)
+          ? (p.memberRules as MemberRule[]).map(({ employeeId, rate, formula }) => ({
+              employeeId, rate, formula: r.admin ? formula : undefined,
+              inputFields: referencedFields(policyFields(p.fields), [formula]),
+            }))
           : [],
         financeIds: r.admin ? p.financeIds : [],
       })),
     };
+  }
+  async recipients(id: string, query: string) {
+    const rights = await this.rights();
+    check(await this.db.caseSettlement.count({ where: { id, ...(rights.admin ? {} : { teamId: { in: rights.lead } }) } }),
+      '无权管理此结算单的共享', 403);
+    return this.db.user.findMany({
+      where: { status: 'ENABLED', OR: [
+        { username: { contains: query, mode: 'insensitive' } },
+        { employee: { name: { contains: query, mode: 'insensitive' } } },
+      ] },
+      select: { id: true, username: true, employee: { select: { name: true } } },
+      orderBy: { username: 'asc' }, take: 40,
+    });
   }
   async sources(query: string, id?: string, tx: Tx = this.db) {
     const scope = await buildCaseScopeWhere(this.db, this.actor, 'case.read', tx);
@@ -279,7 +298,11 @@ export class SettlementService {
       check(source, '案件或关联合同不可访问', 404);
       const limit = decimal(policy.basis === 'amount' ? source.amount : source.received, '关联金额');
       check(basis.lte(limit), '本期基数超过来源金额');
-      const fields = policyFields(policy.fields);
+      const memberRules = policy.memberRules as MemberRule[];
+      const selectedIds = new Set(items.map((item) => item.employeeId));
+      const fields = referencedFields(policyFields(policy.fields), [
+        policy.formula, ...memberRules.filter((rule) => selectedIds.has(rule.employeeId)).map((rule) => rule.formula),
+      ]);
       const values = Object.fromEntries(fields.map((f) => [f, decimal(inputs[f], f, 4)]));
       const pool = calculate(policy.formula, { 基数: basis, ...values });
       const roster = await tx.professionalTeamMember.findMany({
@@ -292,7 +315,6 @@ export class SettlementService {
         select: { employee: employees },
       });
       const seen = new Set<string>();
-      const memberRules = policy.memberRules as MemberRule[];
       const lines = items.map((item) => {
         const employee = roster.find((m) => m.employee.id === item.employeeId)?.employee;
         check(employee && !seen.has(employee.id), '成员须属于当前团队且只能分配一次');
@@ -371,6 +393,7 @@ export class SettlementService {
         finance = r.admin || r.finance.includes(row.teamId);
       check(row.version === b.version, '记录已更新，请刷新', 409);
       const action = text(b.action);
+      let snapshot: Prisma.InputJsonObject | undefined;
       let status = row.status,
         remark = row.remark;
       if (action === 'delete') {
@@ -382,7 +405,7 @@ export class SettlementService {
       if (action === 'share' || action === 'unshare') {
         check(editor, '仅团队负责人或管理员可调整共享', 403);
         const user = await tx.user.findFirst({
-          where: { username: text(b.username), status: 'ENABLED' },
+          where: { ...(b.userId !== undefined ? { id: text(b.userId) } : { username: text(b.username) }), status: 'ENABLED' },
           select: { id: true },
         });
         check(user, '未找到启用账号');
@@ -397,10 +420,6 @@ export class SettlementService {
         } else await tx.casePayShare.deleteMany({ where: { settlementId: id, userId: user.id } });
       } else if (action === 'submit') {
         check(editor && status === 'DRAFT', '当前记录无法提交', 403);
-        check(
-          row.lines.length && row.lines.reduce((s, l) => s.add(l.amount), new D(0)).eq(row.pool),
-          '成员分配合计必须等于可分配金额',
-        );
         const source = (await this.sources('', row.caseId, tx))[0];
         const snap = object(row.snapshot),
           policy = r.policies.find((p) => p.teamId === row.teamId);
@@ -437,6 +456,7 @@ export class SettlementService {
             .lte(snap.basis === 'amount' ? source.amount : source.received),
           '历次结算基数合计超过来源金额',
         );
+        snapshot = await allocateRemainder(tx, row, b);
         status = 'SUBMITTED';
       } else if (action === 'confirm') {
         check(finance && status === 'SUBMITTED', '仅授权财务可确认已提交记录', 403);
@@ -448,13 +468,16 @@ export class SettlementService {
           403,
         );
         remark = text(b.reason, 300);
+        snapshot = await undoRemainder(tx, row);
         status = 'DRAFT';
       } else check(false, '未知操作');
-      await tx.caseSettlement.update({ where: { id }, data: { status, remark, version: { increment: 1 } } });
+      await tx.caseSettlement.update({ where: { id }, data: { status, remark, snapshot, version: { increment: 1 } } });
       await payLog(tx, this.actor, id, 'CASE_PAY_' + action.toUpperCase(), {
         status,
         remark,
         username: b.username,
+        recipientId: b.userId,
+        leaderRemainder: snapshot?.leaderRemainder,
         expiresAt: b.expiresAt,
       });
     });
