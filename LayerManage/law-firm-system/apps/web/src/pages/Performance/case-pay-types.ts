@@ -35,9 +35,11 @@ export type Settlement = {
     inputs: Record<string, string>;
     basis: string;
     policyVersion: number;
+    customMemberIds?: string[];
   };
 };
 export type Policy = {
+  memberRules: { employeeId: string; rate: string; formula?: string }[];
   teamId: string;
   version: number;
   basis: string;

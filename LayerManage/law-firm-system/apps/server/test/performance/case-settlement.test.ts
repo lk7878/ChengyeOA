@@ -103,7 +103,15 @@ test('team settlement, limited sharing, frozen payroll and director approval', a
       financeIds: [f.actor.userId],
     };
     await assert.rejects(a.policy({ ...policy, teamId: ta }), /超级管理员/);
-    await admin.policy({ ...policy, teamId: ta });
+    const personalRule = {
+      employeeId: a.actor.employeeId!,
+      rate: '60',
+      formula: '可分配金额 * 个人提成比例 / 100 + (基数 - 成本) * 比例 / 1000',
+    };
+    await assert.rejects(admin.policy({ ...policy, teamId: tb, memberRules: [personalRule] }), /在职成员/);
+    await assert.rejects(admin.policy({ ...policy, teamId: ta, memberRules: [personalRule, personalRule] }), /一条个人规则/);
+    await assert.rejects(admin.policy({ ...policy, teamId: ta, memberRules: [{ ...personalRule, formula: '基本工资 + 1' }] }), /无效/);
+    await admin.policy({ ...policy, teamId: ta, memberRules: [personalRule] });
     await admin.policy({ ...policy, teamId: tb });
     const customer = await db.customer.create({
       data: { customerNo: 'C', name: '验收', phone: '0', phoneHash: '0', createdBy: a.actor.userId },
@@ -146,6 +154,9 @@ test('team settlement, limited sharing, frozen payroll and director approval', a
     };
     await assert.rejects(b.save(body), /负责人/);
     const id = await a.save(body);
+    const initial = (await a.view(period)).rows[0];
+    assert.deepEqual(initial.snapshot['customMemberIds'], [personalRule.employeeId]);
+    assert.equal(initial.lines.find((line) => line.employeeId === personalRule.employeeId)?.rate.toString(), '60');
     const succeed = async (s: SettlementService, action: string, extra = {}) =>
       s.action(id, {
         action,
@@ -282,6 +293,13 @@ test('team settlement, limited sharing, frozen payroll and director approval', a
       { action: 'APPROVE', version: instance.version },
       randomUUID(),
     );
+    await admin.policy({ ...policy, teamId: ta, version: 1, memberRules: [] });
+    await assert.rejects(a.save({ ...body, period: '2027-01' }), /新规则/);
+    const fallbackId = await a.save({ ...body, period: '2027-01', policyVersion: 2 });
+    const fallback = await db.caseSettlement.findUniqueOrThrow({ where: { id: fallbackId }, include: { lines: true } });
+    assert.equal(fallback.lines.find((line) => line.employeeId === personalRule.employeeId)?.rate.toString(), '70');
+    assert.deepEqual(fallback.snapshot['customMemberIds'], []);
+    assert.equal((await a.view(period)).rows[0].snapshot['policyVersion'], 1);
     await markPaid(f, id);
     assert.equal((await f.view(period)).rows[0].status, 'PAID');
     assert.equal(await db.operationLog.count({ where: { action: 'CASE_PAY_PAYROLL' } }), 2);

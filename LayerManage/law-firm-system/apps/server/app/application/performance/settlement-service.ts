@@ -8,6 +8,8 @@ import { check } from '../../domain/workflow/schema';
 import { object, text } from '../collaboration/collaboration-policy';
 import { calculate, decimal, D, policyFields } from './settlement-calculation';
 
+import { readMemberRules, type MemberRule } from './settlement-member-rules';
+
 type Tx = Prisma.TransactionClient;
 const activeTeam: Prisma.ProfessionalTeamWhereInput = { deletedAt: null, status: 'ENABLED' } as const;
 const activeEmployee: Prisma.EmployeeWhereInput = { deletedAt: null, status: { not: 'LEAVED' } };
@@ -146,7 +148,13 @@ export class SettlementService {
         owner: b.ownerUserId === this.actor.userId,
         status: (b.workflow ?? b.instance)?.status ?? 'DRAFT',
       })),
-      policies: r.policies.map((p) => ({ ...p, financeIds: r.admin ? p.financeIds : [] })),
+      policies: r.policies.map((p) => ({
+        ...p,
+        memberRules: r.admin ? p.memberRules : editable.includes(p.teamId)
+          ? (p.memberRules as MemberRule[]).map(({ employeeId, rate }) => ({ employeeId, rate }))
+          : [],
+        financeIds: r.admin ? p.financeIds : [],
+      })),
     };
   }
   async sources(query: string, id?: string, tx: Tx = this.db) {
@@ -226,7 +234,21 @@ export class SettlementService {
         await tx.user.count({ where: { id: directorId, status: 'ENABLED' } }),
         '请选择启用的主任审核账号',
       );
-      const data = { basis, formula, fields, financeIds, directorId };
+      const memberRules = readMemberRules(b.memberRules === undefined ? old?.memberRules ?? [] : b.memberRules, fields);
+      if (memberRules.length) {
+        const roster = await tx.professionalTeamMember.findMany({
+          where: {
+            professionalTeamId: teamId,
+            startedAt: { lte: new Date() },
+            endedAt: null,
+            employee: activeEmployee,
+            employeeId: { in: memberRules.map((rule) => rule.employeeId) },
+          },
+          select: { employeeId: true },
+        });
+        check(new Set(roster.map((m) => m.employeeId)).size === memberRules.length, '个人规则只能配置给当前团队的在职成员');
+      }
+      const data = { basis, formula, fields, financeIds, directorId, memberRules };
       await tx.casePayPolicy.upsert({
         where: { teamId },
         create: { teamId, ...data },
@@ -270,18 +292,25 @@ export class SettlementService {
         select: { employee: employees },
       });
       const seen = new Set<string>();
+      const memberRules = policy.memberRules as MemberRule[];
       const lines = items.map((item) => {
         const employee = roster.find((m) => m.employee.id === item.employeeId)?.employee;
         check(employee && !seen.has(employee.id), '成员须属于当前团队且只能分配一次');
         seen.add(employee.id);
-        const rate = decimal(item.rate, '比例', 4),
+        const rule = memberRules.find((r) => r.employeeId === employee.id);
+        const rate = rule ? new D(rule.rate) : decimal(item.rate, '比例', 4),
           adjustment = decimal(item.adjustment, '调整额');
         const reason = String(item.reason ?? '').trim();
         check(
           rate.gte(0) && rate.lte(100) && reason.length <= 300 && (adjustment.isZero() || reason),
           '请核对比例，并注明调整原因',
         );
-        const amount = pool.mul(rate).div(100).toDecimalPlaces(2).add(adjustment);
+        const commission = rule
+          ? calculate(rule.formula, {
+              ...values, 基数: basis, 可分配金额: pool, 个人提成比例: rate,
+            })
+          : pool.mul(rate).div(100).toDecimalPlaces(2);
+        const amount = commission.add(adjustment);
         check(amount.gte(0) && amount.lt('10000000000000000'), '分配金额超出范围');
         return {
           employeeId: employee.id,
@@ -305,6 +334,7 @@ export class SettlementService {
           directorId: policy.directorId,
           formula: policy.formula,
           policyVersion: policy.version,
+          customMemberIds: memberRules.filter((rule) => seen.has(rule.employeeId)).map((rule) => rule.employeeId),
           basis: policy.basis,
           inputs: Object.fromEntries(fields.map((f) => [f, values[f].toString()])),
         },

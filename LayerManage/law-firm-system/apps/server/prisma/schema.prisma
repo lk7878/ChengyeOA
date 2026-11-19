@@ -2854,6 +2854,7 @@ model PersonalFilePurge {
 }
 
 model CasePayPolicy {
+  memberRules Json @default("[]")
   teamId String @id
   version Int @default(1)
   basis String

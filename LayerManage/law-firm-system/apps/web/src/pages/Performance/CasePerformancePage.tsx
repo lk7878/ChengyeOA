@@ -269,7 +269,7 @@ export default function CasePerformancePage() {
                 columns={[
                   { title: '成员', render: (_, l) => l.name + ' · ' + l.employeeNo },
                   { title: '案件', render: (_, l) => sourceCell(l.row) },
-                  { title: '比例（%）', dataIndex: 'rate' },
+                  { title: '比例（%）', render: (_, l) => l.row.snapshot.customMemberIds?.includes(l.employeeId) ? l.rate + ' · 个人规则' : l.rate },
                   { title: '调整额（元）', dataIndex: 'adjustment' },
                   { title: '调整原因', dataIndex: 'reason' },
                   { title: '分配金额（元）', dataIndex: 'amount' },

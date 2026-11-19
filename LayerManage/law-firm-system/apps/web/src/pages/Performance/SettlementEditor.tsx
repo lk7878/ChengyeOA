@@ -23,6 +23,7 @@ export function SettlementEditor({ view, period, row, close, saved }: Props) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   const p = view.policies.find((p) => p.teamId === team);
+  const memberRule = (employeeId: string) => p?.memberRules?.find((rule) => rule.employeeId === employeeId);
   const members = view.members
     .filter((m) => m.professionalTeamId === team)
     .map((m) => ({ value: m.employee.id, label: m.employee.name + ' · ' + m.employee.employeeNo }));
@@ -161,8 +162,17 @@ export function SettlementEditor({ view, period, row, close, saved }: Props) {
                 />
               ),
             },
-            ...(['rate', 'adjustment', 'reason'] as const).map((k, i) => ({
-              title: ['比例（%）', '调整额（元）', '调整原因'][i],
+            {
+              title: '提成比例（%）',
+              render: (_, l, i) => {
+                const rule = memberRule(l.employeeId);
+                return rule ? <span>{rule.rate}% · 个人规则</span> : (
+                  <Input aria-label="rate" value={l.rate} onChange={(e) => update(i, 'rate', e.target.value)} />
+                );
+              },
+            },
+            ...(['adjustment', 'reason'] as const).map((k, i) => ({
+              title: ['调整额（元）', '调整原因'][i],
               render: (_: unknown, l: (typeof lines)[number], n: number) => (
                 <Input value={l[k]} aria-label={k} onChange={(e) => update(n, k, e.target.value)} />
               ),
@@ -190,7 +200,7 @@ export function SettlementEditor({ view, period, row, close, saved }: Props) {
 export function SettlementPolicy({ view, close, saved }: Omit<Props, 'period' | 'row'>) {
   const [team, setTeam] = useState(view.teams[0]?.id);
   return (
-    <Modal open footer={null} title="团队结算规则与授权" onCancel={close}>
+    <Modal open width={600} styles={{ body: { maxHeight: '75vh', overflowY: 'auto' } }} footer={null} title="团队结算规则与授权" onCancel={close}>
       <Form layout="vertical">
         <Form.Item label="专业团队">
           <Select
@@ -226,6 +236,7 @@ function PolicyForm({ view, team, saved }: { view: PayView; team: string; saved:
         fields: p?.fields.join('，') ?? '',
         financeIds: p?.financeIds ?? [],
         directorId: p?.directorId,
+        memberRules: p?.memberRules ?? [],
       }}
       onFinish={async (values) => {
         setBusy(true);
@@ -267,6 +278,34 @@ function PolicyForm({ view, team, saved }: { view: PayView; team: string; saved:
       >
         <Input placeholder="(基数 - 成本) * 提成比例 / 100" />
       </Form.Item>
+      <fieldset>
+        <legend>成员自定义绩效规则</legend>
+        <p>为本团队的个别成员设置案件提成；其余成员按结算明细填写的比例分配。</p>
+        <Form.List name="memberRules">
+          {(rules, { add, remove }) => (
+            <>
+              {rules.map(({ key, name }) => (
+                <div key={key}>
+                  <Form.Item label="团队成员" name={[name, 'employeeId']} rules={[{ required: true, message: '请选择成员' }]}>
+                    <Select showSearch optionFilterProp="label" placeholder="按姓名或员工编号查找"
+                      options={view.members.filter((m) => m.professionalTeamId === team)
+                        .map(({ employee }) => ({ value: employee.id, label: employee.name + ' · ' + employee.employeeNo }))} />
+                  </Form.Item>
+                  <Form.Item label="个人提成比例（%）" name={[name, 'rate']} rules={[{ required: true, message: '请输入提成比例' }]}>
+                    <Input inputMode="decimal" />
+                  </Form.Item>
+                  <Form.Item label="个人案件提成公式" name={[name, 'formula']} rules={[{ required: true, message: '请输入公式' }]}
+                    extra="可引用基数、可分配金额、个人提成比例和团队自定义数值字段。比例按百分数填写。">
+                    <Input maxLength={250} />
+                  </Form.Item>
+                  <Button type="link" danger onClick={() => remove(name)}>移除个人规则</Button>
+                </div>
+              ))}
+              <Button onClick={() => add({ rate: '0', formula: '可分配金额 * 个人提成比例 / 100' })}>添加成员规则</Button>
+            </>
+          )}
+        </Form.List>
+      </fieldset>
       <Form.Item name="financeIds" label="可汇总、确认和入薪的财务账号">
         <Select mode="multiple" showSearch optionFilterProp="label" options={accounts} />
       </Form.Item>
