@@ -1,12 +1,14 @@
 import {readFileSync,existsSync} from 'node:fs'
 import path from 'node:path'
+import {sourceSecret} from './source-secrets.js'
 import {fileURLToPath} from 'node:url'
 import yaml from '../../runtime/upstream/harness/node_modules/js-yaml/index.js'
 const root=fileURLToPath(new URL('../..',import.meta.url))
 // Read existing authorized configuration only on the server; never mount its secrets in tasks.
 export function loadModelConfig(){
+ const data=process.env.DATA_DIR||path.join(root,'data/integration')
  const home=process.env.SOURCE_DSH_HOME||path.join(root,'.dsh'),env={}
- if(existsSync(path.join(home,'.env')))for(const line of readFileSync(path.join(home,'.env'),'utf8').split(/\r?\n/)){const m=line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);if(m)env[m[1]]=m[2].trim().replace(/^['"]|['"]$/g,'')}
+ if(existsSync(path.join(home,'.env')))for(const line of readFileSync(path.join(home,'.env'),'utf8').split(/\r?\n/)){const m=line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);if(m)env[m[1]]=sourceSecret(m[2].trim().replace(/^['"]|['"]$/g,''),m[1],data)}
  if(!existsSync(path.join(home,'settings.yaml')))return null
  const config=yaml.load(readFileSync(path.join(home,'settings.yaml'),'utf8')),route=config['agent-default-model'],provider=config['llm-pi-ai']?.providers?.[route?.provider]
  if(!provider)return null
@@ -16,6 +18,10 @@ export function loadModelConfig(){
  process.env.OCR_BASE_URL ||= provider.baseURL
  process.env.OCR_API_KEY ||= process.env.CHAT_API_KEY
  process.env.OCR_MODEL ||= process.env.RECORD_PARSE_MODEL||route.model
- return {route,provider:{...provider,models:provider.models?.map(model=>({...model,name:model.id})),apiKeyEnv:'OA_TASK_MODEL_KEY',baseURL:'http://127.0.0.1:8090/llm/v1',headers:{}}}
+ const imports=Object.entries(config['llm-pi-ai']?.providers||{}).filter(([id,p])=>id!==route.provider&&p.api==='openai-completions').map(([id,p])=>({
+  id:'import-'+id,label:p.displayName||id,base:p.baseURL,models:(p.models||[]).map(m=>m.id),
+  key:process.env[p.apiKeyEnv]||env[p.apiKeyEnv]||sourceSecret(p.headers?.Authorization,'header:'+id,data)?.replace(/^Bearer /i,'')||''
+ }))
+ return {imports,route,provider:{...provider,models:provider.models?.map(model=>({...model,name:model.id})),apiKeyEnv:'OA_TASK_MODEL_KEY',baseURL:'http://127.0.0.1:8090/llm/v1',headers:{}}}
 }
 export const modelConfig=loadModelConfig()

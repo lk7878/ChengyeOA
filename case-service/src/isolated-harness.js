@@ -16,7 +16,13 @@ export async function launchIsolatedHarness({dir,id,publicBase,brokerSocket,pres
  await rm(path.join(home,'profiles/web'),{recursive:true,force:true});await cp(path.join(bundle,'profile'),path.join(home,'profiles/web'),{recursive:true,verbatimSymlinks:true})
  await rm(path.join(home,'settings.yaml'),{force:true});
  const presetPatch=path.join(home,'profiles/web/cordis.patch.yml');await writeFile(presetPatch,(await readFile(presetPatch,'utf8'))+'\n- id: workspace-files\n  config:\n    maxFileBytes: 134217728\n- id: agent-preset-registry\n  config: '+JSON.stringify({default:preset})+'\n',{mode:0o600});
- if(modelConfig){const patch=path.join(home,'profiles/web/cordis.patch.yml');await writeFile(patch,(await readFile(patch,'utf8'))+'\n- id: llm-pi-ai\n  config: '+JSON.stringify({providers:{[modelConfig.route.provider]:modelConfig.provider}})+'\n- id: agent-default-model\n  config: '+JSON.stringify({...modelConfig.route,...(policy?.model?{model:policy.model}:{})})+'\n',{mode:0o600})}
+ const approvedModel=policy?.model||modelConfig?.route.model
+ if(approvedModel){
+  const providerId=modelConfig?.route.provider||'oa'
+  const definition=modelConfig?.provider.models?.find(m=>m.id===approvedModel)||{id:approvedModel,name:approvedModel,input:['text']}
+  const provider={...modelConfig?.provider,api:'openai-completions',baseURL:'http://127.0.0.1:8090/llm/v1',apiKeyEnv:'OA_TASK_MODEL_KEY',models:[definition],headers:{}}
+  await writeFile(presetPatch,'\n- id: llm-pi-ai\n  config: '+JSON.stringify({providers:{[providerId]:provider}})+'\n- id: agent-default-model\n  config: '+JSON.stringify({provider:providerId,model:approvedModel})+'\n',{flag:'a',mode:0o600})
+ }
  const manifest=path.join(dir,'workspace/task.json'),manifestExists=await access(manifest).then(()=>true,()=>false)
  const bwrapArgs=['--die-with-parent','--unshare-all','--new-session','--ro-bind','/usr','/usr','--symlink','usr/bin','/bin','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--proc','/proc','--dev','/dev','--tmpfs','/tmp','--dir','/etc','--ro-bind','/etc/ssl','/etc/ssl','--ro-bind',engine,'/engine','--ro-bind',bundle,'/app','--ro-bind',path.join(root,'runtime/plugin-deps'),'/deps','--ro-bind',node,'/runtime','--ro-bind',path.join(root,'runtime/python-deps'),'/pydeps','--bind',home,'/home/task']
  async function boot(start){

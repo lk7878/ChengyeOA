@@ -1,19 +1,31 @@
 import {useEffect,useState} from 'react'
 import {api} from '@/api/integration'
-type Policy={preset:string;model:string;fallbackModel:string;network:boolean;maxTokens:number}
-type Config={version:number;policies:Record<string,Policy>;models:string[];presets:string[];history:{version:number}[]}
+import {ModelConnections,RouteSelect,type Route,type Catalog} from './ModelConnections'
+type Defaults={primary:Route|null;backup:Route|null;ocr:Route|null;localOnly:boolean}
+type Policy={inherit:boolean;primary:Route|null;backup:Route|null;preset:string;network:boolean;maxTokens:number}
+type Config={version:number;defaults:Defaults;policies:Record<string,Policy>;presets:string[];history:{version:number}[]}
 const presetNames:Record<string,string>={'general-legal':'通用法律','injury':'伤残与伤情鉴定','medical-review':'医疗损害审查','traffic-accident':'交通事故鉴定'}
 const names:Record<string,string>={general:'通用任务',disability:'伤残鉴定',injury:'伤情鉴定',malpractice:'医疗损害',traffic:'交通事故'}
 export function AiCapabilities(){
- const [config,setConfig]=useState<Config>(),[status,setStatus]=useState(''),[busy,setBusy]=useState(false)
+ const [config,setConfig]=useState<Config>(),[catalog,setCatalog]=useState<Catalog>(),[status,setStatus]=useState(''),[busy,setBusy]=useState(false)
  const load=()=>api<Config>('/api/ai-capabilities').then(setConfig)
- useEffect(()=>{void load().catch(e=>setStatus(e.message))},[])
+ const refresh=()=>api<Catalog>('/api/model-connections').then(setCatalog)
+ useEffect(()=>{void Promise.all([load(),refresh()]).catch(e=>setStatus(e.message))},[])
  const change=(kind:string,patch:Partial<Policy>)=>setConfig(c=>c&&({...c,policies:{...c.policies,[kind]:{...c.policies[kind],...patch}}}))
- const run=async(action:string,body:unknown)=>{setBusy(true);try{await api('/api/ai-capabilities/'+action,body);setStatus(action==='check'?'配置检查通过，可发布。':'已发布；已有运行任务继续使用原配置版本。');if(action!=='check')await load()}catch(e){setStatus((e as Error).message)}finally{setBusy(false)}}
- return <section className="oa-panel"><h2>AI 能力配置</h2><p>仅 OA 超级管理员可管理。知识库审核资格不包含此权限。模型密钥保留在服务器；Skills 与工具由已部署的任务组合提供。</p>
- {status&&<p role="status">{status}</p>}{config&&<><p>当前发布版本：{config.version}。配置检查不消耗模型调用；发布后用于后续启动任务，现有运行任务保持原版本。撤销人员或材料授权始终实时生效。</p>
- {Object.entries(config.policies).map(([kind,p])=><fieldset key={kind} disabled={busy}><legend>{names[kind]}</legend><label>默认模型 <select aria-label={names[kind]+'默认模型'} value={p.model} onChange={e=>change(kind,{model:e.target.value})}>{config.models.map(m=><option key={m}>{m}</option>)}</select></label> <label>备用模型 <select value={p.fallbackModel} onChange={e=>change(kind,{fallbackModel:e.target.value})}><option value="">不使用备用</option>{config.models.map(m=><option key={m}>{m}</option>)}</select></label><p><label>Skills / 工具组合 <select value={p.preset} onChange={e=>change(kind,{preset:e.target.value})}>{config.presets.map(s=><option key={s} value={s}>{presetNames[s]||s}</option>)}</select></label></p><label><input type="checkbox" checked={p.network} onChange={e=>change(kind,{network:e.target.checked})}/>允许公共网络访问</label> <label>单次生成上限 <input type="number" min={1024} max={65536} value={p.maxTokens} onChange={e=>change(kind,{maxTokens:Number(e.target.value)})}/></label></fieldset>)}
- <p><button disabled={busy} onClick={()=>void run('check',{policies:config.policies})}>检查配置</button> <button disabled={busy} onClick={()=>void run('publish',{version:config.version,policies:config.policies})}>发布配置</button></p>
- {config.history.length>0&&<label>回退为历史配置 <select aria-label="回退配置版本" value="" disabled={busy} onChange={e=>{if(e.target.value&&window.confirm('将此历史配置作为新版本发布？运行中任务不会重启。'))void run('rollback',{version:config.version,targetVersion:Number(e.target.value)})}}><option value="">选择版本</option>{config.history.map(h=><option key={h.version} value={h.version}>版本 {h.version}</option>)}</select></label>}</>}
- </section>
+ const defaults=(patch:Partial<Defaults>)=>setConfig(c=>c&&({...c,defaults:{...c.defaults,...patch}}))
+ const run=async(action:string,body:unknown)=>{setBusy(true);try{await api('/api/ai-capabilities/'+action,body);setStatus(action==='check'?'静态参数检查通过。':'任务策略已发布。');if(action!=='check')await load()}catch(e){setStatus((e as Error).message)}finally{setBusy(false)}}
+ const routes=catalog?.active.filter(c=>!config?.defaults.localOnly||c.scope==='local')||[]
+ return <section className="oa-panel"><h2>AI 能力配置</h2>{catalog&&<ModelConnections catalog={catalog} refresh={refresh}/>}
+ <h3>任务策略</h3>{status&&<p role="status">{status}</p>}{config&&<><p>当前发布版本 {config.version}。新启动任务采用已发布策略，运行中任务保留模型快照。启用全局纯本地后，现有任务的外部连接也立即关闭；在纯本地模式下启动的任务始终受本地限制。</p>
+ <fieldset disabled={busy}><legend>全所默认</legend>
+ <label><input type="checkbox" checked={config.defaults.localOnly} onChange={e=>defaults({localOnly:e.target.checked})}/>纯本地模式</label>
+ <p><RouteSelect label="默认主模型" items={routes} value={config.defaults.primary} onChange={primary=>defaults({primary})}/> <RouteSelect label="默认备用模型" optional items={routes} value={config.defaults.backup} onChange={backup=>defaults({backup})}/></p>
+ <RouteSelect label="OCR 模型" optional items={routes} value={config.defaults.ocr} onChange={ocr=>defaults({ocr})}/></fieldset>
+ {Object.entries(config.policies).map(([kind,p])=><fieldset key={kind} disabled={busy}><legend>{names[kind]}</legend>
+ <label><input type="checkbox" checked={p.inherit} onChange={e=>change(kind,{inherit:e.target.checked})}/>继承全所主备配置</label>
+ {!p.inherit&&<p><RouteSelect label={names[kind]+'主模型'} items={routes} value={p.primary} onChange={primary=>change(kind,{primary})}/> <RouteSelect label={names[kind]+'备用模型'} optional items={routes} value={p.backup} onChange={backup=>change(kind,{backup})}/></p>}
+ <p><label>Skills / 工具组合 <select value={p.preset} onChange={e=>change(kind,{preset:e.target.value})}>{config.presets.map(s=><option key={s} value={s}>{presetNames[s]||s}</option>)}</select></label></p>
+ <label><input type="checkbox" disabled={config.defaults.localOnly} checked={!config.defaults.localOnly&&p.network} onChange={e=>change(kind,{network:e.target.checked})}/>允许公共网络访问</label> <label>单次生成上限 <input type="number" min={1024} max={65536} value={p.maxTokens} onChange={e=>change(kind,{maxTokens:Number(e.target.value)})}/></label></fieldset>)}
+ <p><button disabled={busy} onClick={()=>void run('check',config)}>静态检查</button> <button disabled={busy} onClick={()=>void run('publish',config)}>发布任务策略</button></p>
+ {config.history.length>0&&<label>回退为历史配置 <select value="" onChange={e=>{if(e.target.value&&window.confirm('将所选策略和纯本地设置发布为新版本？'))void run('rollback',{version:config.version,targetVersion:Number(e.target.value)})}}><option value="">选择版本</option>{config.history.map(h=><option key={h.version} value={h.version}>版本 {h.version}</option>)}</select></label>}</>}</section>
 }

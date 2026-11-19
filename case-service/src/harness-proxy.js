@@ -240,7 +240,7 @@ export async function registerHarnessProxy(app){
      const parts=[];res.on('data',c=>parts.push(c));res.on('error',reject);res.on('end',()=>{
       const html=Buffer.concat(parts).toString('utf8')
        .replace('<link rel="manifest" href="./manifest.webmanifest" />','<link rel="manifest" crossorigin="use-credentials" href="./manifest.webmanifest" />')
-       .replace('<head>','<head>'+harnessBootstrap(req.user)+'<script src="./__ws/shim.js"></script>')
+       .replace('<head>','<head>'+harnessBootstrap(req.user,runtime.model)+'<script src="./__ws/shim.js"></script>')
       reply.header('content-length',String(Buffer.byteLength(html)))
       resolve(reply.send(html))
      });return

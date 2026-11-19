@@ -33,7 +33,8 @@ test('OA entry is rechecked on every request and knowledge still requires per-us
  assert.equal((await review()).statusCode,403);
  kb.acl.update(d=>{d.kb.reviewers=['oa-user'];d.kb.readers=[]});
  permissions=['menu.smart_case'];assert.deepEqual((await request()).json().items,[]);assert.equal((await review()).statusCode,403);
- permissions=['menu.smart_case','knowledge.review'];assert.equal((await request()).json().items[0].canReview,true);assert.equal((await review()).statusCode,200);
+ permissions=['menu.smart_case','knowledge.review'];assert.equal((await request()).json().items[0].canReview,false);superAdmin=true;assert.equal((await request()).json().items[0].canReview,true);assert.equal((await review()).statusCode,200);
+ superAdmin=false;
  // Even an existing smart cookie and knowledge-review permission cannot replace entry eligibility.
  permissions=['knowledge.review'];const revoked=await request();assert.equal(revoked.statusCode,403);assert.match(revoked.json().error,/智慧办案使用者/);
  assert.equal((await request('/api/oa/files')).statusCode,403);

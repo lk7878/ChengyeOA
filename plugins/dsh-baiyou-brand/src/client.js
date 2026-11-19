@@ -186,8 +186,11 @@ export function apply(ctx) {
   }, SkipPreviewNotice))
   // Hide the owning settings surface too: keyboard shortcuts must not open it.
   // This flag is injected by the authenticated OA proxy before the native app boots.
+  const ModelLabel = () => jsx('span',{'aria-label':'任务模型',children:window.__oaHarness?.model||'任务模型未配置'})
+  ctx.slots.inject('conversation.input.model',()=>ctx.slots.register({name:'conversation.input.model',priority:-100},ModelLabel))
+  ctx.slots.inject('settings.section',()=>ctx.slots.register({name:'settings.section',id:'models',order:10,priority:-100,label:()=>'模型'},()=>jsx('p',{children:'请到智慧办案「授权与 AI 管理」配置模型连接及任务策略。'})))
   if (window.__oaHarness?.isSuperAdmin !== true) {
-    for (const name of ['conversation.input.model','conversation.hero.agentPreset','conversation.input.permission']) {
+    for (const name of ['conversation.hero.agentPreset','conversation.input.permission']) {
       ctx.slots.inject(name, () => ctx.slots.register({name,priority:-100},HiddenSettings))
     }
     ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({name:'conversation.session.header.actions',id:'agent-preset',priority:-100},HiddenSettings))

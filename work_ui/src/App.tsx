@@ -162,7 +162,7 @@ export default function App() {
             <KnowledgeBase key={user.id} canWrite={canWriteKb} canOpenConsole={canWriteKb} />
           )}
           {view==='specialized'&&<div className="oa-workspace"><div className="oa-specialties">{(['disability','injury','malpractice','traffic'] as const).map(k=><button className="oa-panel" key={k} onClick={()=>setView(`cases_${k}`)}><h2>{CASE_KIND_LABELS[k]}</h2><p>{CASE_KIND_HINTS[k]}</p></button>)}</div></div>}
-          {view==='settings'&&user.isSystemSuperAdmin&&<div className="oa-workspace"><section className="oa-panel"><h2>账号与权限</h2><p>账号创建、停用、组织和业务权限由 OA 管理。知识审核仅对明确授权的目标库生效。</p><h2>模型与运行</h2><p>新任务的模型与工具组合在下方统一配置；OCR 和知识索引保留部署配置。任务材料和会话独立隔离。</p>{(user as Account&{isSystemSuperAdmin?:boolean}).isSystemSuperAdmin&&<><KnowledgeAccess/><AiCapabilities/></>}<h2>开源组件</h2><p>DeepSeek Harness（MIT）、WeKnora 及法律 Skills 的原许可证与来源声明保留在部署包中。</p></section></div>}
+          {view==='settings'&&user.isSystemSuperAdmin&&<div className="oa-workspace"><section className="oa-panel"><h2>账号与权限</h2><p>账号创建、停用、组织和业务权限由 OA 管理。知识审核仅对明确授权的目标库生效。</p><h2>模型与运行</h2><p>在此配置模型连接、OCR 和任务策略。知识索引沿用部署配置。任务材料和会话独立隔离。</p>{(user as Account&{isSystemSuperAdmin?:boolean}).isSystemSuperAdmin&&<><KnowledgeAccess/><AiCapabilities/></>}<h2>开源组件</h2><p>DeepSeek Harness（MIT）、WeKnora 及法律 Skills 的原许可证与来源声明保留在部署包中。</p></section></div>}
 
         </main>
       </div>

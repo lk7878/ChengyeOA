@@ -6,8 +6,8 @@ export function personalWorkspaceTitle(user) {
  return name?`${name}的工作区`:'我的工作区'
 }
 
-export function harnessBootstrap(user) {
- return `<script>window.__oaHarness=${JSON.stringify({isSuperAdmin:canManageHarness(user)})};</script>`
+export function harnessBootstrap(user,model) {
+ return `<script>window.__oaHarness=${JSON.stringify({isSuperAdmin:canManageHarness(user),model}).replace(/</g,'\\u003c')};</script>`
 }
 
 // The native /plugins/ carrier serves published browser bundles, not plugin
