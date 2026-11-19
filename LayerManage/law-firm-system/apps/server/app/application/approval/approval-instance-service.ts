@@ -1,3 +1,4 @@
+import { checkSettlementApprovals } from '../performance/settlement-approval';
 import { freezeSopReviewChecklist, guardSopApproval, lockSopApproval, sopApprovalScope, syncSopReview } from '../quality/managed-approval-policy';
 // SPEC-013 Task 5: approval-instance-service —— 审批实例全生命周期（审批中心业务核心）。
 // 形态逐段镜像 invoice-service：3 参构造 (prisma, actor, authorizationContext) + 可选
@@ -520,6 +521,7 @@ export class ApprovalInstanceService {
           businessType: definition.businessType,
           status: target,
         };
+        if (target === 'APPROVED' && instance.businessType === 'PAYROLL') await checkSettlementApprovals(tx,instance.id,false);
         if (target === 'APPROVED' && instance.businessType === 'SOP_REVIEW') await freezeSopReviewChecklist(tx,instance.id);
         if (target === 'APPROVED') await syncApproved(tx, instance.id, this.actor, this.authorizationContext);
         else await syncSopReview(tx,instance.id,this.actor);

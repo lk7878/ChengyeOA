@@ -1,3 +1,4 @@
+import CasePerformancePage from './pages/Performance/CasePerformancePage';
 import NavigationManagement from './pages/NavigationManagement';
 import RetiredArchives from './pages/RetiredArchives';
 import AnalyticsDesigner from './pages/AnalyticsDesigner';
@@ -293,6 +294,7 @@ function SessionBootstrap() {
               </AuthorizedPage>
             }
           />
+          <Route path="/case-performance" element={<CasePerformancePage />} />
           <Route path="/cases" element={<CaseWorkspacePage />} />
           <Route path="/cases/:id/assessments" element={<AssessmentPage/>}/>
           <Route path="/quality/special-analyses" element={<BusinessWorkspacePage source="QUALITY_ANALYSES"/>}/>
@@ -509,6 +511,7 @@ function SessionBootstrap() {
             element={
               <div className="unified-area-page">
                 <h1>工资表与审批</h1>
+                <a href="/case-performance?tab=finance">从案件绩效汇总导入工资草稿</a>
                 <PayrollPanel />
               </div>
             }

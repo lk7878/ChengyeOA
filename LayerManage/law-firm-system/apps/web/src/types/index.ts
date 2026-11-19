@@ -289,6 +289,7 @@ export interface Performance {
 
 // SPEC-044：绩效业务指标（该员工考核周期案件办结数/回款额）；SPEC-045：+autoScore 自动计分。
 export interface PerformanceBusinessMetrics {
+  caseEarnings?: string | null;
   closedCases: number | null;
   confirmedRevenue: string | null;
   autoScore: number | null;

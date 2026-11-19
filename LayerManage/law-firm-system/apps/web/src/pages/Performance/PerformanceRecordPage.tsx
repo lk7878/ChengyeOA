@@ -162,6 +162,7 @@ function PerformanceDetail({ id }: { id: string }) {
             <Card title="当前有权查看的业务指标" style={{ marginTop: 16 }}>
               <Descriptions
                 items={[
+                  { key: 'earnings', label: '周期内已确认案件绩效（可见范围）', children: metrics.caseEarnings ?? '暂无可见金额' },
                   { key: 'cases', label: '办结案件', children: metrics.closedCases ?? '缺少案件读取权限' },
                   {
                     key: 'payments',

@@ -52,6 +52,7 @@
     "egg": "^3.34.0",
     "egg-cors": "^3.0.1",
     "egg-scripts": "^3.1.0",
+    "exceljs": "^4.4.0",
     "jsonwebtoken": "^9.0.3"
   },
   "devDependencies": {

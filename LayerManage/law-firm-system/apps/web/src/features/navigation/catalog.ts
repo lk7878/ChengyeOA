@@ -192,6 +192,7 @@ export const entries: NavigationEntry[] = [
     parent: '/contracts',
   },
   { path: '/cases', title: '案件管理', area: 'apps', group: '签约交付', required: ['case.read'] },
+  { path: '/case-performance', title: '案件绩效', area: 'apps', group: '签约交付', anyOf: [['case.read'], ['performance.read']] },
   {
     path: '/payments',
     title: '收款管理',

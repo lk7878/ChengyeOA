@@ -1,3 +1,4 @@
+import { SettlementService } from './settlement-service';
 import { crmTransaction } from '../crm/crm-transaction';
 // SPEC-037 Task 2: performance-service —— 绩效生命周期（create/list/get/confirm）。
 // 形态镜像 case-service：3 参构造 (prisma, actor, authorizationContext)；
@@ -257,7 +258,16 @@ export class PerformanceService {
             ),
           )
         : null;
-    return { closedCases, confirmedRevenue: amount?.toFixed(2) ?? null, autoScore };
+    const rights = await new SettlementService(this.prisma, this.authorizationContext).rights();
+    const width = record.type === 'YEARLY' ? 12 : record.type === 'QUARTERLY' ? 3 : 1;
+    const first = Math.floor(start.getUTCMonth() / width) * width;
+    const month = (n: number) => record.period.slice(0,4) + '-' + String(n).padStart(2,'0');
+    const visible = this.authorizationContext.employeeId === record.employeeId ? {} : rights.visible;
+    const earnings = await this.prisma.casePayLine.aggregate({
+      where:{employeeId:record.employeeId,settlement:{AND:[visible,{status:{in:['CONFIRMED','IN_PAYROLL','PAID']},period:{gte:month(first+1),lte:month(first+width)}}]}},
+      _sum:{amount:true},
+    });
+    return { ...(earnings._sum.amount ? { caseEarnings: earnings._sum.amount.toFixed(2) } : {}), closedCases, confirmedRevenue: amount?.toFixed(2) ?? null, autoScore };
   }
 
   /** 确认绩效：performance.confirm → PENDING → CONFIRMED（终态，重复确认 409）+ 审计。 */

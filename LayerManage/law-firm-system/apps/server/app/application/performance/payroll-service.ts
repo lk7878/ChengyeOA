@@ -68,6 +68,7 @@ export class PayrollService {
           where: { id, ownerUserId: this.actor.actorUserId },
         });
         if (!current) fileError('APPROVAL_FILE_NOT_FOUND', 404);
+        if (await tx.caseSettlement.count({where:{payrollId:id}})) fileError('APPROVAL_FILE_FROZEN',409);
         if (current.instanceId || current.workflowInstanceId) fileError('APPROVAL_FILE_FROZEN', 409);
         if (current.version !== normalizeVersion(input.version))
           throw new MasterDataError('VERSION_CONFLICT', 409);
@@ -120,7 +121,7 @@ export async function bindPayroll(
   if (!batch) fileError('APPROVAL_FILE_NOT_FOUND', 404);
   if (
     batch.period !== period ||
-    batch.instanceId ||
+    batch.instanceId || batch.workflowInstanceId ||
     batch.version !== version ||
     attachmentIds.length !== 1 ||
     attachmentIds[0] !== batch.attachmentId

@@ -71,6 +71,7 @@ model Position {
 // ==================== 人事/员工模块 ====================
 
 model Employee {
+  casePayLines CasePayLine[]
   inventoryReceipts      InventoryMovement[]
   id                     String              @id @default(uuid())
   employeeNo             String // Unique among non-LEAVED employees; partial index in migration.
@@ -129,6 +130,8 @@ model EmployeeAssignment {
 }
 
 model ProfessionalTeam {
+  casePayPolicy CasePayPolicy?
+  caseSettlements CaseSettlement[]
   deletedAt DateTime?
   qualityPolicies QualitySamplingPolicy[]
   sopTemplates SopTemplate[]
@@ -178,6 +181,8 @@ model ProfessionalTeamMember {
 // ==================== 用户/权限模块 ====================
 
 model User {
+  directedCasePayPolicies CasePayPolicy[]
+  casePayShares CasePayShare[]
   personalFiles PersonalFile[]
   assessments SatisfactionAssessment[] @relation("AssessmentCreator")
   specialAnalyses SpecialAnalysis[] @relation("AnalysisCreator")
@@ -915,6 +920,7 @@ model ContractNumberSequence {
 }
 
 model Contract {
+  caseSettlements CaseSettlement[]
   id                   String    @id @default(uuid())
   contractNo           String    @unique
   contractType         String // FIRST_SIGN|FORMAL|SUPPLEMENT|RISK_NOTICE
@@ -1172,6 +1178,7 @@ model CostEntry {
 // ==================== 案件模块 ====================
 
 model Case {
+  caseSettlements CaseSettlement[]
   lifecycleLinks CollabLifecycleLink[]
   deletedAt DateTime?
   assessments SatisfactionAssessment[]
@@ -1609,6 +1616,7 @@ model ApprovalSyncRecord {
 }
 
 model PayrollBatch {
+  caseSettlements CaseSettlement[]
   workflowInstanceId String? @unique
   workflow WorkflowInstance? @relation(fields:[workflowInstanceId],references:[id],onDelete:Restrict)
   id           String             @id @default(uuid())
@@ -2843,4 +2851,73 @@ model PersonalFilePurge {
   completedAt DateTime?
   @@index([ownerId,completedAt])
   @@map("personal_file_purge")
+}
+
+model CasePayPolicy {
+  teamId String @id
+  version Int @default(1)
+  basis String
+  formula String
+  fields Json
+  directorId String
+  team ProfessionalTeam @relation(fields:[teamId], references:[id], onDelete:Restrict)
+  director User @relation(fields:[directorId], references:[id], onDelete:Restrict)
+  financeIds String[]
+  @@map("case_pay_policy")
+}
+
+model CaseSettlement {
+  id String @id @default(uuid())
+  teamId String
+  caseId String
+  contractId String?
+  contract Contract? @relation(fields:[contractId],references:[id],onDelete:Restrict)
+  case Case @relation(fields:[caseId],references:[id],onDelete:Restrict)
+  team ProfessionalTeam @relation(fields:[teamId],references:[id],onDelete:Restrict)
+  period String
+  status String @default("DRAFT")
+  version Int @default(1)
+  snapshot Json
+  basisAmount Decimal @db.Decimal(18,2)
+  pool Decimal @db.Decimal(18,2)
+  shares CasePayShare[]
+  remark String @default("")
+  payrollId String?
+  payroll PayrollBatch? @relation(fields:[payrollId],references:[id],onDelete:Restrict)
+  updatedAt DateTime @updatedAt
+  lines CasePayLine[]
+  @@unique([teamId, caseId, period])
+  @@index([caseId,status])
+  @@index([payrollId])
+  @@index([period, status])
+  @@index([contractId])
+  @@map("case_settlement")
+}
+
+model CasePayLine {
+  id String @id @default(uuid())
+  settlementId String
+  settlement CaseSettlement @relation(fields:[settlementId], references:[id], onDelete:Cascade)
+  employeeId String
+  employee Employee @relation(fields:[employeeId],references:[id],onDelete:Restrict)
+  employeeNo String
+  name String
+  rate Decimal @db.Decimal(10,4)
+  adjustment Decimal @db.Decimal(18,2)
+  reason String
+  amount Decimal @db.Decimal(18,2)
+  @@unique([settlementId, employeeId])
+  @@index([employeeId])
+  @@map("case_pay_line")
+}
+
+model CasePayShare {
+  settlementId String
+  settlement CaseSettlement @relation(fields:[settlementId], references:[id], onDelete:Cascade)
+  userId String
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  expiresAt DateTime
+  @@id([settlementId,userId])
+  @@index([userId,expiresAt])
+  @@map("case_pay_share")
 }

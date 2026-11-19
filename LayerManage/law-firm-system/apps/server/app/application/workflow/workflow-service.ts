@@ -1,3 +1,4 @@
+import { checkSettlementApprovals } from '../performance/settlement-approval';
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -576,6 +577,7 @@ export class WorkflowService {
             '工资表必须经过人工审核',
             409,
           );
+        if (i.businessType === 'PAYROLL') await checkSettlementApprovals(tx, i.id, true);
         validateValues(s.fields, i.content as Values);
         i.status = 'APPROVED';
         await tx.workflowInstance.update({

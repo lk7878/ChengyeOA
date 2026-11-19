@@ -9,6 +9,7 @@ import ExportAnomaly from '../../../app/controller/anomaly';
 import ExportAppointment from '../../../app/controller/appointment';
 import ExportAuth from '../../../app/controller/auth';
 import ExportAuthorization from '../../../app/controller/authorization';
+import ExportCasePerformance from '../../../app/controller/casePerformance';
 import ExportCase from '../../../app/controller/case';
 import ExportChannel from '../../../app/controller/channel';
 import ExportContract from '../../../app/controller/contract';
@@ -45,6 +46,7 @@ declare module 'egg' {
     auth: ExportAuth;
     authorization: ExportAuthorization;
     case: ExportCase;
+    casePerformance: ExportCasePerformance;
     channel: ExportChannel;
     contract: ExportContract;
     cost: ExportCost;

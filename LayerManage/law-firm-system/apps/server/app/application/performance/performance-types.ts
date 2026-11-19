@@ -46,6 +46,7 @@ export interface ManagerReviewInput {
 // SPEC-044：绩效业务指标（该员工考核周期案件办结数/回款额）——纯读聚合。
 // SPEC-045：+autoScore 自动计分（办结数×10 + 回款额÷10000，clamp 0-100）。
 export interface PerformanceBusinessMetrics {
+  caseEarnings?: string | null;
   closedCases: number | null;
   confirmedRevenue: string | null;
   autoScore: number | null;
