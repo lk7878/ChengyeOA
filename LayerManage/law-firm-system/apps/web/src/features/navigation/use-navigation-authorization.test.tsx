@@ -28,7 +28,7 @@ afterEach(() => {
     authorizationStatus: 'idle',
   });
 });
-function show() {
+function show(path = '/cases') {
   vi.spyOn(runtimeSession, 'getAccessToken').mockReturnValue('synthetic-session');
   useAuthStore.setState({
     isAuthenticated: true,
@@ -37,7 +37,7 @@ function show() {
     authorizationStatus: 'ready',
   });
   return render(
-    <MemoryRouter initialEntries={['/cases']}>
+    <MemoryRouter initialEntries={[path]}>
       <MainLayout>
         <input aria-label="未保存草稿" />
       </MainLayout>
@@ -84,4 +84,21 @@ test('a response from the previous account cannot restore authorization after lo
   });
   expect(useAuthStore.getState().authorization).toBeNull();
   expect(screen.queryByRole('textbox', { name: '未保存草稿' })).not.toBeInTheDocument();
+});
+
+test.each([403, 0])('drive tolerates one missed authorization refresh but closes on denial or timeout (%s)', async status => {
+  vi.useFakeTimers();
+  const api = vi.spyOn(authorizationApi, 'me').mockResolvedValue(allowed);
+  show('/workspaces');
+  await act(async () => { await Promise.resolve(); });
+  api.mockRejectedValue({isAxiosError:true,code:'ERR_NETWORK'});
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+  expect(useAuthStore.getState().authorizationStatus).toBe('ready');
+  if (status) {
+    api.mockRejectedValue({isAxiosError:true,response:{status}});
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+  } else {
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+  }
+  expect(useAuthStore.getState().authorization).toBeNull();
 });

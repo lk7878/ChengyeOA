@@ -60,3 +60,18 @@ test('empty trash confirms the complete refreshed list across table pages',async
  await waitFor(()=>expect(post).toHaveBeenCalledWith('/personal-files/purge',{files:expected}));
  await waitFor(()=>expect(within(trash).getByRole('button',{name:'清空回收站'})).toBeDisabled());
 });
+
+test('network loss preserves checked files and a later permission denial removes them',async()=>{
+  const data={items:[{id:'mine',name:'选中文件.txt',kind:'FILE',level:3,size:55}],path:[],canUpload:true};
+  vi.mocked(get).mockResolvedValue(data);
+  render(<PersonalFiles scope="mine"/>);
+  await screen.findByText('选中文件.txt');
+  fireEvent.click(screen.getAllByRole('checkbox')[1]);
+  vi.mocked(get).mockRejectedValue({isAxiosError:true,code:'ERR_NETWORK'});
+  fireEvent.click(screen.getByRole('button',{name:'刷新文件'}));
+  await screen.findByText('清理失败');
+  expect(screen.getAllByRole('checkbox')[1]).toBeChecked();
+  vi.mocked(get).mockRejectedValue({isAxiosError:true,response:{status:403}});
+  fireEvent.click(screen.getByRole('button',{name:'刷新文件'}));
+  await waitFor(()=>expect(screen.queryByText('选中文件.txt')).toBeNull());
+});

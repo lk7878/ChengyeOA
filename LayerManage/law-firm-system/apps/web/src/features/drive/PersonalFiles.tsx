@@ -1,3 +1,4 @@
+import { isTransientRequestError } from '@/api/transient-error';
 import FilePreviewButton from '@/features/files/FilePreviewButton';
 import {useAuthStore} from '@/stores/authStore';
 import {uploadFile,downloadVersion,versionUrl} from './file-transfer';
@@ -24,7 +25,30 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
   const [selected,setSelected]=useState<string[]>([]),[deleting,setDeleting]=useState<Item[]>(),[trash,setTrash]=useState<TrashItem[]>();
   const [purging,setPurging]=useState<{files:TrashItem[];all:boolean}>(),[trashSelected,setTrashSelected]=useState<string[]>([]);
   const [failed,setFailed]=useState<File[]>([]);
-  useEffect(()=>{let active=true;void get<typeof data>('/personal-files?'+new URLSearchParams({scope,...(parentId?{parentId}:{})})).then(d=>{if(active){setData(d);setSelected([]);setError('');}}).catch(e=>{if(active){setData(undefined);setError(errorMessage(e));}});return()=>{active=false;};},[scope,parentId,revision]);
+  useEffect(() => {
+    setData(undefined);
+    setSelected([]);
+    setError('');
+  }, [scope, parentId, authorization?.userId]);
+  useEffect(() => {
+    let active = true;
+    void get<NonNullable<typeof data>>('/personal-files?' + new URLSearchParams({scope, ...(parentId ? {parentId} : {})}))
+      .then(result => {
+        if (!active) return;
+        setData(result);
+        setSelected(ids => ids.filter(id => result.items.some(item => item.id === id && item.kind === 'FILE' && item.level >= 3)));
+        setError('');
+      })
+      .catch(e => {
+        if (!active) return;
+        if (!isTransientRequestError(e)) {
+          setData(undefined);
+          setSelected([]);
+        }
+        setError(errorMessage(e));
+      });
+    return () => { active = false; };
+  }, [scope, parentId, revision, authorization?.userId]);
   const sharingId=sharing?.id;
   useEffect(()=>{if(!sharingId)return;let active=true;const timer=setTimeout(()=>{void get<typeof people>('/personal-files/people?keyword='+encodeURIComponent(keyword)).then(p=>{if(active)setPeople(p);}).catch(e=>message.error(errorMessage(e)));},200);return()=>{active=false;clearTimeout(timer);};},[sharingId,keyword]);
   const refresh=useCallback(()=>bump(n=>n+1),[]);

@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import CloudDrivePage from './CloudDrivePage';
 import { get } from '../workspaces/api';
-vi.mock('../workspaces/api', () => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), errorMessage: () => '加载失败', errorStatus: () => 500 }));
+vi.mock('../workspaces/api', () => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), errorMessage: () => '加载失败', errorStatus: (error: {response?: {status: number}}) => error.response?.status }));
 vi.mock('../navigation/shell-context', () => ({ useUnifiedShell: () => true }));
 vi.mock('./StorageManager', () => ({ default: ({workspace}: {workspace: string}) => <div>存储范围：{workspace}</div> }));
 vi.mock('./PersonalFiles', () => ({ default: () => <div>个人文件</div> }));
@@ -63,4 +63,44 @@ test('table-only members can open their authorized worksheet and personal files 
   expect(await screen.findByText('个人文件')).toBeInTheDocument();
   expect(screen.queryByRole('button', {name:'重试'})).not.toBeInTheDocument();
   expect(vi.mocked(get).mock.calls.some(([url]) => url.includes('/restricted/drive'))).toBe(false);
+});
+
+test('a temporary directory failure keeps the list through retry; explicit denial clears it', async () => {
+  let failure: unknown;
+  vi.mocked(get).mockImplementation(async url => {
+    if (url.startsWith('/workspaces?')) return {workspaces:[{id:'w1',name:'工作区一'}],canCreate:false};
+    if (url.includes('/collaboration/options')) return {organizations:[],employees:[],users:[],teams:[]};
+    if (url.endsWith('/folders')) return {folders:[],userId:'me'};
+    if (failure) throw failure;
+    return {...listing,workspace:{id:'w1',name:'工作区一'}};
+  });
+  render(<MemoryRouter initialEntries={['/workspaces']}><CloudDrivePage /></MemoryRouter>);
+  await screen.findByText('跨区目录');
+  failure = {isAxiosError:true,code:'ERR_NETWORK'};
+  fireEvent.focus(window);
+  await screen.findByText(/目录刷新暂时失败/);
+  expect(screen.getByText('跨区目录')).toBeVisible();
+  fireEvent.click(screen.getByRole('button',{name:'重试'}));
+  expect(screen.getByText('跨区目录')).toBeVisible();
+  failure = {isAxiosError:true,response:{status:403}};
+  await waitFor(() => {
+    window.dispatchEvent(new Event('online'));
+    expect(screen.queryByText('跨区目录')).toBeNull();
+  });
+});
+
+test.each([['w1', 15000], ['__all__', 30000]] as const)('directory %s refreshes after %d ms', async (id, interval) => {
+  vi.useFakeTimers();
+  try {
+    render(<MemoryRouter initialEntries={['/workspaces?workspace=' + id]}><CloudDrivePage /></MemoryRouter>);
+    await act(async () => { await Promise.resolve(); });
+    const calls = () => vi.mocked(get).mock.calls.filter(([url]) => url.includes('/drive?')).length;
+    expect(calls()).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(interval - 1); });
+    expect(calls()).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(calls()).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
 });

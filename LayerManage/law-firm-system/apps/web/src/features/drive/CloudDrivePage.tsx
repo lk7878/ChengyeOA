@@ -1,3 +1,4 @@
+import { isTransientRequestError } from '@/api/transient-error';
 import StorageManager from './StorageManager';
 import PersonalFiles from './PersonalFiles';
 import Modal from '@/components/DraggableModal';
@@ -113,8 +114,9 @@ export default function CloudDrivePage() {
         : 'updatedAt';
   const layout = params.get('layout') === 'cards' ? 'cards' : 'list';
   const page = Number(params.get('page') || 1);
-  const [loadedListing, setListing] = useState<Listing>();
-  const listing = !tableOnly && loadedListing?.workspace.id === workspaceId ? loadedListing : undefined;
+  const directoryKey = JSON.stringify([workspaceId, tableOnly, parentId, scope, search, sort, page]);
+  const [snapshot, setListing] = useState<{ key: string; value: Listing }>();
+  const listing = !tableOnly && snapshot?.key === directoryKey ? snapshot.value : undefined;
   const [loadedFolders, setFolders] = useState<DriveItem[]>([]);
   const folders = listing ? loadedFolders : [];
   const [folderUserId, setFolderUserId] = useState('');
@@ -183,8 +185,11 @@ export default function CloudDrivePage() {
       })
       .catch((e) => {
         if (active && current === request) {
-          setWorkspaces([]);
-          setWorkspacesDenied(errorStatus(e) === 403);
+          if (!isTransientRequestError(e)) {
+            setWorkspaces([]);
+            setCanCreateWorkspace(false);
+            setWorkspacesDenied([401, 403].includes(errorStatus(e) ?? 0));
+          }
           setWorkspaceError(errorStatus(e) === 403 ? '' : errorMessage(e));
           setLoading(false);
         }
@@ -192,10 +197,12 @@ export default function CloudDrivePage() {
     };
     void load();
     window.addEventListener('focus', load);
+    window.addEventListener('online', load);
     const timer = window.setInterval(load, 30000);
     return () => {
       active = false;
       window.removeEventListener('focus', load);
+      window.removeEventListener('online', load);
       clearInterval(timer);
     };
   }, [revision]);
@@ -212,37 +219,48 @@ export default function CloudDrivePage() {
       active = false;
     };
   }, [workspaceId, allWorkspaces, revision]);
+  const lastDirectory = useRef('');
+  const hasDirectory = useRef(false);
   useEffect(() => {
-    if (!workspaceId || scope === 'storage' || tableOnly) return;
-    let active = true,
-      inflight = false;
-    // A new route must never briefly display the previous folder's resources.
-    const poll = async (initial = false) => {
+    if (lastDirectory.current !== directoryKey || workspacesDenied) {
+      lastDirectory.current = directoryKey;
+      hasDirectory.current = false;
+      setDirectoryDenied(false);
+      setAccessError('');
+      setError('');
+      setListing(undefined);
+      setFolders([]);
+      setSelected(undefined);
+      setLifecycle(undefined);
+      setShortcutDialog(undefined);
+      setPersonalAction(undefined);
+      setDialog(undefined);
+      if (!parentId) visitedFolder.current = '';
+    }
+    if (!workspaceId || scope === 'storage' || tableOnly || workspacesDenied) return;
+    let active = true, inflight = false;
+    if (!hasDirectory.current) setLoading(true);
+    const poll = async () => {
       if (inflight || !active) return;
       inflight = true;
-      if (initial) {
-        setDirectoryDenied(false);
-        setAccessError('');
-        setError('');
-        setListing(undefined);
-        setFolders([]);
-        setSelected(undefined);
-        setLifecycle(undefined);
-        setShortcutDialog(undefined);
-        setPersonalAction(undefined);
-        if (!parentId) visitedFolder.current = '';
-        setLoading(true);
-      }
       const query = new URLSearchParams({ scope, q: search, sort, page: String(page) });
       if (parentId) query.set('parentId', parentId);
       try {
-        const [list, tree] = await Promise.all([
+        const [listingResult, folderResult] = await Promise.allSettled([
           get<Listing>('/workspaces/' + workspaceId + '/drive?' + query),
           get<{ folders: DriveItem[]; userId: string }>('/workspaces/' + workspaceId + '/drive/folders'),
         ]);
         if (!active) return;
         setDirectoryDenied(false);
-        setListing(list);
+        // A transport failure on one request must not mask a denial on the other.
+        for (const result of [listingResult, folderResult]) {
+          if (result.status === 'rejected' && !isTransientRequestError(result.reason)) throw result.reason;
+        }
+        if (listingResult.status === 'rejected') throw listingResult.reason;
+        if (folderResult.status === 'rejected') throw folderResult.reason;
+        const list = listingResult.value, tree = folderResult.value;
+        hasDirectory.current = true;
+        setListing({ key: directoryKey, value: list });
         setFolders(tree.folders);
         setFolderUserId(tree.userId);
         setError('');
@@ -250,52 +268,21 @@ export default function CloudDrivePage() {
           visitedFolder.current = workspaceId + ':' + parentId;
           void post('/drive/nodes/' + parentId + '/visit', {}).catch(() => undefined);
         }
-        const operation = lifecycleRef.current;
-        if (operation && !initial && operation.action !== 'PURGE') {
-          let allowed = false;
-          try {
-            const node = await get<DriveItem>('/drive/nodes/' + operation.item.id);
-            allowed = node.canMove;
-          } catch (e) {
-            if (errorStatus(e) === 403) {
-              try {
-                const trash = await get<Listing>(
-                  '/workspaces/' +
-                    workspaceId +
-                    '/drive?scope=trash&q=' +
-                    encodeURIComponent(operation.item.name),
-                );
-                allowed = trash.items.some((item) => item.id === operation.item.id && item.canRestore);
-              } catch {
-                /* Clear the preview when authorization cannot be refreshed. */
-              }
-            }
-          }
-          if (active && lifecycleRef.current === operation && !allowed) setLifecycle(undefined);
-        }
-        const current = selectedRef.current;
-        if (current && !initial) {
-          try {
-            const fresh = await get<DriveItem>('/drive/nodes/' + current.id);
-            if (active && selectedRef.current?.id === current.id) setSelected(fresh);
-          } catch (e) {
-            if (active && selectedRef.current?.id === current.id) {
-              setSelected(undefined);
-              setAccessError(errorMessage(e));
-            }
-          }
-        }
       } catch (e) {
         if (!active) return;
+        if (isTransientRequestError(e)) {
+          setError(hasDirectory.current ? '目录刷新暂时失败，已保留上次加载的内容。' : errorMessage(e));
+          return;
+        }
+        hasDirectory.current = false;
         setDirectoryDenied(errorStatus(e) === 403);
         setError(errorStatus(e) === 403 ? '' : errorMessage(e));
-        // Fail closed, including interrupted refreshes: a stale catalogue is not an authorization cache.
         setListing(undefined);
         setFolders([]);
         setSelected(undefined);
         setLifecycle(undefined);
         setShortcutDialog(undefined);
-        if ([401, 403, 404].includes(errorStatus(e) || 0)) {
+        if ([401, 403, 404, 410].includes(errorStatus(e) || 0)) {
           setDialog(undefined);
           if (parentId) {
             setAccessError('原目录已不可访问，已返回工作区。');
@@ -317,16 +304,77 @@ export default function CloudDrivePage() {
         if (active) setLoading(false);
       }
     };
-    void poll(true);
-    const timer = window.setInterval(() => void poll(), allWorkspaces ? 15000 : 2000);
+    void poll();
+    const timer = window.setInterval(() => void poll(), allWorkspaces ? 30000 : 15000);
     const focus = () => void poll();
     window.addEventListener('focus', focus);
+    window.addEventListener('online', focus);
     return () => {
       active = false;
       clearInterval(timer);
       window.removeEventListener('focus', focus);
+      window.removeEventListener('online', focus);
     };
-  }, [workspaceId, allWorkspaces, tableOnly, parentId, scope, search, sort, page, revision, setParams]);
+  }, [directoryKey, workspacesDenied, workspaceId, allWorkspaces, tableOnly, parentId, scope, search, sort, page, revision, setParams]);
+  const selectedId = selected?.id;
+  useEffect(() => {
+    if (!selectedId && !lifecycle) return;
+    let active = true, inflight = false;
+    const verify = async () => {
+      if (inflight || !active) return;
+      inflight = true;
+      try {
+        const operation = lifecycleRef.current;
+        if (operation && operation.action !== 'PURGE') {
+          let allowed = false;
+          try {
+            const node = await get<DriveItem>('/drive/nodes/' + operation.item.id);
+            allowed = node.canMove;
+          } catch (e) {
+            if (isTransientRequestError(e)) return;
+            if (errorStatus(e) === 403) {
+              try {
+                const trash = await get<Listing>(
+                  '/workspaces/' +
+                    workspaceId +
+                    '/drive?scope=trash&q=' +
+                    encodeURIComponent(operation.item.name),
+                );
+                allowed = trash.items.some((item) => item.id === operation.item.id && item.canRestore);
+              } catch (trashError) {
+                if (isTransientRequestError(trashError)) return;
+              }
+            }
+          }
+          if (active && lifecycleRef.current === operation && !allowed) setLifecycle(undefined);
+        }
+        const current = selectedRef.current;
+        if (current) {
+          try {
+            const fresh = await get<DriveItem>('/drive/nodes/' + current.id);
+            if (active && selectedRef.current?.id === current.id) setSelected(fresh);
+          } catch (e) {
+            if (!isTransientRequestError(e) && active && selectedRef.current?.id === current.id) {
+              setSelected(undefined);
+              setAccessError(errorMessage(e));
+              refresh();
+            }
+          }
+        }
+      } finally {
+        inflight = false;
+      }
+    };
+    const timer = window.setInterval(verify, 2000);
+    window.addEventListener('focus', verify);
+    window.addEventListener('online', verify);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener('focus', verify);
+      window.removeEventListener('online', verify);
+    };
+  }, [selectedId, lifecycle, workspaceId, refresh]);
   const openDialog = (kind: 'folder' | 'base' | 'workspace' | 'rename', item?: DriveItem) => {
     setName(item?.name || '');
     const source = params.get('module') || '';

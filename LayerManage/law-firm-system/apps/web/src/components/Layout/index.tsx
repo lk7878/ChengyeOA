@@ -62,7 +62,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [search, setSearch] = useState('');
   const { userInfo, authorization, authorizationStatus, ensureAuthorization, logout } = useAuthStore();
-  useNavigationAuthorization();
+  useNavigationAuthorization(pathname === '/workspaces');
   const loadMenu=useMenuStore(state=>state.load);
   const { labelFor, pathFor } = useMenuLabels();
   useEffect(()=>{
