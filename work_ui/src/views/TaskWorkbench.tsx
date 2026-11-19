@@ -4,7 +4,7 @@ import {useTaskDraft} from './task-draft'
 import {updateLocation} from '../navigation'
 import type {CaseKind} from '@/types'
 const taskError=(message:string)=>message.startsWith('Harness 启动')?'AI 任务运行环境启动失败，请点击“启动任务”重试；若仍失败，请联系管理员。':message
-export function TaskWorkbench({kind='general',accountId}:{kind?:CaseKind;accountId:string}){
+export function TaskWorkbench({kind='general',accountId,currentVersion}:{kind?:CaseKind;accountId:string;currentVersion:number}){
  const {draft,update,clear,storageError}=useTaskDraft(accountId,kind)
  const {title,caseId,inputs,knowledge,scope,folders}=draft
  const setTitle=(title:string)=>update({title}),setCase=(caseId:string)=>{update({caseId});updateLocation({caseId},true)},setScope=(scope:string)=>update({scope})
@@ -17,14 +17,16 @@ export function TaskWorkbench({kind='general',accountId}:{kind?:CaseKind;account
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[])
  // Restore only after current OA authorization, case visibility and exact versions are checked.
  const validateDraft=async(current:typeof draft)=>{
-  const [availableCases,result]=await Promise.all([api<typeof cases>('/api/oa/cases'),api<{items:typeof kbs}>('/api/kb')])
-  const ordered=[...result.items].sort((a,b)=>Number(b.name==='法律法规库')-Number(a.name==='法律法规库'))
+  const [availableCases,result]=await Promise.all([api<typeof cases>('/api/oa/cases'),api<{items:{id:string;available:typeof kbs;recommended:string[];error?:string}[]}>('/api/my-presets')])
+  const config=result.items.find(p=>p.id===kind)
+  if(!config||config.error)throw Error(config?.error||'此预设已撤销，请重新选择')
+  const ordered=[...config.available].sort((a,b)=>Number(b.name==='法律法规库')-Number(a.name==='法律法规库'))
   const versions:Record<string,Version[]>={},validInputs:Record<string,number>={}
   await Promise.all(Object.entries(current.inputs).map(async([id,version])=>{
    try{const items=await api<Version[]>('/api/oa/files/'+encodeURIComponent(id)+'/versions');versions[id]=items;if(items.some(v=>v.version===version))validInputs[id]=version}
    catch(e){if(!(e instanceof IntegrationError)||![403,404,410].includes(e.status))throw e}
   }))
-  const next={...current,caseId:availableCases.some(c=>c.id===current.caseId)?current.caseId:'',inputs:validInputs,knowledge:current.knowledgeInitialized?current.knowledge.filter(id=>ordered.some(k=>k.id===id)):ordered.filter(k=>k.name==='法律法规库').map(k=>k.id),knowledgeInitialized:true}
+  const next={...current,caseId:availableCases.some(c=>c.id===current.caseId)?current.caseId:'',inputs:validInputs,knowledge:current.knowledgeInitialized?current.knowledge.filter(id=>ordered.some(k=>k.id===id)):config.recommended,knowledgeInitialized:true}
   const changed=next.caseId!==current.caseId||Object.keys(validInputs).length!==Object.keys(current.inputs).length||(current.knowledgeInitialized&&next.knowledge.length!==current.knowledge.length)
   return {next,changed,ordered,availableCases,versions}
  }
@@ -58,6 +60,11 @@ export function TaskWorkbench({kind='general',accountId}:{kind?:CaseKind;account
  return <div className="oa-workspace">
   <section className="oa-panel"><h2>新建任务</h2><p>未创建的任务会在当前浏览器标签页保留，切换栏目或刷新后可继续填写。</p><p>选取 OA 文件的具体版本。原件已保存不代表已解析，模型可读性由任务工具确认。AI 只使用本任务材料，生成成果需在下方勾选确认后保存到我的文件；正式归档需另行复核确认。</p>
   {storageError&&<p role="alert">{storageError}</p>}{notice&&<p role="status">{notice}</p>}<fieldset disabled={!ready||busy} style={{border:0,padding:0,minWidth:0}}><div className="oa-fields"><label>任务名称<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="例如：合同履行争议分析"/></label><label>关联 OA 案件<select value={caseId} onChange={e=>setCase(e.target.value)}><option value="">独立个人任务</option>{cases.map(c=><option key={c.id} value={c.id}>{c.caseNo} · {c.title} · {c.status}</option>)}</select></label></div>
+  <button disabled={busy||!ready} onClick={()=>void run(async()=>{
+   const checked=await validateDraft(draft);if(checked.changed){update(checked.next);throw Error('材料或授权已变化，请重新确认')}
+   const t=await api<Task>('/api/tasks',{kind,title:title.trim()||'新对话',caseId:caseId||null,inputs:Object.entries(inputs).map(([fileId,version])=>({fileId,version})),knowledgeBases:knowledge})
+   const session=await api<Task>(`/api/tasks/${t.id}/start`,{});clear();window.location.assign(`/harness/${t.id}/#session=${session.sessionId}&workspace=${session.workspaceId}`)
+  })}>开始对话并上传材料</button>
   <div className="oa-actions"><select aria-label="文件范围" value={scope} onChange={e=>{setScope(e.target.value);setFolders([])}}><option value="mine">我的文件</option><option value="shared">共享给我的文件</option></select>
    <button disabled={!parent} onClick={()=>setFolders([])}>{parent?'返回根目录':'已在根目录'}</button>
    {parent&&<button onClick={()=>setFolders(p=>p.slice(0,-1))}>返回上级</button>}
@@ -71,7 +78,7 @@ export function TaskWorkbench({kind='general',accountId}:{kind?:CaseKind;account
   {<fieldset><legend>本任务可用知识库</legend><p>只检索勾选的知识库，可按任务需要多选或全部取消；未勾选时不检索知识库。</p>{kbLoading?<p role="status">正在加载知识库…</p>:kbError?<p role="alert" className="oa-error">{kbError}，请刷新页面重试。</p>:kbs.length===0?<p>暂无获授权的知识库。智慧办案使用资格与知识库权限分别管理，请联系管理员为您的账号逐库分配阅读权限，授权后刷新页面即可勾选。</p>:null}{kbs.map(k=><label key={k.id}><input type="checkbox" checked={knowledge.includes(k.id)} onChange={e=>setKnowledge(p=>e.target.checked?[...p,k.id]:p.filter(x=>x!==k.id))}/>{k.name}</label>)}</fieldset>}
   <button className="oa-primary" disabled={busy||Object.values(pendingFiles).some(Boolean)||!ready||kbLoading||!!kbError||!title.trim()} onClick={()=>void run(async()=>{const checked=await validateDraft(draft);if(!mounted.current)return;setCases(checked.availableCases);setKbs(checked.ordered);setSelected(checked.versions);if(checked.changed){update(checked.next);throw Error('授权或材料版本已变化，已更新选择，请核对后重新创建。')}await api('/api/tasks',{title,kind,caseId:caseId||null,inputs:Object.entries(inputs).map(([fileId,version])=>({fileId,version})),knowledgeBases:knowledge});clear();setSelected({});setNotice('任务已创建，对应草稿已清除。');if(mounted.current)updateLocation({caseId:null},true)})}>创建任务 · 已选 {Object.keys(inputs).length} 个版本</button></fieldset>{kbError&&<div role="alert"><p className="oa-error">{kbError}</p><button onClick={()=>setValidation(v=>v+1)}>重新校验草稿</button></div>}</section>
   {error&&<p role="alert" className="oa-error">{taskError(error)}</p>}
-  <h2>我的任务</h2>{tasks.filter(t=>t.kind===kind).map(t=><section key={t.id} className="oa-panel"><h3>{t.title} <small>{TASK_STATES[t.status]||t.status}</small></h3><p>{t.inputs.map(i=>`${i.name}（v${i.version}）`).join('、')||'未选择材料'}</p><p>任务知识库：{t.knowledgeBases?.length?t.knowledgeBases.map(id=>kbs.find(k=>k.id===id)?.name||'已选知识库（当前不可用）').join('、'):'未选择，不检索知识库'}</p>{t.error&&<p className="oa-error">{taskError(t.error)}</p>}<div className="oa-actions"><label>关联案件<select value={t.caseId||''} disabled={busy} onChange={e=>void run(()=>api(`/api/tasks/${t.id}/case`,{caseId:e.target.value||null}))}><option value="">独立个人任务</option>{cases.map(c=><option key={c.id} value={c.id}>{c.caseNo} · {c.title} · {c.status}</option>)}</select></label>
+  <h2>我的任务</h2>{tasks.filter(t=>t.kind===kind).map(t=><section key={t.id} className="oa-panel"><h3>{t.title} <small>{TASK_STATES[t.status]||t.status}</small></h3><p>{t.businessSnapshot?`预设 v${t.businessSnapshot.version} · 运行包 ${t.businessSnapshot.runtimeVersion}`:'原预设版本未知，首次启动时登记'} {t.businessSnapshot&&t.businessSnapshot.version!==currentVersion&&t.status!=='RUNNING'&&<button disabled={busy} onClick={()=>{if(window.confirm('使用当前发布版本续办？原配置将记入任务历史。'))void run(()=>api(`/api/tasks/${t.id}/upgrade`,{fromVersion:t.businessSnapshot!.version,toVersion:currentVersion}))}}>升级至 v{currentVersion}</button>}</p><p>{t.inputs.map(i=>`${i.name}（v${i.version}）`).join('、')||'未选择材料'}</p><p>任务知识库：{t.knowledgeBases?.length?t.knowledgeBases.map(id=>kbs.find(k=>k.id===id)?.name||'已选知识库（当前不可用）').join('、'):'未选择，不检索知识库'}</p>{t.error&&<p className="oa-error">{taskError(t.error)}</p>}<div className="oa-actions"><label>关联案件<select value={t.caseId||''} disabled={busy} onChange={e=>void run(()=>api(`/api/tasks/${t.id}/case`,{caseId:e.target.value||null}))}><option value="">独立个人任务</option>{cases.map(c=><option key={c.id} value={c.id}>{c.caseNo} · {c.title} · {c.status}</option>)}</select></label>
   {t.status==='RUNNING'?<><a className="oa-primary" href={`/harness/${t.id}/#session=${t.sessionId}&workspace=${t.workspaceId}`} target="_blank" rel="noreferrer">打开 AI 会话</a><button disabled={busy} onClick={()=>{if(window.confirm('结束运行会关闭整个 AI 运行进程，未保存成果仍保留在任务中。再次启动会新建会话。仅停止当前回答，请在 AI 会话内操作。确认结束？'))void run(()=>api(`/api/tasks/${t.id}/stop`,{}))}}>结束运行</button></>:<button disabled={busy} onClick={()=>void run(()=>api(`/api/tasks/${t.id}/start`,{}))}>启动任务</button>}
   <button disabled={busy} onClick={()=>void run(()=>loadOutputs(t.id))}>查看 / 刷新待确认成果</button><button disabled={busy||t.status==='PREPARING'} onClick={()=>{if(window.confirm(`确认删除任务“${t.title}”？运行中的任务将停止，任务会从列表移除，未保存成果将无法再从任务页面访问，请先勾选保存需要的文件。OA 原始文件和已保存成果不受影响。`))void run(()=>api(`/api/tasks/${t.id}/delete`,{}))}}>删除任务</button></div>
   {outputs[t.id]&&<fieldset><legend>确认保存到 OA 的成果</legend><p>只保存勾选的文件版本，默认不选。修改后的内容需刷新并重新确认；此操作不等同于正式归档。</p>{outputs[t.id].length===0&&<p>暂无稳定成果，生成结束后请刷新。</p>}{outputs[t.id].map(o=><label key={o.key} style={{display:'block',margin:'8px 0'}}><input type="checkbox" disabled={busy||o.saved} checked={chosen[t.id]?.includes(o.key)||false} onChange={e=>setChosen(p=>({...p,[t.id]:e.target.checked?[...(p[t.id]||[]),o.key]:(p[t.id]||[]).filter(k=>k!==o.key)}))}/>{o.path} · {Math.ceil(o.size/1024)} KB · {o.sha256.slice(0,10)}{o.saved?' · 此版本已保存':''}</label>)}<button disabled={busy||!chosen[t.id]?.length} onClick={()=>void run(async()=>{try{await api(`/api/tasks/${t.id}/save`,{selection:chosen[t.id]})}finally{await loadOutputs(t.id);await refresh()}})}>保存已勾选成果（{chosen[t.id]?.length||0}）</button></fieldset>}

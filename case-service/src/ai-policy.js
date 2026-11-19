@@ -2,7 +2,8 @@ import {EventEmitter} from 'node:events'
 import {ModelConnections,invalid} from './model-connections.js'
 import path from 'node:path'
 import {Store} from './atomic-store.js'
-export const taskPresets={general:'general-legal',disability:'injury',injury:'injury',malpractice:'medical-review',traffic:'traffic-accident'}
+import {catalog} from './business-presets.js'
+export const taskPresets=Object.fromEntries(catalog.map(p=>[p.id,p.runtime]))
 const fail=(message,statusCode=400)=>{throw Object.assign(Error(message),{statusCode})}
 export class AiPolicy {
  constructor(root,models=()=>[process.env.CHAT_MODEL].filter(Boolean),connections){this.connections=connections;this.events=new EventEmitter();this.events.setMaxListeners(0);this.store=new Store(path.join(root,'ai-capabilities.json'));this.models=models}
@@ -45,7 +46,7 @@ export class AiPolicy {
   const checked={primary:route(defaults.primary,true),backup:route(defaults.backup),ocr:route(defaults.ocr),localOnly:defaults.localOnly}
   const clean={}
   for(const [kind,p] of Object.entries(policies)){
-   if(!p||typeof p.inherit!=='boolean'||!Object.values(taskPresets).includes(p.preset)||typeof p.network!=='boolean'||!Number.isSafeInteger(p.maxTokens)||p.maxTokens<1024||p.maxTokens>65536)invalid('任务参数无效')
+   if(!p||typeof p.inherit!=='boolean'||p.preset!==taskPresets[kind]||typeof p.network!=='boolean'||!Number.isSafeInteger(p.maxTokens)||p.maxTokens<1024||p.maxTokens>65536)invalid('任务参数无效')
    const primary=p.inherit?checked.primary:route(p.primary,true),backup=p.inherit?checked.backup:route(p.backup)
    clean[kind]={inherit:p.inherit,primary,backup,model:primary.model,fallbackModel:backup?.model||'',network:p.network,preset:p.preset,maxTokens:p.maxTokens}
   }

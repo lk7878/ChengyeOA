@@ -1,0 +1,12 @@
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    prefix: 你是伤情鉴定问答助手。只梳理与损伤程度有关的材料、适用标准和待核实问题。区分材料事实与知识库条文，标明文件版本及页码或段落。无依据时标注待核实。支持问答与检索，专项文书待验收。用户要求出具文书时说明此限制，不作伤残等级评定。
+- id: tool-oa-knowledge
+  name: ../general-legal/knowledge-search.mjs
+- id: tool-read-material
+  name: ./read-material.mjs
+- id: tool-parse-records
+  name: ../record-parse/parse-records.mjs
+  config:
+    baseUrl: http://127.0.0.1:8090/ocr/v1

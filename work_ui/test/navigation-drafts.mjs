@@ -21,6 +21,7 @@ try{
   let data={},status=200
   if(expired){status=401;data={error:'expired'}}
   else if(p==='/api/me')data={user:{id:account,username:account,displayName:'成员'+account,roles:['case_owner'],status:'active'}}
+  else if(p==='/api/my-presets'){if(kbDelay)await new Promise(r=>setTimeout(r,kbDelay));status=kbFailure?503:200;data=kbFailure?{error:'模拟网络失败'}:{defaultKind:'general',items:['general','disability','injury','malpractice','traffic'].map((id,i)=>({id,name:['通用法律','伤残鉴定','伤情鉴定','医疗损害','交通事故'][i],hint:'测试预设',version:1,available:revoked?[]:libraries,recommended:revoked?[]:['law']}))}}
   else if(p==='/api/directory/users')data={users:[]}
   else if(p==='/api/cases')data={cases:[]}
   else if(p==='/api/oa/cases')data=revoked?[]:[{id:'c1',caseNo:'CASE1',title:'关联案件',status:'PROCESSING'},{id:'c2',caseNo:'CASE2',title:'另一案件',status:'PROCESSING'}]
@@ -49,7 +50,7 @@ try{
  account='b';await page.reload();await expect(title).toBeEnabled();await expect(title).toHaveValue('');await title.fill('B 的草稿');account='a';await page.reload();await expect(title).toHaveValue('保留草稿');await expect(title).toBeEnabled();assertions++
  failCreate=false;await page.getByRole('button',{name:/创建任务 · 已选/}).click();await expect(title).toHaveValue('');assert.deepEqual(creates.at(-1).knowledgeBases,[]);assert.deepEqual(creates.at(-1).inputs,[{fileId:'f1',version:1}]);assert.equal(await page.evaluate(()=>sessionStorage.getItem('wb:task-draft:v1:a:general')),null);assertions++
  await title.fill('撤权校验');await page.getByLabel('关联 OA 案件').selectOption('c1');await page.getByLabel('测试材料.docx',{exact:true}).check();await law.check();revoked=true;await page.reload();await expect(title).toBeEnabled();await expect(title).toHaveValue('撤权校验');await expect(page.getByLabel('关联 OA 案件')).toHaveValue('');await expect(page.getByRole('button',{name:'创建任务 · 已选 0 个版本'})).toBeVisible();await expect(page.getByText('草稿中已失效的案件、文件版本或知识库授权已移除，请核对后创建任务。')).toBeVisible();assertions++
- revoked=false;kbFailure=true;await page.reload();await expect(page.getByRole('button',{name:'重新校验草稿'})).toBeVisible();await expect(title).toBeDisabled();kbFailure=false;await page.getByRole('button',{name:'重新校验草稿'}).click();await expect(title).toBeEnabled();assertions++
+ revoked=false;kbFailure=true;await page.reload();await expect(page.getByRole('button',{name:'重新校验草稿'})).toBeVisible();await expect(title).toHaveCount(0);kbFailure=false;await page.getByRole('button',{name:'重新校验草稿'}).click();await expect(title).toBeEnabled();assertions++
  expired=true;await page.reload();await expect(page.getByText('登录已失效，请通过 OA 重新进入。')).toBeVisible();expired=false;await page.reload();await expect(title).toHaveValue('撤权校验');assertions++
  // Explicit case links override only the case association, retaining the saved task draft.
  await page.goto(base+'?view=cases_general&caseId=c2');await expect(title).toBeEnabled();await expect(title).toHaveValue('撤权校验');await expect(page.getByLabel('关联 OA 案件')).toHaveValue('c2');assertions++

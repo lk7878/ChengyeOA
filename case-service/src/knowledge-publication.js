@@ -1,3 +1,4 @@
+import {localSearch,localIndexPath} from './local-chunk-search.js'
 import {randomUUID,createHash} from 'node:crypto'
 import {mkdir,readFile,writeFile} from 'node:fs/promises'
 import {createWriteStream,createReadStream,openAsBlob} from 'node:fs'
@@ -50,7 +51,13 @@ export class KnowledgePublication {
   }catch(e){this.store.update(data=>{data[id].error=e.message});throw e}finally{this.busy.delete(id)}
  }
  withdraw(id,actor){if(this.busy.has(id))fail('发布处理中，请稍后重试下架',409);const s=this.store.read()[id];if(!s)fail('投稿不存在',404);this.authorize(s.kbId,actor.id,'review',actor.permissions);return this.store.update(data=>Object.assign(data[id],{status:'WITHDRAWN',withdrawnAt:new Date().toISOString(),withdrawnBy:actor.id}))}
- async search(kbId,user,permissions,query,signal){this.authorize(kbId,user,'read',permissions);const published=Object.values(this.store.read()).filter(s=>s.kbId===kbId&&s.status==='PUBLISHED'&&s.nativeId);if(!published.length)return {data:[]};const ids=published.map(s=>s.nativeId);const result=await this.nativeApi(`/knowledge-bases/${encodeURIComponent(kbId)}/hybrid-search`,{method:'POST',signal,body:{query_text:String(query).slice(0,8000),match_count:10,knowledge_ids:ids}});this.authorize(kbId,user,'read',permissions);const live=new Set(Object.values(this.store.read()).filter(s=>s.kbId===kbId&&s.status==='PUBLISHED').map(s=>s.nativeId));const rows=Array.isArray(result.data)?result.data:[];return {data:rows.filter(r=>live.has(r.knowledge_id)).map(r=>({...r,source:'WeKnora已发布知识'}))}}
+ async searchLocal(kbId,user,permissions,query,signal){
+  const published=this.published(kbId,user,permissions)
+  const rows=await localSearch(localIndexPath(this.root),kbId,published,String(query||''),signal)
+  const live=new Map(this.published(kbId,user,permissions).map(s=>[s.nativeId,s]))
+  return {data:rows.filter(r=>live.has(r.knowledge_id)).map(r=>({...r,source:'知识库',title:live.get(r.knowledge_id).source.name,version:live.get(r.knowledge_id).source.version||1,paragraph:r.chunk_index+1}))}
+ }
+ async search(kbId,user,permissions,query,signal){this.authorize(kbId,user,'read',permissions);const published=Object.values(this.store.read()).filter(s=>s.kbId===kbId&&s.status==='PUBLISHED'&&s.nativeId);if(!published.length)return {data:[]};const ids=published.map(s=>s.nativeId);const result=await this.nativeApi(`/knowledge-bases/${encodeURIComponent(kbId)}/hybrid-search`,{method:'POST',signal,body:{query_text:String(query).slice(0,8000),match_count:10,knowledge_ids:ids}});this.authorize(kbId,user,'read',permissions);const live=new Map(this.published(kbId,user,permissions).map(s=>[s.nativeId,s]));const rows=Array.isArray(result.data)?result.data:[];return {data:rows.filter(r=>live.has(r.knowledge_id)).map(r=>({...r,source:'WeKnora已发布知识',title:live.get(r.knowledge_id).source?.name,version:live.get(r.knowledge_id).source?.version||1,paragraph:Number.isInteger(r.chunk_index)?r.chunk_index+1:undefined}))}}
 }
 export async function registerKnowledge(app){
  app.addHook('preHandler',async req=>{const p=req.url.split('?')[0];if((/^\/api\/submissions(?:\/|$)/.test(p)||/^\/api\/kb\/[^/]+\/legacy(?:\/|$)/.test(p))&&req.oa?.isSystemSuperAdmin!==true)fail('知识库维护仅对超级管理员开放')});

@@ -8,8 +8,8 @@ import net from 'node:net'
 import {modelConfig} from './model-config.js'
 const root=fileURLToPath(new URL('../..',import.meta.url))
 const sleep=ms=>new Promise(r=>setTimeout(r,ms))
-export async function launchIsolatedHarness({dir,id,publicBase,brokerSocket,preset='general-legal',policy,bundlePath=path.join(root,'runtime/bundle')}){
- const engine=path.join(root,'runtime/upstream/harness'),bundle=bundlePath,node=path.join(root,'runtime/node24'),home=path.join(dir,'home')
+export async function launchIsolatedHarness({dir,id,publicBase,brokerSocket,preset='general-legal',policy,business,bundlePath}){
+ const engine=path.join(root,'runtime/upstream/harness'),bundle=bundlePath||(business?path.join(root,'runtime/business-bundles',business.runtimeVersion):path.join(root,'runtime/bundle')),node=path.join(root,'runtime/node24'),home=path.join(dir,'home')
  for(const directory of [home,path.join(home,'profiles')]){const info=await lstat(directory).catch(e=>{if(e.code!=='ENOENT')throw e});if(info&&!info.isDirectory())await rm(directory,{force:true});await mkdir(directory,{recursive:true,mode:0o700})}
  // A task may alter its writable home. Recreate only the deployment profile after
  // checking its parents; never follow a task-created link into the host.
@@ -25,6 +25,25 @@ export async function launchIsolatedHarness({dir,id,publicBase,brokerSocket,pres
  }
  const manifest=path.join(dir,'workspace/task.json'),manifestExists=await access(manifest).then(()=>true,()=>false)
  const bwrapArgs=['--die-with-parent','--unshare-all','--new-session','--ro-bind','/usr','/usr','--symlink','usr/bin','/bin','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--proc','/proc','--dev','/dev','--tmpfs','/tmp','--dir','/etc','--ro-bind','/etc/ssl','/etc/ssl','--ro-bind',engine,'/engine','--ro-bind',bundle,'/app','--ro-bind',path.join(root,'runtime/plugin-deps'),'/deps','--ro-bind',node,'/runtime','--ro-bind',path.join(root,'runtime/python-deps'),'/pydeps','--bind',home,'/home/task']
+ if(business){
+  bwrapArgs.push('--ro-bind',path.join(dir,'context'),'/run/oa-task')
+  const declaration=path.join(bundle,'plugins/oa-legal-presets',preset+'.yml')
+  await access(declaration)
+  bwrapArgs.push('--ro-bind',declaration,'/app/plugins/oa-legal-presets/cordis.patch.yml')
+  const deployed=JSON.parse(await readFile(path.join(bundle,'presets/business.json'),'utf8')).find(p=>p.id===business.id)
+  for(const skill of deployed.skills.filter(id=>!business.skills.includes(id))){
+   bwrapArgs.push('--tmpfs','/app/package/'+business.agent+'/.agents/skills/'+skill)
+  }
+  if(!business.outputs){
+   const profile=path.join(home,'profiles/web/package.json')
+   const pkg=JSON.parse(await readFile(profile,'utf8'))
+   const permitted=['@deepseek-ai/dsh-base','@deepseek-ai/dsh-web-app','oa-legal-presets','dsh-baiyou-brand']
+   pkg.dsh.profile.bundles=pkg.dsh.profile.bundles.filter(name=>permitted.includes(name))
+   pkg.dependencies=Object.fromEntries(Object.entries(pkg.dependencies).filter(([name])=>permitted.includes(name)))
+   await writeFile(profile,JSON.stringify(pkg))
+   for(const name of ['injury','medical-review','traffic-accident'])bwrapArgs.push('--tmpfs','/app/package/'+name)
+  }
+ }
  async function boot(start){
   const channel=await mkdtemp(path.join(tmpdir(),'oa-harness-')),socketPath=path.join(channel,'api.sock')
   const gateway=http.createServer((req,res)=>{const upstream=http.request({socketPath,method:req.method,path:req.url,headers:req.headers},r=>{res.writeHead(r.statusCode||502,r.headers);r.pipe(res)});upstream.on('error',()=>{res.writeHead(503);res.end('任务进程未就绪')});req.pipe(upstream)})

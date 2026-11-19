@@ -1,0 +1,177 @@
+[
+  {
+    "id": "general",
+    "name": "通用法律",
+    "runtime": "general-legal",
+    "agent": "general-legal",
+    "runtimeVersion": "20261119.1",
+    "workflow": "材料分析与法律文书",
+    "conclusion": "待复核的法律分析",
+    "templates": [],
+    "outputs": true,
+    "skills": [
+      "contract-review",
+      "defense-preparation",
+      "document-drafting",
+      "document-review",
+      "evidence-organization",
+      "fact-timeline",
+      "jurisdiction-analysis",
+      "legal-research"
+    ],
+    "tools": [
+      "knowledge",
+      "network"
+    ],
+    "required": [
+      "model",
+      "general-legal"
+    ]
+  },
+  {
+    "id": "disability",
+    "name": "伤残鉴定",
+    "runtime": "injury",
+    "agent": "injury",
+    "runtimeVersion": "20261119.1",
+    "workflow": "伤残标准检索、材料解析、伤残意见撰写与审核及三期出件",
+    "conclusion": "委托事项涉及的伤残等级及其依据",
+    "templates": [
+      "伤残鉴定咨询意见书",
+      "伤残审核意见",
+      "三期意见"
+    ],
+    "outputs": true,
+    "skills": [
+      "disability-period-writing",
+      "disability-report-review",
+      "disability-report-writing"
+    ],
+    "tools": [
+      "knowledge",
+      "ocr",
+      "network"
+    ],
+    "required": [
+      "model",
+      "injury"
+    ]
+  },
+  {
+    "id": "injury",
+    "name": "伤情鉴定",
+    "runtime": "injury",
+    "agent": "injury-qa",
+    "runtimeVersion": "20261119.1",
+    "workflow": "支持问答与检索，专项文书待验收",
+    "conclusion": "损伤程度相关问题、已核实依据及待核实事项",
+    "templates": [],
+    "outputs": false,
+    "skills": [],
+    "tools": [
+      "knowledge",
+      "ocr"
+    ],
+    "required": [
+      "model",
+      "injury-qa"
+    ]
+  },
+  {
+    "id": "malpractice",
+    "name": "医疗损害司法鉴定",
+    "runtime": "medical-review",
+    "agent": "medical-review",
+    "runtimeVersion": "20261119.1",
+    "workflow": "临床依据检索、七章报告与陈述意见",
+    "conclusion": "委托事项、材料出处和待复核意见",
+    "templates": [
+      "七章报告",
+      "陈述意见"
+    ],
+    "outputs": true,
+    "skills": [
+      "appraisal-review",
+      "autopsy-guidance",
+      "case-recommendation",
+      "causation-analysis",
+      "damage-consequence",
+      "disease-appraisal-guidelines",
+      "emergency-appraisal",
+      "fault-type-classification",
+      "medical-appraisal-plan",
+      "medical-appraisal-statement",
+      "medical-fault-causation",
+      "medical-record-parse",
+      "medical-record-review",
+      "medical-report-writing",
+      "obstetric-appraisal",
+      "opinion-writing",
+      "orthopedic-appraisal",
+      "surgical-appraisal"
+    ],
+    "tools": [
+      "knowledge",
+      "ocr",
+      "network"
+    ],
+    "required": [
+      "model",
+      "medical-review"
+    ]
+  },
+  {
+    "id": "traffic",
+    "name": "交通事故鉴定",
+    "runtime": "traffic-accident",
+    "agent": "traffic-accident",
+    "runtimeVersion": "20261119.1",
+    "workflow": "交通事故材料分析、专项检索与 HTML 出件",
+    "conclusion": "委托事项、材料出处和待复核意见",
+    "templates": [
+      "交通事故鉴定 HTML"
+    ],
+    "outputs": true,
+    "skills": [
+      "accident-scene-trace-survey",
+      "accident-simulation-reconstruction",
+      "chongqing-forensic-appraisal-workflow",
+      "collision-trace-comparison",
+      "edr-speed-appraisal",
+      "electric-bicycle-performance-appraisal",
+      "forensic-appraisal-procedure",
+      "guardrail-performance-appraisal",
+      "highway-safety-facility-appraisal",
+      "image-accident-reconstruction",
+      "industrial-vehicle-type-identification",
+      "powered-wheelchair-performance-appraisal",
+      "road-facility-appraisal",
+      "tachograph-speed-appraisal",
+      "traffic-accident-appraisal",
+      "traffic-accident-speed-appraisal",
+      "traffic-appraisal-plan",
+      "traffic-participant-behavior-appraisal",
+      "traffic-report-review",
+      "traffic-report-writing",
+      "traffic-signal-state-appraisal",
+      "traffic-trace-appraisal",
+      "urban-road-maintenance-appraisal",
+      "vehicle-fire-trace-appraisal",
+      "vehicle-indirect-vision-appraisal",
+      "vehicle-lighting-reflection-appraisal",
+      "vehicle-maintenance-diagnostics-appraisal",
+      "vehicle-safety-appraisal",
+      "vehicle-type-identification",
+      "video-speed-appraisal"
+    ],
+    "tools": [
+      "knowledge",
+      "ocr",
+      "network"
+    ],
+    "required": [
+      "model",
+      "traffic-accident"
+    ]
+  }
+]

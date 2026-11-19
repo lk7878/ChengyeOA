@@ -7,5 +7,5 @@ export async function api<T>(url:string,body?:unknown):Promise<T>{
 }
 export type FileRow={id:string;name:string;kind:string;contentVersion:number;size:number}
 export type Version={version:number;sha256:string;name:string;size:number}
-export type Task={id:string;title:string;kind:string;caseId:string|null;status:string;error?:string;sessionId?:string;workspaceId?:string;knowledgeBases?:string[];inputs:{fileId:string;version:number;name:string;sha256:string}[];outputs:Record<string,{name:string;status:string;error?:string;fileId?:string;version?:number;archives?:Record<string,string>}>}
+export type Task={businessSnapshot?:{version:number;runtimeVersion:string};id:string;title:string;kind:string;caseId:string|null;status:string;error?:string;sessionId?:string;workspaceId?:string;knowledgeBases?:string[];inputs:{fileId:string;version:number;name:string;sha256:string}[];outputs:Record<string,{name:string;status:string;error?:string;fileId?:string;version?:number;archives?:Record<string,string>}>}
 export const TASK_STATES:Record<string,string>={READY:'待运行',PREPARING:'准备中',RUNNING:'运行中',INTERRUPTED:'已中断',FAILED:'运行失败',REVOKED:'授权已撤销',PREPARE_FAILED:'材料准备失败'}

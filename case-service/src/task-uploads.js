@@ -34,7 +34,7 @@ export class TaskUploads {
    const saved=row.saved||await this.request(token,`/personal-files/uploads/${row.oaId}/complete`,{method:'POST',body:{}})
    this.store.update(d=>{d[uploadId].saved=saved}) // Retry attachment without uploading a second OA file.
    const task=await this.authorize(id,user,token),existing=task.inputs.find(v=>v.fileId===saved.id&&v.version===saved.version)
-   if(existing)return {fileId:saved.id,version:saved.version,name:existing.name,path:'/workspace/materials/'+existing.localName}
+   if(existing){await this.tasks.materialContext(task);return {fileId:saved.id,version:saved.version,name:existing.name,path:'/workspace/materials/'+existing.localName}}
    if(task.inputs.length>=1000)fail('文件已保存到 OA，但任务材料已达到上限',409)
    const versions=await this.request(token,`/personal-files/${saved.id}/versions`),version=versions.find(v=>v.version===saved.version)
    if(!version)fail('文件已保存到 OA，但读取版本失败，请重试',409)
@@ -48,7 +48,8 @@ export class TaskUploads {
    const latest=await this.request(token,`/personal-files/${saved.id}/versions`)
    if(!latest.some(v=>v.version===saved.version&&v.sha256===version.sha256))fail('文件授权或版本已变化',403)
    await rename(temp,path.join(dir,'workspace/materials',localName));temp=null
-   this.tasks.update(id,{inputs:[...this.tasks.get(id,user.id).inputs,{fileId:saved.id,...version,localName}]})
+   const updated=this.tasks.update(id,{inputs:[...this.tasks.get(id,user.id).inputs,{fileId:saved.id,...version,localName}]})
+   await this.tasks.materialContext(updated)
    return {fileId:saved.id,version:saved.version,name:version.name,path:'/workspace/materials/'+localName}
   }finally{if(temp)await rm(temp,{force:true});this.tasks.busy.delete(id)}
  }

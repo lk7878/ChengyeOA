@@ -1,9 +1,11 @@
 import {useNavigation,updateLocation} from './navigation'
 import {clearAccountDrafts} from './views/task-draft'
 import {AiCapabilities} from './views/AiCapabilities'
+import {BusinessPresets} from './views/BusinessPresets'
+import {api} from '@/api/integration'
 import {KnowledgeAccess} from './views/KnowledgeAccess'
 import { useCallback, useEffect, useState } from 'react'
-import type { Account, ViewId } from '@/types'
+import type { Account, ViewId, CaseKind } from '@/types'
 import { viewToKind, CASE_KIND_LABELS, CASE_KIND_HINTS, hasRole } from '@/types'
 import { Sidebar } from '@/components/Sidebar'
 import { TopBar } from '@/components/TopBar'
@@ -19,7 +21,7 @@ import './App.css'
 const TITLES: Record<ViewId, { title: string; subtitle: string }> = {
   cases_general:{title:'AI助手',subtitle:'通用法律能力 · 资料整理 → 分析 → 起草 → 复核'},
   specialized:{title:'专项能力',subtitle:'伤残、伤情、医疗损害与交通事故专业流程'},
-  settings:{title:'知识库管理',subtitle:'身份与组织由 OA 统一管理'},
+  settings:{title:'AI 与授权管理',subtitle:'身份与组织由 OA 统一管理'},
   dashboard: { title: '概览', subtitle: '四类鉴定分库管理，快捷进入 AI 助手与知识库' },
   cases_disability: { title: CASE_KIND_LABELS.disability, subtitle: CASE_KIND_HINTS.disability },
   cases_injury: { title: CASE_KIND_LABELS.injury, subtitle: CASE_KIND_HINTS.injury },
@@ -52,7 +54,10 @@ function useLlmStatus(enabled: boolean) {
 }
 
 export default function App() {
-  const openExternal=(id:'ai_assistant'|'knowledge_base')=>setView(id==='ai_assistant'?'cases_general':'knowledge')
+  const [choices,setChoices]=useState<{defaultKind:CaseKind|null;items:{id:CaseKind;name:string;hint:string;version:number;error?:string}[]}>()
+  const [choicesError,setChoicesError]=useState(''),[retryChoices,setRetryChoices]=useState(0)
+  const go=(v:ViewId)=>setView(v==='cases_general'&&choices?.defaultKind?`cases_${choices.defaultKind}`:v)
+  const openExternal=(id:'ai_assistant'|'knowledge_base')=>go(id==='ai_assistant'?'cases_general':'knowledge')
   const {view,setView}=useNavigation()
   const [user, setUser] = useState<Account | null>(null)
   const [authReady, setAuthReady] = useState(false)
@@ -62,6 +67,11 @@ export default function App() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const llm = useLlmStatus(!!user)
 
+  useEffect(()=>{
+    let active=true
+    if(user)void api<NonNullable<typeof choices>>('/api/my-presets').then(v=>{if(active){setChoices(v);setChoicesError('')}}).catch(e=>{if(active){setChoices(undefined);setChoicesError(e.message)}})
+    return ()=>{active=false}
+  },[user,view,retryChoices])
   const refreshAccounts = useCallback(async (me: Account) => {
     try {
       if (hasRole(me, 'platform_admin')) {
@@ -97,6 +107,11 @@ export default function App() {
   useEffect(()=>{if(user&&view==='settings'&&!user.isSystemSuperAdmin)updateLocation({view:'dashboard'},true)},[user,view])
   useEffect(()=>{const expired=()=>{setAuthError('登录已失效，请通过 OA 重新进入。');setUser(null);setAccounts([])};window.addEventListener('wb:session-expired',expired);return()=>window.removeEventListener('wb:session-expired',expired)},[])
 
+  useEffect(()=>{
+    if(view==='cases_general'&&choices?.defaultKind&&choices.defaultKind!=='general'&&new URLSearchParams(location.search).get('preset')!=='general'){
+      updateLocation({view:`cases_${choices.defaultKind}`},true)
+    }
+  },[view,choices])
   const handleLogout = async () => {
     if(loggingOut)return
     setLoggingOut(true);setLogoutError('')
@@ -126,7 +141,7 @@ export default function App() {
     <div className="wb-app">
       <Sidebar
         current={view}
-        onNavigate={setView}
+        onNavigate={go}
         onOpenExternal={openExternal}
         showAccounts={canManageAccounts}
         showSharing={canManageAccounts}
@@ -137,7 +152,7 @@ export default function App() {
           title={TITLES[view].title}
           subtitle={TITLES[view].subtitle}
           onOpenExternal={openExternal}
-          onNavigate={setView}
+          onNavigate={go}
           llm={canSeeBalance ? llm : null}
           user={user}
           onLogout={handleLogout}
@@ -149,20 +164,24 @@ export default function App() {
           {view === 'dashboard' && (
             <Dashboard
               accounts={canManageAccounts ? accounts : []}
-              onNavigate={setView}
+              onNavigate={go}
               onOpenExternal={openExternal}
               showAccounts={canManageAccounts}
-              currentUser={user}
+              currentUser={user} allowedKinds={choices?.items.map(p=>p.id)||[]}
             />
           )}
           {viewToKind(view) && (
-            <TaskWorkbench key={user.id+viewToKind(view)!} accountId={user.id} kind={viewToKind(view)!}/>
+            <><section className="oa-panel"><label>办案类型 <select value={viewToKind(view)!} onChange={e=>updateLocation({view:`cases_${e.target.value as CaseKind}`,preset:e.target.value})}>
+             {!choices?.items.some(p=>p.id===viewToKind(view))&&<option value={viewToKind(view)!}>请选择已获配预设</option>}
+             {choices?.items.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+             <p aria-live="polite">{choicesError||(!choices?'正在读取办案授权…':choices.items.find(p=>p.id===viewToKind(view))?.hint||'当前类型未获配，请选择已授权预设或联系管理员。')}</p>{choicesError&&<button onClick={()=>setRetryChoices(n=>n+1)}>重新校验草稿</button>}</section>
+            {choices?.items.some(p=>p.id===viewToKind(view))&&<TaskWorkbench key={user.id+viewToKind(view)!} accountId={user.id} kind={viewToKind(view)!} currentVersion={choices.items.find(p=>p.id===viewToKind(view))!.version}/>}</>
           )}
           {view === 'knowledge' && (
             <KnowledgeBase key={user.id} canWrite={canWriteKb} canOpenConsole={canWriteKb} />
           )}
-          {view==='specialized'&&<div className="oa-workspace"><div className="oa-specialties">{(['disability','injury','malpractice','traffic'] as const).map(k=><button className="oa-panel" key={k} onClick={()=>setView(`cases_${k}`)}><h2>{CASE_KIND_LABELS[k]}</h2><p>{CASE_KIND_HINTS[k]}</p></button>)}</div></div>}
-          {view==='settings'&&user.isSystemSuperAdmin&&<div className="oa-workspace"><section className="oa-panel"><h2>账号与权限</h2><p>账号创建、停用、组织和业务权限由 OA 管理。知识审核仅对明确授权的目标库生效。</p><h2>模型与运行</h2><p>在此配置模型连接、OCR 和任务策略。知识索引沿用部署配置。任务材料和会话独立隔离。</p>{(user as Account&{isSystemSuperAdmin?:boolean}).isSystemSuperAdmin&&<><KnowledgeAccess/><AiCapabilities/></>}<h2>开源组件</h2><p>DeepSeek Harness（MIT）、WeKnora 及法律 Skills 的原许可证与来源声明保留在部署包中。</p></section></div>}
+          {view==='specialized'&&<div className="oa-workspace"><div className="oa-specialties">{(choices?.items||[]).filter(p=>p.id!=='general').map(({id:k,name,hint})=><button className="oa-panel" key={k} onClick={()=>setView(`cases_${k}`)}><h2>{name}</h2><p>{hint}</p></button>)}</div></div>}
+          {view==='settings'&&user.isSystemSuperAdmin&&<div className="oa-workspace"><section className="oa-panel"><h2>账号与权限</h2><p>账号创建、停用、组织和业务权限由 OA 管理。知识审核仅对明确授权的目标库生效。</p><h2>模型与运行</h2><p>在此配置模型连接、OCR 和任务策略。知识索引沿用部署配置。任务材料和会话独立隔离。</p>{(user as Account&{isSystemSuperAdmin?:boolean}).isSystemSuperAdmin&&<><BusinessPresets/><KnowledgeAccess/><AiCapabilities/></>}<h2>开源组件</h2><p>DeepSeek Harness（MIT）、WeKnora 及法律 Skills 的原许可证与来源声明保留在部署包中。</p></section></div>}
 
         </main>
       </div>

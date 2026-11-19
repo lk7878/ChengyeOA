@@ -24,7 +24,7 @@ export function AiCapabilities(){
  {Object.entries(config.policies).map(([kind,p])=><fieldset key={kind} disabled={busy}><legend>{names[kind]}</legend>
  <label><input type="checkbox" checked={p.inherit} onChange={e=>change(kind,{inherit:e.target.checked})}/>继承全所主备配置</label>
  {!p.inherit&&<p><RouteSelect label={names[kind]+'主模型'} items={routes} value={p.primary} onChange={primary=>change(kind,{primary})}/> <RouteSelect label={names[kind]+'备用模型'} optional items={routes} value={p.backup} onChange={backup=>change(kind,{backup})}/></p>}
- <p><label>Skills / 工具组合 <select value={p.preset} onChange={e=>change(kind,{preset:e.target.value})}>{config.presets.map(s=><option key={s} value={s}>{presetNames[s]||s}</option>)}</select></label></p>
+ <p>运行包 {presetNames[p.preset]||p.preset} · 办案工具按业务预设加载</p>
  <label><input type="checkbox" disabled={config.defaults.localOnly} checked={!config.defaults.localOnly&&p.network} onChange={e=>change(kind,{network:e.target.checked})}/>允许公共网络访问</label> <label>单次生成上限 <input type="number" min={1024} max={65536} value={p.maxTokens} onChange={e=>change(kind,{maxTokens:Number(e.target.value)})}/></label></fieldset>)}
  <p><button disabled={busy} onClick={()=>void run('check',config)}>静态检查</button> <button disabled={busy} onClick={()=>void run('publish',config)}>发布任务策略</button></p>
  {config.history.length>0&&<label>回退为历史配置 <select value="" onChange={e=>{if(e.target.value&&window.confirm('将所选策略和纯本地设置发布为新版本？'))void run('rollback',{version:config.version,targetVersion:Number(e.target.value)})}}><option value="">选择版本</option>{config.history.map(h=><option key={h.version} value={h.version}>版本 {h.version}</option>)}</select></label>}</>}</section>

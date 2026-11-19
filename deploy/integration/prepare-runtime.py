@@ -59,7 +59,9 @@ print('Prepared isolated runtime bundle; no data or credentials copied')
 preset=bundle/'plugins/oa-legal-presets';preset.mkdir(exist_ok=True)
 (preset/'package.json').write_text(json.dumps({'name':'oa-legal-presets','version':'1.0.0','private':True,'type':'module','dsh':{'bundle':{'patch':'./cordis.patch.yml'}}}))
 patch='- insert:\n'
-for id in ['general-legal','injury','medical-review','traffic-accident']:
+catalog=json.loads((root/'presets/business.json').read_text())
+for item in catalog:
+ id=item['agent']
  source=(bundle/'package'/id/'agent.cordis.yml').read_text()
  source=re.sub(r'name: (\.\.?/[^\n]+)',lambda m:'name: '+os.path.normpath('/app/package/'+id+'/'+m.group(1)),source)
  source=re.sub(r'    - id: tool-subagent-list-agents\n      name: [^\n]+\n','',source)
@@ -67,7 +69,9 @@ for id in ['general-legal','injury','medical-review','traffic-accident']:
  source=source.replace('baseUrl: https://api.openai-proxy.org/v1','baseUrl: http://127.0.0.1:8090/ocr/v1').replace('baseUrl: https://api.openai-proxy.org','baseUrl: http://127.0.0.1:8090/clinical')
  source=source.replace('【模型协同】主会话默认 closeai/qwen3.8-flash。','【模型协同】主会话使用管理员配置的默认模型。')
  source=source.replace('百佑智业','承业智慧办案').replace('{{cwd}}','/workspace')
- patch+='    - id: preset-'+id+'\n      name: "@deepseek-ai/dsh-agent-preset"\n      config:\n        id: '+id+'\n        name: '+id+'\n        plugins:\n'+''.join('          '+line+'\n' for line in source.splitlines())
+ entry='    - id: preset-'+id+'\n      name: "@deepseek-ai/dsh-agent-preset"\n      config:\n        id: '+id+'\n        name: '+id+'\n        plugins:\n'+''.join('          '+line+'\n' for line in source.splitlines())
+ (preset/(id+'.yml')).write_text('- insert:\n'+entry)
+ patch+=entry
 (preset/'cordis.patch.yml').write_text(patch)
 
 # Additional converter dependencies are installed from the deployment lock, separate from Harness.
@@ -89,3 +93,27 @@ f=bundle/'package/record-parse/parse-records.mjs';text=f.read_text();text=re.sub
 # Brand initial HTML before any upstream JavaScript or plugins execute.
 import subprocess
 subprocess.run([os.environ.get("NODE_BINARY", "node"), str(root/"deploy/integration/brand-entrypoints.mjs"), str(root)], check=True)
+
+# Keep each released runtime immutable so historical business snapshots can resume.
+# Staged builds are only installed when the caller explicitly supplies a destination.
+if not os.environ.get('OA_RUNTIME_BUNDLE_DIR') or os.environ.get('OA_BUSINESS_BUNDLE_ROOT'):
+ import tempfile,hashlib
+ destination=Path(os.environ.get('OA_BUSINESS_BUNDLE_ROOT',root/'runtime/business-bundles'))
+ destination.mkdir(parents=True,exist_ok=True)
+ def fingerprint(directory):
+  h=hashlib.sha256()
+  for p in sorted(directory.rglob('*')):
+   if not p.is_symlink() and not p.is_file():continue
+   h.update(str(p.relative_to(directory)).encode()+b'\0')
+   h.update(os.readlink(p).encode() if p.is_symlink() else hashlib.sha256(p.read_bytes()).digest())
+  return h.hexdigest()
+ for version in {p['runtimeVersion'] for p in catalog}:
+  if not re.fullmatch(r'[a-zA-Z0-9._-]+',version):raise ValueError('Invalid runtime version')
+  target=destination/version
+  if target.exists():
+   if fingerprint(target)!=fingerprint(bundle):raise RuntimeError('Runtime version already exists with different content; assign a new version')
+   continue
+  with tempfile.TemporaryDirectory(dir=destination) as tmp:
+   staged=Path(tmp)/'bundle'
+   shutil.copytree(bundle,staged,symlinks=True)
+   staged.rename(target)
