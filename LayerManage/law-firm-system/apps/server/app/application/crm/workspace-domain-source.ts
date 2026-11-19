@@ -749,10 +749,11 @@ export class WorkspaceDomainSource {
       for (const customer of customers) labels.set(customer.id, customer.customerNo + ' · ' + customer.name);
     }
     const relatedLabels: Record<string, Map<string, string>> = {};
-    const lawyerField = fields.find(f => object(f.options).businessKey === 'intake.handlingLawyer');
-    if (source === 'CASES' && lawyerField) {
-      const lawyers = await handlingLawyers(this.db, rows.map(row => object(row.values)[lawyerField.id]));
-      relatedLabels[lawyerField.id] = new Map([...lawyers].map(([id, person]) => [id, person.name]));
+    if (source === 'CASES') {
+      const lawyerFields = fields.filter(f => ['lawyerId', 'intake.handlingLawyer'].includes(String(object(f.options).businessKey)));
+      const lawyers = await handlingLawyers(this.db, rows.flatMap(row => lawyerFields.map(f => object(row.values)[f.id])));
+      const names = new Map([...lawyers].map(([id, person]) => [id, person.name]));
+      for (const field of lawyerFields) relatedLabels[field.id] = names;
     }
     for (const [key, permission] of [
       ['contractId', 'contract.read'],

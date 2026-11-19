@@ -686,14 +686,14 @@ test('field layout upgrade preserves records and IDs while applying exact defaul
  assert.equal(await db.collabRecord.count({where:{id:saved.id}}),1);
  assert.equal(await db.collabField.count({where:{tableId:cases.id}}),oldFields.length);
  for(const f of oldFields)assert.ok(await db.collabField.findUnique({where:{id:f.id}}));
- assert.equal(await db.collabField.count({ where: { tableId: cases.id, archived: false } }), 26);
+ assert.equal(await db.collabField.count({ where: { tableId: cases.id, archived: false } }), 27);
  assert.equal((await db.collabField.findUniqueOrThrow({ where: { id: retired.id } })).archived, true);
  const updated=await svc.describe(cases.id);
- assert.equal(updated.fields.length, 26);
+ assert.equal(updated.fields.length, 27);
  assert.equal((updated.views[0].config as { filter?: unknown }).filter, undefined);
  await assert.rejects(svc.saveRecord(cases.id,row.id,{schemaVersion:updated.table.schemaVersion,version:1,values:{[retired.id]:'20'}},key()), /COLLAB_FIELD_UNAVAILABLE/);
  const ids=(updated.views[0].config as {visibleFields:string[]}).visibleFields;
- assert.deepEqual(ids.map(id=>updated.fields.find(f=>f.id===id)!.name),['合同ID','合同未回','签约日期','合同编号','客户姓名','地区','客户电话','对方当事人','案件类型','案由','代理程序','代理费收款方式','固定代理费','案件基础代理费','风险代理金额','风险代理比例','代理费付款特别约定','所属业务部门','承办律师','合同附件','收款明细','累计收款总额','收款凭证（同步）','记录创建时间','最近修改时间','备注']);
+ assert.deepEqual(ids.map(id=>updated.fields.find(f=>f.id===id)!.name),['合同ID','合同未回','签约日期','合同编号','客户姓名','地区','客户电话','对方当事人','案件类型','案由','代理程序','代理费收款方式','固定代理费','案件基础代理费','风险代理金额','风险代理比例','代理费付款特别约定','所属业务部门','主办律师','承办律师','合同附件','收款明细','累计收款总额','收款凭证（同步）','记录创建时间','最近修改时间','备注']);
  for(const t of [a,r])assert.equal(((await svc.describe(t.table.id)).views[0].config as {visibleFields:string[]}).visibleFields.length,t.table.lifecycleKind==='AFTER_SALES'?27:31);
  assert.ok((await svc.describe(r.table.id)).fields.some(f=>(f.options as Record<string,unknown>).lifecycleKey==='recipientBank'));
 });
@@ -736,7 +736,7 @@ test('linked cases fill authoritative intake; manual cases keep editable values'
   assert.equal(linked.intakeData.customerPhone,customer.phone);
   const table=await svc.createTable(base,{name:'案件管理',source:'CASES'},key());
   const description=await svc.describe(table.id);
-  assert.equal(description.fields.length,26);
+  assert.equal(description.fields.length,27);
   const field=(name:string)=>description.fields.find(f=>f.options.businessKey===name)!;
   const record=(await svc.record(table.id,linked.id)).record;
   for(const name of ['signedDate','region','customerPhone']) {
@@ -791,4 +791,55 @@ test('case handling lawyer can replace or clear an old name only with a current 
   await save({ [field.id]: null });
   assert.equal((await read()).values[field.id], null);
   await assert.rejects(save({ [field.id]: assignee.id }), /CASE_HANDLING_LAWYER_UNAVAILABLE/);
+});
+
+test('case overview reuses the primary lawyer, retaining custom view order, old cases and the separate handling lawyer', async () => {
+  const { row } = await setup();
+  const table = await svc.createTable(base, { name: '案件管理表', source: 'CASES' }, key());
+  const desc = await svc.describe(table.id);
+  const primary = desc.fields.find(f => f.options.businessKey === 'lawyerId')!;
+  const handler = desc.fields.find(f => f.options.businessKey === 'intake.handlingLawyer')!;
+  const remark = desc.fields.find(f => f.options.businessKey === 'intake.remark')!;
+  const view = desc.views.find(v => v.isDefault)!;
+  const config = { visibleFields: [remark.id, handler.id], widths: { [remark.id]: 250 } };
+  await db.collabField.update({ where: { id: primary.id }, data: { archived: true, position: 77 } });
+  await db.collabView.update({ where: { id: view.id }, data: { config } });
+  const personal = await db.collabView.create({ data: { tableId: table.id, ownerId: user, name: '个人视图', config } });
+  const { readFileSync } = await import('node:fs');
+  const migration = readFileSync('prisma/migrations/202611190003_case_primary_lawyer_column/migration.sql', 'utf8');
+  await db.$executeRawUnsafe(migration);
+  await db.$executeRawUnsafe(migration);
+  const restored = await svc.describe(table.id);
+  assert.equal(restored.fields.filter(f => f.options.businessKey === 'lawyerId').length, 1);
+  assert.equal(restored.fields.find(f => f.id === primary.id)?.writable, false);
+  assert.deepEqual((await db.collabView.findUniqueOrThrow({where:{id:view.id}})).config,
+    { ...config, visibleFields: [remark.id, primary.id, handler.id] });
+  assert.deepEqual((await db.collabView.findUniqueOrThrow({where:{id:personal.id}})).config, config);
+  const cases = new CaseService(db, {actorUserId:user}, ctx);
+  const read = async () => (await svc.record(table.id, row.id)).record;
+  assert.equal((await read()).displayValues?.[primary.id], (await cases.getCase(row.id)).lawyerName);
+  await db.case.update({where:{id:row.id}, data:{intakeData:{handlingLawyer:employee},lawyerId:null}});
+  assert.equal((await read()).values[primary.id], null);
+  const other = await db.employee.create({data:{employeeNo:key(),name:'另一位主办律师',phone:'0',type:'LAWYER',entryDate:new Date()}});
+  await cases.updateCase(row.id, {version:row.version,lawyerId:other.id});
+  const current = await read();
+  assert.equal(current.values[primary.id], other.id);
+  assert.equal(current.displayValues?.[primary.id], '另一位主办律师');
+  assert.equal(current.values[handler.id], employee);
+  const reader = await db.user.create({ data: { username: key(), password: 'unused' } });
+  const { workspaceId } = await db.collabBase.findUniqueOrThrow({where:{id:base}});
+  await db.collabMember.create({data:{workspaceId,principalId:reader.id,role:'READER',rowScope:'ALL',hiddenFields:[primary.id]}});
+  const member = new CollaborationService(db, {...ctx,userId:reader.id,isSystemSuperAdmin:false});
+  const restricted = (await member.record(table.id,row.id)).record;
+  assert.equal(restricted.values[primary.id], undefined);
+  assert.equal(restricted.displayValues?.[primary.id], undefined);
+  assert.equal(restricted.values[handler.id], employee);
+  // A worksheet created without this column must receive a usable definition too.
+  await db.collabField.delete({where:{id:primary.id}});
+  await db.collabView.update({where:{id:view.id},data:{config}});
+  await db.$executeRawUnsafe(migration);
+  const added = await db.collabField.findFirstOrThrow({where:{tableId:table.id,archived:false,options:{path:['businessKey'],equals:'lawyerId'}}});
+  assert.equal(added.type, 'USER');
+  assert.deepEqual((await db.collabView.findUniqueOrThrow({where:{id:view.id}})).config,
+    { ...config, visibleFields: [remark.id, added.id, handler.id] });
 });

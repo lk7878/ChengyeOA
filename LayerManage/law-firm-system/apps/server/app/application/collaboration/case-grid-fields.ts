@@ -10,7 +10,7 @@ export function editableCaseKey(key: string, actor?: AuthorizationContext) {
         .readLevel === 'READ'
     );
   return (
-    ['title', 'caseType', 'priority', 'lawyerId', 'fee'].includes(key) ||
+    ['title', 'caseType', 'priority', 'fee'].includes(key) ||
     INTAKE_FIELDS.some(
       ([name, , kind]) => name !== 'customerPhone' && key === 'intake.' + name && !kind.startsWith('formula'),
     )

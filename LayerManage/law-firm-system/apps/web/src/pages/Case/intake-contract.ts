@@ -158,7 +158,7 @@ export const CASE_FIELD_ORDER = [
   'customerName', 'intake.region', 'intake.customerPhone', 'intake.opposingParty',
   'intake.caseCategory', 'caseType', 'intake.agencyProcedure', 'intake.feeCollectionMethod',
   'intake.fixedAgencyFee', 'intake.baseAgencyFee', 'intake.riskAgencyAmount', 'intake.riskAgencyRatio',
-  'intake.paymentTerms', 'intake.businessDepartment', 'intake.handlingLawyer', 'files.合同附件',
+  'intake.paymentTerms', 'intake.businessDepartment', 'lawyerId', 'intake.handlingLawyer', 'files.合同附件',
   'receiptDetails', 'receiptTotal', 'receiptFiles', 'createdAt', 'updatedAt', 'intake.remark',
 ];
 

@@ -1790,7 +1790,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                 复制记录链接
               </Button>
             )}
-            {detail?.table.source === 'CASES' && editing.row && <Alert type="info" title="可直接编辑案件名称、案由、优先级、主办律师、费用及登记信息；案件编号等系统字段只读，状态及客户/合同关联通过业务办理调整。" />}
+            {detail?.table.source === 'CASES' && editing.row && <Alert type="info" title="可编辑已授权的案件登记信息。主办律师取自案件基本信息，可在“打开业务详情与办理”中调整。" />}
             {detail?.table.source === 'CONTRACTS' && editing.row && <Alert type="info" title="草稿合同可直接修改合同名称和金额。编号、类型、关联客户、已收金额和状态等业务关联字段只读；审批、签署和生效请通过业务详情办理。" />}
             {detail?.table.source === 'LEADS' && editing.row && (
               <BusinessRecord
