@@ -756,3 +756,39 @@ test('linked cases fill authoritative intake; manual cases keep editable values'
   const restricted = {...ctx,isSystemSuperAdmin:false};
   assert.equal((await new CaseService(db,{actorUserId:user},restricted).getCase(linked.id)).intakeData.customerPhone,'13800000001');
 });
+
+test('case handling lawyer can replace or clear an old name only with a current employee', async () => {
+  const { row } = await setup();
+  const table = await svc.createTable(base, { name: '案件', source: 'CASES' }, key());
+  const detail = await svc.describe(table.id);
+  const field = detail.fields.find(f => f.options.businessKey === 'intake.handlingLawyer')!;
+  const remark = detail.fields.find(f => f.options.businessKey === 'intake.remark')!;
+  assert.equal(field.type, 'USER');
+  await db.case.update({ where: { id: row.id }, data: { intakeData: { handlingLawyer: '历史姓名' } } });
+  const read = async () => (await svc.record(table.id, row.id)).record;
+  const save = async (values: Record<string, string | null>) => svc.saveRecord(table.id, row.id, {
+    schemaVersion: detail.table.schemaVersion, version: (await read()).version, values,
+  }, key());
+  await save({ [remark.id]: '其他修改' });
+  assert.equal((await read()).values[field.id], '历史姓名');
+  await assert.rejects(save({ [field.id]: '新手填姓名' }), /CASE_HANDLING_LAWYER_UNAVAILABLE/);
+  await assert.rejects(save({ [field.id]: key() }), /CASE_HANDLING_LAWYER_UNAVAILABLE/);
+  const assignee = await db.employee.create({ data: {
+    employeeNo: key(), name: '同名测试律师', phone: '0', type: 'LAWYER', status: 'FORMAL', entryDate: new Date(),
+  } });
+  await assert.rejects(save({ [field.id]: assignee.id }), /CASE_HANDLING_LAWYER_UNAVAILABLE/);
+  const position = await db.position.findFirstOrThrow({ where: { organizationId: org } });
+  await db.employeeAssignment.create({ data: {
+    employeeId: assignee.id, organizationId: org, positionId: position.id, assignmentType: 'PRIMARY', startedAt: new Date(),
+  } });
+  await save({ [field.id]: assignee.id });
+  const linked = await read();
+  assert.equal(linked.values[field.id], assignee.id);
+  assert.equal(linked.displayValues?.[field.id], '同名测试律师');
+  await db.employee.update({ where: { id: assignee.id }, data: { status: 'LEAVED' } });
+  await save({ [remark.id]: '历史关联保留' });
+  assert.equal((await read()).values[field.id], assignee.id);
+  await save({ [field.id]: null });
+  assert.equal((await read()).values[field.id], null);
+  await assert.rejects(save({ [field.id]: assignee.id }), /CASE_HANDLING_LAWYER_UNAVAILABLE/);
+});

@@ -219,7 +219,7 @@ export class LifecycleWorksheet {
           : phoneLevel === 'NONE'
             ? Prisma.sql`NULL::text`
             : Prisma.sql`CASE WHEN cu.phone IS NULL THEN NULL WHEN length(cu.phone)>=7 THEN left(cu.phone,3)||'****'||right(cu.phone,4) ELSE '****' END`,
-      handlingLawyer: Prisma.sql`b."intakeData"->>'handlingLawyer'`,
+      handlingLawyer: Prisma.sql`COALESCE((SELECT e.name FROM employee e WHERE e.id=b."intakeData"->>'handlingLawyer'), b."intakeData"->>'handlingLawyer')`,
       caseCause: Prisma.sql`b."caseType"`,
       // The user will supply the rule later. Keep both worksheets read-only and blank.
       terminated: Prisma.sql`NULL::text`,

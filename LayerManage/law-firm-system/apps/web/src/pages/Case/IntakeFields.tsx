@@ -5,6 +5,8 @@ import dayjs from 'dayjs';
 
 export default function IntakeFields({
   contractLinked = false,
+  handlingLawyer,
+  handlingLawyerName,
   worksheetFields,
   departments,
   employees,
@@ -12,6 +14,8 @@ export default function IntakeFields({
   updatedAt,
 }: {
   contractLinked?: boolean;
+  handlingLawyer?: string;
+  handlingLawyerName?: string;
   worksheetFields?: Field[];
   departments: { value: string; label: string }[];
   employees: { value: string; label: string }[];
@@ -89,6 +93,10 @@ export default function IntakeFields({
                           mode={kind === 'multi' ? 'multiple' : undefined}
                           aria-label={label}
                           showSearch
+                          placeholder={key === 'handlingLawyer' ? '搜索姓名或工号，选择承办律师' : undefined}
+                          labelRender={({ value, label }) =>
+                            key === 'handlingLawyer' && value === handlingLawyer && handlingLawyerName
+                              ? handlingLawyerName : label ?? String(value ?? '')}
                           optionFilterProp="label"
                           allowClear
                           options={

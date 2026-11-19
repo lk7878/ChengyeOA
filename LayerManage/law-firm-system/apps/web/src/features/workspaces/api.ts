@@ -86,6 +86,7 @@ const messages: Record<string, string> = {
   CONTRACT_GRID_IN_USE:
     '合同已有签署、收款计划、收款、开票、退款、案件、分析委托或补充协议关联，不能直接修改或删除。',
   RECEIVABLE_PLAN_MISMATCH: '合同金额与约定的收款计划不一致，请先核对收款约定。',
+  CASE_HANDLING_LAWYER_UNAVAILABLE: '请选择当前组织范围内有效的承办律师。',
   VALIDATION_FAILED: '输入内容不符合要求，请检查必填字段及金额格式。',
   VERSION_CONFLICT: '记录已被其他人修改，请刷新后重试。',
   CASE_STATE_INVALID: '案件已结案或归档，不能直接修改或删除。',

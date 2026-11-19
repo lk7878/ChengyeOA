@@ -70,7 +70,8 @@ export function normalizeIntake(input: unknown): CaseIntake {
       result[key] = text;
     } else {
       if (kind === 'select' && !INTAKE_OPTIONS[key].includes(text)) invalid();
-      if (kind === 'user' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text))
+      // Historical handling-lawyer names may round-trip. CaseService verifies every new selection.
+      if (kind === 'user' && key !== 'handlingLawyer' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text))
         invalid();
       if (key === 'customerPhone' && !/^[+\d][\d\s()-]{2,29}$/.test(text)) invalid();
       result[key] = text;

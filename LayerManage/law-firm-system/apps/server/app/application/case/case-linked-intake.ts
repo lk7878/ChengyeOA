@@ -1,3 +1,4 @@
+import { handlingLawyers } from './handling-lawyer';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
@@ -43,6 +44,7 @@ export async function projectLinkedIntake(
     ? new FieldProjectionService().fieldCapability(actor, 'customer', 'customer.phone', 'customer.read')
         .readLevel
     : 'NONE';
+  const lawyers = await handlingLawyers(reader, rows.map(r => r.intakeData.handlingLawyer));
   const result = rows.map((row) => {
     const intakeData = { ...row.intakeData };
     if (row.contractId) {
@@ -57,7 +59,8 @@ export async function projectLinkedIntake(
     if (phoneLevel === 'NONE') delete intakeData.customerPhone;
     else if (phoneLevel !== 'READ' && intakeData.customerPhone)
       intakeData.customerPhone = maskLeadPhone(intakeData.customerPhone);
-    return { ...row, intakeData };
+    const person = intakeData.handlingLawyer && lawyers.get(intakeData.handlingLawyer);
+    return { ...row, intakeData, ...(person ? { handlingLawyerName: person.name } : {}) };
   });
   if (result.some((r) => r.intakeData.customerPhone))
     await auditRawL3Access(

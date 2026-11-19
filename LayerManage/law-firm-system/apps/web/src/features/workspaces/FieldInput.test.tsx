@@ -150,3 +150,18 @@ test('prospect assignee picker uses server-scoped candidates and distinguishes c
  rerender(<FieldInput field={{...assignee,writable:false}} value="member" onChange={change} directory={directory} tableId="prospects" />);
  expect(screen.getByRole('combobox')).toBeDisabled();
 });
+
+test('selects the intended handling lawyer by employee number when names match', async () => {
+  const onChange = vi.fn();
+  render(<FieldInput field={{ ...field, name: '承办律师', type: 'USER', options: { businessKey: 'intake.handlingLawyer' } }}
+    value="历史姓名" tableId="cases" directory={{ employees: [
+      { id: 'employee-a', name: '同名律师', employeeNo: 'L01' },
+      { id: 'employee-b', name: '同名律师', employeeNo: 'L02' },
+    ], organizations: [], users: [], teams: [] }} onChange={onChange} />);
+  expect(screen.getByText('历史姓名')).toBeTruthy();
+  const select = screen.getByRole('combobox', { name: '承办律师' });
+  fireEvent.mouseDown(select);
+  fireEvent.change(select, { target: { value: 'L02' } });
+  fireEvent.click(await screen.findByText('同名律师 · L02'));
+  expect(onChange).toHaveBeenCalledWith('employee-b');
+});

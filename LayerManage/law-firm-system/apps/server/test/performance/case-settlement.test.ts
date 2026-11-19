@@ -127,9 +127,11 @@ test('team settlement, limited sharing, frozen payroll and director approval', a
         caseType: '民事',
         contractId: contract.id,
         lawyerId: a.actor.employeeId,
+        intakeData: { handlingLawyer: member.actor.employeeId },
         customerId: customer.id,
       },
     });
+    assert.equal((await a.sources('', c.id))[0].lawyer?.id, member.actor.employeeId);
     const body = {
       teamId: ta,
       caseId: c.id,

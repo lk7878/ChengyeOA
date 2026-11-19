@@ -119,6 +119,7 @@ export default function GridCell({
         <FieldInput
           field={field}
           value={draft.value}
+          displayText={draft.value === row.values[field.id] ? row.displayValues?.[field.id] : undefined}
           directory={directory}
           tableId={tableId}
           disabled={saving}

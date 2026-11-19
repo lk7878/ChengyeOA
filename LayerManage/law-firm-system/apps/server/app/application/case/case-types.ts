@@ -145,6 +145,7 @@ export interface CaseView {
   branchId: string | null;
   customerName?: string;
   lawyerName?: string | null;
+  handlingLawyerName?: string;
   files?: CaseFileView[];
   intakeData: CaseIntake;
   id: string;

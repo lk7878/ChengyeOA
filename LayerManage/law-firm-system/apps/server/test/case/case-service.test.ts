@@ -121,6 +121,8 @@ test('editing persists every intake field, exact money, customer/lawyer names an
   const customerId = await seedCustomer(), lawyerId = await seedEmployee();
   const departmentId = randomUUID();
   const department = await prisma.organization.create({ data: { id: departmentId, name: '案件业务部', code: randomUUID(), path: `/${departmentId}`, type: 'DEPARTMENT', status: 'ENABLED' } });
+  const position = await prisma.position.create({ data: { code: randomUUID(), name: '律师', categoryCode: 'LAWYER', organizationId: departmentId } });
+  await prisma.employeeAssignment.create({ data: { employeeId: lawyerId, organizationId: departmentId, positionId: position.id, assignmentType: 'PRIMARY', startedAt: new Date('2020-01-01') } });
   const intakeData: CaseIntake = {};
   for (const [key, , kind] of INTAKE_FIELDS.filter(field => !field[2].startsWith('formula'))) intakeData[key] = kind === 'datetime' ? '2026-09-14T02:30:00.000Z' : kind === 'boolean' ? 'true' : kind === 'user' ? lawyerId : kind === 'multi' ? JSON.stringify([INTAKE_OPTIONS[key][0]]) : kind === 'integerRatio' ? '25' : kind === 'number' ? '123.45' : kind === 'money' ? '123.45' : kind === 'ratio' ? '25.00' : kind === 'department' ? department.id : kind === 'select' ? INTAKE_OPTIONS[key][0] : key === 'customerPhone' ? '13800000001' : `字段-${key}`;
   intakeData.agencyProcedure = '代书';

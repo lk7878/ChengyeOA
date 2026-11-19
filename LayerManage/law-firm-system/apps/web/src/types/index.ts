@@ -181,6 +181,7 @@ export interface Case {
   branchId?: string | null;
   customerName?: string;
   lawyerName?: string | null;
+  handlingLawyerName?: string;
   files?: CaseFile[];
   intakeData?: import('@/pages/Case/intake-contract').CaseIntake;
   updatedAt?: string;

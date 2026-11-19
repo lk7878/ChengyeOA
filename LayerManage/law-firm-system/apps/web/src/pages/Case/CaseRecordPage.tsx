@@ -683,6 +683,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
     if (kind === 'multi') return intakeSelections(value).join('、');
     if (kind === 'boolean') return value === 'true' ? '是' : '否';
     if (kind === 'datetime') return dayjs(value).format('YYYY/MM/DD HH:mm');
+    if (key === 'handlingLawyer' && record.handlingLawyerName) return record.handlingLawyerName;
     if (kind === 'user') return employeeMap.get(value) ?? value;
     if (kind === 'department') return departments.find((item) => item.value === value)?.label ?? value;
     return kind === 'money' || kind === 'formulaMoney' ? `${value} 元` : kind === 'ratio' || kind === 'integerRatio' || kind === 'formulaRatio' ? `${value}%` : value;
@@ -841,6 +842,8 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
               onChange={(value) => {
                 setWorkspaceId(value);
                 setDirectory(undefined);
+                setEmployees([]);
+                createForm.setFieldValue(['intakeData', 'handlingLawyer'], undefined);
                 createForm.setFieldsValue({ branchId: undefined, lawyerId: undefined });
               }}
             />
@@ -919,9 +922,11 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
           </Row>
           <IntakeFields
             contractLinked={Boolean(linkedIntakeContractId)}
+            handlingLawyer={editingCase?.intakeData?.handlingLawyer}
+            handlingLawyerName={editingCase?.handlingLawyerName}
             worksheetFields={worksheet?.fields}
             departments={departments}
-            employees={employees.map(e => ({ value: e.id, label: e.name }))}
+            employees={employees.map(e => ({ value: e.id, label: e.employeeNo ? e.name + ' · ' + e.employeeNo : e.name }))}
             createdAt={editingCase?.createdAt}
             updatedAt={editingCase?.updatedAt}
           />

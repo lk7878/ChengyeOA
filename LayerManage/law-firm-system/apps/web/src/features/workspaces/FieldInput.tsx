@@ -119,7 +119,9 @@ export default function FieldInput({
     );
   if (['SINGLE_SELECT', 'MULTI_SELECT', 'USER', 'ORGANIZATION', 'RELATION'].includes(field.type)) {
     const opts =
-      field.type === 'USER'
+      field.options.businessKey === 'intake.handlingLawyer'
+        ? directory.employees.map(e => ({ ...e, label: e.employeeNo ? e.name + ' · ' + e.employeeNo : e.name }))
+        : field.type === 'USER'
         ? field.options.prospectAssignee ? field.options.choices ?? [] : directory.employees
         : field.type === 'ORGANIZATION'
           ? directory.organizations
@@ -130,6 +132,9 @@ export default function FieldInput({
         disabled={disabled || !!field.options.prospectAssignee && !field.writable}
         style={{ width: '100%' }}
         allowClear
+        labelRender={field.options.businessKey === 'intake.handlingLawyer'
+          ? ({ value, label }) => label ?? displayText ?? String(value ?? '') : undefined}
+        placeholder={field.options.businessKey === 'intake.handlingLawyer' ? '搜索姓名或工号，选择承办律师' : undefined}
         showSearch
         optionFilterProp="label"
         filterOption={field.options.targetSource ? false : undefined}

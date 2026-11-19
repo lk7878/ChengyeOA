@@ -74,6 +74,7 @@ const messages: Record<string, string> = {
   LIFECYCLE_CONTRACT_NOT_EFFECTIVE: '关联合同必须已生效，且合同客户与案件客户一致。',
   LIFECYCLE_CONTRACT_HAS_CASE: '该合同已有案件（含回收站记录），请打开已有案件继续办理。',
   CASE_CONFLICT_REVIEW_REQUIRED: '案件涉及潜在利益冲突，请进入案件修改表单核验并填写排除理由。',
+  CASE_HANDLING_LAWYER_UNAVAILABLE: '请选择当前组织范围内有效的承办律师。',
   CASE_CUSTOMER_UNAVAILABLE: '所选客户不存在或不在你的客户数据权限范围内，请重新选择客户或联系管理员核对客户权限；当前输入已保留',
   CASE_IN_USE: '案件已关联财务合同、成本或SOP流程记录，无法删除，请先核查关联记录',
   CASE_STATE_INVALID: '案件已结案或归档，不能修改或删除',

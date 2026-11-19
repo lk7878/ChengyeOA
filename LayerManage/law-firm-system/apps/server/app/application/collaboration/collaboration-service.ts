@@ -3330,7 +3330,7 @@ export class CollaborationService {
           }
           let version = core.version;
           if (Object.keys(update).length > 1) {
-            const saved = await service.updateCase(recordId, update as unknown as UpdateCaseInput, tx);
+            const saved = await service.updateCase(recordId, update as unknown as UpdateCaseInput, tx, access.organizationId);
             version = saved.version;
           }
           let combined = version + (extension?.version ?? 0);
@@ -3607,7 +3607,7 @@ export class CollaborationService {
           },
         },
       },
-      select: { id: true, name: true, user: { select: { id: true, status: true } } },
+      select: { id: true, name: true, employeeNo: true, user: { select: { id: true, status: true } } },
       take: 1000,
     });
     const assignmentOrgs = access && selected && (isProspectTable(selected.table) || access.prospectAssignment) && (access.level>=3 || this.actor.isSystemSuperAdmin) ? await assignmentOrganizations(this.db,this.actor,access.organizationId) : [];
@@ -3635,7 +3635,7 @@ export class CollaborationService {
       positions: positions.map((p) => ({ id: p.id, name: p.organization.name + ' / ' + p.name })),
       organizations,
       assignmentOrganizations: assignmentDirectory,
-      employees: [...new Map([...employees,...assignedEmployees].map(e=>[e.id,{id:e.id,name:e.name}])).values()],
+      employees: [...new Map([...assignedEmployees.map(e => ({ id: e.id, name: e.name })), ...employees.map(e => ({ id: e.id, name: e.name, employeeNo: e.employeeNo }))].map(e => [e.id, e])).values()],
       users:
         access?.canManageAccess || this.actor.isSystemSuperAdmin
           ? (

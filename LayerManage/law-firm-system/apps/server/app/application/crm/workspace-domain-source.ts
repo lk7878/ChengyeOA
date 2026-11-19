@@ -1,3 +1,4 @@
+import { handlingLawyers } from '../case/handling-lawyer';
 import { contractInvoiceProjection } from '../finance/invoice-worksheet-projection';
 import { qualityCaseScope } from '../quality/quality-scope';
 import { sopTaskScope } from '../sop/execution-scope';
@@ -748,6 +749,11 @@ export class WorkspaceDomainSource {
       for (const customer of customers) labels.set(customer.id, customer.customerNo + ' · ' + customer.name);
     }
     const relatedLabels: Record<string, Map<string, string>> = {};
+    const lawyerField = fields.find(f => object(f.options).businessKey === 'intake.handlingLawyer');
+    if (source === 'CASES' && lawyerField) {
+      const lawyers = await handlingLawyers(this.db, rows.map(row => object(row.values)[lawyerField.id]));
+      relatedLabels[lawyerField.id] = new Map([...lawyers].map(([id, person]) => [id, person.name]));
+    }
     for (const [key, permission] of [
       ['contractId', 'contract.read'],
       ['caseId', 'case.read'],

@@ -1,3 +1,4 @@
+import { handlingLawyers } from '../case/handling-lawyer';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext, AuthorizationService } from '../authorization/authorization-service';
 import { DataScopeService } from '../authorization/data-scope-service';
@@ -180,19 +181,19 @@ export class SettlementService {
         caseNo: true,
         fee: true,
         intakeData: true,
-        lawyer: employees,
         contract: { select: { id: true, contractNo: true, amount: true, receivedAmount: true } },
       },
       orderBy: { caseNo: 'asc' },
       take: 50,
     });
+    const byId = await handlingLawyers(tx, rows.map(c => (c.intakeData as Record<string, unknown> | null)?.handlingLawyer));
     return rows.map((c) => {
       const intake = (c.intakeData ?? {}) as Record<string, unknown>;
       return {
         id: c.id,
         title: c.title,
         caseNo: c.caseNo,
-        lawyer: c.lawyer,
+        lawyer: byId.get(String(intake.handlingLawyer ?? '')) ?? null,
         contractId: c.contract?.id ?? null,
         contractNo: c.contract?.contractNo ?? String(intake.contractNumber ?? ''),
         amount: String(c.contract?.amount ?? c.fee),

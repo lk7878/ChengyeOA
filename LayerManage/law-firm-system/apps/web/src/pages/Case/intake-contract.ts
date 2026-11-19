@@ -39,7 +39,7 @@ export const INTAKE_FIELDS = [
   ['claimScope', '标的范围', 'text', '案件信息'],
   ['businessDepartment', '所属业务部门', 'select', '案件信息'],
   ['owningLawyer', '所属律师', 'text', '案件信息'],
-  ['handlingLawyer', '承办律师', 'text', '案件信息'],
+  ['handlingLawyer', '承办律师', 'user', '案件信息'],
   ['negotiatorId', '谈案人', 'user', '案件信息'],
   ['assistantNegotiator', '帮谈人', 'text', '案件信息'],
   ['assistantCommissionRatio', '帮谈人提成比例', 'text', '案件信息'],

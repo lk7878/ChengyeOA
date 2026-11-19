@@ -146,7 +146,7 @@ export interface RecordDetail {
 export interface Directory {
   assignmentOrganizations?: (Option & {employees: Option[]})[];
   organizations: Option[];
-  employees: Option[];
+  employees: (Option & { employeeNo?: string })[];
   teams: Option[];
   positions?: Option[];
   roles?: Option[];

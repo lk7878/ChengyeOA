@@ -1,3 +1,4 @@
+import { checkHandlingLawyer } from './handling-lawyer';
 import { deliveryModulesEnabled } from '../../domain/module-availability';
 import { screenParties, verifyConflictReview } from './conflict-screen';
 import { CONTRACT_INTAKE_KEYS, projectLinkedIntake } from './case-linked-intake';
@@ -50,7 +51,7 @@ const MAX_PAGE_SIZE = 100;
 
 export class CaseService {
   private async validateIntakeUsers(intake: CaseIntake | undefined, previous: CaseIntake = {}) {
-    const ids = [...new Set(INTAKE_FIELDS.filter(f => f[2] === 'user').map(([key]) => intake?.[key] && intake[key] !== previous[key] ? intake[key] : undefined).filter((id): id is string => !!id))];
+    const ids = [...new Set(INTAKE_FIELDS.filter(f => f[2] === 'user' && f[0] !== 'handlingLawyer').map(([key]) => intake?.[key] && intake[key] !== previous[key] ? intake[key] : undefined).filter((id): id is string => !!id))];
     if (ids.length && await this.prisma.employee.count({ where: { id: { in: ids } } }) !== ids.length) throw new MasterDataError('VALIDATION_FAILED', 400);
   }
 
@@ -353,6 +354,12 @@ export class CaseService {
     try {
       persistAttachments(attachments);
       return await this.prisma.$transaction(async (tx) => {
+        if (intakeData.handlingLawyer) {
+          const table = input.worksheetId ? await tx.collabTable.findUnique({
+            where: { id: input.worksheetId }, select: { base: { select: { workspace: { select: { organizationId: true } } } } },
+          }) : null;
+          await checkHandlingLawyer(tx, intakeData.handlingLawyer, table?.base.workspace.organizationId ?? branchId);
+        }
         if (contractId) {
           await tx.$queryRaw`SELECT id FROM contract WHERE id = ${contractId} FOR UPDATE`;
           const upstream = await tx.contract.findUnique({ where: { id: contractId } });
@@ -436,6 +443,7 @@ export class CaseService {
     caseId: string,
     input: UpdateCaseInput,
     transaction?: Prisma.TransactionClient,
+    worksheetOrganizationId?: string,
   ): Promise<CaseView> {
     this.authorization.requireAction(this.authorizationContext, 'case.update');
     const id = normalizeRequiredText(caseId, 1, 100);
@@ -563,6 +571,9 @@ export class CaseService {
             throw new MasterDataError('VALIDATION_FAILED', 400);
         }
         if (currentCase) {
+          const previousIntake = (currentCase.intakeData ?? {}) as CaseIntake;
+          if (intakeData?.handlingLawyer && intakeData.handlingLawyer !== previousIntake.handlingLawyer)
+            await checkHandlingLawyer(tx, intakeData.handlingLawyer, worksheetOrganizationId ?? currentCase.branchId);
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(713427891)`;
           const risk = await screenParties(tx, id, customerId ?? currentCase.customerId,
             (data.intakeData ?? currentCase.intakeData ?? {}) as CaseIntake, !!currentCase.contractId);
