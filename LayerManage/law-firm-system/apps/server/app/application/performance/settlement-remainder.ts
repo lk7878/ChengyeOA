@@ -14,15 +14,26 @@ export async function allocateRemainder(tx: Prisma.TransactionClient, row: Row, 
   }
   check(typeof request.leaderId === 'string' && request.remainder === remainder.toFixed(2),
     '请核对差额及接收负责人后再提交', 409);
-  const member = await tx.professionalTeamMember.findFirst({
-    where: {
-      professionalTeamId: row.teamId, employeeId: request.leaderId, memberRole: 'LEAD',
-      startedAt: { lte: new Date() }, endedAt: null, professionalTeam: { deletedAt: null, status: 'ENABLED' },
-      employee: { deletedAt: null, status: { not: 'LEAVED' } },
-    },
-    select: { employee: { select: { id: true, name: true, employeeNo: true } } },
-  });
-  check(member, '负责人已变更，请刷新后重新选择', 409);
+  const member = row.teamId
+    ? await tx.professionalTeamMember.findFirst({
+        where: {
+          professionalTeamId: row.teamId,
+          employeeId: request.leaderId,
+          memberRole: 'LEAD',
+          startedAt: { lte: new Date() },
+          endedAt: null,
+          professionalTeam: { deletedAt: null, status: 'ENABLED' },
+          employee: { deletedAt: null, status: { not: 'LEAVED' } },
+        },
+        select: { employee: { select: { id: true, name: true, employeeNo: true } } },
+      })
+    : request.leaderId === row.ownerEmployeeId && {
+        employee: await tx.employee.findFirst({
+          where: { id: row.ownerEmployeeId, deletedAt: null, status: { not: 'LEAVED' } },
+          select: { id: true, name: true, employeeNo: true },
+        }),
+      };
+  check(member && member.employee, '负责人已变更，请刷新后重新选择', 409);
   const employee = member.employee;
   const line = row.lines.find((item) => item.employeeId === employee.id);
   const note = '结算差额 +' + remainder.toFixed(2) + ' 元';

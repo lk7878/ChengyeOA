@@ -23,7 +23,7 @@ test('decimal formulas, precedence and invalid input', () => {
     assert.throws(() => calculate(invalid, { 基数: new D(10) }));
 });
 
-test('team settlement, limited sharing, frozen payroll and director approval', async () => {
+test('team and personal case selection, unique master, allocation, sharing and approved payroll', async () => {
   const db = createTestPrisma();
   try {
     await clearTestApplicationData(db);
@@ -139,7 +139,13 @@ test('team settlement, limited sharing, frozen payroll and director approval', a
         customerId: customer.id,
       },
     });
-    assert.equal((await a.sources('', c.id))[0].lawyer?.id, member.actor.employeeId);
+    assert.equal((await a.sources('', c.id, db, ta))[0].lawyer?.id, member.actor.employeeId);
+    async function matter(primary: SettlementService, handling?: SettlementService) {
+      return db.case.create({data: {
+        caseNo: randomUUID(), title:'测试案件', caseType:'民事', customerId: customer.id, fee:20000,
+        lawyerId:primary.actor.employeeId, intakeData: {handlingLawyer:handling?.actor.employeeId ?? null},
+      }});
+    }
     const body = {
       teamId: ta,
       caseId: c.id,
@@ -176,12 +182,12 @@ test('team settlement, limited sharing, frozen payroll and director approval', a
     await succeed(a, 'share', { userId: b.actor.userId, expiresAt: '2099-01-01' });
     await succeed(a, 'unshare', { userId: b.actor.userId });
     assert.deepEqual((await a.view(period)).policies.find((p) => p.teamId === ta)?.teamInputFields, ['成本', '比例']);
-    const over = await a.save({ ...body, period: '2026-09', lines: [{ ...body.lines[1], rate: 100, adjustment: 1, reason: '调整' }] });
+    const over = await a.save({ ...body, period: '2026-09', caseId:(await matter(a)).id, lines: [{ ...body.lines[1], rate: 100, adjustment: 1, reason: '调整' }] });
     await assert.rejects(a.action(over, { action: 'submit', version: 1 }), /超过可分配金额/);
     await a.action(over, { action: 'delete', version: 1 });
     for (const existingLead of [false, true]) {
       const lines = existingLead ? [{ ...body.lines[0], adjustment: 10, reason: '奖金' }] : [body.lines[1]];
-      const scratch = await a.save({ ...body, period: '2026-10', lines });
+      const scratch = await a.save({ ...body, period: '2026-10', caseId:(await matter(a)).id, lines });
       const before = await db.casePayLine.findMany({ where: { settlementId: scratch } });
       const gap = existingLead ? '3590.00' : '8400.00';
       const submit = { action: 'submit', version: 1, leaderId: a.actor.employeeId, remainder: gap };
@@ -204,11 +210,9 @@ test('team settlement, limited sharing, frozen payroll and director approval', a
     );
     await assert.rejects(succeed(a, 'confirm'), /财务/);
     await succeed(f, 'confirm');
-    const second = await a.save({ ...body, period: '2026-12' });
-    await assert.rejects(a.action(second, { action: 'submit', version: 1 }), /超过来源金额/);
-    await a.action(second, { action: 'delete', version: 1 });
+    await assert.rejects(a.save({ ...body, period: '2026-12' }), /已有结算主单/);
     const otherCase = await db.case.create({
-      data: { caseNo: 'CY-B', title: '二组案件', caseType: '民事', fee: 2000, customerId: customer.id },
+      data: { caseNo: 'CY-B', lawyerId:b.actor.employeeId, title: '二组案件', caseType: '民事', fee: 2000, customerId: customer.id },
     });
     const idB = await b.save({
       ...body,
@@ -321,11 +325,62 @@ test('team settlement, limited sharing, frozen payroll and director approval', a
     );
     await admin.policy({ ...policy, teamId: ta, version: 1, memberRules: [] });
     await assert.rejects(a.save({ ...body, period: '2027-01' }), /新规则/);
-    const fallbackId = await a.save({ ...body, period: '2027-01', policyVersion: 2 });
+    const fallbackId = await a.save({ ...body, period: '2027-01', caseId:(await matter(a)).id, policyVersion: 2 });
     const fallback = await db.caseSettlement.findUniqueOrThrow({ where: { id: fallbackId }, include: { lines: true } });
     assert.equal(fallback.lines.find((line) => line.employeeId === personalRule.employeeId)?.rate.toString(), '70');
     assert.deepEqual(fallback.snapshot['customMemberIds'], []);
     assert.equal((await a.view(period)).rows[0].snapshot['policyVersion'], 1);
+    // A solo lawyer has no team membership. Primary and handling assignments both use employee IDs.
+    const solo = await person('Solo', ['case.read', 'contract.read']);
+    const stranger = await person('Other', ['case.read', 'contract.read']);
+    const soloCase = await matter(solo, a);
+    const handledCase = await matter(stranger, solo);
+    const personalPolicy = { ...policy, mode:'personal', formula:'基数', fields:[] };
+    await admin.policy(personalPolicy);
+    await admin.policy({...personalPolicy, employeeId:solo.actor.employeeId});
+    const personalLines = [
+      { employeeId:solo.actor.employeeId, rate:60, adjustment:0, reason:'' },
+      { employeeId:member.actor.employeeId, rate:30, adjustment:5, reason:'奖励' },
+    ];
+    const soloBody = { mode:'personal', caseId:soloCase.id, period:'2027-02', policyVersion:1,
+      basisAmount:1000, inputs:{}, lines:personalLines, allocatedCost:100 };
+    const options = (s: SettlementService, id: string, scope: string | null = null) => s.sources('', id, db, scope);
+    assert.equal((await options(solo,soloCase.id)).length,1);
+    assert.equal((await options(solo,handledCase.id)).length,1);
+    assert.equal((await options(stranger,soloCase.id)).length,0);
+    assert.equal((await options(a,c.id)).length,0);
+    assert.equal((await options(a,otherCase.id,ta)).length,0);
+    assert.equal((await options(a,soloCase.id,ta)).length,1);
+    await assert.rejects(options(solo,soloCase.id,ta),/负责人/);
+    await assert.rejects(a.save({...body, policyVersion:2, caseId:otherCase.id,basisAmount:1000}),/不可访问/);
+    await assert.rejects(stranger.save(soloBody),/不可访问/);
+    await assert.rejects(solo.save({...body,policyVersion:2,caseId:soloCase.id}),/负责人/);
+    await assert.rejects(a.save({...soloBody,caseId:c.id}),/不可访问/);
+    await assert.rejects(solo.save(soloBody),/成本/);
+    await solo.cost({mode:'personal', period:soloBody.period,version:0,amount:150});
+    const personalId = await solo.save(soloBody);
+    const personal = await db.caseSettlement.findUniqueOrThrow({where:{id:personalId},include:{lines:true}});
+    assert.equal(personal.policyId,'personal:'+solo.actor.employeeId);
+    assert.deepEqual(personal.lines.map(l=>l.amount.toFixed(2)).sort(),['275.00','540.00']);
+    assert.equal((await stranger.view(soloBody.period)).rows.length,0);
+    assert.equal((await solo.sources(soloCase.caseNo))[0].existing?.id,personalId);
+    await assert.rejects(solo.save({...soloBody,caseId:handledCase.id}),/剩余可分摊成本/);
+    await assert.rejects(solo.save({...soloBody,period:'2027-03',allocatedCost:0}),/已有结算主单/);
+    await assert.rejects(a.save({...body,policyVersion:2,caseId:soloCase.id}),/已有结算主单/);
+    await solo.action(personalId,{action:'submit',version:1,remainder:'85.00',leaderId:solo.actor.employeeId});
+    await f.action(personalId,{action:'return',version:2,reason:'退回核对'});
+    assert.deepEqual((await db.casePayLine.findMany({where:{settlementId:personalId}})).map(l=>l.adjustment.toString()).sort(),['0','5']);
+    const raceCase = await matter(a,b);
+    const teamBodyB = {...body, teamId:tb, caseId:raceCase.id, lines:[{...body.lines[1], employeeId:b.actor.employeeId}]};
+    assert.equal((await options(b,raceCase.id,tb)).length,1);
+    const outcomes = await Promise.allSettled([
+      b.save(teamBodyB),
+      a.save({...body,policyVersion:2,caseId:raceCase.id}),
+      b.save({...soloBody,caseId:raceCase.id,allocatedCost:0}),
+    ]);
+    assert.equal(outcomes.filter(r=>r.status==='fulfilled').length,1);
+    assert.match(String(outcomes.find(r=>r.status==='rejected')?.reason),/已有结算主单/);
+    assert.equal(await db.caseSettlement.count({where:{caseId:raceCase.id}}),1);
     await markPaid(f, id);
     assert.equal((await f.view(period)).rows[0].status, 'PAID');
     assert.equal(await db.operationLog.count({ where: { action: 'CASE_PAY_PAYROLL' } }), 2);

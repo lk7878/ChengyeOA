@@ -1,4 +1,6 @@
+export type Person = { id: string; name: string; employeeNo: string };
 export type Source = {
+  existing?: { status: string; id?: string; period?: string } | null;
   id: string;
   caseNo: string;
   title: string;
@@ -18,8 +20,13 @@ export type Line = {
   amount: string;
 };
 export type Settlement = {
+  owner: Person | null;
+  ownerEmployeeId: string | null;
+  canSettle: boolean;
+  policyId: string;
+  allocatedCost: string;
   id: string;
-  teamId: string;
+  teamId: string | null;
   caseId: string;
   period: string;
   version: number;
@@ -39,9 +46,11 @@ export type Settlement = {
   };
 };
 export type Policy = {
+  scopeId: string;
+  employeeId: string | null;
   teamInputFields: string[];
   memberRules: { inputFields: string[]; employeeId: string; rate: string; formula?: string }[];
-  teamId: string;
+  teamId: string | null;
   version: number;
   basis: string;
   formula: string;
@@ -50,12 +59,20 @@ export type Policy = {
   directorId: string;
 };
 export type PayView = {
+  person: Person | null;
+  leads: string[];
+  directory: Person[];
+  costs: { scope: string; period: string; amount: string; version: number }[];
   rows: Settlement[];
   teams: { id: string; name: string }[];
   editable: string[];
   finance: string[];
   admin: boolean;
-  members: { professionalTeamId: string; memberRole: string; employee: { id: string; name: string; employeeNo: string } }[];
+  members: {
+    professionalTeamId: string;
+    memberRole: string;
+    employee: { id: string; name: string; employeeNo: string };
+  }[];
   accounts: { id: string; username: string; employee: { name: string } | null }[];
   policies: Policy[];
   drafts: { id: string; title: string; version: number }[];
@@ -84,4 +101,12 @@ export function amountInCents(amount: string) {
 export function displayCents(value: bigint) {
   const abs = value < 0n ? -value : value;
   return (value < 0n ? '-' : '') + String(abs / 100n) + '.' + String(abs % 100n).padStart(2, '0');
+}
+
+export function applicablePolicy(view: PayView, team: string | null, owner = view.person?.id) {
+  if (team) return view.policies.find((p) => p.teamId === team);
+  return (
+    view.policies.find((p) => owner && p.employeeId === owner) ??
+    view.policies.find((p) => p.scopeId === 'personal')
+  );
 }

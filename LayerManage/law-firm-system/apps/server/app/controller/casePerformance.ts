@@ -18,11 +18,17 @@ export default class CasePerformanceController extends Controller {
         String(this.ctx.query.q ?? '')
           .trim()
           .slice(0, 100),
+        undefined,
+        undefined,
+        this.ctx.query.teamId || null,
       ),
     );
   }
   async recipients() {
     this.ok(await this.settlements().recipients(this.ctx.params.id, String(this.ctx.query.q ?? '').trim().slice(0, 100)));
+  }
+  async cost() {
+    this.ok(await this.settlements().cost(this.ctx.request.body));
   }
   async policy() {
     this.ok(await this.settlements().policy(this.ctx.request.body));

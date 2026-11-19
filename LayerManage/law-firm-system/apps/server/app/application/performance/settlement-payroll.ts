@@ -26,7 +26,7 @@ export async function bindEarnings(service: SettlementService, batchId: string, 
       const access = await service.rights(tx);
       for (const id of ids) await tx.$queryRaw`SELECT id FROM case_settlement WHERE id=${id} FOR UPDATE`;
       const rows = await tx.caseSettlement.findMany({
-        where: { id: { in: ids }, teamId: { in: access.finance }, period: batch.period },
+        where: { id: { in: ids }, policyId: { in: access.finance }, period: batch.period },
         include: { lines: true },
       });
       check(rows.length === ids.length, '无权限或所属月份不同', 403);
@@ -142,7 +142,7 @@ export async function markPaid(service: SettlementService, id: string) {
   return service.db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM case_settlement WHERE id=${id} FOR UPDATE`;
     const r = await service.rights(tx);
-    const row = await tx.caseSettlement.findFirst({ where: { id, teamId: { in: r.finance } } });
+    const row = await tx.caseSettlement.findFirst({ where: { id, policyId: { in: r.finance } } });
     check(row && row.payrollId, '未找到可登记的记录', 404);
     if (row.status === 'PAID') return;
     const batch = await tx.payrollBatch.findUnique({
@@ -182,10 +182,10 @@ export async function releaseEarnings(service: SettlementService, batchId: strin
     const rights = await service.rights(tx);
     const rows = await tx.caseSettlement.findMany({
       where: { payrollId: batchId },
-      select: { id: true, teamId: true, status: true },
+      select: { id: true, policyId: true, status: true },
     });
     check(
-      rows.length && rows.every((r) => r.status === 'IN_PAYROLL' && rights.finance.includes(r.teamId)),
+      rows.length && rows.every((r) => r.status === 'IN_PAYROLL' && rights.finance.includes(r.policyId)),
       '须具有该批次全部结算单的财务授权',
       403,
     );

@@ -5,7 +5,16 @@ import { useAuthStore } from '@/stores/authStore';
 import Modal from '@/components/DraggableModal';
 import { get, post } from '@/features/workspaces/api';
 import { SettlementRecipient } from './SettlementRecipient';
-import { amountInCents, displayCents, payError, payUrl, statusName, type PayView, type Settlement } from './case-pay-types';
+import {
+  applicablePolicy,
+  amountInCents,
+  displayCents,
+  payError,
+  payUrl,
+  statusName,
+  type PayView,
+  type Settlement,
+} from './case-pay-types';
 import { SettlementEditor, SettlementPolicy } from './SettlementEditor';
 
 const month = () => {
@@ -79,7 +88,7 @@ export default function CasePerformancePage() {
   }
   const filtered = (view?.rows ?? []).filter(
     (r) =>
-      (!team || r.teamId === team) &&
+      (!team || (team === 'personal' ? !r.teamId : r.teamId === team)) &&
       [
         r.snapshot.source.caseNo,
         r.snapshot.source.title,
@@ -87,14 +96,25 @@ export default function CasePerformancePage() {
         ...r.lines.map((l) => l.name),
       ].some((s) => s.includes(q.trim())),
   );
-  const staleDrafts = filtered.filter((r) => r.status === 'DRAFT' && view?.editable.includes(r.teamId) &&
-    view.policies.some((p) => p.teamId === r.teamId && p.version !== r.snapshot.policyVersion));
+  const staleDrafts = filtered.filter((r) => {
+    if (!view || !r.canSettle || r.status !== 'DRAFT') return false;
+    const p = applicablePolicy(view, r.teamId, r.ownerEmployeeId ?? undefined);
+    return p && (p.scopeId !== r.policyId || p.version !== r.snapshot.policyVersion);
+  });
   const submitting = action?.kind === 'submit' ? action.row : undefined;
-  const remainder = submitting ? amountInCents(submitting.pool) -
-    submitting.lines.reduce((sum, line) => sum + amountInCents(line.amount), 0n) : 0n;
-  const leaders = submitting ? (view?.members ?? []).filter((m) =>
-    m.professionalTeamId === submitting.teamId && m.memberRole === 'LEAD') : [];
-  const teamName = (id: string) => view?.teams.find((t) => t.id === id)?.name ?? '历史团队';
+  const remainder = submitting
+    ? amountInCents(submitting.pool) -
+      submitting.lines.reduce((sum, line) => sum + amountInCents(line.amount), 0n)
+    : 0n;
+  const leaders = submitting?.owner
+    ? [{ employee: submitting.owner }]
+    : (view?.members ?? []).filter(
+        (m) => m.professionalTeamId === submitting?.teamId && m.memberRole === 'LEAD',
+      );
+  const teamName = (r: Settlement) =>
+    r.teamId
+      ? (view?.teams.find((t) => t.id === r.teamId)?.name ?? '历史团队')
+      : '个人办案 · ' + (r.owner?.name ?? '历史人员');
   const sourceCell = (r: Settlement) => (
     <>
       <strong>{r.snapshot.source.title}</strong>
@@ -128,8 +148,11 @@ export default function CasePerformancePage() {
   );
   const buttons = (row: Settlement) => {
     const linked = view?.batches.find((b) => b.id === row.payrollId);
-    const editor = view?.editable.includes(row.teamId),
-      finance = view?.finance.includes(row.teamId);
+    const editor = row.canSettle && canReadCase;
+    const manage =
+      view?.admin ||
+      (row.teamId ? view?.leads.includes(row.teamId) : row.ownerEmployeeId === view?.person?.id);
+    const finance = view?.finance.includes(row.policyId);
     return (
       <Space wrap>
         {editor && row.status === 'DRAFT' && (
@@ -138,10 +161,10 @@ export default function CasePerformancePage() {
               编辑
             </Button>
             {prompt(row, 'submit', '提交财务')}
-            {prompt(row, 'delete', '删除草稿')}
           </>
         )}
-        {editor && prompt(row, 'share', '共享设置')}
+        {manage && row.status === 'DRAFT' && prompt(row, 'delete', '删除草稿')}
+        {manage && prompt(row, 'share', '共享设置')}
         {finance && row.status === 'SUBMITTED' && prompt(row, 'confirm', '确认金额')}
         {finance && ['SUBMITTED', 'CONFIRMED'].includes(row.status) && prompt(row, 'return', '退回修改')}
         {finance &&
@@ -156,7 +179,7 @@ export default function CasePerformancePage() {
     );
   };
   const financeRows = filtered.filter(
-    (r) => view?.finance.includes(r.teamId) && ['CONFIRMED', 'IN_PAYROLL', 'PAID'].includes(r.status),
+    (r) => view?.finance.includes(r.policyId) && ['CONFIRMED', 'IN_PAYROLL', 'PAID'].includes(r.status),
   );
   const totals = new Map<
     string,
@@ -181,7 +204,7 @@ export default function CasePerformancePage() {
         <h1>案件绩效</h1>
         <Space wrap>
           {view?.admin && <Button onClick={() => setPolicy(true)}>规则与授权</Button>}
-          {!!view?.editable.length && (
+          {view?.person && canReadCase && (
             <Button type="primary" onClick={() => setEdit('new')}>
               新建结算
             </Button>
@@ -207,10 +230,13 @@ export default function CasePerformancePage() {
         <Select
           aria-label="团队筛选"
           allowClear
-          placeholder="全部可见团队"
+          placeholder="全部可见结算"
           style={{ minWidth: 160 }}
           value={team}
-          options={view?.teams.map((t) => ({ value: t.id, label: t.name }))}
+          options={[
+            { value: 'personal', label: '个人办案' },
+            ...(view?.teams ?? []).map((t) => ({ value: t.id, label: t.name })),
+          ]}
           onChange={setTeam}
         />
         <Input
@@ -220,15 +246,28 @@ export default function CasePerformancePage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-
       </Space>
       {error && <Alert type="error" title={error} showIcon />}
       {notice && <Alert type="success" title={notice} closable />}
-      {staleDrafts.map((r) => <Alert key={r.id} type="warning" showIcon
-        title={r.snapshot.source.caseNo + ' 的草稿按旧规则计算，请核对后更新分配明细。'}
-        action={<Button size="small" onClick={() => setEdit(r)}>按最新规则重算</Button>} />)}
+      {staleDrafts.map((r) => (
+        <Alert
+          key={r.id}
+          type="warning"
+          showIcon
+          title={r.snapshot.source.caseNo + ' 的草稿按旧规则计算，请核对后更新分配明细。'}
+          action={
+            <Button size="small" onClick={() => setEdit(r)}>
+              按最新规则重算
+            </Button>
+          }
+        />
+      ))}
       <Tabs
-        tabBarExtraContent={<Button size="small" onClick={refresh}>刷新数据</Button>}
+        tabBarExtraContent={
+          <Button size="small" onClick={refresh}>
+            刷新数据
+          </Button>
+        }
         activeKey={tab === 'finance' && !view?.finance.length ? 'settlements' : tab}
         onChange={(v) => setParams({ tab: v })}
         items={[
@@ -257,7 +296,7 @@ export default function CasePerformancePage() {
                 }}
                 columns={[
                   { title: '案件 / 合同编号', render: (_, r) => sourceCell(r) },
-                  { title: '团队', render: (_, r) => teamName(r.teamId) },
+                  { title: '团队 / 个人', render: (_, r) => teamName(r) },
                   { title: '本期基数（元）', dataIndex: 'basisAmount' },
                   { title: '可分配（元）', dataIndex: 'pool' },
                   { title: '状态', render: (_, r) => <Tag>{statusName[r.status]}</Tag> },
@@ -280,7 +319,13 @@ export default function CasePerformancePage() {
                 columns={[
                   { title: '成员', render: (_, l) => l.name + ' · ' + l.employeeNo },
                   { title: '案件', render: (_, l) => sourceCell(l.row) },
-                  { title: '比例（%）', render: (_, l) => l.row.snapshot.customMemberIds?.includes(l.employeeId) ? l.rate + ' · 个人规则' : l.rate },
+                  {
+                    title: '比例（%）',
+                    render: (_, l) =>
+                      l.row.snapshot.customMemberIds?.includes(l.employeeId)
+                        ? l.rate + ' · 个人规则'
+                        : l.rate,
+                  },
                   { title: '调整额（元）', dataIndex: 'adjustment' },
                   { title: '调整原因', dataIndex: 'reason' },
                   { title: '分配金额（元）', dataIndex: 'amount' },
@@ -304,7 +349,7 @@ export default function CasePerformancePage() {
                           expandedRowRender: (t) =>
                             t.cases.map((r) => (
                               <div key={r.id}>
-                                {r.snapshot.source.caseNo} · {teamName(r.teamId)} ·{' '}
+                                {r.snapshot.source.caseNo} · {teamName(r)} ·{' '}
                                 {r.lines.find((l) => l.employeeId === t.id)?.amount} 元 ·{' '}
                                 {statusName[r.status]}
                               </div>
@@ -372,6 +417,14 @@ export default function CasePerformancePage() {
         <SettlementEditor
           view={view}
           period={period}
+          refresh={refresh}
+          openExisting={(p, caseNo) => {
+            setEdit(undefined);
+            setTeam(undefined);
+            setPeriod(p);
+            setQ(caseNo);
+            setParams({ tab: 'settlements' });
+          }}
           row={edit === 'new' ? undefined : edit}
           close={() => setEdit(undefined)}
           saved={saved}
@@ -402,12 +455,19 @@ export default function CasePerformancePage() {
                     }),
               )
             }
-            initialValues={{ mode: 'share', leaderId: leaders.length === 1 ? leaders[0].employee.id : undefined }}
+            initialValues={{
+              mode: 'share',
+              leaderId: leaders.length === 1 ? leaders[0].employee.id : undefined,
+            }}
           >
             {error && <Alert type="error" title={error} />}
             {action.kind === 'share' && (
               <>
-                <Form.Item name="userId" label="接收账号" rules={[{ required: true, message: '请选择接收账号' }]}>
+                <Form.Item
+                  name="userId"
+                  label="接收账号"
+                  rules={[{ required: true, message: '请选择接收账号' }]}
+                >
                   <SettlementRecipient settlementId={action.row.id} />
                 </Form.Item>
                 <Form.Item name="mode" label="共享方式">
@@ -434,19 +494,41 @@ export default function CasePerformancePage() {
               </p>
             )}
             {action.kind === 'paid' && <p>请核对实际发放凭证后登记。系统将检查此工资批次的主任审批记录。</p>}
-            {action.kind === 'submit' && <p>确认将本期结算和成员分配提交给本团队获授权的财务人员？</p>}
-            {submitting && remainder < 0n && <Alert type="error" title={'已超额分配 ' + displayCents(-remainder) + ' 元，请先修改草稿。'} />}
-            {submitting && remainder > 0n && <>
-              <p>剩余 {displayCents(remainder)} 元将计入所选负责人的调整额。若明细中尚无该负责人，将以 0% 提成比例新增一行。</p>
-              <Form.Item label="差额接收负责人" name="leaderId" rules={[{ required: true, message: '请选择团队负责人' }]}>
-                <Select placeholder="选择本团队负责人" options={leaders.map(({ employee }) => ({
-                  value: employee.id, label: employee.name + ' · ' + employee.employeeNo,
-                }))} />
-              </Form.Item>
-              {!leaders.length && <Alert type="warning" title="当前团队没有在任负责人，请先配置负责人或手动分配差额。" />}
-            </>}
+            {action.kind === 'submit' && <p>确认将本期结算和成员分配提交给此结算规则指定的财务人员？</p>}
+            {submitting && remainder < 0n && (
+              <Alert type="error" title={'已超额分配 ' + displayCents(-remainder) + ' 元，请先修改草稿。'} />
+            )}
+            {submitting && remainder > 0n && (
+              <>
+                <p>
+                  剩余 {displayCents(remainder)} 元将计入所选负责人的调整额。若明细中尚无该负责人，将以 0%
+                  提成比例新增一行。
+                </p>
+                <Form.Item
+                  label="差额接收负责人"
+                  name="leaderId"
+                  rules={[{ required: true, message: '请选择团队负责人' }]}
+                >
+                  <Select
+                    placeholder="选择差额接收人"
+                    options={leaders.map(({ employee }) => ({
+                      value: employee.id,
+                      label: employee.name + ' · ' + employee.employeeNo,
+                    }))}
+                  />
+                </Form.Item>
+                {!leaders.length && (
+                  <Alert type="warning" title="当前团队没有在任负责人，请先配置负责人或手动分配差额。" />
+                )}
+              </>
+            )}
             {action.kind === 'delete' && <p>确认删除此草稿和对应分配明细？</p>}
-            <Button loading={busy} disabled={!!submitting && (remainder < 0n || (remainder > 0n && !leaders.length))} type="primary" htmlType="submit">
+            <Button
+              loading={busy}
+              disabled={!!submitting && (remainder < 0n || (remainder > 0n && !leaders.length))}
+              type="primary"
+              htmlType="submit"
+            >
               确认
             </Button>
           </Form>

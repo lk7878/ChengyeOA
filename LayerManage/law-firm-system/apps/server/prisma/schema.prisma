@@ -71,6 +71,8 @@ model Position {
 // ==================== 人事/员工模块 ====================
 
 model Employee {
+  personalPayPolicy CasePayPolicy?
+  personalSettlements CaseSettlement[]
   casePayLines CasePayLine[]
   inventoryReceipts      InventoryMovement[]
   id                     String              @id @default(uuid())
@@ -1178,7 +1180,7 @@ model CostEntry {
 // ==================== 案件模块 ====================
 
 model Case {
-  caseSettlements CaseSettlement[]
+  caseSettlement CaseSettlement?
   lifecycleLinks CollabLifecycleLink[]
   deletedAt DateTime?
   assessments SatisfactionAssessment[]
@@ -2855,13 +2857,17 @@ model PersonalFilePurge {
 
 model CasePayPolicy {
   memberRules Json @default("[]")
-  teamId String @id
+  scopeId String @id
+  teamId String? @unique
+  employeeId String? @unique
+  employee Employee? @relation(fields:[employeeId], references:[id], onDelete:Restrict)
+  settlements CaseSettlement[]
   version Int @default(1)
   basis String
   formula String
   fields Json
   directorId String
-  team ProfessionalTeam @relation(fields:[teamId], references:[id], onDelete:Restrict)
+  team ProfessionalTeam? @relation(fields:[teamId], references:[id], onDelete:Restrict)
   director User @relation(fields:[directorId], references:[id], onDelete:Restrict)
   financeIds String[]
   @@map("case_pay_policy")
@@ -2869,12 +2875,17 @@ model CasePayPolicy {
 
 model CaseSettlement {
   id String @id @default(uuid())
-  teamId String
-  caseId String
+  teamId String?
+  ownerEmployeeId String?
+  owner Employee? @relation(fields:[ownerEmployeeId],references:[id],onDelete:Restrict)
+  policyId String
+  policy CasePayPolicy @relation(fields:[policyId],references:[scopeId],onDelete:Restrict)
+  allocatedCost Decimal @default(0) @db.Decimal(18,2)
+  caseId String @unique
   contractId String?
   contract Contract? @relation(fields:[contractId],references:[id],onDelete:Restrict)
   case Case @relation(fields:[caseId],references:[id],onDelete:Restrict)
-  team ProfessionalTeam @relation(fields:[teamId],references:[id],onDelete:Restrict)
+  team ProfessionalTeam? @relation(fields:[teamId],references:[id],onDelete:Restrict)
   period String
   status String @default("DRAFT")
   version Int @default(1)
@@ -2887,7 +2898,6 @@ model CaseSettlement {
   payroll PayrollBatch? @relation(fields:[payrollId],references:[id],onDelete:Restrict)
   updatedAt DateTime @updatedAt
   lines CasePayLine[]
-  @@unique([teamId, caseId, period])
   @@index([caseId,status])
   @@index([payrollId])
   @@index([period, status])
@@ -2921,4 +2931,13 @@ model CasePayShare {
   @@id([settlementId,userId])
   @@index([userId,expiresAt])
   @@map("case_pay_share")
+}
+
+model CasePayMonthCost {
+  scope String
+  period String
+  amount Decimal @db.Decimal(18,2)
+  version Int @default(1)
+  @@id([scope, period])
+  @@map("case_pay_month_cost")
 }

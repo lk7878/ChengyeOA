@@ -12,11 +12,27 @@ import { readMemberRules, type MemberRule } from './settlement-member-rules';
 
 import { allocateRemainder, undoRemainder } from './settlement-remainder';
 
+import {
+  activeEmployee,
+  activeTeam,
+  personFields,
+  personalScope,
+  caseAssignment,
+  checkInitiator,
+  lockCost,
+  allocated,
+} from './settlement-scope';
+
 type Tx = Prisma.TransactionClient;
-const activeTeam: Prisma.ProfessionalTeamWhereInput = { deletedAt: null, status: 'ENABLED' } as const;
-const activeEmployee: Prisma.EmployeeWhereInput = { deletedAt: null, status: { not: 'LEAVED' } };
-const employees = { select: { id: true, name: true, employeeNo: true } } as const;
+const employees = { select: personFields } as const;
 const lineOrder = { orderBy: { employeeNo: 'asc' as const } };
+
+function settlementTeam(input: Record<string, unknown>) {
+  check(input.mode === undefined || input.mode === 'team' || input.mode === 'personal', '办案方式无效');
+  if (input.mode !== 'personal') return text(input.teamId);
+  check(!input.teamId, '个人办案不能指定团队');
+  return null;
+}
 
 export function payPeriod(value: unknown) {
   check(typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value), '请选择结算月份');
@@ -45,7 +61,14 @@ export class SettlementService {
     readonly actor: AuthorizationContext,
   ) {}
   async rights(tx: Tx = this.db) {
-    const { employeeId, userId, isSystemSuperAdmin: admin } = this.actor;
+    const { userId, isSystemSuperAdmin: admin } = this.actor;
+    const person =
+      this.actor.employeeId &&
+      (await tx.employee.findFirst({
+        where: { id: this.actor.employeeId, ...activeEmployee },
+        select: personFields,
+      }));
+    const employeeId = person?.id;
     const leads = employeeId
       ? await tx.professionalTeamMember.findMany({
           where: {
@@ -61,32 +84,43 @@ export class SettlementService {
       : [];
     const lead = leads.map((m) => m.professionalTeamId);
     const policies = await tx.casePayPolicy.findMany({
-      where: admin ? {} : { OR: [{ teamId: { in: lead } }, { financeIds: { has: userId } }] },
+      where: admin
+        ? {}
+        : {
+            OR: [
+              { teamId: { in: lead } },
+              ...(employeeId ? [{ scopeId: { in: ['personal', personalScope(employeeId)] } }] : []),
+              { financeIds: { has: userId } },
+            ],
+          },
     });
-    const finance = policies.filter((p) => admin || p.financeIds.includes(userId)).map((p) => p.teamId);
+    const finance = policies.filter((p) => admin || p.financeIds.includes(userId)).map((p) => p.scopeId);
     const visible: Prisma.CaseSettlementWhereInput = admin
       ? {}
       : {
           OR: [
             { teamId: { in: lead } },
-            { teamId: { in: finance }, status: { not: 'DRAFT' } },
+            ...(employeeId ? [{ ownerEmployeeId: employeeId }] : []),
+            { policyId: { in: finance }, status: { not: 'DRAFT' } },
             { shares: { some: { userId, expiresAt: { gt: new Date() } } } },
           ],
         };
-    return { lead, finance, visible, admin, policies };
+    return { lead, finance, visible, admin, policies, person, employeeId };
   }
   async view(period: string) {
     payPeriod(period);
     const r = await this.rights();
     const rows = await this.db.caseSettlement.findMany({
       where: { AND: [{ period }, r.visible] },
-      include: { lines: lineOrder },
+      include: { lines: lineOrder, owner: employees, case: { select: { lawyerId: true, intakeData: true } } },
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
     });
     const teams = await this.db.professionalTeam.findMany({
       where: {
         ...activeTeam,
-        ...(r.admin ? {} : { id: { in: [...r.lead, ...r.finance, ...rows.map((s) => s.teamId)] } }),
+        ...(r.admin
+          ? {}
+          : { id: { in: [...r.lead, ...r.finance, ...rows.flatMap((s) => (s.teamId ? [s.teamId] : []))] } }),
       },
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
@@ -101,6 +135,14 @@ export class SettlementService {
       },
       select: { professionalTeamId: true, memberRole: true, employee: employees },
     });
+    const directory =
+      r.admin || (r.person && this.actor.permissionCodes.includes('case.read'))
+        ? await this.db.employee.findMany({
+            where: activeEmployee,
+            select: personFields,
+            orderBy: [{ name: 'asc' }, { employeeNo: 'asc' }],
+          })
+        : [];
     const accounts = r.admin
       ? await this.db.user.findMany({
           where: { status: 'ENABLED' },
@@ -121,7 +163,7 @@ export class SettlementService {
           })
         : [];
     const batchIds = rows
-      .filter((row) => r.finance.includes(row.teamId))
+      .filter((row) => r.finance.includes(row.policyId))
       .flatMap((row) => (row.payrollId ? [row.payrollId] : []));
     const batches = await this.db.payrollBatch.findMany({
       where: { id: { in: batchIds } },
@@ -135,8 +177,22 @@ export class SettlementService {
       },
     });
     return {
-      rows,
+      rows: rows.map(({ case: matter, ...row }) => ({
+        ...row,
+        mode: row.teamId ? 'team' : 'personal',
+        canSettle:
+          !!r.employeeId &&
+          (row.teamId ? r.lead.includes(row.teamId) : row.ownerEmployeeId === r.employeeId) &&
+          (matter.lawyerId === r.employeeId ||
+            (matter.intakeData as Record<string, unknown> | null)?.handlingLawyer === r.employeeId),
+      })),
       teams,
+      person: r.person || null,
+      leads: r.lead,
+      directory,
+      costs: await this.db.casePayMonthCost.findMany({
+        where: { period, scope: { in: [...r.lead, ...(r.employeeId ? [personalScope(r.employeeId)] : [])] } },
+      }),
       members,
       editable,
       finance: r.finance,
@@ -153,30 +209,62 @@ export class SettlementService {
       policies: r.policies.map((p) => ({
         ...p,
         teamInputFields: referencedFields(policyFields(p.fields), [p.formula]),
-        memberRules: editable.includes(p.teamId)
-          ? (p.memberRules as MemberRule[]).map(({ employeeId, rate, formula }) => ({
-              employeeId, rate, formula: r.admin ? formula : undefined,
-              inputFields: referencedFields(policyFields(p.fields), [formula]),
-            }))
-          : [],
+        memberRules:
+          r.admin ||
+          editable.includes(p.teamId) ||
+          (!p.teamId && r.employeeId && (!p.employeeId || p.employeeId === r.employeeId))
+            ? (p.memberRules as MemberRule[]).map(({ employeeId, rate, formula }) => ({
+                employeeId,
+                rate,
+                formula: r.admin ? formula : undefined,
+                inputFields: referencedFields(policyFields(p.fields), [formula]),
+              }))
+            : [],
         financeIds: r.admin ? p.financeIds : [],
       })),
     };
   }
   async recipients(id: string, query: string) {
     const rights = await this.rights();
-    check(await this.db.caseSettlement.count({ where: { id, ...(rights.admin ? {} : { teamId: { in: rights.lead } }) } }),
-      '无权管理此结算单的共享', 403);
+    check(
+      await this.db.caseSettlement.count({
+        where: {
+          id,
+          ...(rights.admin
+            ? {}
+            : {
+                OR: [
+                  { teamId: { in: rights.lead } },
+                  ...(rights.employeeId ? [{ ownerEmployeeId: rights.employeeId }] : []),
+                ],
+              }),
+        },
+      }),
+      '无权管理此结算单的共享',
+      403,
+    );
     return this.db.user.findMany({
-      where: { status: 'ENABLED', OR: [
-        { username: { contains: query, mode: 'insensitive' } },
-        { employee: { name: { contains: query, mode: 'insensitive' } } },
-      ] },
+      where: {
+        status: 'ENABLED',
+        OR: [
+          { username: { contains: query, mode: 'insensitive' } },
+          { employee: { name: { contains: query, mode: 'insensitive' } } },
+        ],
+      },
       select: { id: true, username: true, employee: { select: { name: true } } },
-      orderBy: { username: 'asc' }, take: 40,
+      orderBy: { username: 'asc' },
+      take: 40,
     });
   }
-  async sources(query: string, id?: string, tx: Tx = this.db) {
+  async sources(
+    query: string,
+    id?: string,
+    tx: Tx = this.db,
+    teamId: string | null = null,
+    rights?: Awaited<ReturnType<SettlementService['rights']>>,
+  ) {
+    const r = rights ?? (await this.rights(tx));
+    checkInitiator(r.employeeId, teamId, r.lead);
     const scope = await buildCaseScopeWhere(this.db, this.actor, 'case.read', tx);
     const contractScope = this.actor.permissionCodes.includes('contract.read')
       ? await buildContractScopeWhere(
@@ -190,6 +278,7 @@ export class SettlementService {
       where: {
         AND: [
           scope,
+          caseAssignment(r.employeeId, teamId),
           { OR: [{ contractId: null }, { contract: { AND: [contractScope, { deletedAt: null }] } }] },
           id
             ? { id }
@@ -203,35 +292,77 @@ export class SettlementService {
         ],
       },
       select: {
+        caseSettlement: {
+          select: { id: true, teamId: true, ownerEmployeeId: true, period: true, status: true },
+        },
         id: true,
         title: true,
         caseNo: true,
         fee: true,
         intakeData: true,
-        contract: { select: { id: true, contractNo: true, amount: true, receivedAmount: true } },
+        teamIds: true,
+        contract: {
+          select: {
+            id: true,
+            professionalTeamId: true,
+            contractNo: true,
+            amount: true,
+            receivedAmount: true,
+          },
+        },
       },
       orderBy: { caseNo: 'asc' },
       take: 50,
     });
-    const byId = await handlingLawyers(tx, rows.map(c => (c.intakeData as Record<string, unknown> | null)?.handlingLawyer));
-    return rows.map((c) => {
-      const intake = (c.intakeData ?? {}) as Record<string, unknown>;
-      return {
-        id: c.id,
-        title: c.title,
-        caseNo: c.caseNo,
-        lawyer: byId.get(String(intake.handlingLawyer ?? '')) ?? null,
-        contractId: c.contract?.id ?? null,
-        contractNo: c.contract?.contractNo ?? String(intake.contractNumber ?? ''),
-        amount: String(c.contract?.amount ?? c.fee),
-        received: String(c.contract?.receivedAmount ?? intake.totalReceivedAmount ?? 0),
-      };
-    });
+    const byId = await handlingLawyers(
+      tx,
+      rows.map((c) => (c.intakeData as Record<string, unknown> | null)?.handlingLawyer),
+    );
+    return rows
+      .filter((c) => {
+        if (c.contract?.professionalTeamId || !c.teamIds) return true;
+        try {
+          const teams: unknown = JSON.parse(c.teamIds);
+          return (
+            Array.isArray(teams) &&
+            teams.every((t) => typeof t === 'string') &&
+            (!teams.length || teams.includes(teamId))
+          );
+        } catch {
+          return false;
+        }
+      })
+      .map((c) => {
+        const intake = (c.intakeData ?? {}) as Record<string, unknown>;
+        return {
+          ...(id
+            ? {}
+            : {
+                existing: c.caseSettlement
+                  ? {
+                      status: '已有结算',
+                      ...(c.caseSettlement.teamId === teamId &&
+                      (teamId || c.caseSettlement.ownerEmployeeId === r.employeeId)
+                        ? { id: c.caseSettlement.id, period: c.caseSettlement.period }
+                        : {}),
+                    }
+                  : null,
+              }),
+          id: c.id,
+          title: c.title,
+          caseNo: c.caseNo,
+          lawyer: byId.get(String(intake.handlingLawyer ?? '')) ?? null,
+          contractId: c.contract?.id ?? null,
+          contractNo: c.contract?.contractNo ?? String(intake.contractNumber ?? ''),
+          amount: String(c.contract?.amount ?? c.fee),
+          received: String(c.contract?.receivedAmount ?? intake.totalReceivedAmount ?? 0),
+        };
+      });
   }
   async policy(raw: unknown) {
     check(this.actor.isSystemSuperAdmin, '仅超级管理员可设置规则', 403);
     const b = object(raw),
-      teamId = text(b.teamId),
+      teamId = settlementTeam(b),
       fields = policyFields(b.fields),
       formula = text(b.formula, 250);
     const basis = text(b.basis);
@@ -239,22 +370,37 @@ export class SettlementService {
     calculate(formula, Object.fromEntries(['基数', ...fields].map((f) => [f, new D(1)])), true);
     check(Array.isArray(b.financeIds) && b.financeIds.length <= 100, '财务授权无效');
     const financeIds = [...new Set(b.financeIds.map((id) => text(id)))];
+    const employeeId = !teamId && b.employeeId ? text(b.employeeId) : null;
+    const scopeId = teamId ?? (employeeId ? personalScope(employeeId) : 'personal');
     return this.db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM professional_team WHERE id=${teamId} FOR UPDATE`;
-      check(await tx.professionalTeam.count({ where: { id: teamId, ...activeTeam } }), '团队不可用');
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${scopeId},2))`;
+      if (teamId)
+        check(await tx.professionalTeam.count({ where: { id: teamId, ...activeTeam } }), '团队不可用');
+      if (employeeId)
+        check(await tx.employee.count({ where: { id: employeeId, ...activeEmployee } }), '人员不可用');
       check(
         (await tx.user.count({ where: { id: { in: financeIds }, status: 'ENABLED' } })) === financeIds.length,
         '财务账号不可用',
       );
-      const old = await tx.casePayPolicy.findUnique({ where: { teamId } });
+      const old = await tx.casePayPolicy.findUnique({ where: { scopeId } });
       check((old?.version ?? 0) === b.version, '规则已更新，请刷新', 409);
       const directorId = text(b.directorId);
       check(
         await tx.user.count({ where: { id: directorId, status: 'ENABLED' } }),
         '请选择启用的主任审核账号',
       );
-      const memberRules = readMemberRules(b.memberRules === undefined ? old?.memberRules ?? [] : b.memberRules, fields);
-      if (memberRules.length) {
+      const memberRules = readMemberRules(
+        b.memberRules === undefined ? (old?.memberRules ?? []) : b.memberRules,
+        fields,
+      );
+      if (!teamId && memberRules.length)
+        check(
+          (await tx.employee.count({
+            where: { ...activeEmployee, id: { in: memberRules.map((m) => m.employeeId) } },
+          })) === memberRules.length,
+          '成员不可用',
+        );
+      if (teamId && memberRules.length) {
         const roster = await tx.professionalTeamMember.findMany({
           where: {
             professionalTeamId: teamId,
@@ -265,20 +411,46 @@ export class SettlementService {
           },
           select: { employeeId: true },
         });
-        check(new Set(roster.map((m) => m.employeeId)).size === memberRules.length, '个人规则只能配置给当前团队的在职成员');
+        check(
+          new Set(roster.map((m) => m.employeeId)).size === memberRules.length,
+          '个人规则只能配置给当前团队的在职成员',
+        );
       }
       const data = { basis, formula, fields, financeIds, directorId, memberRules };
       await tx.casePayPolicy.upsert({
-        where: { teamId },
-        create: { teamId, ...data },
+        where: { scopeId },
+        create: { scopeId, teamId, employeeId, ...data },
         update: { ...data, version: { increment: 1 } },
       });
-      await payLog(tx, this.actor, teamId, 'CASE_PAY_POLICY', { ...data, version: (old?.version ?? 0) + 1 });
+      await payLog(tx, this.actor, scopeId, 'CASE_PAY_POLICY', { ...data, version: (old?.version ?? 0) + 1 });
+    });
+  }
+  async cost(raw: unknown) {
+    const b = object(raw),
+      period = payPeriod(b.period);
+    const teamId = settlementTeam(b);
+    const amount = decimal(b.amount, '月度成本');
+    check(amount.gte(0), '月度成本不能为负');
+    return this.db.$transaction(async (tx) => {
+      const r = await this.rights(tx);
+      checkInitiator(r.employeeId, teamId, r.lead);
+      const scope = teamId ?? personalScope(r.employeeId);
+      await lockCost(tx, scope, period);
+      const key = { scope_period: { scope, period } };
+      const old = await tx.casePayMonthCost.findUnique({ where: key });
+      check((old?.version ?? 0) === b.version, '月度成本已更新，请刷新', 409);
+      check(amount.gte(await allocated(tx, teamId, r.employeeId, period)), '月度成本低于已分摊金额');
+      await tx.casePayMonthCost.upsert({
+        where: key,
+        create: { scope, period, amount },
+        update: { amount, version: { increment: 1 } },
+      });
+      await payLog(tx, this.actor, scope, 'CASE_PAY_COST', { period, amount: amount.toString() });
     });
   }
   async save(raw: unknown) {
     const b = object(raw),
-      teamId = text(b.teamId),
+      teamId = settlementTeam(b),
       caseId = text(b.caseId),
       period = payPeriod(b.period);
     const inputs = object(b.inputs),
@@ -287,37 +459,70 @@ export class SettlementService {
     check(Array.isArray(b.lines) && b.lines.length <= 200, '分配明细无效');
     const items = b.lines.map(object);
     return this.db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM professional_team WHERE id=${teamId} FOR UPDATE`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${caseId},0))`;
       if (b.id) await tx.$queryRaw`SELECT id FROM case_settlement WHERE id=${text(b.id)} FOR UPDATE`;
       const r = await this.rights(tx);
-      check(r.admin || r.lead.includes(teamId), '仅本团队负责人可填写', 403);
-      check(await tx.professionalTeam.count({ where: { id: teamId, ...activeTeam } }), '团队不可用');
-      const policy = r.policies.find((p) => p.teamId === teamId);
-      check(policy && policy.version === b.policyVersion, '请先配置团队规则，或刷新读取新规则', 409);
-      const source = (await this.sources('', caseId, tx))[0];
+      checkInitiator(r.employeeId, teamId, r.lead);
+      const ownerEmployeeId = teamId ? null : r.employeeId;
+      const policy = teamId
+        ? r.policies.find((p) => p.teamId === teamId)
+        : (r.policies.find((p) => p.employeeId === ownerEmployeeId) ??
+          r.policies.find((p) => p.scopeId === 'personal'));
+      check(
+        policy && policy.version === b.policyVersion && (!b.policyId || b.policyId === policy.scopeId),
+        '请先配置适用规则，或刷新读取新规则',
+        409,
+      );
+      const source = (await this.sources('', caseId, tx, teamId, r))[0];
       check(source, '案件或关联合同不可访问', 404);
       const limit = decimal(policy.basis === 'amount' ? source.amount : source.received, '关联金额');
       check(basis.lte(limit), '本期基数超过来源金额');
       const memberRules = policy.memberRules as MemberRule[];
       const selectedIds = new Set(items.map((item) => item.employeeId));
       const fields = referencedFields(policyFields(policy.fields), [
-        policy.formula, ...memberRules.filter((rule) => selectedIds.has(rule.employeeId)).map((rule) => rule.formula),
+        policy.formula,
+        ...memberRules.filter((rule) => selectedIds.has(rule.employeeId)).map((rule) => rule.formula),
       ]);
       const values = Object.fromEntries(fields.map((f) => [f, decimal(inputs[f], f, 4)]));
-      const pool = calculate(policy.formula, { 基数: basis, ...values });
-      const roster = await tx.professionalTeamMember.findMany({
-        where: {
-          professionalTeamId: teamId,
-          endedAt: null,
-          startedAt: { lte: new Date() },
-          employee: activeEmployee,
-        },
-        select: { employee: employees },
-      });
+      const gross = calculate(policy.formula, { 基数: basis, ...values });
+      const cost = decimal(b.allocatedCost ?? '0', '本案分摊成本');
+      const scope = teamId ?? personalScope(ownerEmployeeId);
+      await lockCost(tx, scope, period);
+      check(cost.gte(0) && gross.gte(cost), '分摊成本须在零与本案可分配金额之间');
+      if (cost.gt(0)) {
+        const budget = await tx.casePayMonthCost.findUnique({ where: { scope_period: { scope, period } } });
+        check(
+          budget &&
+            cost
+              .add(await allocated(tx, teamId, ownerEmployeeId, period, b.id ? text(b.id) : undefined))
+              .lte(budget.amount),
+          '超过本月剩余可分摊成本',
+        );
+      }
+      const pool = gross.sub(cost);
+      const roster = teamId
+        ? await tx.professionalTeamMember.findMany({
+            where: {
+              professionalTeamId: teamId,
+              endedAt: null,
+              startedAt: { lte: new Date() },
+              employee: activeEmployee,
+            },
+            select: { employee: employees },
+          })
+        : (
+            await tx.employee.findMany({
+              where: { ...activeEmployee, id: { in: items.map((i) => text(i.employeeId)) } },
+              select: personFields,
+            })
+          ).map((employee) => ({ employee }));
       const seen = new Set<string>();
       const lines = items.map((item) => {
         const employee = roster.find((m) => m.employee.id === item.employeeId)?.employee;
-        check(employee && !seen.has(employee.id), '成员须属于当前团队且只能分配一次');
+        check(
+          employee && !seen.has(employee.id),
+          teamId ? '成员须属于当前团队且只能分配一次' : '请选择在职员工，每人只能分配一次',
+        );
         seen.add(employee.id);
         const rule = memberRules.find((r) => r.employeeId === employee.id);
         const rate = rule ? new D(rule.rate) : decimal(item.rate, '比例', 4),
@@ -329,7 +534,10 @@ export class SettlementService {
         );
         const commission = rule
           ? calculate(rule.formula, {
-              ...values, 基数: basis, 可分配金额: pool, 个人提成比例: rate,
+              ...values,
+              基数: basis,
+              可分配金额: pool,
+              个人提成比例: rate,
             })
           : pool.mul(rate).div(100).toDecimalPlaces(2);
         const amount = commission.add(adjustment);
@@ -346,6 +554,9 @@ export class SettlementService {
       });
       const data = {
         teamId,
+        ownerEmployeeId,
+        policyId: policy.scopeId,
+        allocatedCost: cost,
         caseId,
         contractId: source.contractId,
         period,
@@ -356,17 +567,26 @@ export class SettlementService {
           directorId: policy.directorId,
           formula: policy.formula,
           policyVersion: policy.version,
-          customMemberIds: memberRules.filter((rule) => seen.has(rule.employeeId)).map((rule) => rule.employeeId),
+          customMemberIds: memberRules
+            .filter((rule) => seen.has(rule.employeeId))
+            .map((rule) => rule.employeeId),
           basis: policy.basis,
           inputs: Object.fromEntries(fields.map((f) => [f, values[f].toString()])),
         },
       };
       const old = await tx.caseSettlement.findUnique({
-        where: { teamId_caseId_period: { teamId, caseId, period } },
+        where: { caseId },
       });
       check(
-        b.id ? old?.id === b.id && old?.status === 'DRAFT' && old.version === b.version : !old,
-        '同团队同月已有此案件，或本行已被修改',
+        b.id
+          ? old?.id === b.id &&
+              old.teamId === teamId &&
+              old.ownerEmployeeId === ownerEmployeeId &&
+              old.period === period &&
+              old?.status === 'DRAFT' &&
+              old.version === b.version
+          : !old,
+        '该案件已有结算主单，或草稿已变更，请刷新',
         409,
       );
       const row = old
@@ -389,23 +609,27 @@ export class SettlementService {
         include: { lines: true },
       });
       check(row, '记录不可访问', 404);
-      const editor = r.admin || r.lead.includes(row.teamId),
-        finance = r.admin || r.finance.includes(row.teamId);
+      const editor =
+          r.admin || (row.teamId ? r.lead.includes(row.teamId) : row.ownerEmployeeId === r.employeeId),
+        finance = r.admin || r.finance.includes(row.policyId);
       check(row.version === b.version, '记录已更新，请刷新', 409);
       const action = text(b.action);
       let snapshot: Prisma.InputJsonObject | undefined;
       let status = row.status,
         remark = row.remark;
       if (action === 'delete') {
-        check(editor && row.status === 'DRAFT', '仅可删除本团队结算草稿', 403);
+        check(editor && row.status === 'DRAFT', '仅可删除有管理权限的结算草稿', 403);
         await tx.caseSettlement.delete({ where: { id } });
         await payLog(tx, this.actor, id, 'CASE_PAY_DELETE', { version: row.version });
         return;
       }
       if (action === 'share' || action === 'unshare') {
-        check(editor, '仅团队负责人或管理员可调整共享', 403);
+        check(editor, '仅结算负责人或管理员可调整共享', 403);
         const user = await tx.user.findFirst({
-          where: { ...(b.userId !== undefined ? { id: text(b.userId) } : { username: text(b.username) }), status: 'ENABLED' },
+          where: {
+            ...(b.userId !== undefined ? { id: text(b.userId) } : { username: text(b.username) }),
+            status: 'ENABLED',
+          },
           select: { id: true },
         });
         check(user, '未找到启用账号');
@@ -420,11 +644,16 @@ export class SettlementService {
         } else await tx.casePayShare.deleteMany({ where: { settlementId: id, userId: user.id } });
       } else if (action === 'submit') {
         check(editor && status === 'DRAFT', '当前记录无法提交', 403);
-        const source = (await this.sources('', row.caseId, tx))[0];
+        check(row.teamId || row.ownerEmployeeId === r.employeeId, '仅发起律师可提交个人结算', 403);
+        const source = (await this.sources('', row.caseId, tx, row.teamId, r))[0];
         const snap = object(row.snapshot),
-          policy = r.policies.find((p) => p.teamId === row.teamId);
+          policy = row.teamId
+            ? r.policies.find((p) => p.teamId === row.teamId)
+            : (r.policies.find((p) => p.employeeId === row.ownerEmployeeId) ??
+              r.policies.find((p) => p.scopeId === 'personal'));
         check(
-          policy?.version === snap.policyVersion &&
+          policy?.scopeId === row.policyId &&
+            policy.version === snap.policyVersion &&
             source &&
             Object.entries(source).every(([key, value]) => {
               const original = object(snap.source)[key];
@@ -435,27 +664,20 @@ export class SettlementService {
           '来源或规则已更新，请重新保存草稿',
           409,
         );
-        const members = await tx.professionalTeamMember.count({
-          where: {
-            professionalTeamId: row.teamId,
-            endedAt: null,
-            startedAt: { lte: new Date() },
-            employee: activeEmployee,
-            employeeId: { in: row.lines.map((l) => l.employeeId) },
-          },
-        });
+        const members = row.teamId
+          ? await tx.professionalTeamMember.count({
+              where: {
+                professionalTeamId: row.teamId,
+                endedAt: null,
+                startedAt: { lte: new Date() },
+                employee: activeEmployee,
+                employeeId: { in: row.lines.map((l) => l.employeeId) },
+              },
+            })
+          : await tx.employee.count({
+              where: { ...activeEmployee, id: { in: row.lines.map((l) => l.employeeId) } },
+            });
         check(members === row.lines.length, '团队成员已变更，请重新分配');
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${row.caseId},0))`;
-        const used = await tx.caseSettlement.aggregate({
-          where: { caseId: row.caseId, status: { not: 'DRAFT' }, id: { not: id } },
-          _sum: { basisAmount: true },
-        });
-        check(
-          new D(used._sum.basisAmount ?? 0)
-            .add(row.basisAmount)
-            .lte(snap.basis === 'amount' ? source.amount : source.received),
-          '历次结算基数合计超过来源金额',
-        );
         snapshot = await allocateRemainder(tx, row, b);
         status = 'SUBMITTED';
       } else if (action === 'confirm') {
@@ -471,7 +693,10 @@ export class SettlementService {
         snapshot = await undoRemainder(tx, row);
         status = 'DRAFT';
       } else check(false, '未知操作');
-      await tx.caseSettlement.update({ where: { id }, data: { status, remark, snapshot, version: { increment: 1 } } });
+      await tx.caseSettlement.update({
+        where: { id },
+        data: { status, remark, snapshot, version: { increment: 1 } },
+      });
       await payLog(tx, this.actor, id, 'CASE_PAY_' + action.toUpperCase(), {
         status,
         remark,
