@@ -1,5 +1,6 @@
 import { ensureKnowledgeReviewers } from '../application/smart-case/knowledge-review-eligibility';
 import { SmartCaseArchive } from '../application/smart-case/archive';
+import { AuthorizationContextLoader } from '../application/authorization/authorization-context-loader';
 import { Controller } from 'egg';
 import { SmartCaseIdentity } from '../application/smart-case/identity';
 import { buildCaseScopeWhere, requireCaseAccess } from '../application/case/case-scope';
@@ -27,7 +28,17 @@ export default class SmartCaseController extends Controller {
     await this.identity().revoke(token);this.respond({ok:true});
   }
   async ensureReviewers(){this.respond(await ensureKnowledgeReviewers(this.ctx.prisma,this.ctx.state.authorization,this.ctx.request.body?.userIds));}
-  async directory(){if(!this.ctx.state.authorization.isSystemSuperAdmin)this.ctx.throw(403);this.respond(await this.ctx.prisma.user.findMany({where:{status:'ENABLED'},select:{id:true,username:true,employee:{select:{name:true}}}}));}
+  async directory(){
+    if(!this.ctx.state.authorization.isSystemSuperAdmin)this.ctx.throw(403);
+    const users=await this.ctx.prisma.user.findMany({where:{status:'ENABLED'},select:{id:true,username:true,employee:{select:{name:true}}}});
+    const loader=new AuthorizationContextLoader(this.ctx.prisma);
+    const items=[];
+    for(const user of users){
+      const auth=await loader.load(user.id);
+      items.push({...user,smartCaseEligible:auth.permissionCodes.includes('menu.smart_case'),canReviewKnowledge:auth.permissionCodes.includes('knowledge.review')});
+    }
+    this.respond(items);
+  }
   async cases(){const where=await buildCaseScopeWhere(this.ctx.prisma,this.ctx.state.authorization,'case.read');this.respond(await this.ctx.prisma.case.findMany({where,select:{id:true,caseNo:true,title:true,status:true,lawyer:{select:{id:true,name:true}}}}));}
   async archive(){this.respond(await new SmartCaseArchive(this.ctx.prisma,this.ctx.state.authorization).archive(this.ctx.request.body));}
   async caseDetail(){const row=await requireCaseAccess(this.ctx.prisma,this.ctx.state.authorization,this.ctx.params.id,'case.read');const lawyer=row.lawyerId?await this.ctx.prisma.employee.findUnique({where:{id:row.lawyerId},select:{id:true,name:true}}):null;this.respond({id:row.id,caseNo:row.caseNo,title:row.title,status:row.status,lawyer});}
