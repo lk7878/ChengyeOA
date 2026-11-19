@@ -93,6 +93,31 @@ try{
   await expect(removeTask).toBeInViewport({ratio:1})
  }
  assertions++
+ // Freeze the clock after mounting so each poll and state transition is observable.
+ let taskStatus='READY', pollCount=0, taskResponse=200
+ await page.clock.install()
+ await page.clock.pauseAt(new Date(Date.now()+1000))
+ await page.route('**/api/tasks',route=>{
+  pollCount++
+  return route.fulfill({status:taskResponse,json:{items:[{id:'clock-task',kind:'injury',title:'轮询校验',status:taskStatus,inputs:[],knowledgeBases:[],outputs:{}}]}})
+ })
+ await page.reload()
+ await expect(page.getByRole('heading',{name:/轮询校验/})).toBeVisible()
+ await page.getByLabel('任务名称').fill('轮询期间的草稿')
+ const baseline=pollCount
+ await page.clock.runFor(5000);assert.equal(pollCount,baseline)
+ taskStatus='RUNNING';await page.clock.runFor(10000)
+ await expect(page.getByText('运行中',{exact:true})).toBeVisible()
+ assert.equal(pollCount,baseline+1)
+ taskStatus='READY';await page.clock.runFor(5000)
+ await expect(page.getByText('待运行',{exact:true})).toBeVisible()
+ assert.equal(pollCount,baseline+2)
+ await page.clock.runFor(5000);assert.equal(pollCount,baseline+2)
+ await expect(page.getByLabel('任务名称')).toHaveValue('轮询期间的草稿')
+ taskResponse=403;await page.evaluate(()=>window.dispatchEvent(new Event('online')))
+ await expect(page.getByText('智慧办案使用资格已撤销，请联系管理员。')).toBeVisible()
+ await expect(page.getByRole('heading',{name:/轮询校验/})).toHaveCount(0)
+ assertions++
  assert.deepEqual(errors,[]);assert.equal(requests.some(([method,p])=>method==='POST'&&p.endsWith('/start')),false)
  console.log(`${assertions} browser scenarios passed: drafts, versions, empty KB choice, navigation/history, account isolation, validation, entry errors, knowledge states and race protection. No real backend used.`)
 }finally{await browser.close();await new Promise(r=>server.close(r))}

@@ -104,7 +104,17 @@ export default function App() {
   }, [refreshAccounts])
 
   useEffect(()=>{if(user&&view==='settings'&&!user.isSystemSuperAdmin)updateLocation({view:'dashboard'},true)},[user,view])
-  useEffect(()=>{const expired=()=>{setAuthError('登录已失效，请通过 OA 重新进入。');setUser(null);setAccounts([])};window.addEventListener('wb:session-expired',expired);return()=>window.removeEventListener('wb:session-expired',expired)},[])
+  useEffect(() => {
+    const closeSession = (message: string) => { setAuthError(message); setUser(null); setAccounts([]) }
+    const expired = () => closeSession('登录已失效，请通过 OA 重新进入。')
+    const revoked = () => closeSession('智慧办案使用资格已撤销，请联系管理员。')
+    window.addEventListener('wb:session-expired', expired)
+    window.addEventListener('wb:access-revoked', revoked)
+    return () => {
+      window.removeEventListener('wb:session-expired', expired)
+      window.removeEventListener('wb:access-revoked', revoked)
+    }
+  }, [])
 
   useEffect(()=>{
     if(view==='cases_general'&&choices?.defaultKind&&choices.defaultKind!=='general'&&new URLSearchParams(location.search).get('preset')!=='general'){

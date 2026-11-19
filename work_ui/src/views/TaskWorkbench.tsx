@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState} from 'react'
+import {useCallback,useEffect,useRef,useState} from 'react'
 import {api,IntegrationError,type FileRow,type Version,type Task,TASK_STATES} from '@/api/integration'
 import {useTaskDraft} from './task-draft'
 import {updateLocation} from '../navigation'
@@ -43,12 +43,49 @@ export function TaskWorkbench({kind='general',accountId,currentVersion}:{kind?:C
  const loadOutputs=async(id:string)=>{const r=await api<{items:typeof outputs[string]}>(`/api/tasks/${id}/outputs`);setOutputs(p=>({...p,[id]:r.items}));setChosen(p=>({...p,[id]:[]}))}
  const parent=folders.at(-1)?.id||''
  const [reload,setReload]=useState(0),[filesLoading,setFilesLoading]=useState(true),[filesError,setFilesError]=useState('')
- const refresh=async()=>{const result=await api<{items:Task[]}>('/api/tasks');if(mounted.current)setTasks(result.items)}
+ const taskRequest = useRef(0)
+ const refreshing = useRef(false)
+ const [pollError,setPollError] = useState('')
+ const refresh = useCallback(async () => {
+  const request = ++taskRequest.current
+  refreshing.current = true
+  try {
+   const result = await api<{items:Task[]}>('/api/tasks')
+   if (mounted.current && request === taskRequest.current) {
+    setTasks(result.items)
+    setPollError('')
+   }
+  } catch (e) {
+   if (mounted.current && e instanceof IntegrationError && e.status === 403) {
+    window.dispatchEvent(new Event('wb:access-revoked'))
+   } else if (mounted.current && request === taskRequest.current) {
+    setPollError((e as Error).message)
+   }
+  } finally {
+   if (request === taskRequest.current) refreshing.current = false
+  }
+ }, [])
+ const backgroundRefresh = useCallback(() => {
+  if (!refreshing.current) void refresh()
+ }, [refresh])
+ const activeTask = tasks.some(task => task.status === 'RUNNING' || task.status === 'PREPARING')
+ useEffect(() => {
+  backgroundRefresh()
+  window.addEventListener('focus', backgroundRefresh)
+  window.addEventListener('online', backgroundRefresh)
+  return () => {
+   window.removeEventListener('focus', backgroundRefresh)
+   window.removeEventListener('online', backgroundRefresh)
+  }
+ }, [backgroundRefresh])
+ useEffect(() => {
+  const timer = window.setInterval(backgroundRefresh, activeTask ? 5000 : 15000)
+  return () => window.clearInterval(timer)
+ }, [activeTask, backgroundRefresh])
  useEffect(()=>{let active=true;setReady(false);setKbLoading(true);setKbError('')
   void validateDraft(draft).then(r=>{if(!active)return;setCases(r.availableCases);setKbs(r.ordered);setSelected(r.versions);update(r.next);if(r.next.caseId!==draft.caseId)updateLocation({caseId:r.next.caseId},true);setReady(true);setNotice(r.changed?'草稿中已失效的案件、文件版本或知识库授权已移除，请核对后创建任务。':'')}).catch(e=>{if(active)setKbError('草稿授权校验未完成：'+e.message)}).finally(()=>{if(active)setKbLoading(false)})
   return()=>{active=false}
  },[validation])
- useEffect(()=>{void refresh().catch(e=>{if(mounted.current)setError(e.message)});const timer=setInterval(()=>void refresh().catch(e=>{if(mounted.current)setError(e.message)}),5000);return()=>clearInterval(timer)},[])
  useEffect(()=>{
   let active=true;setFilesLoading(true);setFilesError('');setFiles([])
   void api<{items:FileRow[]}>('/api/oa/files?'+new URLSearchParams({scope,...(parent?{parentId:parent}:{})}))
@@ -77,7 +114,7 @@ export function TaskWorkbench({kind='general',accountId,currentVersion}:{kind?:C
   {Object.keys(inputs).some(id=>!files.some(f=>f.id===id))&&<fieldset><legend>其他目录已选材料</legend>{Object.entries(inputs).filter(([id])=>!files.some(f=>f.id===id)).map(([id,version])=><p key={id}>{selected[id]?.find(v=>v.version===version)?.name||'已选文件'} · v{version} <button onClick={()=>setInputs(p=>{const n={...p};delete n[id];return n})}>取消选择</button></p>)}</fieldset>}
   {<fieldset><legend>本任务可用知识库</legend><p>只检索勾选的知识库，可按任务需要多选或全部取消；未勾选时不检索知识库。</p>{kbLoading?<p role="status">正在加载知识库…</p>:kbError?<p role="alert" className="oa-error">{kbError}，请刷新页面重试。</p>:kbs.length===0?<p>暂无获授权的知识库。智慧办案使用资格与知识库权限分别管理，请联系管理员为您的账号逐库分配阅读权限，授权后刷新页面即可勾选。</p>:null}{kbs.map(k=><label key={k.id}><input type="checkbox" checked={knowledge.includes(k.id)} onChange={e=>setKnowledge(p=>e.target.checked?[...p,k.id]:p.filter(x=>x!==k.id))}/>{k.name}</label>)}</fieldset>}
   <button className="oa-primary" disabled={busy||Object.values(pendingFiles).some(Boolean)||!ready||kbLoading||!!kbError||!title.trim()} onClick={()=>void run(async()=>{const checked=await validateDraft(draft);if(!mounted.current)return;setCases(checked.availableCases);setKbs(checked.ordered);setSelected(checked.versions);if(checked.changed){update(checked.next);throw Error('授权或材料版本已变化，已更新选择，请核对后重新创建。')}await api('/api/tasks',{title,kind,caseId:caseId||null,inputs:Object.entries(inputs).map(([fileId,version])=>({fileId,version})),knowledgeBases:knowledge});clear();setSelected({});setNotice('任务已创建，对应草稿已清除。');if(mounted.current)updateLocation({caseId:null},true)})}>创建任务 · 已选 {Object.keys(inputs).length} 个版本</button></fieldset>{kbError&&<div role="alert"><p className="oa-error">{kbError}</p><button onClick={()=>setValidation(v=>v+1)}>重新校验草稿</button></div>}</section>
-  {error&&<p role="alert" className="oa-error">{taskError(error)}</p>}
+  {(error||pollError)&&<p role="alert" className="oa-error">{taskError(error||pollError)}</p>}
   <h2>我的任务</h2>{tasks.filter(t=>t.kind===kind).map(t=><section key={t.id} className="oa-panel"><h3>{t.title} <small>{TASK_STATES[t.status]||t.status}</small></h3><p>{t.businessSnapshot?`预设 v${t.businessSnapshot.version} · 运行包 ${t.businessSnapshot.runtimeVersion}`:'原预设版本未知，首次启动时登记'} {t.businessSnapshot&&t.businessSnapshot.version!==currentVersion&&t.status!=='RUNNING'&&<button disabled={busy} onClick={()=>{if(window.confirm('使用当前发布版本续办？原配置将记入任务历史。'))void run(()=>api(`/api/tasks/${t.id}/upgrade`,{fromVersion:t.businessSnapshot!.version,toVersion:currentVersion}))}}>升级至 v{currentVersion}</button>}</p><p>{t.inputs.map(i=>`${i.name}（v${i.version}）`).join('、')||'未选择材料'}</p><p>任务知识库：{t.knowledgeBases?.length?t.knowledgeBases.map(id=>kbs.find(k=>k.id===id)?.name||'已选知识库（当前不可用）').join('、'):'未选择，不检索知识库'}</p>{t.error&&<p className="oa-error">{taskError(t.error)}</p>}<div className="oa-actions"><label>关联案件<select value={t.caseId||''} disabled={busy} onChange={e=>void run(()=>api(`/api/tasks/${t.id}/case`,{caseId:e.target.value||null}))}><option value="">独立个人任务</option>{cases.map(c=><option key={c.id} value={c.id}>{c.caseNo} · {c.title} · {c.status}</option>)}</select></label>
   {t.status==='RUNNING'?<><a className="oa-primary" href={`/harness/${t.id}/#session=${t.sessionId}&workspace=${t.workspaceId}`} target="_blank" rel="noreferrer">打开 AI 会话</a><button disabled={busy} onClick={()=>{if(window.confirm('结束运行会关闭整个 AI 运行进程，未保存成果仍保留在任务中。再次启动会新建会话。仅停止当前回答，请在 AI 会话内操作。确认结束？'))void run(()=>api(`/api/tasks/${t.id}/stop`,{}))}}>结束运行</button></>:<button disabled={busy} onClick={()=>void run(()=>api(`/api/tasks/${t.id}/start`,{}))}>启动任务</button>}
   <button disabled={busy} onClick={()=>void run(()=>loadOutputs(t.id))}>查看 / 刷新待确认成果</button><button disabled={busy||t.status==='PREPARING'} onClick={()=>{if(window.confirm(`确认删除任务“${t.title}”？运行中的任务将停止，任务会从列表移除，未保存成果将无法再从任务页面访问，请先勾选保存需要的文件。OA 原始文件和已保存成果不受影响。`))void run(()=>api(`/api/tasks/${t.id}/delete`,{}))}}>删除任务</button></div>
