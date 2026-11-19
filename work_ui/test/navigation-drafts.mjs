@@ -63,6 +63,21 @@ try{
  kbFailure=true;await page.getByRole('button',{name:'刷新知识库'}).click();await expect(page.getByText(/知识库加载失败：模拟网络失败/)).toBeVisible();await expect(page.getByText('暂无获授权的知识库，请联系管理员分配阅读权限。')).not.toBeVisible();kbFailure=false;revoked=true;await page.getByRole('button',{name:'刷新知识库'}).click();await expect(page.getByText('暂无获授权的知识库，请联系管理员分配阅读权限。')).toBeVisible();assertions++
  await page.goto(base+'?view=settings');await expect(page).toHaveURL(/view=dashboard/);await expect(page.getByRole('heading',{name:'概览',exact:true})).toBeVisible();await page.goto(base+'?view=invalid');await expect(page.getByRole('heading',{name:'概览',exact:true})).toBeVisible();assertions++
  await page.getByRole('button',{name:'退出',exact:true}).click();await expect(page.getByRole('link',{name:'通过 OA 登录'})).toBeVisible();assert.equal(await page.evaluate(()=>Object.keys(sessionStorage).some(k=>k.startsWith('wb:task-draft:v1:a:'))),false);assert.ok(await page.evaluate(()=>sessionStorage.getItem('wb:task-draft:v1:b:general')));assertions++
+ // The administrator must see who matched without opening a collapsed select.
+ const grant={kinds:[],defaultKind:null,readers:[],exceptions:{},revision:'r1'}
+ const directory=['罗致洪','罗茂君'].map((name,i)=>({id:String(i),username:['chengyelzh','chengyelmj'][i],employee:{name},smartCaseEligible:true,account:grant}))
+ await page.route('**/api/me',route=>route.fulfill({json:{user:{id:'admin',username:'admin',displayName:'管理员',roles:[],isSystemSuperAdmin:true}}}))
+ await page.route('**/api/business-presets',route=>route.fulfill({json:{users:directory,versions:{},libraries:[],components:[],connections:[],disabled:[]}}))
+ await page.route('**/api/kb-access',route=>route.fulfill({json:{libraries:[],users:[]}}))
+ await page.route(/\/api\/(ai-capabilities|model-connections)$/,route=>route.fulfill({json:null}))
+ await page.goto(base+'?view=settings')
+ const search=page.getByLabel('搜索账号或姓名')
+ await search.fill('罗');await expect(page.getByRole('list',{name:'匹配账号'}).getByRole('button')).toHaveCount(2)
+ await search.fill('罗致洪');const match=page.getByRole('button',{name:'罗致洪（chengyelzh）',exact:true});await expect(match).toBeVisible();await match.click()
+ const editor=page.getByRole('group',{name:'罗致洪 · 已有智慧办案使用资格',exact:true})
+ await expect(editor).toBeVisible();await search.fill('不存在的账号');await expect(page.getByText('未找到匹配账号，请核对账号或姓名。')).toBeVisible();await expect(editor).toBeHidden()
+ await search.fill('  CHENGYELMJ  ');await search.press('Enter');await expect(page.getByLabel('选择人员')).toHaveValue('1')
+ assert.equal(requests.some(([method,p])=>method==='POST'&&p.startsWith('/api/business-grants')),false);assertions++
  assert.deepEqual(errors,[]);assert.equal(requests.some(([method,p])=>method==='POST'&&p.endsWith('/start')),false)
  console.log(`${assertions} browser scenarios passed: drafts, versions, empty KB choice, navigation/history, account isolation, validation, entry errors, knowledge states and race protection. No real backend used.`)
 }finally{await browser.close();await new Promise(r=>server.close(r))}

@@ -15,11 +15,27 @@ export function BusinessPresets(){
  const refresh=async()=>{const next=await api<Data>('/api/business-presets');setData(next);return next}
  useEffect(()=>{void refresh().catch(e=>setError(e.message))},[])
  const user=data?.users.find(u=>u.id===userId)
+ const query=search.trim().toLowerCase()
+ const matches=data?.users.filter(u=>[u.username,u.employee?.name].some(value=>value?.toLowerCase().includes(query)))??[]
+ function chooseAccount(id:string){
+  selectUser(id)
+  setSearch('')
+  setReceipt('')
+ }
+ const accountLabel=(u:User)=>u.employee?.name ? u.employee.name+'（'+u.username+'）' : u.username
  return <><section className="oa-panel"><h2>用户办案授权</h2>
  {error&&<p role="alert">{error}</p>}
- <label>搜索账号或姓名 <input value={search} onChange={e=>setSearch(e.target.value)}/></label>
- <label>选择人员 <select value={userId} onChange={e=>{selectUser(e.target.value);setReceipt('')}}><option value="">选择账号</option>{data?.users.filter(u=>u.id===userId||[u.username,u.employee?.name].some(v=>v?.includes(search))).map(u=><option key={u.id} value={u.id}>{u.employee?.name}（{u.username}）</option>)}</select></label>
- {data&&user&&<Editor key={user.id+user.account.revision} data={data} user={user} refresh={refresh} onSaved={setReceipt}/>}<p role="status">{receipt}</p></section>
+ <div className="oa-actions">
+  <label>搜索账号或姓名 <input type="search" value={search} onChange={e=>setSearch(e.target.value)}
+   onKeyDown={e=>{if(e.key==='Enter'&&!e.nativeEvent.isComposing&&query&&matches.length===1)chooseAccount(matches[0].id)}}/></label>
+  {!query&&<label>选择人员 <select value={userId} onChange={e=>chooseAccount(e.target.value)}><option value="">选择账号</option>
+   {data?.users.map(u=><option key={u.id} value={u.id}>{accountLabel(u)}</option>)}</select></label>}
+ </div>
+ {query&&!error&&<><p role="status">{!data?'正在加载人员…':matches.length?'找到 '+matches.length+' 个匹配账号':'未找到匹配账号，请核对账号或姓名。'}</p>
+  {matches.length>0&&<ul className="oa-account-matches" aria-label="匹配账号">{matches.map(u=>
+   <li key={u.id}><button type="button" onClick={()=>chooseAccount(u.id)}>{accountLabel(u)}</button></li>)}</ul>}</>}
+ <div hidden={Boolean(query)}>{data&&user&&<Editor key={user.id+user.account.revision} data={data} user={user} refresh={refresh} onSaved={setReceipt}/>}
+ <p role="status">{receipt}</p></div></section>
  {data&&<section className="oa-panel"><h2>办案预设与发布记录</h2>{presets(data).map(p=><PresetEditor key={p.id+p.version+data.disabled.includes(p.id)} current={p} data={data} refresh={refresh}/>)}</section>}</>
 }
 function Editor({user,data,refresh,onSaved}:{user:User;data:Data;refresh:()=>Promise<Data>;onSaved:(message:string)=>void}){
