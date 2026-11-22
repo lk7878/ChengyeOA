@@ -302,7 +302,7 @@ export class SettlementService {
         }
       }
     }
-    const readableCase = { deletedAt: null, OR: [scope, { id: { in: [...worksheetIds] } }] };
+    const readableCase: Prisma.CaseWhereInput = { deletedAt: null, OR: [scope, { id: { in: [...worksheetIds] } }] };
     const contractScope = this.actor.permissionCodes.includes('contract.read')
       ? await buildContractScopeWhere(
           this.db,
