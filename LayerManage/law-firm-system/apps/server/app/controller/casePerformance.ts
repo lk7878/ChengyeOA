@@ -14,12 +14,10 @@ export default class CasePerformanceController extends Controller {
   }
   async sources() {
     this.ok(
-      await this.settlements().sources(
+      await this.settlements().sourceOptions(
         String(this.ctx.query.q ?? '')
           .trim()
           .slice(0, 100),
-        undefined,
-        undefined,
         this.ctx.query.teamId || null,
       ),
     );

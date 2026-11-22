@@ -14,6 +14,8 @@ import {
 } from './case-pay-types';
 
 type Props = { view: PayView; period: string; row?: Settlement; close: () => void; saved: () => void };
+type SourceOption = Source | { id: string; caseNo: string; unavailableReason: string };
+
 export function SettlementEditor({
   view,
   period,
@@ -32,7 +34,7 @@ export function SettlementEditor({
     .filter((r) => (team ? r.teamId === team : r.ownerEmployeeId === view.person?.id) && r.id !== row?.id)
     .reduce((sum, r) => sum + amountInCents(r.allocatedCost), 0n);
   const [source, setSource] = useState(row?.snapshot.source);
-  const [options, setOptions] = useState<Source[]>([]);
+  const [options, setOptions] = useState<SourceOption[]>([]);
   const [query, setQuery] = useState('');
   const [basis, setBasis] = useState(row?.basisAmount ?? '');
   const [inputs, setInputs] = useState<Record<string, string>>(row?.snapshot.inputs ?? {});
@@ -158,7 +160,7 @@ export function SettlementEditor({
                 loading={busy}
                 onClick={() =>
                   run(async () => {
-                    const found = await get<Source[]>(
+                    const found = await get<SourceOption[]>(
                       payUrl +
                         '/sources?q=' +
                         encodeURIComponent(query) +
@@ -178,9 +180,10 @@ export function SettlementEditor({
               value={source?.id}
               options={options.map((s) => ({
                 value: s.id,
-                label: s.caseNo + ' · ' + s.title + (s.existing ? '（已有结算）' : ''),
+                disabled: 'unavailableReason' in s,
+                label: s.caseNo + ' · ' + ('unavailableReason' in s ? s.unavailableReason : s.title + (s.existing ? '（已有结算）' : '')),
               }))}
-              onChange={(id) => setSource(options.find((s) => s.id === id))}
+              onChange={(id) => setSource(options.find((s): s is Source => s.id === id && !('unavailableReason' in s)))}
             />
           </Form.Item>
         )}

@@ -5,7 +5,9 @@ import { DataScopeService } from '../authorization/data-scope-service';
 import { buildContractScopeWhere } from '../contract/contract-scope';
 import { buildCaseScopeWhere } from '../case/case-scope';
 import { check } from '../../domain/workflow/schema';
-import { object, text } from '../collaboration/collaboration-policy';
+import { CollaborationService } from '../collaboration/collaboration-service';
+import { worksheetContext } from '../collaboration/worksheet-business-grants';
+import { CollaborationError, object, text } from '../collaboration/collaboration-policy';
 import { calculate, decimal, D, policyFields, referencedFields } from './settlement-calculation';
 
 import { readMemberRules, type MemberRule } from './settlement-member-rules';
@@ -263,9 +265,44 @@ export class SettlementService {
     teamId: string | null = null,
     rights?: Awaited<ReturnType<SettlementService['rights']>>,
   ) {
+    return (await this.sourceCandidates(query, id, tx, teamId, rights)).available;
+  }
+
+  async sourceOptions(query: string, teamId: string | null) {
+    const { available, blocked } = await this.sourceCandidates(query, undefined, this.db, teamId, undefined, true);
+    return [...available, ...blocked].slice(0, 50);
+  }
+
+  private async sourceCandidates(
+    query: string,
+    id: string | undefined,
+    tx: Tx,
+    teamId: string | null,
+    rights?: Awaited<ReturnType<SettlementService['rights']>>,
+    includeBlocked = false,
+  ) {
     const r = rights ?? (await this.rights(tx));
     checkInitiator(r.employeeId, teamId, r.lead);
     const scope = await buildCaseScopeWhere(this.db, this.actor, 'case.read', tx);
+    const assignment = caseAssignment(r.employeeId, teamId);
+    const assigned = await tx.case.findMany({
+      where: { AND: [assignment, { id, deletedAt: null }, { NOT: scope }] }, select: { id: true },
+    });
+    const worksheetIds = new Set<string>();
+    if (assigned.length) {
+      const candidates = assigned.map(c => c.id);
+      const tables = await tx.collabTable.findMany({ where: { source: 'CASES', archived: false }, select: { id: true } });
+      for (const table of tables) {
+        const context = await worksheetContext(tx, this.actor, table.id);
+        try {
+          const visible = await new CollaborationService(this.db, context).settlementCaseIds(table.id, candidates, tx);
+          visible.forEach(caseId => worksheetIds.add(caseId));
+        } catch (error) {
+          if (!(error instanceof CollaborationError && [403, 404].includes(error.status))) throw error;
+        }
+      }
+    }
+    const readableCase = { deletedAt: null, OR: [scope, { id: { in: [...worksheetIds] } }] };
     const contractScope = this.actor.permissionCodes.includes('contract.read')
       ? await buildContractScopeWhere(
           this.db,
@@ -277,8 +314,8 @@ export class SettlementService {
     const rows = await tx.case.findMany({
       where: {
         AND: [
-          scope,
-          caseAssignment(r.employeeId, teamId),
+          readableCase,
+          assignment,
           { OR: [{ contractId: null }, { contract: { AND: [contractScope, { deletedAt: null }] } }] },
           id
             ? { id }
@@ -318,20 +355,20 @@ export class SettlementService {
       tx,
       rows.map((c) => (c.intakeData as Record<string, unknown> | null)?.handlingLawyer),
     );
-    return rows
-      .filter((c) => {
-        if (c.contract?.professionalTeamId || !c.teamIds) return true;
-        try {
-          const teams: unknown = JSON.parse(c.teamIds);
-          return (
-            Array.isArray(teams) &&
-            teams.every((t) => typeof t === 'string') &&
-            (!teams.length || teams.includes(teamId))
-          );
-        } catch {
-          return false;
-        }
-      })
+    const teamMatches = (c: { teamIds: string | null; contract: { professionalTeamId: string | null } | null }) => {
+      if (c.contract?.professionalTeamId || !c.teamIds) return true;
+      try {
+        const teams: unknown = JSON.parse(c.teamIds);
+        return (
+          Array.isArray(teams) &&
+          teams.every((t) => typeof t === 'string') &&
+          (!teams.length || teams.includes(teamId))
+        );
+      } catch {
+        return false;
+      }
+    };
+    const available = rows.filter(teamMatches)
       .map((c) => {
         const intake = (c.intakeData ?? {}) as Record<string, unknown>;
         return {
@@ -358,6 +395,18 @@ export class SettlementService {
           received: String(c.contract?.receivedAmount ?? intake.totalReceivedAmount ?? 0),
         };
       });
+    const blockedRows = includeBlocked && available.length < 50 ? await tx.case.findMany({
+      where: { AND: [readableCase, assignment, {
+        caseNo: { contains: query, mode: 'insensitive' },
+        contract: { deletedAt: null, NOT: contractScope },
+      }] },
+      select: { id: true, caseNo: true, teamIds: true, contract: { select: { professionalTeamId: true } } },
+      orderBy: { caseNo: 'asc' }, take: 50,
+    }) : [];
+    const blocked = blockedRows.filter(teamMatches).map(({ id, caseNo }) => ({
+      id, caseNo, unavailableReason: '缺少关联合同读取权限，暂不能结算',
+    }));
+    return { available, blocked };
   }
   async policy(raw: unknown) {
     check(this.actor.isSystemSuperAdmin, '仅超级管理员可设置规则', 403);

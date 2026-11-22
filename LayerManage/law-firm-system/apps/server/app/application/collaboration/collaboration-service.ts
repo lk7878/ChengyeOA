@@ -482,6 +482,34 @@ export class CollaborationService {
       ? { ...f, defaultValue:null, options:{...object(f.options), worksheetMasked:!!access.masked?.includes(f.id),
         conditionalField:!!access.conditional?.includes(f.id)} as Prisma.JsonObject } : f) };
   }
+  /** Resolve settlement candidates through the same worksheet row and view restrictions as the grid. */
+  async settlementCaseIds(tableId: string, candidates: string[], tx: Tx) {
+    const { table, access, fields } = await this.tableAccess(tableId, tx);
+    if (table.source !== 'CASES') return [];
+    const source = await new WorkspaceBusinessTable(this.db, this.actor).sourceSql(table, access, fields);
+    let viewFilter = Prisma.sql`TRUE`;
+    if (access.viewIds) {
+      const views = await tx.collabView.findMany({
+        where: { tableId, id: { in: access.viewIds }, OR: [{ shared: true }, { ownerId: this.actor.userId }] },
+        select: { config: true },
+      });
+      if (!views.length) return [];
+      const filters = views.map(view => filterSql(
+        validateView(this.sanitizeConfig(view.config, fields), fields).filter, fields, this.actor.userId, this.actor.employeeId,
+      ));
+      viewFilter = Prisma.sql`(${Prisma.join(filters, ' OR ')})`;
+    }
+    const rows = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT r.id FROM (${source}) r WHERE r.id = ANY(${candidates}::text[])
+      AND ${access.rowIds ? Prisma.sql`r.id = ANY(${access.rowIds}::text[])` : Prisma.sql`TRUE`} AND ${viewFilter}`);
+    // A worksheet field deliberately hidden or masked on this record cannot be read via the settlement snapshot.
+    const keys = new Set(['caseNo', 'title', 'contractId', 'contractNo', 'intake.contractNumber', 'fee',
+      'contractAmount', 'receiptTotal', 'intake.totalReceivedAmount', 'intake.handlingLawyer']);
+    const required = table.fields.filter(f => !f.archived && keys.has(String(object(f.options).businessKey)));
+    const visible = new Set(fields.filter(f => !object(f.options).worksheetMasked).map(f => f.id));
+    return rows.filter(row => required.every(f => visible.has(f.id) && recordFieldLevel(access, row.id, f.id) >= 2))
+      .map(row => row.id);
+  }
   async checkCaseCreation(tableId:string,id:string,keys:string[],tx:Tx,raw:unknown = {}) {
     const {table,access,fields}=await this.tableAccess(tableId,tx,2);
     if (table.source!=='CASES' || access.add===false) fail('COLLAB_FORBIDDEN',403);

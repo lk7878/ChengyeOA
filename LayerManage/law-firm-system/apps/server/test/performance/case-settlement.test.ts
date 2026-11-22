@@ -5,6 +5,7 @@ import ExcelJS from 'exceljs';
 import { createTestPrisma, clearTestApplicationData } from '../helpers/test-database';
 import { AuthorizationContextLoader } from '../../app/application/authorization/authorization-context-loader';
 import { PERMISSION_CATALOG } from '../../app/domain/authorization/permission-catalog';
+import { defaultRule } from '../../app/application/collaboration/worksheet-roles';
 import { SettlementService } from '../../app/application/performance/settlement-service';
 import { calculate, D } from '../../app/application/performance/settlement-calculation';
 import {
@@ -158,6 +159,32 @@ test('team and personal case selection, unique master, allocation, sharing and a
         { employeeId: member.actor.employeeId, rate: 30, adjustment: 0, reason: '' },
       ],
     };
+    // A worksheet-only SELF grant follows the lead lawyer even when another user filed the case.
+    const workspace = await db.collabWorkspace.create({ data: {
+      organizationId: org.id, ownerId: admin.actor.userId, name: '案件总表工作区',
+    } });
+    const base = await db.collabBase.create({ data: { workspaceId: workspace.id, name: '案件总表' } });
+    const role = await db.role.findUniqueOrThrow({ where: { code: 'A' } });
+    const table = await db.collabTable.create({ data: {
+      baseId: base.id, name: '案件管理表', source: 'CASES', createdBy: admin.actor.userId,
+      rolePolicy: { create: { rules: { [role.id]: { ...defaultRule('READER'),
+        business: { permissions: ['case.read'], scopeIds: ['worksheet:self'] } } } } },
+    } });
+    await db.case.update({ where: { id: c.id }, data: { branchId: org.id } });
+    const assigned = await matter(a);
+    await db.case.update({ where: { id: assigned.id }, data: { branchId: org.id, createdBy: admin.actor.userId } });
+    const worksheetUser = new SettlementService(db, {
+      ...a.actor, activeRoleIds: [role.id], permissionCodes: ['case.read'],
+      grants: a.actor.grants.filter(g => g.permissionCode === 'case.read').map(g => ({ ...g, scopeIds: [] })),
+    });
+    assert.equal((await worksheetUser.sources('', assigned.id, db, ta))[0]?.id, assigned.id);
+    assert.deepEqual(await worksheetUser.sourceOptions(c.caseNo, ta), [
+      { id: c.id, caseNo: c.caseNo, unavailableReason: '缺少关联合同读取权限，暂不能结算' },
+    ]);
+    assert.deepEqual(await worksheetUser.sourceOptions(contract.contractNo, ta), []);
+    await assert.rejects(worksheetUser.save(body), /不可访问/);
+    await db.collabTable.update({ where: { id: table.id }, data: { archived: true } });
+    assert.deepEqual(await worksheetUser.sourceOptions(assigned.caseNo, ta), []);
     await assert.rejects(b.save(body), /负责人/);
     const id = await a.save(body);
     const initial = (await a.view(period)).rows[0];
