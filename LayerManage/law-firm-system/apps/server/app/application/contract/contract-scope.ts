@@ -53,6 +53,12 @@ export async function buildContractScopeWhere(
   if (resolution.all) return {};
 
   const predicates: Prisma.ContractWhereInput[] = [];
+  if (resource === 'contract' && permissionCode === 'contract.read') {
+    const ids = context.grants
+      .filter(grant => grant.sourceType === 'CONTRACT_READ_GRANT' && grant.permissionCode === permissionCode)
+      .map(grant => grant.sourceId);
+    if (ids.length) predicates.push({ id: { in: ids } });
+  }
   if (resolution.employeeIds.length > 0) {
     predicates.push({ createdBy: { in: await creatorIdsForEmployees(prisma, resolution.employeeIds) } });
   }

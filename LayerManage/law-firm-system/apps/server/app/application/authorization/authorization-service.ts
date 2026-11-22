@@ -6,7 +6,7 @@ import { DataScopeService } from './data-scope-service';
 import { ResourceWhereMap, ScopeableResourceCode, ScopeResolutionInput } from './resource-scope-resolvers';
 
 export interface EffectiveGrant {
-  sourceType: 'SYSTEM_SUPER_ADMIN' | 'SYSTEM_ADMIN' | 'ROLE' | 'SPECIAL_GRANT';
+  sourceType: 'SYSTEM_SUPER_ADMIN' | 'SYSTEM_ADMIN' | 'ROLE' | 'SPECIAL_GRANT' | 'CONTRACT_READ_GRANT';
   sourceId: string;
   sourceRoleId?: string;
   permissionCode: PermissionCode;

@@ -19,7 +19,7 @@ const labels: Record<string, string> = {
   MANUAL: '人工任务', AUTO: '自动任务', APPROVAL: '审批节点', TASK: '任务节点', START: '开始节点', END: '结束节点',
   PHONE: '电话', CALL: '电话', WECHAT: '微信', EMAIL: '邮件', MEETING: '会议', VISIT: '当面沟通', FACE_TO_FACE: '当面沟通', OTHER: '其他',
   DRAFT: '草稿', TODO: '待办', IN_PROGRESS: '进行中', COMPLETED: '已完成', CLOSED: '已关闭', ARCHIVED: '已归档',
-  L1: '一级数据', L2: '二级数据', L3: '三级数据', L4: '四级数据', FORBIDDEN: '禁止访问', SPECIAL_GRANT: '临时特权授权', CUSTOM: '自定义范围',
+  L1: '一级数据', L2: '二级数据', L3: '三级数据', L4: '四级数据', FORBIDDEN: '禁止访问', SPECIAL_GRANT: '临时特权授权', CONTRACT_READ_GRANT: '单份合同只读授权', SINGLE_CONTRACT: '指定合同', CUSTOM: '自定义范围',
   PASSWORD: '密码验证', MFA: '二次验证', TOTP: '身份验证器', RECOVERY_CODE: '恢复码',
 };
 export function businessLabel(value: unknown): string {

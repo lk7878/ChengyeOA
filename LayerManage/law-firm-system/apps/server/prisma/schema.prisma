@@ -183,6 +183,7 @@ model ProfessionalTeamMember {
 // ==================== 用户/权限模块 ====================
 
 model User {
+  contractReadGrants ContractReadGrant[]
   directedCasePayPolicies CasePayPolicy[]
   casePayShares CasePayShare[]
   personalFiles PersonalFile[]
@@ -922,6 +923,7 @@ model ContractNumberSequence {
 }
 
 model Contract {
+  readGrants ContractReadGrant[]
   caseSettlements CaseSettlement[]
   id                   String    @id @default(uuid())
   contractNo           String    @unique
@@ -982,6 +984,18 @@ model Contract {
   @@index([branchId, createdAt])
   @@index([professionalTeamId])
   @@map("contract")
+}
+
+model ContractReadGrant {
+  userId     String
+  contractId String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@id([userId, contractId])
+  @@index([contractId])
+  @@map("contract_read_grant")
 }
 
 model PaymentPlan {

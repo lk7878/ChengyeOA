@@ -58,7 +58,7 @@ export class PermissionTraceService {
         sourceType: grant.sourceType,
         sourceId: grant.sourceId,
         permissionCode: grant.permissionCode,
-        scopeTypes: grant.scopeIds.map(id => id === 'ALL' ? 'ALL' : scopeTypeById.get(id)).filter((value): value is string => Boolean(value)),
+        scopeTypes: grant.sourceType === 'CONTRACT_READ_GRANT' ? ['SINGLE_CONTRACT'] : grant.scopeIds.map(id => id === 'ALL' ? 'ALL' : scopeTypeById.get(id)).filter((value): value is string => Boolean(value)),
         validUntil: grant.validUntil,
         state: 'ACTIVE' as const,
       }));

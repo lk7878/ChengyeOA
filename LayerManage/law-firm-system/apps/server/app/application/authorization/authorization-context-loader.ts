@@ -47,7 +47,7 @@ export class AuthorizationContextLoader {
   async previewRole(id: string) {
     const role = await this.prisma.role.findFirst({where:{id,status:'ENABLED'}, select:roleSelection});
     if (!role) throw new AuthorizationError(AUTHORIZATION_CODES.permission,403);
-    return worksheetNavigationGrants(this.prisma,{...this.project('preview:'+id,{status:'ENABLED',lockedUntil:null,employeeId:null,permissionGrants:[],userRoles:[{id,validUntil:null,role}]},new Date()),previewRoleId:id},[id]);
+    return worksheetNavigationGrants(this.prisma,{...this.project('preview:'+id,{status:'ENABLED',lockedUntil:null,employeeId:null,permissionGrants:[],contractReadGrants:[],userRoles:[{id,validUntil:null,role}]},new Date()),previewRoleId:id},[id]);
   }
   private user(userId: string,evaluatedAt: Date) {
     return this.prisma.user.findUnique({
@@ -71,6 +71,7 @@ export class AuthorizationContextLoader {
             },
           },
         },
+        contractReadGrants: { where: { contract: { deletedAt: null } }, select: { contractId: true } },
         permissionGrants: {
           where: {
             revokedAt: null,
@@ -184,6 +185,13 @@ export class AuthorizationContextLoader {
         resource: catalog.resource,
         scopeIds: [specialGrant.dataScopeId],
         validUntil: specialGrant.validUntil,
+      });
+    }
+
+    for (const grant of user.contractReadGrants) {
+      grants.push({
+        sourceType: 'CONTRACT_READ_GRANT', sourceId: grant.contractId, permissionCode: 'contract.read',
+        resource: 'contract', scopeIds: [], validUntil: null,
       });
     }
 
