@@ -68,14 +68,14 @@ const services = (actor: AuthorizationContext) => ({
   communications: new CaseCommunicationService(db, { actorUserId: actor.userId }, actor),
 });
 const code = (expected: string) => (error: unknown) => (error as { code?: string }).code === expected;
-const seed = (creator: string | null) =>
+const seed = (creator: string | null, lawyerId = staff.employeeId) =>
   db.case.create({
     data: {
       caseNo: key(),
       title: '权限案件',
       customerId,
       caseType: '民事',
-      lawyerId: staff.employeeId,
+      lawyerId,
       createdBy: creator,
       branchId: org,
     },
@@ -258,6 +258,29 @@ test('CASES shares canonical records and extension versions while enforcing work
   );
   assert.equal((await owner.record(table.id, row.id)).record.values[field.id], '协作信息');
   assert.equal(await db.collabRecord.count({ where: { tableId: table.id } }), 0);
+});
+
+test('the case worksheet reads assigned cases by employee ID and follows reassignment immediately', async () => {
+  const workspace = await db.collabWorkspace.create({ data: {
+    name: '案件管理', organizationId: org, ownerId: manager.userId,
+    members: { create: [
+      { principalId: manager.userId, role: 'OWNER', canCreate: true },
+      { principalId: staff.userId, role: 'READER', rowScope: 'ALL' },
+    ] },
+  } });
+  const owner = new CollaborationService(db, manager);
+  const member = new CollaborationService(db, staff);
+  const base = await owner.createBase(workspace.id, { name: '总表' }, key());
+  const table = await owner.createTable(base.id, { name: '案件管理表', source: 'CASES' }, key());
+  const assigned = await seed(manager.userId);
+  const unrelated = await seed(manager.userId, manager.employeeId);
+  assert.deepEqual((await member.query(table.id, {})).records.map(r => r.id), [assigned.id]);
+  assert.equal((await member.record(table.id, assigned.id)).record.id, assigned.id);
+  await assert.rejects(member.record(table.id, unrelated.id));
+  await assert.rejects(services(staff).cases.getCase(assigned.id), code('CASE_NOT_FOUND'));
+  await assert.rejects(member.saveRecord(table.id, assigned.id, { values: {}, version: 1 }, key()));
+  await db.case.update({ where: { id: assigned.id }, data: { lawyerId: manager.employeeId } });
+  assert.equal((await member.query(table.id, {})).total, 0);
 });
 
 test('explicit audited identity repair makes unknown cases addressable without granting ordinary users repair authority', async () => {

@@ -7,18 +7,22 @@ import { PermissionCode } from '../../domain/authorization/authorization-types';
 import { projectCaseFile, type CaseView } from './case-types';
 import { CaseError, CASE_ERROR_CODES } from '../../domain/case/case-errors';
 
-/** Case ownership is the recorded creator, never the assigned lawyer. */
+/** Ownership follows the creator. The case worksheet also shows personally assigned lead cases on read. */
 export async function buildCaseScopeWhere(
   db: PrismaClient,
   actor: AuthorizationContext,
   permission: PermissionCode,
   reader: Prisma.TransactionClient = db,
+  options: { includeWorksheetLead?: boolean } = {},
 ): Promise<Prisma.CaseWhereInput> {
   const authorization = new AuthorizationService(new DataScopeService(db));
   authorization.requireAction(actor, permission);
   const resolved = await authorization.resolveScopeTargets(actor, 'case', permission);
   if (resolved.all) return { deletedAt: null };
   const clauses: Prisma.CaseWhereInput[] = [];
+  if (options.includeWorksheetLead && permission === 'case.read' && actor.employeeId && resolved.employeeIds.includes(actor.employeeId)) {
+    clauses.push({ lawyerId: actor.employeeId });
+  }
   if (resolved.employeeIds.length) {
     const users = await reader.user.findMany({
       where: { employeeId: { in: resolved.employeeIds } },
