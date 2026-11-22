@@ -7,10 +7,16 @@ type User={id:string;username:string;employee?:{name:string};smartCaseEligible:b
 type Definition={id:string;name:string;version:number;workflow:string;skills:string[];tools:string[];required:string[];agent:string;runtime:string;runtimeVersion:string;templates:string[];allowed:string[];recommended:string[];primary:Route|null;backup:Route|null}
 type Data={components:Definition[];users:User[];versions:Record<string,Definition[]>;libraries:{id:string;name:string}[];connections:Connection[];disabled:string[]}
 const toggle=(ids:string[],id:string)=>ids.includes(id)?ids.filter(x=>x!==id):[...ids,id]
+function sameAssignment(a:Assignment,b:Assignment){
+ const sameIds=(left:string[],right:string[])=>left.length===right.length&&left.every(id=>right.includes(id))
+ return a.defaultKind===b.defaultKind&&sameIds(a.kinds,b.kinds)&&sameIds(a.readers,b.readers)
+  &&Object.keys(a.exceptions).length===Object.keys(b.exceptions).length
+  &&Object.entries(a.exceptions).every(([id,r])=>b.exceptions[id]?.connection===r.connection&&b.exceptions[id]?.model===r.model)
+}
 const presets=(data:Data)=>Object.values(data.versions).map(rows=>rows[rows.length-1])
 type Preview={confirmation:string;diff:{id:string;before:Assignment;after:Assignment}[];effective:{id:string;items:{name:string;model:string;source:string;available:string[];recommended:string[]}[]}[]}
 export function BusinessPresets(){
- const [receipt,setReceipt]=useState('')
+ const [receipt,setReceipt]=useState<{id:string;text:string}>()
  const [data,setData]=useState<Data>(),[userId,selectUser]=useState(''),[search,setSearch]=useState(''),[error,setError]=useState('')
  const refresh=async()=>{const next=await api<Data>('/api/business-presets');setData(next);return next}
  useEffect(()=>{void refresh().catch(e=>setError(e.message))},[])
@@ -20,7 +26,7 @@ export function BusinessPresets(){
  function chooseAccount(id:string){
   selectUser(id)
   setSearch('')
-  setReceipt('')
+  setReceipt(undefined)
  }
  const accountLabel=(u:User)=>u.employee?.name ? u.employee.name+'（'+u.username+'）' : u.username
  return <><section className="oa-panel"><h2>用户办案授权</h2>
@@ -34,14 +40,16 @@ export function BusinessPresets(){
  {query&&!error&&<><p role="status">{!data?'正在加载人员…':matches.length?'找到 '+matches.length+' 个匹配账号':'未找到匹配账号，请核对账号或姓名。'}</p>
   {matches.length>0&&<ul className="oa-account-matches" aria-label="匹配账号">{matches.map(u=>
    <li key={u.id}><button type="button" onClick={()=>chooseAccount(u.id)}>{accountLabel(u)}</button></li>)}</ul>}</>}
- <div hidden={Boolean(query)}>{data&&user&&<Editor key={user.id+user.account.revision} data={data} user={user} refresh={refresh} onSaved={setReceipt}/>}
- <p role="status">{receipt}</p></div></section>
+ <div hidden={Boolean(query)}>{data&&user&&<Editor key={user.id+user.account.revision} data={data} user={user} refresh={refresh} receipt={receipt?.id===user.id?receipt.text:''} onSaved={text=>setReceipt({id:user.id,text})}/>}
+ </div></section>
  {data&&<section className="oa-panel"><h2>办案预设与发布记录</h2>{presets(data).map(p=><PresetEditor key={p.id+p.version+data.disabled.includes(p.id)} current={p} data={data} refresh={refresh}/>)}</section>}</>
 }
-function Editor({user,data,refresh,onSaved}:{user:User;data:Data;refresh:()=>Promise<Data>;onSaved:(message:string)=>void}){
+function Editor({user,data,refresh,receipt,onSaved}:{user:User;data:Data;refresh:()=>Promise<Data>;receipt:string;onSaved:(message:string)=>void}){
  const [form,setForm]=useState(user.account),[extra,setExtra]=useState<string[]>([]),[preview,setPreview]=useState<Preview>(),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
  const names=(ids:string[])=>ids.map(id=>data.libraries.find(k=>k.id===id)?.name||presets(data).find(p=>p.id===id)?.name||id).join('、')||'无'
- const change=(patch:Partial<Assignment>)=>{setForm({...form,...patch});setPreview(undefined);setMessage('')}
+ const dirty=extra.length>0||!sameAssignment(form,user.account)
+ const invalidate=()=>{setPreview(undefined);setMessage('');onSaved('')}
+ const change=(patch:Partial<Assignment>)=>{setForm({...form,...patch});invalidate()}
  const apply=async(save:boolean)=>{
   setBusy(true);setMessage('')
   try{
@@ -50,21 +58,28 @@ function Editor({user,data,refresh,onSaved}:{user:User;data:Data;refresh:()=>Pro
     const result=await api<{accounts:({id:string}&Assignment)[]}>('/api/business-grants/save',{changes,confirmation:preview?.confirmation})
     const actual=await refresh()
     if(!result.accounts.every(a=>actual.users.find(u=>u.id===a.id)?.account.revision===a.revision))throw Error('回读结果已变更，请重新核对')
-    setPreview(undefined);onSaved('已保存并回读核对 '+changes.length+' 个账号')
+    setExtra([]);setPreview(undefined);onSaved('已保存并回读核对 '+changes.length+' 个账号')
    }else setPreview(await api<Preview>('/api/business-grants/preview',{changes}))
   }catch(e){setPreview(undefined);setMessage((e as Error).message)}finally{setBusy(false)}
  }
  if(!user.smartCaseEligible)return <p>该账号缺少智慧办案使用资格。<a href="/security/users">前往 OA 人员授权</a></p>
  return <fieldset disabled={busy}><legend>{user.employee?.name||user.username} · 已有智慧办案使用资格</legend>
+ <div className="oa-actions oa-grant-actions">
+  <span role="status">{dirty?'尚未保存':receipt}</span>
+  <button type="button" disabled={!dirty||!!preview} onClick={()=>void apply(false)}>下一步：核对授权</button>
+  <button type="button" className="oa-primary" disabled={!preview} onClick={()=>void apply(true)}>确认保存并生效</button>
+  {preview&&<span>将应用到 {preview.diff.length} 个账号</span>}
+ </div>
+ {message&&<p role="alert">{message}</p>}
  {presets(data).map(p=><div key={p.id}><label><input type="checkbox" checked={form.kinds.includes(p.id)} onChange={()=>{
   const kinds=toggle(form.kinds,p.id),exceptions={...form.exceptions};if(!kinds.includes(p.id))delete exceptions[p.id]
   change({kinds,exceptions,defaultKind:kinds.includes(form.defaultKind||'')?form.defaultKind:kinds[0]||null})
  }}/>{p.name}</label> {form.kinds.includes(p.id)&&<><label><input type="radio" name="default-business" checked={form.defaultKind===p.id} onChange={()=>change({defaultKind:p.id})}/>默认</label> <RouteSelect optional label="例外模型" items={data.connections} value={form.exceptions[p.id]||null} onChange={r=>{const exceptions={...form.exceptions};if(r)exceptions[p.id]=r;else delete exceptions[p.id];change({exceptions})}}/></>}</div>)}
  <fieldset><legend>知识库阅读权</legend>{data.libraries.map(k=><label key={k.id}><input type="checkbox" checked={form.readers.includes(k.id)} onChange={()=>change({readers:toggle(form.readers,k.id)})}/>{k.name}</label>)}</fieldset>
- <details><summary>将以上配置同时应用到其他账号</summary>{data.users.filter(u=>u.id!==user.id&&u.smartCaseEligible).map(u=><label key={u.id}><input type="checkbox" checked={extra.includes(u.id)} onChange={()=>{setExtra(toggle(extra,u.id));setPreview(undefined)}}/>{u.employee?.name||u.username}</label>)}</details>
- <button onClick={()=>void apply(false)}>预览变更</button> {preview&&<><ul>{preview.diff.map(d=><li key={d.id}>{data.users.find(u=>u.id===d.id)?.username} · 预设 {names(d.before.kinds)} → {names(d.after.kinds)}；默认 {names([d.after.defaultKind||'无'])}；阅读权 {names(d.before.readers)} → {names(d.after.readers)}</li>)}</ul>
+ <details><summary>将以上配置同时应用到其他账号</summary>{data.users.filter(u=>u.id!==user.id&&u.smartCaseEligible).map(u=><label key={u.id}><input type="checkbox" checked={extra.includes(u.id)} onChange={()=>{setExtra(toggle(extra,u.id));invalidate()}}/>{u.employee?.name||u.username}</label>)}</details>
+ {preview&&<section className="oa-grant-preview" aria-label="授权核对明细" tabIndex={0}><h3>授权核对明细</h3><ul>{preview.diff.map(d=><li key={d.id}>{data.users.find(u=>u.id===d.id)?.username} · 预设 {names(d.before.kinds)} → {names(d.after.kinds)}；默认 {names([d.after.defaultKind||'无'])}；阅读权 {names(d.before.readers)} → {names(d.after.readers)}</li>)}</ul>
  {preview.effective.map(r=><div key={r.id}>{r.items.map(p=><p key={p.name}>{p.name} · {p.source} · {p.model} · 可选 {names(p.available)} · 推荐 {names(p.recommended)}</p>)}</div>)}
- <button onClick={()=>void apply(true)}>确认应用到 {preview.diff.length} 个账号</button></>}{message&&<p role="status">{message}</p>}</fieldset>
+ </section>}</fieldset>
 }
 function PresetEditor({current:p,data,refresh}:{current:Definition;data:Data;refresh:()=>Promise<Data>}){
  const source=data.components.find(c=>c.id===p.id)!

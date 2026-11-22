@@ -67,7 +67,7 @@ try{
  const grant={kinds:[],defaultKind:null,readers:[],exceptions:{},revision:'r1'}
  const directory=['罗致洪','罗茂君'].map((name,i)=>({id:String(i),username:['chengyelzh','chengyelmj'][i],employee:{name},smartCaseEligible:true,account:grant}))
  await page.route('**/api/me',route=>route.fulfill({json:{user:{id:'admin',username:'admin',displayName:'管理员',roles:[],isSystemSuperAdmin:true}}}))
- await page.route('**/api/business-presets',route=>route.fulfill({json:{users:directory,versions:{},libraries:[],components:[],connections:[],disabled:[]}}))
+ await page.route('**/api/business-presets',route=>route.fulfill({json:{users:directory,versions:{},libraries,components:[],connections:[],disabled:[]}}))
  await page.route('**/api/kb-access',route=>route.fulfill({json:{libraries:[],users:[]}}))
  await page.route(/\/api\/(ai-capabilities|model-connections)$/,route=>route.fulfill({json:null}))
  await page.goto(base+'?view=settings')
@@ -79,6 +79,31 @@ try{
  await expect(editor).toBeVisible();await search.fill('不存在的账号');await expect(page.getByText('未找到匹配账号，请核对账号或姓名。')).toBeVisible();await expect(editor).toBeHidden()
  await search.fill('  CHENGYELMJ  ');await search.press('Enter');await expect(page.getByLabel('选择人员')).toHaveValue('1')
  assert.equal(requests.some(([method,p])=>method==='POST'&&p.startsWith('/api/business-grants')),false);assertions++
+ const adminEditor=page.getByRole('group',{name:'罗茂君 · 已有智慧办案使用资格',exact:true})
+ const next=adminEditor.getByRole('button',{name:'下一步：核对授权'})
+ const confirm=adminEditor.getByRole('button',{name:'确认保存并生效'})
+ const reader=adminEditor.getByLabel('法律法规库',{exact:true})
+ let saves=0
+ await page.route('**/api/business-grants/preview',route=>{
+  const [after]=route.request().postDataJSON().changes
+  return route.fulfill({json:{confirmation:'reviewed',diff:[{id:after.id,before:grant,after}],effective:[]}})
+ })
+ await page.route('**/api/business-grants/save',route=>{
+  const {changes,confirmation}=route.request().postDataJSON()
+  assert.equal(confirmation,'reviewed')
+  assert.deepEqual(changes.map(c=>c.id),['1'])
+  assert.deepEqual(changes[0].readers,['law'])
+  directory[1].account={...changes[0],revision:'r2'}
+  saves++
+  return route.fulfill({json:{accounts:[directory[1].account]}})
+ })
+ await expect(confirm).toBeInViewport();await expect(confirm).toBeDisabled()
+ await reader.check();await expect(adminEditor.getByRole('status')).toHaveText('尚未保存')
+ await next.click();await expect(confirm).toBeEnabled()
+ await reader.uncheck();await expect(confirm).toBeDisabled();await expect(next).toBeDisabled()
+ await reader.check();await next.click();await confirm.click()
+ await expect(adminEditor.getByRole('status')).toHaveText('已保存并回读核对 1 个账号')
+ await expect(reader).toBeChecked();await expect(confirm).toBeDisabled();assert.equal(saves,1);assertions++
  await page.route('**/api/my-presets',route=>route.fulfill({json:{defaultKind:'injury',items:[{id:'injury',name:'伤情鉴定',version:2,available:[],recommended:[]}]}}))
  await page.goto(base+'?view=specialized&preset=general')
  await expect(page).toHaveURL(/view=cases_injury/);await expect(page.getByLabel('办案类型')).toHaveValue('injury')

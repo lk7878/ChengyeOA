@@ -42,3 +42,7 @@
   width: 100%;
   text-align: left;
 }
+
+.oa-grant-actions{position:sticky;top:0;z-index:2;padding:8px 0;background:var(--dsw-alias-bg-base,#fff);border-bottom:1px solid var(--dsw-alias-border-primary,#dee0e3);margin-bottom:10px}
+.oa-grant-actions [role=status]:empty{display:none}
+.oa-grant-preview{max-height:40vh;overflow-y:auto;overscroll-behavior:contain}
