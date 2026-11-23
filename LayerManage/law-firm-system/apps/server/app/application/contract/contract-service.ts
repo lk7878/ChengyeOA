@@ -526,6 +526,7 @@ export class ContractService {
         const risk = await screenParties(tx, undefined, contract.customerId, {}, true);
         const createdCase = await tx.case.create({
           data: {
+            registrationRequired: true,
             caseNo: nextCaseNo(),
             createdBy: this.actor.actorUserId, updatedBy: this.actor.actorUserId, branchId: contract.branchId,
             title: `${customer.name}-${contract.title}`,

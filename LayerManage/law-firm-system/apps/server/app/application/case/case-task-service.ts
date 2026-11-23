@@ -1,3 +1,4 @@
+import { assertRegistrationEditable } from './registration-policy';
 import { requireCaseAccess } from './case-scope';
 // SPEC-033 Task 2: case-task-service —— 案件任务状态机（PENDING → IN_PROGRESS → COMPLETED）。
 // 同 case-service 形态（3 参构造 + requireAction + assertExactKeys + 审计）。
@@ -52,6 +53,7 @@ export class CaseTaskService {
 
     return this.prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+      await assertRegistrationEditable(tx, id);
       const currentCase = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.task.manage', tx);
       if (['CLOSED', 'ARCHIVED'].includes(currentCase.status)) throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
       await tx.case.update({ where: { id }, data: { version: { increment: 1 }, updatedBy: this.actor.actorUserId } });
@@ -96,6 +98,7 @@ export class CaseTaskService {
     };
     return this.prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+      await assertRegistrationEditable(tx, id);
       const currentCase = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.task.manage', tx);
       if (['CLOSED', 'ARCHIVED'].includes(currentCase.status)) throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
       await tx.case.update({ where: { id }, data: { version: { increment: 1 }, updatedBy: this.actor.actorUserId } });

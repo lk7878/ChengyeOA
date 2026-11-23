@@ -184,6 +184,9 @@ test('creation records the true actor, controlled transitions reject stale versi
   });
   assert.equal(created.createdBy, staff.userId);
   assert.equal(created.branchId, org);
+  await assert.rejects(user.cases.transitionCase(created.id, { status: 'ACCEPTED', version: 1 }), /登记/);
+  // The registration integration suite covers the real approval; this test exercises later transitions.
+  await db.caseRegistration.create({ data: { caseId: created.id, tableId: key(), caseVersion: 1, recordVersion: 1, submittedBy: staff.userId, reviewerId: manager.userId, status: 'APPROVED' } });
   await user.cases.transitionCase(created.id, { status: 'ACCEPTED', version: 1 });
   await assert.rejects(
     user.cases.transitionCase(created.id, { status: 'PROCESSING', version: 1 }),

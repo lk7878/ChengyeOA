@@ -731,6 +731,10 @@ export class WorkspaceDomainSource {
         b.id IN (${Prisma.join(rows.map((r) => r.id))}) AND ${await this.scope(source, access, 'update')}
         AND ${source === 'NEGOTIATIONS' ? Prisma.sql`b.status = 'NEGOTIATING'` : source === 'CONTRACTS' ? Prisma.sql`b.status = 'DRAFT'` : source === 'REFUNDS' ? Prisma.sql`b.status = 'APPROVED' AND b.type = 'REFUND'` : source === 'PAYMENTS' ? Prisma.sql`b.status IN ('PENDING','CONFIRMED')` : Prisma.sql`TRUE`}`);
     const ids = new Set(editable.map((r) => r.id));
+    if (source === 'CASES' && ids.size) {
+      const pending = await this.db.caseRegistration.findMany({ where: { caseId: { in: [...ids] }, status: 'PENDING' }, select: { caseId: true } });
+      pending.forEach(r => ids.delete(r.caseId));
+    }
     const linkedCases = source === 'CASES' && rows.length
       ? await this.db.case.findMany({ where: { id: { in: rows.map(r => r.id) }, contractId: { not: null } }, select: { id: true } }) : [];
     const linkedIds = new Set(linkedCases.map(r => r.id));

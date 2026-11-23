@@ -1194,6 +1194,8 @@ model CostEntry {
 // ==================== 案件模块 ====================
 
 model Case {
+  registrationRequired Boolean @default(false)
+  registrations CaseRegistration[]
   caseSettlement CaseSettlement?
   lifecycleLinks CollabLifecycleLink[]
   deletedAt DateTime?
@@ -2630,6 +2632,7 @@ model WorkflowDefinition {
   @@map("workflow_definition")
 }
 model WorkflowInstance {
+  caseRegistration CaseRegistration?
   businessType String @default("CUSTOM")
   decidedBy String?
   qualityReview QualityReview?
@@ -2662,6 +2665,25 @@ model WorkflowInstance {
   @@index([applicantId,createdAt])
   @@index([status,updatedAt])
   @@map("workflow_instance")
+}
+
+// Registration snapshots are reviewed through the existing approval inbox.
+model CaseRegistration {
+  id String @id @default(uuid())
+  caseId String
+  tableId String
+  caseVersion Int
+  recordVersion Int
+  submittedBy String
+  reviewerId String
+  status String @default("PENDING")
+  workflowInstanceId String? @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  case Case @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  workflow WorkflowInstance? @relation(fields: [workflowInstanceId], references: [id], onDelete: Restrict)
+  @@index([caseId, createdAt])
+  @@map("case_registration")
 }
 model WorkflowTask {
   id String @id @default(uuid())

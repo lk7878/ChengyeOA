@@ -1,3 +1,4 @@
+import { CaseRegistrationService } from '../application/case/registration-service';
 import { servePreview } from '../application/files/preview';
 import { medicalOptions, medicalCustomer } from '../application/collaboration/medical-assessment';
 import { WorksheetPermissions } from '../application/collaboration/worksheet-permissions';
@@ -21,6 +22,8 @@ import { RowComments } from '../application/collaboration/row-comments';
 import { exact, fail, text } from '../application/collaboration/collaboration-policy';
 
 export default class CollaborationController extends Controller {
+  async caseRegistration() { this.respond(await new CaseRegistrationService(this.ctx.prisma, this.ctx.state.authorization).detail(this.ctx.params.tableId, this.ctx.params.recordId)); }
+  async submitCaseRegistration() { this.respond(await new CaseRegistrationService(this.ctx.prisma, this.ctx.state.authorization).submit(this.ctx.params.tableId, this.ctx.params.recordId, this.ctx.request.body)); }
   private worksheets() { return new WorksheetPermissions(this.ctx.prisma,this.ctx.state.authorization); }
   async policyCatalog() { this.respond(await this.worksheets().catalog()); }
   async policySettings() { this.respond(await this.worksheets().settings(this.ctx.params.tableId)); }

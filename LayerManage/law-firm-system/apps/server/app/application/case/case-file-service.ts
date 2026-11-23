@@ -1,3 +1,4 @@
+import { assertRegistrationEditable } from './registration-policy';
 import { requireCaseAccess } from './case-scope';
 // SPEC-042 Task 2: case-file-service —— 案件文件/证据台账（upload/list/download/remove）。
 // 形态镜像 case-service：3 参构造 (prisma, actor, authorizationContext)；requireAction 每公开
@@ -66,6 +67,7 @@ export class CaseFileService {
     try {
       return await this.prisma.$transaction(async tx => {
         await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+        await assertRegistrationEditable(tx, id);
         const parent = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.file.manage', tx);
         if (['CLOSED', 'ARCHIVED'].includes(parent.status)) throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
         const created = await tx.caseFile.create({ data: {
@@ -139,6 +141,7 @@ export class CaseFileService {
     if (!target) throw new CaseError(CASE_ERROR_CODES.CASE_FILE_NOT_FOUND, 404, 'case file not found');
     const record = await this.prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${target.caseId} FOR UPDATE`;
+      await assertRegistrationEditable(tx, target.caseId);
       const parent = await requireCaseAccess(this.prisma, this.authorizationContext, target.caseId, 'case.file.manage', tx);
       if (['CLOSED', 'ARCHIVED'].includes(parent.status)) throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
       const current = await tx.caseFile.findUnique({ where: { id } });

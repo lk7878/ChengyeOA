@@ -1,3 +1,4 @@
+import CaseRegistration from '@/features/workspaces/CaseRegistration';
 import MoveTable from '@/features/workspaces/MoveTable';
 import BulkTransfer from '@/features/workspaces/BulkTransfer';
 import AfterSalesStatusAction from '@/features/workspaces/AfterSalesStatusAction';
@@ -1437,11 +1438,12 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                           {
                             key: 'record-actions',
                             title: '操作',
-                            width: detail.table.lifecycleKind === 'AFTER_SALES' ? 570 : 350,
+                            width: detail.table.lifecycleKind === 'AFTER_SALES' ? 570 : detail.table.source === 'CASES' ? 440 : 350,
                             fixed: 'right' as const,
                             onCell: (row) => (row.group ? { colSpan: 0 } : {}),
                             render: (_: unknown, row: GridRow) => row.group ? null : <Space>
                               <Button size="small" disabled={inlineDirty} onClick={() => void openRecord(row)}>{row.writable !== false && fields.some(f => f.writable) ? '编辑' : '详情'}</Button>
+                              {detail.table.source === 'CASES' && <CaseRegistration tableId={tableId} caseId={row.id} disabled={inlineDirty} onChanged={refresh} />}
                               <Button size="small" onClick={() => setCommentRow(row.id)}>评论</Button>
                               <Button size="small" disabled={inlineDirty} onClick={() => navigate('/calendar?' + new URLSearchParams({table:tableId,record:row.id}))}>安排日程</Button>
                               {detail.table.lifecycleKind === 'AFTER_SALES' && <AfterSalesStatusAction fields={fields} row={row} disabled={inlineDirty} onEdit={field => void openRecord(row, field)} />}

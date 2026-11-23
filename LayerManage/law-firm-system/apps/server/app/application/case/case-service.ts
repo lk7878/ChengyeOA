@@ -1,3 +1,5 @@
+import { assertRegistrationEditable, assertRegistrationApproved } from './registration-policy';
+import { check } from '../../domain/workflow/schema';
 import { checkHandlingLawyer } from './handling-lawyer';
 import { deliveryModulesEnabled } from '../../domain/module-availability';
 import { screenParties, verifyConflictReview } from './conflict-screen';
@@ -169,6 +171,7 @@ export class CaseService {
     if (!createdBy && !branchId) throw new MasterDataError('VALIDATION_FAILED', 400);
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+      await assertRegistrationEditable(tx, id);
       const row = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.update', tx);
       if (row.version !== version) throw new MasterDataError('VERSION_CONFLICT', 409);
       if ((createdBy && row.createdBy) || (branchId && row.branchId))
@@ -238,6 +241,7 @@ export class CaseService {
       // Contract first: same lock order as receivable commands that create cases.
       await tx.$queryRaw`SELECT id FROM contract WHERE id = ${contractId} FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${caseId} FOR UPDATE`;
+      await assertRegistrationEditable(tx, caseId);
       const row = await requireCaseAccess(this.prisma, this.authorizationContext, caseId, 'case.update', tx);
       const contract = await tx.contract.findFirst({
         where: { AND: [scope, { id: contractId, deletedAt: null }] },
@@ -401,6 +405,7 @@ export class CaseService {
             teamIds,
             caseType,
             status: 'PENDING',
+            registrationRequired: true,
             priority,
             description,
             fee: contractId ? (await tx.contract.findUniqueOrThrow({where:{id:contractId},select:{amount:true}})).amount : fee ?? undefined,
@@ -550,6 +555,7 @@ export class CaseService {
       persistAttachments(attachments);
       const update = async (tx: Prisma.TransactionClient) => {
         await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+        await assertRegistrationEditable(tx, id);
         await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.update', tx, { includeWorksheetLead });
         if (attachments.length || removeIds.length)
           await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.file.manage', tx);
@@ -647,6 +653,8 @@ export class CaseService {
     const version = normalizeVersion(input.version);
 
     await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+
+    await assertRegistrationEditable(tx, id);
     await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.delete', tx);
     const row = await tx.case.findUnique({
       where: { id },
@@ -816,8 +824,11 @@ export class CaseService {
     this.authorization.requireAction(this.authorizationContext, permission);
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
+      await assertRegistrationEditable(tx, id);
       const current = await requireCaseAccess(this.prisma, this.authorizationContext, id, permission, tx);
       if (current.version !== version) throw new MasterDataError('VERSION_CONFLICT', 409);
+      if (status === 'ACCEPTED' && current.registrationRequired)
+        await assertRegistrationApproved(tx, id, current.version);
       const previous = { ACCEPTED: 'PENDING', PROCESSING: 'ACCEPTED', ARCHIVED: 'CLOSED' }[status];
       if (current.status !== previous)
         throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'invalid case transition');
@@ -852,7 +863,9 @@ export class CaseService {
     // 状态守卫（Case 无 version 列）：updateMany {id, status notIn 终态} → count=0 → 已结案/不存在 409。
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
-      await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.close', tx);
+      await assertRegistrationEditable(tx, id);
+      const current = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.close', tx);
+      check(!current.registrationRequired || current.status !== 'PENDING', '请先完成案件登记审批及受理', 409);
       if (deliveryModulesEnabled &&
         await tx.caseTask.count({
           where: {

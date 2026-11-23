@@ -1,3 +1,4 @@
+import { assertRegistrationEditable } from '../case/registration-policy';
 import { assignmentCandidates, assignmentOrganizations, assignmentPredicate, isProspectAssignee, isProspectTable, prospectField, resolveAssignment, validateAssignmentConfig, type ProspectAssignment } from './prospect-assignment';
 import { syncCustomerSource } from './customer-source-routing';
 import { prepareMedicalValues } from './medical-assessment';
@@ -3313,6 +3314,7 @@ export class CollaborationService {
           const { table, access, fields } = await this.tableAccess(tableId, tx, 2);
           if (integer(input.schemaVersion) !== table.schemaVersion) fail('COLLAB_SCHEMA_CONFLICT', 409);
           await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${recordId} FOR UPDATE`;
+          await assertRegistrationEditable(tx, recordId);
           const deleting = input.archived === true;
           const core = await new WorkspaceDomainSource(this.db, this.actor).target(
             'CASES',

@@ -331,7 +331,7 @@ export class WorkflowService {
   async startManaged(
     tx: Tx,
     input: {
-      businessType: 'SOP_REVIEW' | 'QUALITY_ANALYSIS';
+      businessType: 'SOP_REVIEW' | 'QUALITY_ANALYSIS' | 'CASE_REGISTRATION';
       sourceId: string;
       title: string;
       reviewerId: string;
@@ -407,6 +407,8 @@ export class WorkflowService {
           version: { increment: 1 },
         },
       });
+    else if (input.businessType === 'CASE_REGISTRATION')
+      await tx.caseRegistration.update({ where: { id: input.sourceId }, data: { workflowInstanceId: instance.id } });
     else
       await tx.analysisCloseRequest.update({
         where: { id: input.sourceId },
@@ -1072,6 +1074,7 @@ export class WorkflowService {
     const i = await this.db.workflowInstance.findUnique({
       where: { id },
       include: {
+        caseRegistration: { select: { tableId: true, caseId: true } },
         tasks: { orderBy: { createdAt: 'asc' } },
         logs: { orderBy: { createdAt: 'asc' } },
         deliveries: { select: { id: true, status: true, attempts: true, error: true } },
@@ -1113,7 +1116,9 @@ export class WorkflowService {
     return {
       ...view,
       businessLink:
-        i.businessType === 'SOP_REVIEW'
+        i.businessType === 'CASE_REGISTRATION'
+          ? '/cases?table=' + encodeURIComponent(String(i.caseRegistration?.tableId)) + '&record=' + encodeURIComponent(String(i.caseRegistration?.caseId))
+          : i.businessType === 'SOP_REVIEW'
           ? '/sop/submissions/' + encodeURIComponent(String((i.content as Values).submissionId))
           : i.businessType === 'QUALITY_ANALYSIS'
             ? '/quality/special-analyses/' + encodeURIComponent(String((i.content as Values).analysisId))

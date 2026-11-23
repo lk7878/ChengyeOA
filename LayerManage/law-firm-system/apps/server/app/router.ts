@@ -468,6 +468,8 @@ export default (app: Application) => {
   router.get('/api/v1/finance/anomalies/paid-no-case', requirePermission('anomaly.read'), controller.anomaly.paidNoCase);
 
   // 案件模块（SPEC-033：+requirePermission 门禁；移除 destroy——案件业务不可删，归档替代；路由 15→22）
+  router.get('/api/v1/tables/:tableId/records/:recordId/case-registration', requirePermission('case.read'), controller.collaboration.caseRegistration);
+  router.post('/api/v1/tables/:tableId/records/:recordId/case-registration', requirePermission('case.update'), controller.collaboration.submitCaseRegistration);
   router.post('/api/v1/cases/conflict-screen', controller.case.screenConflict);
   router.get('/api/v1/cases/identity-gaps', requirePermission('case.read'), controller.case.identityGaps);
   router.post('/api/v1/cases/:id/identity', requirePermission('case.update'), controller.case.repairIdentity);
