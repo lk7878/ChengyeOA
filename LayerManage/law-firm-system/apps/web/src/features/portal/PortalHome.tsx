@@ -343,7 +343,23 @@ export default function PortalHome({ external = false }: { external?: boolean })
         <footer className="portal-contact" key={contact.id}>
           <div>
             <h2>{contact.title || '联系我们'}</h2>
-            <div className="portal-prose">{contact.body}</div>
+            <div className="portal-contact-offices">
+              {contact.body
+                .split(/\n\s*\n/)
+                .filter(Boolean)
+                .map((office, index) => {
+                  const [name, ...lines] = office.split('\n');
+                  return (
+                    <section key={index}>
+                      <h3>{name}</h3>
+                      {lines.map((line, lineIndex) => {
+                        const phone = line.match(/^电话[：:]\s*([\d+-]+)\s*$/);
+                        return <p key={lineIndex}>{phone ? <a href={'tel:' + phone[1]}>{line}</a> : line}</p>;
+                      })}
+                    </section>
+                  );
+                })}
+            </div>
           </div>
           {contact.image && (
             <figure>

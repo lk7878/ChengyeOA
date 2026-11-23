@@ -218,7 +218,7 @@
 }
 .portal-grid {
   gap: 28px;
-  align-items: start;
+  align-items: stretch;
   grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
 }
 .portal-panel {
@@ -411,5 +411,35 @@ html[data-oa-color-mode='dark'] .portal-monogram {
   .portal-contact figure {
     flex-basis: auto;
     width: 160px;
+  }
+}
+
+.portal-contact > div {
+  flex: 1;
+  min-width: 0;
+}
+.portal-contact-offices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px 36px;
+}
+.portal-contact-offices h3 {
+  font-size: 16px;
+  margin: 0 0 10px;
+}
+.portal-contact-offices p {
+  font-size: 14px;
+  line-height: 1.8;
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.portal-contact-offices a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+@media (max-width: 650px) {
+  .portal-contact-offices {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
