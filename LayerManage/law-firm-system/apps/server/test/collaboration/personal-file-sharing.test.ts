@@ -1,0 +1,67 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createTestPrisma, clearTestApplicationData } from '../helpers/test-database';
+import { PersonalFileTransfer } from '../../app/application/collaboration/personal-file-transfer';
+import { AuthorizationContext } from '../../app/application/authorization/authorization-service';
+const db=createTestPrisma();
+const actor=(userId:string,employeeId:string|null=null):AuthorizationContext=>({userId,employeeId,isSystemAdmin:false,isSystemSuperAdmin:false,grants:[],fieldRules:[],permissionCodes:[],evaluatedAt:new Date()});
+let owner:PersonalFileTransfer,reader:PersonalFileTransfer,outsider:PersonalFileTransfer,dir:string,previous:string|undefined;
+const grant=(principalId:string,principalType='USER',role='READER')=>({principalType,principalId,role,rowScope:'ALL',canCreate:role==='MANAGER',hiddenFields:[],readonlyFields:[]});
+const revoke=(service:PersonalFileTransfer,id:string,version:number,principalId:string,principalType='USER')=>service.revokeShare(id,{version,principalType,principalId});
+const file=(parentId?:string)=>owner.create({name:'验收.txt',kind:'FILE',parentId,content:Buffer.from('test-only').toString('base64')});
+async function share(id:string,version:number,grants:ReturnType<typeof grant>[],restricted=true){await owner.share(id,{version,policy:{restricted,grants}});}
+test.before(async()=>{previous=process.env.PERSONAL_FILES_STORAGE_ROOT;dir=await mkdtemp(path.join(tmpdir(),'oa-file-sharing-'));process.env.PERSONAL_FILES_STORAGE_ROOT=dir;});
+test.beforeEach(async()=>{await clearTestApplicationData(db);const users=await Promise.all(['owner','reader','outsider'].map(n=>db.user.create({data:{username:n,password:'unused'}})));[owner,reader,outsider]=users.map(u=>new PersonalFileTransfer(db,actor(u.id)));});
+test.after(async()=>{await clearTestApplicationData(db);await db.$disconnect();await rm(dir,{recursive:true});if(previous===undefined)delete process.env.PERSONAL_FILES_STORAGE_ROOT;else process.env.PERSONAL_FILES_STORAGE_ROOT=previous;});
+test('direct file sharing reports names and revokes access to every content version immediately',async()=>{
+ const f=await file();await share(f.id,1,[grant(reader.actor.userId)]);await reader.versions(f.id);
+ const before=await owner.accessSettings(f.id);assert.ok(before.labels['USER:'+reader.actor.userId].includes('reader'));assert.equal(before.audience.find(p=>p.userId===reader.actor.userId)?.level,1);
+ assert.equal((await owner.list({scope:'mine'})).items[0].sharingState,'direct');
+ await assert.rejects(reader.accessSettings(f.id),/COLLAB_FORBIDDEN/);
+ await assert.rejects(revoke(reader,f.id,2,reader.actor.userId),/COLLAB_FORBIDDEN/);
+ await assert.rejects(revoke(outsider,f.id,2,reader.actor.userId),/COLLAB_FORBIDDEN/);
+ assert.deepEqual((await revoke(owner,f.id,2,reader.actor.userId)).retained,[]);
+ await assert.rejects(reader.content(f.id,1),/COLLAB_FORBIDDEN/);
+ assert.equal((await reader.list({scope:'shared'})).items.length,0);
+ assert.equal((await owner.list({scope:'mine'})).items[0].sharingState,'private');
+ await owner.content(f.id,1);await assert.rejects(revoke(owner,f.id,3,owner.actor.userId),/COLLAB_FORBIDDEN/);
+});
+test('folder revocation blocks descendants even when a child has direct sharing; siblings are unaffected',async()=>{
+ const folder=await owner.create({name:'测试文件夹',kind:'FOLDER'}),child=await file(folder.id),other=await file();
+ await share(folder.id,1,[grant(reader.actor.userId)]);await share(child.id,1,[grant(reader.actor.userId)],false);await share(other.id,1,[grant(reader.actor.userId)]);
+ const report=await owner.accessSettings(child.id);assert.equal(report.sources.length,2);assert.equal(report.audience.find(p=>p.userId===reader.actor.userId)?.level,1);
+ assert.equal((await owner.list({parentId:folder.id})).items[0].sharingState,'inherited');
+ const retained=await revoke(owner,child.id,2,reader.actor.userId);assert.equal(retained.retained[0].userId,reader.actor.userId);assert.match(retained.retained[0].sources.join(),/测试文件夹/);
+ await reader.download(child.id);await revoke(owner,folder.id,2,reader.actor.userId);
+ await assert.rejects(reader.download(child.id),/COLLAB_FORBIDDEN/);await reader.download(other.id);
+});
+test('role coverage uses current membership, reports remaining access, and rejects stale updates',async()=>{
+ const f=await file();const role=await db.role.create({data:{name:'测试角色',code:randomUUID(),type:'BUSINESS'}});
+ await db.userRole.create({data:{userId:reader.actor.userId,roleId:role.id}});
+ await db.userRole.create({data:{userId:outsider.actor.userId,roleId:role.id,source:'TEMPORARY',reason:'测试过期授权不应包含成员',grantedByUserId:owner.actor.userId,validFrom:new Date(Date.now()-10000),validUntil:new Date(Date.now()-1000)}});
+ await share(f.id,1,[grant(reader.actor.userId),grant(role.id,'ROLE')]);
+ const result=await revoke(owner,f.id,2,reader.actor.userId);assert.equal(result.retained.length,1);assert.match(result.retained[0].sources.join(),/测试角色/);
+ await assert.rejects(revoke(owner,f.id,2,role.id,'ROLE'),/COLLAB_ACCESS_CONFLICT/);
+ const report=await owner.accessSettings(f.id);assert.equal(report.audience.some(p=>p.userId===outsider.actor.userId),false);
+ await reader.download(f.id);await revoke(owner,f.id,3,role.id,'ROLE');await assert.rejects(reader.download(f.id),/COLLAB_FORBIDDEN/);
+ assert.equal(await db.operationLog.count({where:{action:'PERSONAL_FILE_SHARE_REVOKE'}}),2);
+});
+test('department coverage includes active descendant assignments and respects deny and restricted child policies',async()=>{
+ const parentId=randomUUID();await db.organization.create({data:{id:parentId,code:randomUUID(),name:'上级部门',type:'DEPARTMENT',path:'/'+parentId}});
+ const childId=randomUUID();await db.organization.create({data:{id:childId,code:randomUUID(),name:'下属部门',type:'DEPARTMENT',path:'/'+parentId+'/'+childId,parentId,level:1}});
+ const position=await db.position.create({data:{name:'律师',code:randomUUID(),categoryCode:'LAWYER',organizationId:childId}});
+ const employee=await db.employee.create({data:{employeeNo:randomUUID(),name:'测试员工',phone:'000',type:'LAWYER',entryDate:new Date(),status:'FORMAL'}});
+ await db.employeeAssignment.create({data:{employeeId:employee.id,organizationId:childId,positionId:position.id,assignmentType:'PRIMARY',startedAt:new Date(Date.now()-1000)}});
+ await db.user.update({where:{id:reader.actor.userId},data:{employeeId:employee.id}});reader=new PersonalFileTransfer(db,actor(reader.actor.userId,employee.id));
+ const folder=await owner.create({name:'部门文件夹',kind:'FOLDER'}),f=await file(folder.id);
+ await share(folder.id,1,[grant(parentId,'ORG')]);
+ let report=await owner.accessSettings(f.id);assert.equal(report.audience.find(p=>p.userId===reader.actor.userId)?.level,1);await reader.download(f.id);
+ await share(f.id,1,[],true);report=await owner.accessSettings(f.id);assert.equal(report.audience.find(p=>p.userId===reader.actor.userId)?.level,0);await assert.rejects(reader.download(f.id),/COLLAB_FORBIDDEN/);
+ await share(f.id,2,[grant(reader.actor.userId,'USER','DENY')],false);report=await owner.accessSettings(f.id);assert.equal(report.audience.find(p=>p.userId===reader.actor.userId)?.level,0);
+ assert.equal((await revoke(owner,f.id,3,reader.actor.userId)).retained[0].level,1);await reader.download(f.id);
+ await db.employee.update({where:{id:employee.id},data:{status:'LEAVED'}});report=await owner.accessSettings(f.id);assert.equal(report.audience.some(p=>p.userId===reader.actor.userId),false);await assert.rejects(reader.download(f.id),/COLLAB_FORBIDDEN/);
+});

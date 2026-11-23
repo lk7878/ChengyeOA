@@ -43,7 +43,7 @@ export class PersonalFiles extends CollaborationService {
     const s=await this.snapshot();const parent=parentId?s.resolve(parentId):null;if(parentId&&(!parent||parent.row.kind!=='FOLDER'))fail('COLLAB_FORBIDDEN',403);
     return {path:parent?.path??[],canUpload:!parent||parent.access.level>=2,items:s.rows.flatMap(row=>{
       if(parentId?row.parentId!==parentId:scope==='mine'?row.ownerId!==this.actor.userId||!!row.parentId:row.ownerId===this.actor.userId)return [];
-      const v=s.resolve(row.id);return v?[{id:row.id,name:row.name,kind:row.kind,size:row.kind==='FOLDER'?s.rows.reduce((total,child)=>{const visible=child.kind==='FILE'?s.resolve(child.id):null;return total+(visible?.path.some(part=>part.id===row.id)?child.size:0);},0):row.size,contentVersion:row.contentVersion,version:row.version,parentId:row.parentId,ownerId:row.ownerId,level:v.access.level,updatedAt:row.updatedAt}]:[];
+      const v=s.resolve(row.id);return v?[{id:row.id,name:row.name,kind:row.kind,size:row.kind==='FOLDER'?s.rows.reduce((total,child)=>{const visible=child.kind==='FILE'?s.resolve(child.id):null;return total+(visible?.path.some(part=>part.id===row.id)?child.size:0);},0):row.size,contentVersion:row.contentVersion,version:row.version,parentId:row.parentId,ownerId:row.ownerId,level:v.access.level,updatedAt:row.updatedAt,sharingState:this.sharingState(v.path.map(p=>s.rows.find(r=>r.id===p.id)!))}]:[];
     }).sort((a,b)=>a.kind.localeCompare(b.kind)||a.name.localeCompare(b.name))};
   }
   async create(raw:unknown){
@@ -86,16 +86,74 @@ export class PersonalFiles extends CollaborationService {
   }
   async download(id:string){const {row}=await this.require(id);if(row.kind!=='FILE'||!row.storageKey||!/^[a-f0-9-]{36}$/.test(row.storageKey))fail('COLLAB_NOT_FOUND',404);
     const content=await readFile(path.join(storage(),row.storageKey));return {name:row.name,content:content.toString('base64')};}
-  async accessSettings(id:string){
-    const r=await this.require(id,3),policy=resourcePolicy(r.row.accessPolicy);
-    const ids=(type:string)=>policy.grants.filter(g=>g.principalType===type).map(g=>g.principalId);
+  private sharingState(chain: { ownerId: string; accessPolicy: unknown }[]) {
+    let shared = false, inherited = false;
+    for (const row of chain) {
+      const policy = resourcePolicy(row.accessPolicy);
+      inherited = shared && !policy.restricted;
+      shared = inherited || policy.grants.some(g => g.role !== 'DENY' && !(g.principalType === 'USER' && g.principalId === row.ownerId));
+    }
+    return shared ? inherited ? 'inherited' : 'direct' : 'private';
+  }
+  private async sharingReport(id: string, path: {id:string;name:string}[]) {
+    const rows = await this.db.personalFile.findMany({where:{id:{in:path.map(p=>p.id)},deletedAt:null}});
+    const chain = path.map(p=>rows.find(r=>r.id===p.id)).filter((r):r is typeof rows[number]=>!!r);
+    if(chain.length!==path.length) fail('COLLAB_ACCESS_CONFLICT',409);
+    const grants=chain.flatMap(r=>resourcePolicy(r.accessPolicy).grants);
+    const ids=(type:string)=>grants.filter(g=>g.principalType===type).map(g=>g.principalId);
     const [users,orgs,roles]=await Promise.all([
       this.db.user.findMany({where:{id:{in:ids('USER')}},select:{id:true,username:true,employee:{select:{name:true}}}}),
       this.db.organization.findMany({where:{id:{in:ids('ORG')}},select:{id:true,name:true}}),
       this.db.role.findMany({where:{id:{in:ids('ROLE')}},select:{id:true,name:true}}),
     ]);
-    const labels=Object.fromEntries([...users.map(u=>['USER:'+u.id,(u.employee?.name??u.username)+'（用户）']),...orgs.map(o=>['ORG:'+o.id,o.name+'（部门）']),...roles.map(o=>['ROLE:'+o.id,o.name+'（角色）'])]);
-    return {id,name:r.row.name,version:r.row.version,policy:r.row.accessPolicy,path:r.path,ownerId:r.row.ownerId,labels};
+    const labels=Object.fromEntries([...users.map(u=>['USER:'+u.id,(u.employee?.name?u.employee.name+'（'+u.username+'）':u.username)]),...orgs.map(o=>['ORG:'+o.id,o.name+'（部门）']),...roles.map(o=>['ROLE:'+o.id,o.name+'（角色）'])]);
+    const sources=chain.map(row=>({id:row.id,name:row.name,ownerId:row.ownerId,restricted:resourcePolicy(row.accessPolicy).restricted,inherited:row.id!==id,grants:resourcePolicy(row.accessPolicy).grants}));
+    // Resolve actual current principals using the same rules as content access, including
+    // assignment dates, department ancestry, role expiry and departed employees.
+    const candidates=await this.db.user.findMany({where:{status:'ENABLED',...(grants.some(g=>g.principalType!=='USER')?{}:{id:{in:ids('USER')}})},select:{id:true,username:true,employeeId:true,employee:{select:{name:true}}},orderBy:{username:'asc'}});
+    const audience: {userId:string;name:string;username:string;level:number;matches:{sourceId:string;principalType:string;principalId:string;role:string}[]}[]=[];
+    let cursor=0;
+    await Promise.all(Array.from({length:Math.min(6,candidates.length)},async()=>{
+      while(cursor<candidates.length){
+        const user=candidates[cursor++];
+        const actor:typeof this.actor={...this.actor,userId:user.id,employeeId:user.employeeId,previewRoleId:undefined};
+        const principals=await new PersonalFiles(this.db,actor).principals(this.db);
+        const matches=sources.flatMap(source=>source.grants.filter(g=>principals.some(p=>p.principalType===g.principalType&&p.principalId===g.principalId)).map(g=>({sourceId:source.id,principalType:g.principalType,principalId:g.principalId,role:g.role})));
+        if(!matches.length)continue;
+        let access:Access={level:3,canCreate:true,canManageAccess:true,selfOnly:false,hidden:[],readonly:[],workspaceId:'personal',organizationId:null};
+        try{for(const row of chain)access=restrictResourceAccess(access,row.accessPolicy,principals);}
+        catch(e){if((e as {code:string}).code!=='COLLAB_FORBIDDEN')throw e;access={...access,level:0};}
+        audience.push({userId:user.id,name:user.employee?.name||user.username,username:user.username,level:access.level,matches});
+      }
+    }));
+    audience.sort((a,b)=>a.username.localeCompare(b.username));
+    return {labels,sources,audience};
+  }
+  async accessSettings(id:string){
+    const r=await this.require(id,3);
+    const report=await this.sharingReport(id,r.path);
+    return {id,name:r.row.name,kind:r.row.kind,version:r.row.version,policy:r.row.accessPolicy,path:r.path,ownerId:r.row.ownerId,...report};
+  }
+  async revokeShare(id:string,raw:unknown){
+    const v=exact(raw,['version','principalType','principalId']);
+    const principalType=text(v.principalType),principalId=text(v.principalId);
+    if(!['USER','ROLE','ORG'].includes(principalType))fail('COLLAB_INVALID_ACCESS');
+    const before=await this.require(id,3);
+    const report=await this.sharingReport(id,before.path);
+    const affected=report.audience.filter(u=>u.matches.some(m=>m.sourceId===id&&m.principalType===principalType&&m.principalId===principalId)).map(u=>u.userId);
+    await this.db.$transaction(async tx=>{
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('personal-files',0))`;
+      const {row}=await this.require(id,3,tx);
+      if(row.version!==integer(v.version))fail('COLLAB_ACCESS_CONFLICT',409);
+      if(principalType==='USER'&&principalId===row.ownerId)fail('COLLAB_FORBIDDEN',403);
+      const policy=resourcePolicy(row.accessPolicy);
+      if(!policy.grants.some(g=>g.principalType===principalType&&g.principalId===principalId))fail('COLLAB_ACCESS_CONFLICT',409);
+      const next={...policy,grants:policy.grants.filter(g=>g.principalType!==principalType||g.principalId!==principalId)};
+      await tx.personalFile.update({where:{id},data:{accessPolicy:next as unknown as Prisma.InputJsonValue,version:{increment:1}}});
+      await tx.operationLog.create({data:{userId:this.actor.userId,action:'PERSONAL_FILE_SHARE_REVOKE',targetType:'PERSONAL_FILE',targetId:id,oldValues:JSON.stringify(row.accessPolicy),newValues:JSON.stringify(next)}});
+    });
+    const after=await this.sharingReport(id,before.path);
+    return {retained:after.audience.filter(u=>affected.includes(u.userId)&&u.level>0).map(u=>({...u,sources:u.matches.filter(m=>m.role!=='DENY').map(m=>(after.sources.find(s=>s.id===m.sourceId)?.name||'')+' · '+(after.labels[m.principalType+':'+m.principalId]||m.principalType))}))};
   }
   async share(id:string,raw:unknown){
     const v=exact(raw,['version','policy']);const policy=resourcePolicy(v.policy);
@@ -216,6 +274,6 @@ export class PersonalFiles extends CollaborationService {
       this.db.user.findMany({where:{status:'ENABLED',OR:[{username:{contains:q}},{employee:{name:{contains:q}}}]},select:{id:true,username:true,employee:{select:{name:true}}},take:30}),
       this.db.organization.findMany({where:{status:'ENABLED',name:{contains:q}},select:{id:true,name:true},take:30}),
       this.db.role.findMany({where:{status:'ENABLED',type:'BUSINESS',name:{contains:q}},select:{id:true,name:true},take:30})]);
-    return [...users.map(u=>({value:'USER:'+u.id,label:(u.employee?.name??u.username)+'（用户）'})),...organizations.map(o=>({value:'ORG:'+o.id,label:o.name+'（部门）'})),...roles.map(r=>({value:'ROLE:'+r.id,label:r.name+'（角色）'}))];
+    return [...users.map(u=>({value:'USER:'+u.id,label:(u.employee?.name?u.employee.name+'（'+u.username+'）':u.username)+' · 用户'})),...organizations.map(o=>({value:'ORG:'+o.id,label:o.name+'（部门）'})),...roles.map(r=>({value:'ROLE:'+r.id,label:r.name+'（角色）'}))];
   }
 }

@@ -17,6 +17,7 @@ export default class PersonalFileController extends Controller {
   async download(){this.respond(await this.svc().download(this.ctx.params.id));}
   async access(){this.respond(await this.svc().accessSettings(this.ctx.params.id));}
   async share(){this.respond(await this.svc().share(this.ctx.params.id,this.ctx.request.body));}
+  async revokeShare(){this.respond(await this.svc().revokeShare(this.ctx.params.id,this.ctx.request.body));}
   async rename(){this.respond(await this.svc().rename(this.ctx.params.id,this.ctx.request.body));}
   async begin(){this.respond(await this.svc().begin(this.ctx.request.body));}
   async uploadStatus(){this.respond(await this.svc().uploadStatus(this.ctx.params.id));}
