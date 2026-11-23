@@ -10,12 +10,12 @@ import {
   Result,
   Select,
   Space,
-  Table,
   Tag,
   message,
 } from 'antd';
 import { Link } from 'react-router';
 import Modal from '@/components/DraggableModal';
+import Table from '@/components/ResizableTable';
 import request from '@/api/request';
 import { get } from '@/features/workspaces/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -281,6 +281,7 @@ function Edit({
 }
 
 function Management() {
+  const userId = useAuthStore((s) => s.authorization?.userId);
   const [feed, setFeed] = useState<AdminFeed>(),
     [editing, edit] = useState<Item | null>(),
     [preview, setPreview] = useState<Card>();
@@ -358,16 +359,19 @@ function Management() {
         <Button onClick={load}>刷新</Button>
       </Space>
       {error && <Alert title={error} type="error" />}
-      <Table
+      <Table<Item>
+        columnWidthsKey={`portal-admin:${userId ?? 'anonymous'}`}
         rowKey="id"
         loading={!feed && !error}
         scroll={{ x: 720 }}
         pagination={{ pageSize: 12 }}
         dataSource={feed?.entries.filter((i) => !filter || filter === i.kind)}
         columns={[
-          { title: '栏目', render: (_, i) => labels[i.kind] },
-          { title: '标题', render: (_, i) => i.draft.title },
+          { key: 'kind', width: 110, title: '栏目', render: (_, i) => labels[i.kind] },
+          { key: 'title', width: 400, title: '标题', render: (_, i) => i.draft.title },
           {
+            key: 'version',
+            width: 150,
             title: '版本',
             render: (_, i) => (
               <>
@@ -377,6 +381,8 @@ function Management() {
             ),
           },
           {
+            key: 'actions',
+            width: 300,
             title: '操作',
             render: (_, i) => (
               <Space wrap size="small">
