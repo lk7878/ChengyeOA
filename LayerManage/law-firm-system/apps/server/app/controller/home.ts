@@ -1,4 +1,11 @@
-import { portalFeed, manageList, saveDraft, publishPortal, readAsset } from '../application/portal/portal';
+import {
+  deletePortal,
+  portalFeed,
+  manageList,
+  saveDraft,
+  publishPortal,
+  readAsset,
+} from '../application/portal/portal';
 import { servePreview } from '../application/files/preview';
 import { Controller } from 'egg';
 import * as path from 'path';
@@ -53,10 +60,19 @@ export default class HomeController extends Controller {
     );
     this.portalResponse(null);
   }
+  async portalDelete() {
+    await deletePortal(
+      this.ctx.prisma,
+      this.ctx.params.id,
+      this.ctx.request.body.version,
+      this.ctx.state.authorization.userId,
+    );
+    this.portalResponse(null);
+  }
   async portalHistory() {
     this.portalResponse(
       await this.ctx.prisma.portalRevision.findMany({
-        where: { entryId: this.ctx.params.id },
+        where: { entryId: this.ctx.params.id, entry: { deletedAt: null } },
         orderBy: { number: 'desc' },
         include: { image: { select: { id: true, name: true } }, file: { select: { id: true, name: true } } },
       }),

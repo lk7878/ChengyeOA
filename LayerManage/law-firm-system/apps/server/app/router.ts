@@ -174,6 +174,7 @@ export default (app: Application) => {
   router.post(portalAdmin, requireOrganizationSuperAdmin, controller.home.portalSave);
   router.put(portalAdmin + '/:id', requireOrganizationSuperAdmin, controller.home.portalSave);
   router.post(portalAdmin + '/:id/publish', requireOrganizationSuperAdmin, controller.home.portalPublish);
+  router.post(portalAdmin + '/:id/delete', requireOrganizationSuperAdmin, controller.home.portalDelete);
   router.post(portalAdmin + '/:id/withdraw', requireOrganizationSuperAdmin, controller.home.portalWithdraw);
   router.get(portalAdmin + '/:id/history', requireOrganizationSuperAdmin, controller.home.portalHistory);
   router.get(portalAdmin + '/:id/:number/files/:asset', requireOrganizationSuperAdmin, controller.home.portalDraftFile);

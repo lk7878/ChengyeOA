@@ -1,5 +1,6 @@
 export const labels = {
   INTRO: '承业简介',
+  CONTACT: '联系我们',
   CULTURE: '律所文化',
   HISTORY: '发展历程',
   NOTICE: '通知公告',
@@ -11,7 +12,7 @@ export const labels = {
   CASE: '优秀案例',
 };
 export type Kind = keyof typeof labels;
-export const publicKinds: Kind[] = ['INTRO', 'CULTURE', 'HISTORY', 'NEWS', 'LAWYER', 'TEAM', 'CASE'];
+export const publicKinds: Kind[] = ['CONTACT', 'INTRO', 'CULTURE', 'HISTORY', 'NEWS', 'LAWYER', 'TEAM', 'CASE'];
 export type Asset = { id: string; name: string };
 export type Revision = {
   number: number;

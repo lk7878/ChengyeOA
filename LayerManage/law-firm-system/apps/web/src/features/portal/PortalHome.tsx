@@ -257,7 +257,7 @@ export default function PortalHome({ external = false }: { external?: boolean })
     const cards = by(kind);
     if (external && !cards.length) return null;
     return (
-      <section className="portal-panel">
+      <section className={'portal-panel portal-section-' + kind.toLowerCase()}>
         <header>
           <h2>{labels[kind]}</h2>
           {cards.length > limit && <button onClick={() => showAll(labels[kind], cards)}>查看全部</button>}
@@ -310,7 +310,7 @@ export default function PortalHome({ external = false }: { external?: boolean })
           </>
         )}
         {(!external || people.length + groups.length > 0) && (
-          <section className="portal-panel">
+          <section className="portal-panel portal-people">
             <header>
               <h2>律师与专业团队</h2>
               <button onClick={() => showAll(category, category === '律师' ? people : groups)}>
@@ -339,6 +339,20 @@ export default function PortalHome({ external = false }: { external?: boolean })
         )}
         {panel('CASE', 4)}
       </div>
+      {by('CONTACT').map((contact) => (
+        <footer className="portal-contact" key={contact.id}>
+          <div>
+            <h2>{contact.title || '联系我们'}</h2>
+            <div className="portal-prose">{contact.body}</div>
+          </div>
+          {contact.image && (
+            <figure>
+              <Photo card={contact} external={external} />
+              {contact.caption && <figcaption>{contact.caption}</figcaption>}
+            </figure>
+          )}
+        </footer>
+      ))}
       {selected && !detail && (
         <Alert type="info" title="这项内容已下架或不可查看" closable onClose={() => open()} />
       )}

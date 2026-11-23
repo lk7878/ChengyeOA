@@ -206,6 +206,12 @@ function Edit({
             onChange={(e) => put('title', e.target.value)}
           />
         </Form.Item>
+        {f.kind === 'CONTACT' && (
+          <Alert
+            type="info"
+            title="正文可填写联系地址、电话、邮箱与办公时间，展示图片可上传位置示意图或公众号二维码。"
+          />
+        )}
         {f.kind === 'HONOR' && (
           <Form.Item label="评选期间" required>
             <Input value={f.period} maxLength={60} onChange={(e) => put('period', e.target.value)} />
@@ -300,15 +306,17 @@ function Management() {
       current = false;
     };
   }, [revision]);
-  async function action(item: Item, publish: boolean) {
+  async function action(item: Item, publish: boolean | 'delete') {
     setBusy(true);
     try {
       await request.post(
-        '/v1/portal/admin/' + item.id + (publish ? '/publish' : '/withdraw'),
+        '/v1/portal/admin/' +
+          item.id +
+          (publish === 'delete' ? '/delete' : publish ? '/publish' : '/withdraw'),
         { version: item.version },
         { suppressGlobalError: true },
       );
-      message.success(publish ? '已发布' : '已下架');
+      message.success(publish === 'delete' ? '已删除' : publish ? '已发布' : '已下架');
       load();
     } catch (e) {
       setError(portalError(e));
@@ -391,6 +399,19 @@ function Management() {
                   >
                     <Button size="small" disabled={busy}>
                       发布
+                    </Button>
+                  </Popconfirm>
+                )}
+                {!i.publishedId && (
+                  <Popconfirm
+                    title={'确认删除「' + i.draft.title + '」？'}
+                    description="删除后将从内容管理列表移除。"
+                    okText="确认删除"
+                    cancelText="取消"
+                    onConfirm={() => action(i, 'delete')}
+                  >
+                    <Button size="small" danger disabled={busy}>
+                      删除
                     </Button>
                   </Popconfirm>
                 )}

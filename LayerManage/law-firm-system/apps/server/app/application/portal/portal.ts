@@ -3,6 +3,7 @@ import { extname } from 'node:path';
 import { MasterDataError } from '../../domain/master-data/master-data-errors';
 
 const kinds = [
+  'CONTACT',
   'INTRO',
   'CULTURE',
   'HISTORY',
@@ -14,7 +15,7 @@ const kinds = [
   'HONOR',
   'CASE',
 ];
-const publicKinds = ['INTRO', 'CULTURE', 'HISTORY', 'NEWS', 'LAWYER', 'TEAM', 'CASE'];
+const publicKinds = ['CONTACT', 'INTRO', 'CULTURE', 'HISTORY', 'NEWS', 'LAWYER', 'TEAM', 'CASE'];
 const lawyerTypes = ['PARTNER', 'LAWYER', 'SENIOR_LAWYER', 'JUNIOR_LAWYER'];
 const active: Prisma.EmployeeWhereInput = {
   deletedAt: null,
@@ -178,8 +179,11 @@ export async function saveDraft(db: PrismaClient, editorId: string, id: string |
             data: {
               kind,
               subject,
-              slot:
-                kind === 'INTRO' ? 'INTRO' : ['TEAM', 'LAWYER'].includes(kind) ? kind + '/' + subject : null,
+              slot: ['INTRO', 'CONTACT'].includes(kind)
+                ? kind
+                : ['TEAM', 'LAWYER'].includes(kind)
+                  ? kind + '/' + subject
+                  : null,
             },
           })
         ).id;
@@ -229,7 +233,7 @@ export async function saveDraft(db: PrismaClient, editorId: string, id: string |
 
 async function claim(tx: Db, id: string, version: number) {
   const changed = await tx.portalEntry.updateMany({
-    where: { id, version },
+    where: { id, version, deletedAt: null },
     data: { version: { increment: 1 } },
   });
   if (!changed.count) fail('内容已更新，请刷新后重试', 409);
@@ -274,6 +278,7 @@ export async function publishPortal(
 export async function manageList(db: Db) {
   const [entries, directory] = await Promise.all([
     db.portalEntry.findMany({
+      where: { deletedAt: null },
       orderBy: { updatedAt: 'desc' },
       include: {
         revisions: { take: 1, orderBy: { number: 'desc' }, include: assets },
@@ -309,6 +314,7 @@ function display(r: Revision) {
 }
 function liveWhere(external: boolean): Prisma.PortalEntryWhereInput {
   return {
+    deletedAt: null,
     ...(external ? { kind: { in: publicKinds } } : {}),
     published: {
       is: {
@@ -410,7 +416,7 @@ export async function readAsset(
   draftNumber?: number,
 ) {
   const entry = await db.portalEntry.findFirst({
-    where: { id, ...(draftNumber ? {} : liveWhere(external)) },
+    where: { id, deletedAt: null, ...(draftNumber ? {} : liveWhere(external)) },
     include: {
       published: { select: { imageId: true, fileId: true } },
       revisions: { where: { number: draftNumber ?? -1 }, select: { imageId: true, fileId: true } },
@@ -426,4 +432,23 @@ export async function readAsset(
   )
     fail('资料已下架', 404);
   return db.portalAsset.findUniqueOrThrow({ where: { id: assetId } });
+}
+
+export async function deletePortal(db: PrismaClient, id: string, version: number, actor: string) {
+  integer(version, 2147483646);
+  return db.$transaction(async (tx) => {
+    await claim(tx, id, version);
+    const item = await tx.portalEntry.findUniqueOrThrow({ where: { id } });
+    if (item.publishedId) fail('请先下架这条内容，再删除', 409);
+    await tx.portalEntry.update({ where: { id }, data: { deletedAt: new Date(), slot: null } });
+    await tx.operationLog.create({
+      data: {
+        userId: actor,
+        action: 'DELETE',
+        targetType: 'PORTAL',
+        targetId: id,
+        newValues: JSON.stringify({ kind: item.kind }),
+      },
+    });
+  });
 }

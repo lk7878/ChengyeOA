@@ -2957,6 +2957,7 @@ model CasePayMonthCost {
 }
 
 model PortalEntry {
+  deletedAt   DateTime?
   id          String   @id @default(uuid())
   kind        String
   subject     String?

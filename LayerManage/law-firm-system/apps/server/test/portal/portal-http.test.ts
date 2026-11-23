@@ -62,6 +62,12 @@ test('logged-in staff can browse and download published material; only super adm
       .set('Authorization', editor)
       .send({ version: 1 })
       .expect(200);
+    await app
+      .httpRequest()
+      .post(path + '/' + id + '/delete')
+      .set('Authorization', editor)
+      .send({ version: 2 })
+      .expect(409);
     const feed = await app.httpRequest().get('/api/v1/portal').set('Authorization', reader).expect(200);
     assert.equal(feed.body.data.entries[0].title, '测试模板');
     const response = await app.httpRequest().get(url).set('Authorization', reader).expect(200);
@@ -91,6 +97,55 @@ test('logged-in staff can browse and download published material; only super adm
       .send({ version: 2 })
       .expect(200);
     await app.httpRequest().get(url).set('Authorization', reader).expect(404);
+    await app
+      .httpRequest()
+      .post(path + '/' + id + '/delete')
+      .set('Authorization', reader)
+      .send({ version: 3 })
+      .expect(403);
+    await app
+      .httpRequest()
+      .post(path + '/' + id + '/delete')
+      .set('Authorization', editor)
+      .send({ version: 2 })
+      .expect(409);
+    await app
+      .httpRequest()
+      .post(path + '/' + id + '/delete')
+      .set('Authorization', editor)
+      .send({ version: 3 })
+      .expect(200);
+    const remaining = await app.httpRequest().get(path).set('Authorization', editor).expect(200);
+    assert.equal(remaining.body.data.entries.length, 0);
+    await app
+      .httpRequest()
+      .post(path + '/' + id + '/publish')
+      .set('Authorization', editor)
+      .send({ version: 4 })
+      .expect(409);
+    await app
+      .httpRequest()
+      .get(path + '/' + id + '/1/files/' + file)
+      .set('Authorization', editor)
+      .expect(404);
+    const contact = await app
+      .httpRequest()
+      .post(path)
+      .set('Authorization', editor)
+      .send({ kind: 'CONTACT', title: '联系我们', body: '测试地址', external: true })
+      .expect(200);
+    await app
+      .httpRequest()
+      .post(path + '/' + contact.body.data.id + '/publish')
+      .set('Authorization', editor)
+      .send({ version: 1 })
+      .expect(200);
+    const publicFeed = await app.httpRequest().get('/api/v1/showcase').expect(200);
+    assert.equal(publicFeed.body.data.entries[0].kind, 'CONTACT');
+    await app.httpRequest().post(path + '/' + contact.body.data.id + '/withdraw')
+      .set('Authorization', editor).send({version: 2}).expect(200);
+    await app.httpRequest().post(path + '/' + contact.body.data.id + '/delete')
+      .set('Authorization', editor).send({version: 3}).expect(200);
   } finally {
     await app.close();
     mm.restore();
