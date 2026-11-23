@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Routes, Route } from 'react-router';
 import { beforeEach, expect, test, vi } from 'vitest';
 import CaseRecordPage from '../CaseRecordPage';
+import { get } from '@/features/workspaces/api';
 import { clearCaseDraft } from '../case-draft';
 import { useAuthStore } from '@/stores/authStore';
 const api = vi.hoisted(() => ({ detail: vi.fn(), listFiles: vi.fn(), update: vi.fn(), transition: vi.fn() }));
@@ -142,4 +143,20 @@ test('case edits preserve exact fees and remove a stored attachment only in the 
       }),
     ),
   );
+});
+
+
+test('worksheet-only case creator loads organization choices through the authorized table', async () => {
+  const original = vi.mocked(get).getMockImplementation()!;
+  vi.mocked(get).mockImplementation(async (url, ...args) => url === '/tables/t' ? ({
+    table:{id:'t',source:'CASES'}, access:{level:2,add:true,readonly:[]}, businessPermissions:['case.read','case.create','case.update'],
+    fields:[{id:'customer',options:{businessKey:'customerName'}},{id:'caseType',options:{businessKey:'caseType'}}],
+  } as never) : original(url,...args));
+  render(<MemoryRouter initialEntries={['/cases/new?table=t&workspace=workspace']}>
+    <Routes><Route path="/cases/new" element={<CaseRecordPage />} /></Routes>
+  </MemoryRouter>);
+  const dialog = await screen.findByRole('dialog');
+  await waitFor(()=>expect(vi.mocked(get)).toHaveBeenCalledWith('/collaboration/options?workspaceId=workspace&tableId=t'));
+  await waitFor(()=>expect(within(dialog).getByRole('button',{name:'确 定'})).toBeEnabled());
+  expect(within(dialog).getByRole('combobox',{name:'主办律师'})).toBeEnabled();
 });

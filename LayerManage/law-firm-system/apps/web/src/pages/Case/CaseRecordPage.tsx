@@ -248,7 +248,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   useEffect(() => {
     let active = true;
     if (workspaceId && createOpen)
-      void get<Directory>('/collaboration/options?workspaceId=' + encodeURIComponent(workspaceId))
+      void get<Directory>('/collaboration/options?workspaceId=' + encodeURIComponent(workspaceId) + (sourceTable ? '&tableId=' + encodeURIComponent(sourceTable) : ''))
         .then((value) => {
           if (active) {
             setDirectory(value);
@@ -262,7 +262,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
     return () => {
       active = false;
     };
-  }, [workspaceId, createOpen]);
+  }, [workspaceId, createOpen, sourceTable]);
 
   useEffect(() => {
     if (!resumeCase) return;
