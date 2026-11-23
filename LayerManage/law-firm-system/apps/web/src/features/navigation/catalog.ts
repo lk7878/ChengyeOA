@@ -29,6 +29,8 @@ const lead: PermissionCode[] = ['menu.lead_crm', 'lead.read'];
 const customer: PermissionCode[] = ['menu.customer', 'customer.read'];
 const contract: PermissionCode[] = ['menu.contract', 'contract.read'];
 export const entries: NavigationEntry[] = [
+  {path:'/showcase',title:'对外展示页',area:'home',group:'常用',hidden:true,global:true},
+  {path:'/admin/portal',title:'首页内容管理',area:'admin',group:'系统配置',superAdminOnly:true},
   {path:'/admin/navigation',title:'菜单管理',area:'admin',group:'系统配置',superAdminOnly:true},
   {path:'/analytics/dashboards',title:'可视化仪表盘',area:'analytics',group:'自助分析'},
   {path:'/cases/:id/assessments',title:'百分制满意度',area:'apps',group:'质量管理',required:['quality.assessment.read','case.read'],hidden:true,parent:'/cases'},

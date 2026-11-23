@@ -102,6 +102,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
       <Link className="unified-context-home" to={area.path} onClick={closeNavigation}>
         {area.title}
       </Link>
+      {area.id==='home' && <Link to="/" aria-current={pathname==='/'?'page':undefined} onClick={closeNavigation}>首页</Link>}
       {area.id==='home'||area.id==='apps'||area.id==='analytics'||area.id==='admin'?<BusinessNavigation area={area.id} paths={available.map(e=>e.path)} current={current?.parent||current?.path} onNavigate={closeNavigation}/>:groups.map((group) => (
         <section key={group}>
           <h2>{group}</h2>

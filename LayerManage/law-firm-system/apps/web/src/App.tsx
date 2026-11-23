@@ -1,3 +1,5 @@
+import PortalHome from './features/portal/PortalHome';
+import PortalAdmin from './features/portal/PortalAdmin';
 import CasePerformancePage from './pages/Performance/CasePerformancePage';
 import NavigationManagement from './pages/NavigationManagement';
 import RetiredArchives from './pages/RetiredArchives';
@@ -127,7 +129,10 @@ function App() {
     <ChineseConfig>
       <AppearanceProvider>
         <BrowserRouter>
-          <SessionBootstrap />
+          <Routes>
+            <Route path="/showcase" element={<PortalHome external />} />
+            <Route path="*" element={<SessionBootstrap />} />
+          </Routes>
         </BrowserRouter>
       </AppearanceProvider>
     </ChineseConfig>
@@ -165,7 +170,8 @@ function SessionBootstrap() {
             </PrivateRoute>
           }
         >
-          <Route path="/" element={<AreaPage area="home" />} />
+          <Route path="/" element={<PortalHome />} />
+          <Route path="/admin/portal" element={<PortalAdmin />} />
           <Route path="/apps" element={<AreaPage key="apps" area="apps" />} />
           <Route path="/analytics" element={<AreaPage key="analytics" area="analytics" />} />
           <Route path="/analytics/dashboards" element={<AnalyticsDesigner />} />

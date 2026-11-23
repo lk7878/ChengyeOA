@@ -165,6 +165,19 @@ export default (app: Application) => {
   router.post('/api/v1/tables/:tableId/move',controller.collaboration.moveTable);
   router.get('/api/v1/navigation-menu', controller.navigation.index);
   router.put('/api/v1/navigation-menu', controller.navigation.save);
+  router.get('/api/v1/portal', controller.home.portal);
+  router.get('/api/v1/portal/files/:id/:asset', controller.home.portalFile);
+  router.get('/api/v1/showcase', controller.home.publicPortal);
+  router.get('/api/v1/showcase/photo', controller.home.publicPhoto);
+  const portalAdmin = '/api/v1/portal/admin';
+  router.get(portalAdmin, requireOrganizationSuperAdmin, controller.home.portalAdmin);
+  router.post(portalAdmin, requireOrganizationSuperAdmin, controller.home.portalSave);
+  router.put(portalAdmin + '/:id', requireOrganizationSuperAdmin, controller.home.portalSave);
+  router.post(portalAdmin + '/:id/publish', requireOrganizationSuperAdmin, controller.home.portalPublish);
+  router.post(portalAdmin + '/:id/withdraw', requireOrganizationSuperAdmin, controller.home.portalWithdraw);
+  router.get(portalAdmin + '/:id/history', requireOrganizationSuperAdmin, controller.home.portalHistory);
+  router.get(portalAdmin + '/:id/:number/files/:asset', requireOrganizationSuperAdmin, controller.home.portalDraftFile);
+
   router.get('/api/health', controller.home.index);
 
   // 认证模块（不需要 JWT）

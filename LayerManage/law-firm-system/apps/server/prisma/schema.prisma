@@ -2955,3 +2955,54 @@ model CasePayMonthCost {
   @@id([scope, period])
   @@map("case_pay_month_cost")
 }
+
+model PortalEntry {
+  id          String   @id @default(uuid())
+  kind        String
+  subject     String?
+  slot        String?  @unique
+  version     Int      @default(1)
+  publishedId String?  @unique
+  publishedAt DateTime?
+  updatedAt   DateTime @updatedAt
+  published   PortalRevision?  @relation("PortalPublished", fields: [publishedId], references: [id], onDelete: SetNull)
+  revisions   PortalRevision[] @relation("PortalHistory")
+
+  @@map("portal_entry")
+}
+
+model PortalRevision {
+  id          String   @id @default(uuid())
+  entryId     String
+  number      Int
+  title       String
+  body        String
+  caption     String
+  period      String
+  personName  String
+  priority    Int
+  pinned      Boolean
+  external    Boolean
+  expiresAt   DateTime?
+  imageId     String?
+  fileId      String?
+  editorId    String
+  createdAt   DateTime @default(now())
+  entry       PortalEntry @relation("PortalHistory", fields: [entryId], references: [id], onDelete: Cascade)
+  liveFor     PortalEntry? @relation("PortalPublished")
+  image       PortalAsset? @relation("PortalImage", fields: [imageId], references: [id])
+  file        PortalAsset? @relation("PortalFile", fields: [fileId], references: [id])
+
+  @@unique([entryId, number])
+  @@map("portal_revision")
+}
+
+model PortalAsset {
+  id       String @id @default(uuid())
+  name     String
+  mime     String
+  bytes    Bytes
+  images   PortalRevision[] @relation("PortalImage")
+  files    PortalRevision[] @relation("PortalFile")
+  @@map("portal_asset")
+}

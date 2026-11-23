@@ -9,7 +9,7 @@ export function previewReadAllowed(method:string, path:string) {
   if (method==='POST') return /^\/tables\/[\w-]+\/records\/query$/.test(path) || path==='/analytics/query';
   if (method!=='GET') return false;
   return [
-    /^\/navigation-menu$/, /^\/personal-files$/,
+    /^\/portal$/, /^\/navigation-menu$/, /^\/personal-files$/,
     /^\/authorization\/me$/, /^\/collaboration\/(options|business-tables)$/,
     /^\/workspaces$/, /^\/workspaces\/[\w-]+\/drive(?:\/folders)?$/,
     /^\/bases\/[\w-]+\/tables$/, /^\/tables\/[\w-]+(?:\/records\/[\w-]+)?$/,
