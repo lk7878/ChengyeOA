@@ -453,6 +453,7 @@ export const entries: NavigationEntry[] = [
     group: '身份授权',
     required: ['menu.security_users', 'user.read'],
   },
+  { path: '/security/contract-read-grants', title: '单份合同只读授权', area: 'admin', group: '身份授权', superAdminOnly: true },
   {
     path: '/security/trace',
     title: '权限追踪',

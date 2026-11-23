@@ -1,6 +1,6 @@
 import { hostname, userInfo } from 'node:os';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { writeAuditLog } from '../../app/application/system/audit-writer';
+import { applyContractReadGrant } from '../../app/application/contract/contract-read-grants';
 
 // Local operations entry point. Grant checks the supplied case/contract pair; revocation
 // still works after the case is reassigned, unlinked or archived.
@@ -19,17 +19,10 @@ export async function changeContractReadGrant(db: PrismaClient, action: 'grant' 
         throw new Error('账号状态或案件与合同的关联不符合授权条件');
       }
     }
-    const result = action === 'grant'
-      ? await tx.contractReadGrant.createMany({ data: [key], skipDuplicates: true })
-      : await tx.contractReadGrant.deleteMany({ where: key });
-    if (result.count) {
-      await writeAuditLog(tx, { action: action === 'grant' ? 'GRANT_CONTRACT_READ' : 'REVOKE_CONTRACT_READ',
-        targetType: 'CONTRACT', targetId: contract.id, newValues: JSON.stringify({
-          ...key, permissionCode: 'contract.read', operator: userInfo().username + '@' + hostname(),
-          source: 'local-operations', caseNo,
-        }) });
-    }
-    return { username, contractNo, action, changed: result.count === 1 };
+    const changed = await applyContractReadGrant(tx, action, key, {
+      source: 'local-operations', operator: userInfo().username + '@' + hostname(), caseNo,
+    });
+    return { username, contractNo, action, changed };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 

@@ -1,3 +1,4 @@
+import { listContractReadGrants, manageContractReadGrant } from '../application/contract/contract-read-grants';
 import { Controller } from 'egg';
 import { PermissionTraceService } from '../application/authorization/permission-trace-service';
 import { SensitiveAccessService } from '../application/authorization/sensitive-access-service';
@@ -55,6 +56,23 @@ export default class AuthorizationController extends Controller {
       purpose: input.purpose as string,
       ip: this.ctx.ip,
     }));
+  }
+
+  async contractGrants() {
+    this.respond(await listContractReadGrants(this.ctx.prisma, this.authorization(), this.ctx.params.id));
+  }
+
+  async grantContractRead() {
+    await this.changeContractRead('grant');
+  }
+
+  async revokeContractRead() {
+    await this.changeContractRead('revoke');
+  }
+
+  private async changeContractRead(action: 'grant' | 'revoke') {
+    const { id: userId, contractId } = this.ctx.params;
+    this.respond(await manageContractReadGrant(this.ctx.prisma, this.authorization(), action, { userId, contractId }, this.ctx.ip));
   }
 
   private authorization(): AuthorizationContext {

@@ -191,6 +191,11 @@ export default (app: Application) => {
   router.post('/api/v1/auth/mfa/recovery-codes', controller.auth.regenerateRecoveryCodes);
 
   // Authorization center
+  const contractGrants = '/api/v1/authorization/users/:id/contract-read-grants';
+  router.get(contractGrants, requireOrganizationSuperAdmin, controller.authorization.contractGrants);
+  router.put(contractGrants + '/:contractId', requireOrganizationSuperAdmin, controller.authorization.grantContractRead);
+  router.delete(contractGrants + '/:contractId', requireOrganizationSuperAdmin, controller.authorization.revokeContractRead);
+
   router.get('/api/v1/authorization/me', controller.authorization.me);
   router.get('/api/v1/authorization/me/trace', requirePermission('permission.trace.self'), controller.authorization.myTrace);
   router.post('/api/v1/authorization/sensitive-view', requirePermission('employee.high_sensitive.read'), controller.authorization.sensitiveView);

@@ -55,6 +55,7 @@ import CaseRecordPage from './pages/Case/CaseRecordPage';
 import EmployeePage from './pages/Employee';
 import UserPage from './pages/User';
 import SecurityRolePage from './pages/SecurityRole';
+import ContractReadGrantsPage from './pages/ContractReadGrants';
 import SecurityUserPage from './pages/SecurityUser';
 import PermissionTracePage from './pages/PermissionTrace';
 import MyAccessPage from './pages/MyAccess';
@@ -413,6 +414,7 @@ function SessionBootstrap() {
               </AuthorizedPage>
             }
           />
+          <Route path="/security/contract-read-grants" element={<AuthorizedPage permission="user.read"><ContractReadGrantsPage /></AuthorizedPage>} />
           <Route
             path="/security/trace"
             element={

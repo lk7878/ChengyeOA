@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AuthorizationContextLoader } from '../../app/application/authorization/authorization-context-loader';
+import { listContractReadGrants, manageContractReadGrant } from '../../app/application/contract/contract-read-grants';
 import { ContractService } from '../../app/application/contract/contract-service';
 import { changeContractReadGrant } from '../../scripts/system/contract-read-grant';
 import { clearTestApplicationData, createTestPrisma } from '../helpers/test-database';
@@ -32,6 +33,29 @@ test('one account can read exactly the granted contract, until revoked', async (
     assert.deepEqual((await service.listContracts({})).list.map(c => c.id), [first.id]);
     assert.equal((await service.getContract(first.id)).id, first.id);
     await assert.rejects(service.getContract(second.id), /contract not found/);
+    const admin = { userId: other.id, isSystemSuperAdmin: true };
+    const ordinary = { userId: reader.id, isSystemSuperAdmin: false };
+    const key = { userId: reader.id, contractId: second.id };
+    assert.deepEqual((await listContractReadGrants(db, admin, reader.id)).map(row => row.contract.id), [first.id]);
+    await assert.rejects(listContractReadGrants(db, ordinary, other.id), /PERMISSION_DENIED/);
+    for (const action of ['grant', 'revoke'] as const) {
+      await assert.rejects(manageContractReadGrant(db, ordinary, action, key), /PERMISSION_DENIED/);
+      await assert.rejects(manageContractReadGrant(db, admin, action, { ...key, userId: admin.userId }), /PRIVILEGE_ESCALATION/);
+    }
+    assert.deepEqual(await manageContractReadGrant(db, admin, 'grant', key), { changed: true });
+    assert.deepEqual(await manageContractReadGrant(db, admin, 'grant', key), { changed: false });
+    const expanded = new ContractService(db, { actorUserId: reader.id }, await auth.load(reader.id));
+    assert.equal((await expanded.getContract(second.id)).id, second.id);
+    await db.user.update({ where: { id: reader.id }, data: { status: 'DISABLED' } });
+    assert.deepEqual(await manageContractReadGrant(db, admin, 'revoke', key), { changed: true });
+    assert.deepEqual(await manageContractReadGrant(db, admin, 'revoke', key), { changed: false });
+    await assert.rejects(manageContractReadGrant(db, admin, 'grant', key), /RESOURCE_NOT_FOUND/);
+    await db.user.update({ where: { id: reader.id }, data: { status: 'ENABLED' } });
+    assert.deepEqual((await listContractReadGrants(db, admin, reader.id)).map(row => row.contract.id), [first.id]);
+    const afterRevoke = new ContractService(db, { actorUserId: reader.id }, await auth.load(reader.id));
+    await assert.rejects(afterRevoke.getContract(second.id), /contract not found/);
+    assert.equal((await afterRevoke.getContract(first.id)).id, first.id);
+    assert.equal(await db.operationLog.count({ where: { targetId: second.id, userId: admin.userId } }), 2);
     await changeContractReadGrant(db, 'revoke', reader.username, 'A');
     const revoked = await auth.load(reader.id);
     assert.deepEqual(revoked.permissionCodes, []);
