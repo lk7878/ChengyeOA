@@ -39,6 +39,7 @@ import {
 import { UnifiedShellContext } from '@/features/navigation/shell-context';
 import { useNavigationAuthorization } from '@/features/navigation/use-navigation-authorization';
 import { isAuthorizationSummaryExpired } from '@/features/authorization/api';
+import WorksheetCaseCreateGate from '@/features/navigation/WorksheetCaseCreateGate';
 import './sidebar.css';
 
 const icons = {
@@ -143,6 +144,10 @@ export default function MainLayout({ children }: { children: ReactNode }) {
     </div>
   ) : !current ? (
     <Result status="404" title="页面不存在" extra={<Link to="/">返回承业中心</Link>} />
+  ) : pathname === '/cases/new' && new URLSearchParams(locationSearch).get('table') ? (
+    <WorksheetCaseCreateGate key={userInfo?.id + ':' + locationSearch} tableId={new URLSearchParams(locationSearch).get('table')!}>
+      {children}
+    </WorksheetCaseCreateGate>
   ) : !canOpen(current, authorization) ? (
     <Result
       status="403"

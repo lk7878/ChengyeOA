@@ -2,6 +2,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, expect, test, vi } from 'vitest';
 import MainLayout from './index';
+import { get } from '@/features/workspaces/api';
+vi.mock('@/features/workspaces/api', () => ({get:vi.fn()}));
 import { useAuthStore } from '@/stores/authStore';
 import type { AuthorizationSummary } from '@/features/authorization/types';
 
@@ -108,4 +110,22 @@ test.each([
   show(path + '?base=original-base');
   expect(screen.getByRole('navigation', { name: '全局导航' })).toBeInTheDocument();
   expect(screen.queryByRole('navigation', { name: '当前区域目录' })).not.toBeInTheDocument();
+});
+
+
+test.each([
+  {source:'CASES',level:2,add:true,codes:['case.create'],allowed:true},
+  {source:'CASES',level:1,add:true,codes:['case.create'],allowed:false},
+  {source:'CASES',level:2,add:false,codes:['case.create'],allowed:false},
+  {source:'CASES',level:2,add:true,codes:['case.read'],allowed:false},
+  {source:'CUSTOM',level:3,add:true,codes:['case.create'],allowed:false},
+])('worksheet create route verifies table grant: %j', async ({source,level,add,codes,allowed}) => {
+  vi.mocked(get).mockResolvedValue({table:{source},access:{level,add},businessPermissions:codes});
+  show('/cases/new?table=t');
+  if (allowed) expect(await screen.findByRole('textbox',{name:'业务草稿'})).toBeInTheDocument();
+  else expect(await screen.findByText('当前工作表不允许新建案件')).toBeInTheDocument();
+});
+test('a table create grant does not open the global create route', () => {
+  show('/cases/new');
+  expect(screen.getByText('无权访问此页面')).toBeInTheDocument();
 });
