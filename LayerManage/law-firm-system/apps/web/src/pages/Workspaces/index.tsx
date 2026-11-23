@@ -130,7 +130,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
   const [configDirty, setConfigDirty] = useState(false);
   const [revision, setRevision] = useState(0);
   const [recordSelection, setRecordSelection] = useState<{ scope: string; ids: string[] }>({ scope: '', ids: [] });
-  const selectionScope = tableId + ':' + revision;
+  const selectionScope = tableId + ':' + selectedViewId;
   const selectedRecords = recordSelection.scope === selectionScope ? recordSelection.ids : [];
   const [page, setPage] = useState(1);
   const [folds, setFolds] = useState<{ scope: string; keys: Set<string> }>({ scope: '', keys: new Set() });
@@ -232,12 +232,13 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       .catch((e) => {
         if (alive) {
           setQueryError(errorMessage(e));
-          if (draftRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
+          if (![401, 403, 404].includes(errorStatus(e) || 0)) return;
           setBase(undefined);
           setBaseAccess(undefined);
           setTables([]);
           setDetail(undefined);
           setResult(undefined);
+          setRecordSelection({ scope: '', ids: [] });
           setInlineDirty(false);
           inlineDirtyRef.current = false;
         }
@@ -257,7 +258,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
           const next=new URLSearchParams(params);next.set('base',r.table.baseId);setParams(next,{replace:true});
           return;
         }
-        if (!draftRef.current) setDetail(r);
+        if (!draftRef.current) setDetail(old => JSON.stringify(old) === JSON.stringify(r) ? old : r);
         const v =
           r.views.find((v) => v.id === selectedViewId) ||
           r.views.find((v) => v.id === r.preferredViewId) ||
@@ -265,7 +266,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
         if (v && (currentView.current !== v.id || (!dirtyRef.current && !draftRef.current))) {
           if (currentView.current !== v.id) setPage(1);
           currentView.current = v.id;
-          setConfig(v.config);
+          setConfig(old => JSON.stringify(old) === JSON.stringify(v.config) ? old : v.config);
           setViewVersion(v.version);
           setConfigDirty(false);
         }
@@ -273,9 +274,10 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       .catch((e) => {
         if (alive) {
           setQueryError(errorMessage(e));
-          if (draftRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
+          if (![401, 403, 404].includes(errorStatus(e) || 0)) return;
           setDetail(undefined);
           setResult(undefined);
+          setRecordSelection({ scope: '', ids: [] });
           setInlineDirty(false);
           inlineDirtyRef.current = false;
           setEditing(undefined);
@@ -323,8 +325,9 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
       .catch((e) => {
         if (alive) {
           setQueryError(errorMessage(e));
-          if (draftRef.current && ![401, 403, 404].includes(errorStatus(e) || 0)) return;
+          if (![401, 403, 404].includes(errorStatus(e) || 0)) return;
           setResult(undefined);
+          setRecordSelection({ scope: '', ids: [] });
           setInlineDirty(false);
           inlineDirtyRef.current = false;
           setQueryError(errorMessage(e));
@@ -336,7 +339,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
     return () => {
       alive = false;
     };
-  }, [tableId, detail, view?.id, config, page, financeContractId, financeCaseId, params]);
+  }, [tableId, detail, view?.id, config, page, financeContractId, financeCaseId, params, revision]);
   useEffect(() => {
     if (!baseId) return;
     let stopped = false,
@@ -373,6 +376,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
             }
             if (kind === 'invalidate') {
               if ((payload as { kind?: string }).kind === 'access.updated') {
+                setRecordSelection({ scope: '', ids: [] });
                 setDetail(undefined);
                 setResult(undefined);
                 setInlineDirty(false);
@@ -386,6 +390,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
             }
             if (kind === 'presence') setOnline((payload as { users: { id: string; name: string }[] }).users);
             if (kind === 'revoked') {
+              setRecordSelection({ scope: '', ids: [] });
               setBase(undefined);
               setBaseAccess(undefined);
               setSettings(null);
@@ -469,6 +474,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
           }
           setDetail(undefined);
           setResult(undefined);
+          setRecordSelection({ scope: '', ids: [] });
           setInlineDirty(false);
           inlineDirtyRef.current = false;
           setQueryError('');
@@ -1151,7 +1157,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                     icon={<PlusOutlined aria-hidden="true" />}
                     disabled={
                       detail.access.level < 2 || detail.access.add === false ||
-                      (detail.table.source !== 'CUSTOM' && !detail.canCreateBusiness && !canCreateDomain)
+                      (detail.table.source !== 'CUSTOM' && !detail.canCreateBusiness && !canCreateDomain && !(creation && detail.businessPermissions?.includes(creation.permission)))
                     }
                     onClick={() => {
                       if (creation) {

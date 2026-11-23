@@ -461,7 +461,7 @@ export class WorkspaceDomainSource {
               : source === 'COSTS'
                 ? await buildCostScopeWhere(this.db, this.actor, permission)
                 : source === 'CASES'
-                  ? await buildCaseScopeWhere(this.db, this.actor, permission, this.db, { includeWorksheetLead: action === 'read' })
+                  ? await buildCaseScopeWhere(this.db, this.actor, permission, this.db, { includeWorksheetLead: action === 'read' || action === 'update' })
                   : source === 'CUSTOMERS'
                     ? await buildCustomerVisibilityWhere(this.db, this.authorization, this.actor, permission)
                     : source === 'NEGOTIATIONS'

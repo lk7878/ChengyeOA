@@ -65,8 +65,8 @@ export class CaseService {
     this.authorization = new AuthorizationService(new DataScopeService(prisma));
   }
 
-  async screenConflict(input: { id?: string; customerId: string; intakeData?: CaseIntake; linked?: boolean }) {
-    assertExactKeys(input, ['id', 'customerId', 'intakeData', 'linked']);
+  async screenConflict(input: { worksheetId?: string; id?: string; customerId: string; intakeData?: CaseIntake; linked?: boolean }) {
+    assertExactKeys(input, ['worksheetId', 'id', 'customerId', 'intakeData', 'linked']);
     const customerId = normalizeRequiredText(input.customerId, 1, 100);
     if (input.id) await requireCaseAccess(this.prisma, this.authorizationContext, input.id, 'case.update');
     else this.authorization.requireAction(this.authorizationContext, 'case.create');
@@ -444,6 +444,7 @@ export class CaseService {
     input: UpdateCaseInput,
     transaction?: Prisma.TransactionClient,
     worksheetOrganizationId?: string,
+    includeWorksheetLead = false,
   ): Promise<CaseView> {
     this.authorization.requireAction(this.authorizationContext, 'case.update');
     const id = normalizeRequiredText(caseId, 1, 100);
@@ -501,7 +502,7 @@ export class CaseService {
     const version = normalizeVersion(input.version);
 
     // SPEC-035：Case 乐观锁——先读现状（存在/终态判），再 updateMany {id, version} 守卫并发编辑。
-    const existing = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.update');
+    const existing = await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.update', transaction ?? this.prisma, { includeWorksheetLead });
     if (!existing) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
     if (existing.status === 'CLOSED' || existing.status === 'ARCHIVED') {
       throw new CaseError(CASE_ERROR_CODES.CASE_STATE_INVALID, 409, 'case is already closed');
@@ -549,7 +550,7 @@ export class CaseService {
       persistAttachments(attachments);
       const update = async (tx: Prisma.TransactionClient) => {
         await tx.$queryRaw`SELECT id FROM "case" WHERE id = ${id} FOR UPDATE`;
-        await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.update', tx);
+        await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.update', tx, { includeWorksheetLead });
         if (attachments.length || removeIds.length)
           await requireCaseAccess(this.prisma, this.authorizationContext, id, 'case.file.manage', tx);
         const currentCase = await tx.case.findUnique({ where: { id }, include: { contract: true } });

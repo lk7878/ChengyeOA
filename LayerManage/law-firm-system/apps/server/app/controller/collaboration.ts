@@ -13,6 +13,8 @@ import path from 'node:path';
 import { AuthorizationContext } from '../application/authorization/authorization-service';
 import { createAuthorizationContextLoader } from '../application/authorization/authorization-factory';
 import { createAuthenticationService } from '../application/auth/authentication-factory';
+import { permissionSnapshot as fingerprintPermissions } from '../application/collaboration/permission-snapshot';
+import { worksheetContext } from '../application/collaboration/worksheet-business-grants';
 import { basePulse } from '../application/collaboration/base-pulse';
 import { CollaborationService } from '../application/collaboration/collaboration-service';
 import { RowComments } from '../application/collaboration/row-comments';
@@ -270,7 +272,7 @@ export default class CollaborationController extends Controller {
     const stream = new PassThrough();
     let closed = false;
     let running = false;
-    let businessRefreshAt = 0;
+    let businessRefreshAt = Date.now();
     let permissionSnapshot = '';
     let presenceSnapshot = '';
     let heartbeatAt = 0;
@@ -299,12 +301,13 @@ export default class CollaborationController extends Controller {
       running = true;
       try {
         await createAuthenticationService(ctx).authenticate(token);
-        const authorization = await createAuthorizationContextLoader(ctx).load(userId);
+        const globalAuthorization = await createAuthorizationContextLoader(ctx).load(userId);
+        const authorization = tableId ? await worksheetContext(ctx.prisma, globalAuthorization, tableId) : globalAuthorization;
         const current = new CollaborationService(ctx.prisma, authorization);
         if (!tableId) await current.baseAccess(baseId);
         if (tableId) {
           const selected = await current.tableAccess(tableId, ctx.prisma, 1, false, false);
-          const snapshot = JSON.stringify({
+          const snapshot = fingerprintPermissions({
             access: selected.access,
             grants: authorization.grants,
             fieldRules: authorization.fieldRules,
@@ -314,7 +317,7 @@ export default class CollaborationController extends Controller {
           permissionSnapshot = snapshot;
           // Existing CRM writes do not all publish collaboration events (e.g. immutable follows).
           // A bounded refresh catches these writes without broadcasting business data.
-          if (selected.table.source !== 'CUSTOM' && Date.now() - businessRefreshAt >= 5000) {
+          if (selected.table.source !== 'CUSTOM' && Date.now() - businessRefreshAt >= 60_000) {
             businessRefreshAt = Date.now();
             emit('invalidate', { baseId, kind: 'business.refresh' });
           }

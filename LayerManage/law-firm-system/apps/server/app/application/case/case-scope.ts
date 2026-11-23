@@ -7,7 +7,7 @@ import { PermissionCode } from '../../domain/authorization/authorization-types';
 import { projectCaseFile, type CaseView } from './case-types';
 import { CaseError, CASE_ERROR_CODES } from '../../domain/case/case-errors';
 
-/** Ownership follows the creator. The case worksheet also shows personally assigned lead cases on read. */
+/** Ownership follows the creator. Worksheet read/update includes personally assigned lead cases; other actions keep their existing scope. */
 export async function buildCaseScopeWhere(
   db: PrismaClient,
   actor: AuthorizationContext,
@@ -20,7 +20,7 @@ export async function buildCaseScopeWhere(
   const resolved = await authorization.resolveScopeTargets(actor, 'case', permission);
   if (resolved.all) return { deletedAt: null };
   const clauses: Prisma.CaseWhereInput[] = [];
-  if (options.includeWorksheetLead && permission === 'case.read' && actor.employeeId && resolved.employeeIds.includes(actor.employeeId)) {
+  if (options.includeWorksheetLead && ['case.read', 'case.update'].includes(permission) && actor.employeeId && resolved.employeeIds.includes(actor.employeeId)) {
     clauses.push({ lawyerId: actor.employeeId });
   }
   if (resolved.employeeIds.length) {
@@ -72,8 +72,9 @@ export async function requireCaseAccess(
   id: string,
   permission: PermissionCode,
   tx: Prisma.TransactionClient = db,
+  options: { includeWorksheetLead?: boolean } = {},
 ) {
-  const where = await buildCaseScopeWhere(db, actor, permission, tx);
+  const where = await buildCaseScopeWhere(db, actor, permission, tx, options);
   const row = await tx.case.findFirst({ where: { AND: [where, { id }] } });
   if (!row) throw new CaseError(CASE_ERROR_CODES.CASE_NOT_FOUND, 404, 'case not found');
   return row;

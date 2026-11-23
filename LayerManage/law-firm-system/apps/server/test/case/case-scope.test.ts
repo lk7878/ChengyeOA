@@ -346,3 +346,50 @@ test('case identity repair requires independent directory grants and filters can
     0,
   );
 });
+
+test('worksheet editor can edit assigned lead cases without widening global case or delete access', async () => {
+  const workspace = await db.collabWorkspace.create({ data: {
+    name: '案件编辑回归', organizationId: org, ownerId: manager.userId,
+    members: { create: [{ principalId: manager.userId, role: 'OWNER', canCreate: true }] },
+  } });
+  const owner = new CollaborationService(db, manager);
+  const base = await owner.createBase(workspace.id, { name: '总表' }, key());
+  const table = await owner.createTable(base.id, { name: '案件管理表', source: 'CASES' }, key());
+  const { worksheetContext } = await import('../../app/application/collaboration/worksheet-business-grants');
+  const { defaultRule } = await import('../../app/application/collaboration/worksheet-roles');
+  const rule = {...defaultRule('EDITOR'), rows:'ALL', business:{permissions:['case.read','case.create','case.update'],scopeIds:['worksheet:self']}};
+  await db.worksheetRolePolicy.create({data:{tableId:table.id,rules:{EDITOR:rule},invitations:{[staff.userId]:'EDITOR'}}});
+  const raw = {...staff,permissionCodes:staff.permissionCodes.filter(p=>!['case.create','case.update','case.delete'].includes(p)),
+    grants:staff.grants.filter(g=>!['case.create','case.update','case.delete'].includes(g.permissionCode))};
+  const scoped = await worksheetContext(db,raw,table.id);
+  const member = new CollaborationService(db,scoped);
+  const assigned = await seed(manager.userId);
+  const unrelated = await seed(manager.userId,manager.employeeId);
+  const detail = await member.describe(table.id);
+  const type = detail.fields.find(f=>(f.options as {businessKey?:string}).businessKey==='caseType')!;
+  assert.equal(type.writable,true);
+  assert.equal(detail.access.add,true);
+  assert.equal((await member.query(table.id,{})).records.find(r=>r.id===assigned.id)?.writable,true);
+  await member.saveRecord(table.id,assigned.id,{schemaVersion:detail.table.schemaVersion,version:1,values:{[type.id]:'劳动争议'}},key());
+  assert.equal((await db.case.findUniqueOrThrow({where:{id:assigned.id}})).caseType,'劳动争议');
+  await assert.rejects(member.saveRecord(table.id,unrelated.id,{schemaVersion:detail.table.schemaVersion,version:1,values:{[type.id]:'无权修改'}},key()));
+  await assert.rejects(member.saveRecord(table.id,assigned.id,{schemaVersion:detail.table.schemaVersion,version:2,archived:true},key()));
+  await assert.rejects(services(raw).cases.updateCase(assigned.id,{version:2,caseType:'无权修改'}));
+  const {default: middleware} = await import('../../app/middleware/worksheetAuthorization');
+  const ctx = {method:'POST',path:'/api/v1/cases',prisma:db,state:{authorization:raw},request:{body:{worksheetId:table.id}}};
+  await middleware()(ctx as never,async()=>undefined);
+  assert.equal(ctx.state.authorization.permissionCodes.includes('case.create'),true);
+  const created = await services(ctx.state.authorization).cases.createCase({worksheetId:table.id,
+    customerId,branchId:org,lawyerId:staff.employeeId!,caseType:'民事'});
+  assert.equal(created.createdBy,staff.userId);
+  const globalCtx = {...ctx,path:'/api/v1/cases/existing',state:{authorization:raw}};
+  await middleware()(globalCtx as never,async()=>undefined);
+  assert.equal(globalCtx.state.authorization.permissionCodes.includes('case.create'),false);
+  await assert.rejects(middleware()({...ctx,path:'/api/v1/cases/conflict-screen',state:{authorization:raw},
+    request:{body:{worksheetId:table.id,id:unrelated.id}}} as never,async()=>undefined));
+  await db.worksheetRolePolicy.update({where:{tableId:table.id},data:{rules:{EDITOR:{...defaultRule('READER'),business:{permissions:['case.read'],scopeIds:['worksheet:self']}}}}});
+  await assert.rejects(middleware()({...ctx,state:{authorization:raw}} as never,async()=>undefined));
+  const revoked = new CollaborationService(db,await worksheetContext(db,raw,table.id));
+  assert.equal((await revoked.query(table.id,{})).records[0].writable,false);
+  await assert.rejects(revoked.saveRecord(table.id,assigned.id,{schemaVersion:detail.table.schemaVersion,version:2,values:{[type.id]:'撤销后不可编辑'}},key()));
+});

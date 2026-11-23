@@ -3358,7 +3358,7 @@ export class CollaborationService {
           }
           let version = core.version;
           if (Object.keys(update).length > 1) {
-            const saved = await service.updateCase(recordId, update as unknown as UpdateCaseInput, tx, access.organizationId);
+            const saved = await service.updateCase(recordId, update as unknown as UpdateCaseInput, tx, access.organizationId, true);
             version = saved.version;
           }
           let combined = version + (extension?.version ?? 0);

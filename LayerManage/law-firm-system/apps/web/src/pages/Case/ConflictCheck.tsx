@@ -5,13 +5,13 @@ import type { ApiResponse } from '@/types';
 
 export type ConflictResult = { level: 'GREEN' | 'YELLOW' | 'RED'; count: number; sameRegion: number; fingerprint: string };
 
-export default function ConflictCheck({ id, linked }: { id?: string; linked: boolean }) {
+export default function ConflictCheck({ id, linked, worksheetId }: { id?: string; linked: boolean; worksheetId?: string }) {
   const form = Form.useFormInstance();
   const customerId = Form.useWatch('customerId', form);
   const opponent = Form.useWatch(['intakeData','opposingParty'], form);
   const region = Form.useWatch(['intakeData','region'], form);
   const phone = Form.useWatch(['intakeData','customerPhone'], form);
-  const queryKey = JSON.stringify([id, customerId, opponent, region, phone, linked]);
+  const queryKey = JSON.stringify([id, worksheetId, customerId, opponent, region, phone, linked]);
   const [response, setResponse] = useState<{ key: string; result?: ConflictResult; error?: boolean }>();
   const result = response?.key === queryKey ? response.result : undefined;
   const error = response?.key === queryKey && !!response.error;
@@ -20,7 +20,7 @@ export default function ConflictCheck({ id, linked }: { id?: string; linked: boo
     form.setFieldValue('conflictReview', undefined);
     if (!customerId) return;
     const timer = window.setTimeout(() => {
-      void request.post<ApiResponse<ConflictResult>>('/v1/cases/conflict-screen', { id, customerId, linked,
+      void request.post<ApiResponse<ConflictResult>>('/v1/cases/conflict-screen', { id, worksheetId, customerId, linked,
         intakeData: { opposingParty: opponent, ...(!linked && { region, customerPhone: phone }) } })
         .then(({data}) => { if (active) {
           setResponse({ key: queryKey, result: data });
@@ -28,7 +28,7 @@ export default function ConflictCheck({ id, linked }: { id?: string; linked: boo
         } }).catch(() => { if (active) setResponse({ key: queryKey, error: true }); });
     }, 300);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [form, customerId, opponent, region, phone, linked, id, queryKey]);
+  }, [form, customerId, opponent, region, phone, linked, id, worksheetId, queryKey]);
   if (!customerId) return null;
   return <ConflictResultFields result={result} error={error}/>;
 }

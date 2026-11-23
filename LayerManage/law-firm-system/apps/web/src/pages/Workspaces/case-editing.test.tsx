@@ -37,7 +37,7 @@ test.each(['NEGOTIATIONS', 'CUSTOMERS', 'CASES', 'CONTRACTS', 'CUSTOM'])(
         return { users: [], employees: [], organizations: [], teams: [] } as never;
       if (url === '/bases/b/tables')
         return { base: { id: 'b', name: '工作区' }, access, tables: [table] } as never;
-      if (url === '/tables/t') return detail as never;
+      if (url === '/tables/t') return structuredClone(detail) as never;
       throw new Error(url);
     });
     vi.mocked(post).mockResolvedValue({ records: [], total: 0, groups: [] });
@@ -60,6 +60,8 @@ test.each(['NEGOTIATIONS', 'CUSTOMERS', 'CASES', 'CONTRACTS', 'CUSTOM'])(
       const notify = vi.mocked(streamEvents).mock.calls[0][2];
       const count = () => vi.mocked(get).mock.calls.filter(([url]) => url === '/tables/t').length;
       const baseline = count();
+      const queries = () => vi.mocked(post).mock.calls.filter(([url]) => url === '/tables/t/records/query').length;
+      const queryBaseline = queries();
       vi.useFakeTimers();
       await act(async () => {
         notify('ready', {});
@@ -69,6 +71,8 @@ test.each(['NEGOTIATIONS', 'CUSTOMERS', 'CASES', 'CONTRACTS', 'CUSTOM'])(
       expect(count()).toBe(baseline);
       await act(async () => { await vi.advanceTimersByTimeAsync(1); });
       expect(count()).toBe(baseline + 1);
+      expect(queries()).toBe(queryBaseline + 1);
+      expect(screen.getByRole('tab', { name: '总表' })).toBeInTheDocument();
       await act(async () => { notify('invalidate', {kind:'access.updated'}); });
       expect(count()).toBe(baseline + 2);
       vi.useRealTimers();
@@ -188,4 +192,22 @@ test.each(['CASES', 'CONTRACTS', 'FOLLOWS'])('%s detail keeps edited core-field 
     '/tables/t/records/r', { archived: true, version: 4, schemaVersion: 1 }, expect.any(String),
   ));
 
+});
+
+
+test.each([true, false])('case create button honors worksheet-scoped create permission: %s', async (allowed) => {
+  const table = { id: 't', baseId: 'b', name: '案件表', source: 'CASES', schemaVersion: 1, archived: false };
+  const access = { level: 2, add: true, hidden: [], readonly: [] };
+  vi.mocked(get).mockImplementation(async (url) => {
+    if (url === '/workspaces') return { workspaces: [], canCreate: false } as never;
+    if (url.startsWith('/collaboration/options')) return {users:[],employees:[],organizations:[],teams:[]} as never;
+    if (url === '/bases/b/tables') return {base:{id:'b',name:'案件'},access,tables:[table]} as never;
+    if (url === '/tables/t') return {table,access,fields:[],businessPermissions:allowed?['case.read','case.create','case.update']:['case.read'],
+      views:[{id:'v',name:'总表',type:'GRID',shared:true,isDefault:true,version:1,config:{}}]} as never;
+    throw new Error(url);
+  });
+  vi.mocked(post).mockResolvedValue({records:[],total:0,groups:[]});
+  render(<MemoryRouter initialEntries={['/cases?base=b&table=t']}><WorkspaceEditor businessMode /></MemoryRouter>);
+  const button = await screen.findByRole('button',{name:/新建案件/});
+  if (allowed) expect(button).toBeEnabled(); else expect(button).toBeDisabled();
 });

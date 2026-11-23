@@ -164,7 +164,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   const [editingLoading, setEditingLoading] = useState<string>();
   const [deleting, setDeleting] = useState<string>();
 
-  const canCreate = useAuthStore((state) => state.hasPermission('case.create'));
+  const canCreateGlobal = useAuthStore((state) => state.hasPermission('case.create'));
   const canUpdate = useAuthStore((state) => state.hasPermission('case.update'));
   const canDelete = useAuthStore((state) => state.hasPermission('case.delete'));
   const canClose = useAuthStore((state) => state.hasPermission('case.close'));
@@ -177,6 +177,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   const [worksheetResult,setWorksheetResult] = useState<{ tableId: string; data?: TableDetail; error?: string }>();
   const worksheet = worksheetResult?.tableId === sourceTable ? worksheetResult.data : undefined;
   const worksheetError = worksheetResult?.tableId === sourceTable ? worksheetResult.error ?? '' : '';
+  const canCreate = sourceTable ? !!worksheet?.businessPermissions?.includes('case.create') : canCreateGlobal;
   const [screenRevision,setScreenRevision]=useState(0);
   useEffect(()=>{
     if (!sourceTable) return;
@@ -936,7 +937,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
               <FieldInput field={f} tableId={worksheet.table.id} directory={directory || {organizations:[],employees:[],teams:[],users:[]}}
                 value={undefined} onChange={()=>undefined}/>
             </Form.Item>)}
-          <ConflictCheck key={screenRevision} id={editingCase?.id} linked={Boolean(linkedIntakeContractId)} />
+          <ConflictCheck worksheetId={!editingCase ? sourceTable ?? undefined : undefined} key={screenRevision} id={editingCase?.id} linked={Boolean(linkedIntakeContractId)} />
           <Divider titlePlacement="left">附件</Divider>
           <p style={{ color: '#666' }}>
             支持图片、PDF、Word、Excel等常用文件，总计不超过10MB。保存案件时一并上传。
