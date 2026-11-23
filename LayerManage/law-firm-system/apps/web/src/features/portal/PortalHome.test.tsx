@@ -6,7 +6,10 @@ import { useAuthStore } from '@/stores/authStore';
 import PortalHome from './PortalHome';
 import PortalAdmin from './PortalAdmin';
 import { blank, type Feed } from './types';
-vi.mock('@/features/workspaces/api', () => ({ get: vi.fn(), authenticatedFetch: vi.fn() }));
+vi.mock('@/features/workspaces/api', () => ({
+  get: vi.fn(),
+  authenticatedFetch: vi.fn(),
+}));
 const feed: Feed = {
   teams: [{ id: 'T', name: '办案一组', description: '法律服务' }],
   people: ['甲', '乙'].map((n) => ({
@@ -67,4 +70,63 @@ test('the maintenance page checks the super administrator role before fetching d
   );
   expect(screen.getByText('仅超级管理员可以维护首页')).toBeInTheDocument();
   expect(get).not.toHaveBeenCalled();
+});
+
+test('a large lawyer directory shows five portraits, moves one at a time and searches the whole roster', async () => {
+  const originalObserver = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    callback: ResizeObserverCallback;
+    constructor(callback: ResizeObserverCallback) {
+      this.callback = callback;
+    }
+    observe(element: Element) {
+      if (element.classList.contains('portal-lawyer-slider')) {
+        this.callback(
+          [
+            {
+              target: element,
+              contentRect: { width: 800 },
+            } as ResizeObserverEntry,
+          ],
+          this,
+        );
+      }
+    }
+    unobserve() {}
+    disconnect() {}
+  };
+  vi.mocked(get).mockResolvedValue({
+    ...feed,
+    people: Array.from({ length: 100 }, (_, i) => ({
+      ...feed.people[0],
+      id: String(i),
+      name: `律师${String(i + 1).padStart(3, '0')}`,
+    })),
+  });
+  try {
+    const { container } = render(
+      <MemoryRouter>
+        <PortalHome />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('共 100 位 · 同时展示 5 位')).toBeInTheDocument();
+    const activeNames = () =>
+      Array.from(container.querySelectorAll('.portal-lawyer-slider .slick-active strong')).map(
+        (e) => e.textContent,
+      );
+    expect(activeNames()).toEqual(['律师001', '律师002', '律师003', '律师004', '律师005']);
+    fireEvent.click(screen.getByRole('button', { name: '下一位' }));
+    await vi.waitFor(() =>
+      expect(activeNames()).toEqual(['律师002', '律师003', '律师004', '律师005', '律师006']),
+    );
+    fireEvent.click(screen.getByRole('button', { name: '查看全部' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索展示资料' }), {
+      target: { value: '律师100' },
+    });
+    expect(screen.getByText('共 1 项')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /律师100/ }));
+    expect(screen.getAllByRole('dialog').some((e) => e.textContent?.includes('专业方向 · 民事'))).toBe(true);
+  } finally {
+    globalThis.ResizeObserver = originalObserver;
+  }
 });

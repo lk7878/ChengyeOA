@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Carousel, Segmented, Space, Spin, message } from 'antd';
+import { Alert, Button, Carousel, Input, Segmented, Space, Spin, message } from 'antd';
 import type { CarouselRef } from 'antd/es/carousel';
 import { Link, useSearchParams } from 'react-router';
 import Modal from '@/components/DraggableModal';
@@ -13,9 +13,25 @@ import './portal.css';
 
 function Photo({ card, external = false }: { card: Card; external?: boolean }) {
   const source = card.imageUrl || (card.image && assetUrl(card, card.image, external));
+  const photo = useRef<HTMLImageElement & HTMLDivElement>(null);
+  const [visible, setVisible] = useState(() => typeof IntersectionObserver === 'undefined');
+  useEffect(() => {
+    if (!photo.current || visible) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '120px' },
+    );
+    observer.observe(photo.current);
+    return () => observer.disconnect();
+  }, [visible]);
   const [loaded, setLoaded] = useState<{ source: string; url: string }>();
   useEffect(() => {
-    if (!source || external || inPreviewFrame) return;
+    if (!source || !visible || external || inPreviewFrame) return;
     let url = '';
     const controller = new AbortController();
     void authenticatedFetch(source, controller.signal)
@@ -32,12 +48,18 @@ function Photo({ card, external = false }: { card: Card; external?: boolean }) {
       controller.abort();
       if (url) URL.revokeObjectURL(url);
     };
-  }, [source, external]);
+  }, [source, external, visible]);
   const src = external ? source : loaded?.source === source ? loaded?.url : undefined;
   return src ? (
-    <img className="portal-photo" src={src} alt={card.caption || card.personName || card.title} />
+    <img
+      ref={photo}
+      loading="lazy"
+      className="portal-photo"
+      src={src}
+      alt={card.caption || card.personName || card.title}
+    />
   ) : (
-    <div className="portal-monogram" aria-hidden="true">
+    <div ref={photo} className="portal-monogram" aria-hidden="true">
       {(card.personName || card.title).slice(0, 1)}
     </div>
   );
@@ -95,18 +117,48 @@ export function Article({ card, external = false }: { card: Card; external?: boo
   );
 }
 
-function Slider({ cards, external, open }: { cards: Card[]; external: boolean; open: (c: Card) => void }) {
+function Slider({
+  cards,
+  external,
+  open,
+  multiple = false,
+  suspended = false,
+}: {
+  cards: Card[];
+  external: boolean;
+  open: (c: Card) => void;
+  multiple?: boolean;
+  suspended?: boolean;
+}) {
   const slider = useRef<CarouselRef>(null);
+  const container = useRef<HTMLDivElement>(null);
+  const [capacity, setCapacity] = useState(1);
+  useEffect(() => {
+    if (!multiple || !container.current) return;
+    const resize = (width: number) => {
+      setCapacity(width >= 720 ? 5 : width >= 540 ? 3 : width >= 340 ? 2 : 1);
+    };
+    resize(container.current.getBoundingClientRect().width);
+    const observer = new ResizeObserver(([entry]) => resize(entry.contentRect.width));
+    observer.observe(container.current);
+    return () => observer.disconnect();
+  }, [multiple]);
   const [paused, setPaused] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [index, setIndex] = useState(0);
+  const count = multiple ? capacity : 1;
+  const cycling = cards.length > count;
   if (!cards.length) return <p className="portal-empty">暂无展示资料</p>;
   return (
-    <div className="portal-slider">
+    <div ref={container} className={multiple ? 'portal-slider portal-lawyer-slider' : 'portal-slider'}>
       <Carousel
         ref={slider}
         dots={false}
-        autoplay={!paused && cards.length > 1}
-        autoplaySpeed={6500}
+        slidesToShow={count}
+        slidesToScroll={1}
+        infinite={cycling}
+        lazyLoad="ondemand"
+        autoplay={!paused && !suspended && cycling}
+        autoplaySpeed={multiple ? 5000 : 6500}
         pauseOnFocus
         pauseOnHover
         draggable
@@ -117,7 +169,7 @@ function Slider({ cards, external, open }: { cards: Card[]; external: boolean; o
           <div key={c.id}>
             <button className="portal-person" onClick={() => open(c)}>
               <Photo card={c} external={external} />
-              <span>
+              <span className="portal-person-info">
                 <strong>{c.title}</strong>
                 <small>{[c.period, c.subtitle].filter(Boolean).join(' · ')}</small>
                 <span className="portal-excerpt">{c.body}</span>
@@ -126,20 +178,26 @@ function Slider({ cards, external, open }: { cards: Card[]; external: boolean; o
           </div>
         ))}
       </Carousel>
-      {cards.length > 1 && (
+      {(multiple || cycling) && (
         <div className="portal-controls">
           <span>
-            {index + 1} / {cards.length}
+            {multiple
+              ? `共 ${cards.length} 位 · 同时展示 ${Math.min(count, cards.length)} 位`
+              : `${index + 1} / ${cards.length}`}
           </span>
-          <Button size="small" aria-label="上一位" onClick={() => slider.current?.prev()}>
-            ←
-          </Button>
-          <Button size="small" onClick={() => setPaused(!paused)}>
-            {paused ? '播放' : '暂停'}
-          </Button>
-          <Button size="small" aria-label="下一位" onClick={() => slider.current?.next()}>
-            →
-          </Button>
+          {cycling && (
+            <>
+              <Button size="small" aria-label="上一位" onClick={() => slider.current?.prev()}>
+                ←
+              </Button>
+              <Button size="small" onClick={() => setPaused(!paused)}>
+                {paused ? '播放' : '暂停'}
+              </Button>
+              <Button size="small" aria-label="下一位" onClick={() => slider.current?.next()}>
+                →
+              </Button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -164,8 +222,8 @@ function directory(feed: Feed) {
         personName: p.name,
         subtitle: [...new Set([employeeTypeLabel(p.type), ...p.positions])].join(' · '),
         body: [
-          profile?.body,
           p.directions.length ? '专业方向 · ' + p.directions.join('、') : '',
+          profile?.body,
           feed.teams
             .filter((t) => p.teams.includes(t.id))
             .map((t) => t.name)
@@ -208,6 +266,7 @@ export default function PortalHome({ external = false }: { external?: boolean })
   const [params, setParams] = useSearchParams();
   const [list, setList] = useState<{ title: string; cards: Card[] }>(),
     [category, switchTo] = useState('律师');
+  const [directorySearch, setDirectorySearch] = useState('');
   useEffect(() => {
     let current = true;
     const read = external
@@ -239,7 +298,11 @@ export default function PortalHome({ external = false }: { external?: boolean })
   const { lawyers, teams } = directory(feed);
   const people = external ? by('LAWYER') : lawyers,
     groups = external ? by('TEAM') : teams;
-  const honors = by('HONOR').map((c) => ({ ...c, subtitle: c.title, title: c.personName }));
+  const honors = by('HONOR').map((c) => ({
+    ...c,
+    subtitle: c.title,
+    title: c.personName,
+  }));
   const selected = params.get('article');
   const detail = selected
     ? [...people, ...groups, ...honors, ...feed.entries].find((c) => c.id === selected)
@@ -252,7 +315,18 @@ export default function PortalHome({ external = false }: { external?: boolean })
   }
   const about = [...by('INTRO'), ...by('CULTURE'), ...by('HISTORY')],
     intro = about[0];
-  const showAll = (title: string, cards: Card[]) => setList({ title, cards });
+  const showAll = (title: string, cards: Card[]) => {
+    setDirectorySearch('');
+    setList({ title, cards });
+  };
+  const matchingCards =
+    list?.cards.filter((c) =>
+      [c.title, c.personName, c.subtitle, c.body]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(directorySearch.trim().toLocaleLowerCase()),
+    ) || [];
   function panel(kind: Kind, limit: number) {
     const cards = by(kind);
     if (external && !cards.length) return null;
@@ -320,6 +394,8 @@ export default function PortalHome({ external = false }: { external?: boolean })
             <Segmented options={['律师', '团队']} value={category} onChange={switchTo} />
             <Slider
               key={category}
+              multiple={category === '律师'}
+              suspended={Boolean(detail || list)}
               cards={category === '律师' ? people : groups}
               external={external}
               open={open}
@@ -334,7 +410,7 @@ export default function PortalHome({ external = false }: { external?: boolean })
                 <button onClick={() => showAll('优秀员工', by('HONOR'))}>查看全部</button>
               )}
             </header>
-            <Slider cards={honors} external={false} open={open} />
+            <Slider cards={honors} external={false} open={open} suspended={Boolean(detail || list)} />
           </section>
         )}
         {panel('CASE', 4)}
@@ -374,13 +450,24 @@ export default function PortalHome({ external = false }: { external?: boolean })
       )}
       {list && (
         <Modal open title={list.title} footer={null} onCancel={() => setList(undefined)}>
-          {list.cards.length === 0 && <p>暂无展示资料</p>}
-          {list.cards.map((c) => (
-            <button className="portal-choice" key={c.id} onClick={() => open(c)}>
-              {c.title}
-              {c.personName && c.personName !== c.title ? ' · ' + c.personName : ''}
-            </button>
-          ))}
+          <Input
+            aria-label="搜索展示资料"
+            placeholder={list.title === '律师' ? '搜索姓名、专业方向或所属团队' : '搜索名称或简介'}
+            allowClear
+            value={directorySearch}
+            onChange={(e) => setDirectorySearch(e.target.value)}
+          />
+          <p className="portal-meta">共 {matchingCards.length} 项</p>
+          {matchingCards.length === 0 && <p>暂无匹配资料</p>}
+          <div className="portal-directory-results">
+            {matchingCards.map((c) => (
+              <button className="portal-choice" key={c.id} onClick={() => open(c)}>
+                {c.title}
+                {c.personName && c.personName !== c.title ? ' · ' + c.personName : ''}
+                {list.title === '律师' && <small className="portal-meta">{c.subtitle}</small>}
+              </button>
+            ))}
+          </div>
         </Modal>
       )}
       {detail && (

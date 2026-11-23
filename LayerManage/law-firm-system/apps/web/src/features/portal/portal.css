@@ -443,3 +443,51 @@ html[data-oa-color-mode='dark'] .portal-monogram {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Multiple lawyer portraits keep the directory compact at every container width. */
+.portal-lawyer-slider .slick-track {
+  margin-left: 0;
+}
+.portal-lawyer-slider .slick-slide > div {
+  padding: 0 8px;
+}
+.portal-people .portal-lawyer-slider .portal-person {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 18px 0 6px;
+}
+.portal-lawyer-slider .portal-person > .portal-photo,
+.portal-lawyer-slider .portal-person > .portal-monogram {
+  height: auto;
+  aspect-ratio: 3 / 4;
+  max-height: 230px;
+  object-position: center 20%;
+}
+.portal-lawyer-slider .portal-person-info {
+  display: block;
+  min-width: 0;
+}
+.portal-lawyer-slider .portal-person strong {
+  font-size: 18px;
+}
+.portal-lawyer-slider .portal-person small {
+  min-height: 36px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.5;
+}
+.portal-lawyer-slider .portal-excerpt {
+  -webkit-line-clamp: 2;
+  min-height: 44px;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.portal-directory-results {
+  max-height: 60vh;
+  overflow-y: auto;
+}
