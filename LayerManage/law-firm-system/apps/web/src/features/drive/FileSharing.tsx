@@ -245,11 +245,6 @@ export default function FileSharing({
                 返回原文件 / 文件夹
               </Button>
             )}
-            <Alert
-              type="info"
-              title="撤销直接分享不会自动移除部门、角色或上级文件夹赋予的权限。"
-              description="文件夹撤销会影响依赖该授权的下级内容；已下载的副本无法收回。人员名单按当前有效账号、角色和部门关系计算。"
-            />
             <h3>添加分享对象</h3>
             <Select
               aria-label="搜索分享对象"
