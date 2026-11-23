@@ -4,7 +4,7 @@ import FilePreviewButton from '@/features/files/FilePreviewButton';
 import {useAuthStore} from '@/stores/authStore';
 import {uploadFile,downloadVersion,versionUrl} from './file-transfer';
 import { useCallback,useEffect,useRef,useState } from 'react';
-import { Alert,Button,Dropdown,Input,Space,Table,message } from 'antd';
+import { Alert,Button,Dropdown,Input,Space,Table,message,theme } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
 import ResizableTable from '@/components/ResizableTable';
 import Modal from '@/components/DraggableModal';
@@ -12,6 +12,8 @@ import {get,post,patch,errorMessage} from '../workspaces/api';
 type Item={id:string;name:string;kind:string;size:number;level:number;version:number;contentVersion:number;parentId:string|null;sharingState?:'direct'|'inherited'|'private'};
 type TrashItem={id:string;name:string;version:number;deletedAt:string;purging?:boolean};
 export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
+  const {token}=theme.useToken();
+  const sharingStatusStyle={fontSize:token.fontSizeSM,color:token.colorTextSecondary,fontWeight:400,lineHeight:1.5,height:'auto',paddingBlock:0};
   const authorization=useAuthStore(s=>s.authorization);
   const [parentId,setParent]=useState<string>(),[data,setData]=useState<{items:Item[];path:{id:string;name:string}[];canUpload:boolean}>(),[error,setError]=useState(''),[busy,setBusy]=useState(false),[revision,bump]=useState(0);
   const [sharingId,setSharingId]=useState<string>();
@@ -71,7 +73,8 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
     {Object.entries(progress).map(([file,state])=><p key={file}>{file}：{state}</p>)}
     {failed.length>0&&<Button disabled={busy} onClick={()=>void upload(failed)}>重试失败文件（续传）</Button>}
     <ResizableTable<Item> columnWidthsKey={`personal-files:${authorization?.userId??'anonymous'}:${scope}`} style={{marginTop:12}} rowKey="id" dataSource={data?.items??[]} pagination={{pageSize:10}} rowSelection={{columnWidth:48,selectedRowKeys:selected,onChange:keys=>setSelected(keys.map(String)),getCheckboxProps:r=>({disabled:busy||r.kind!=='FILE'||r.level<3})}} columns={[
-      {title:'文件名称',dataIndex:'name',width:320,render:(_,r)=><div>{r.kind==='FOLDER'?<Button type="link" onClick={()=>setParent(r.id)}>📁 {r.name}</Button>:<FilePreviewButton link url={versionUrl(r.id,r.contentVersion)} name={r.name}>{r.name}</FilePreviewButton>}<div>{r.level>=3?<Button size="small" type="link" aria-label={r.name+'的分享管理'} onClick={()=>setSharingId(r.id)}>{r.sharingState==='inherited'?'继承文件夹分享':r.sharingState==='direct'?'已分享':'未分享'}</Button>:<small>{r.sharingState==='inherited'?'继承文件夹分享':r.sharingState==='direct'?'已分享':''}</small>}</div></div>},
+      {title:'文件名称',dataIndex:'name',width:320,render:(_,r)=>r.kind==='FOLDER'?<Button type="link" onClick={()=>setParent(r.id)}>📁 {r.name}</Button>:<FilePreviewButton link url={versionUrl(r.id,r.contentVersion)} name={r.name}>{r.name}</FilePreviewButton>},
+      {title:'分享状态',key:'sharingState',width:150,render:(_,r)=>r.level>=3?<Button size="small" type="link" style={sharingStatusStyle} aria-label={r.name+'的分享管理'} onClick={()=>setSharingId(r.id)}>{r.sharingState==='inherited'?'继承文件夹分享':r.sharingState==='direct'?'已分享':'未分享'}</Button>:<small style={sharingStatusStyle}>{r.sharingState==='inherited'?'继承文件夹分享':r.sharingState==='direct'?'已分享':'未分享'}</small>},
       {title:'权限',key:'permission',width:90,render:(_,r)=>['无权限','只读','编辑','管理'][r.level]},
       {title:'大小',key:'size',width:120,render:(_,r)=>Math.ceil(r.size/1024)+' KB'},
       {title:'操作',key:'actions',width:242,render:(_,r)=><Space wrap>
