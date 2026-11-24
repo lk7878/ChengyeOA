@@ -1,3 +1,5 @@
+import { fieldProtection, fieldStopped, presentedField } from './field-management-policy';
+import { fieldDependencies } from './field-dependencies';
 import { assertRegistrationEditable } from '../case/registration-policy';
 import { assignmentCandidates, assignmentOrganizations, assignmentPredicate, isProspectAssignee, isProspectTable, prospectField, resolveAssignment, validateAssignmentConfig, type ProspectAssignment } from './prospect-assignment';
 import { syncCustomerSource } from './customer-source-routing';
@@ -679,6 +681,7 @@ export class CollaborationService {
     payload: unknown,
     callback: (tx: Tx) => Promise<T>,
     transaction?: Tx,
+    isolationLevel?: Prisma.TransactionIsolationLevel,
   ): Promise<T> {
     if (transaction) return callback(transaction);
     const mutationKey = text(key, 120);
@@ -702,9 +705,11 @@ export class CollaborationService {
           });
           return result;
         },
-        { timeout: 15000 },
+        { timeout: 15000, ...(isolationLevel ? { isolationLevel } : {}) },
       );
     } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034')
+        fail('COLLAB_SCHEMA_CONFLICT', 409);
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')
         fail('COLLAB_NAME_OR_ID_CONFLICT', 409);
       throw error;
@@ -1522,7 +1527,7 @@ export class CollaborationService {
           (table.source === 'FOLLOWS' && this.actor.permissionCodes.includes('lead.follow.delete'))),
       access: publicAccess(access),
       canCreateBusiness: await this.canCreateBusiness(table, access, fields),
-      fields: fields.map((f) => ({
+      fields: fields.filter(f => !fieldStopped(f)).map(presentedField).map((f) => ({
         ...f,
         ...(isProspectAssignee(f) && access.prospectAssignment ? {options:{...object(f.options),assignmentOrganizationId:access.prospectAssignment.organizationId,choices:access.prospectAssignment.candidates}} : {}),
         ...(table.source === 'FOLLOWS' && object(f.options).businessKey === 'type'
@@ -1751,7 +1756,7 @@ export class CollaborationService {
       if (table.schemaVersion !== integer(input.version)) fail('COLLAB_SCHEMA_CONFLICT', 409);
       const previous = fieldId ? table.fields.find((f) => f.id === fieldId) : undefined;
       if (fieldId && !previous) fail('COLLAB_NOT_FOUND', 404);
-      if (fieldId && !fields.some((f) => f.id === fieldId)) fail('COLLAB_FORBIDDEN', 403);
+      if (fieldId && !fields.some((f) => f.id === fieldId) && !(input.archived === false && previous?.archived && !initial.access.hidden.includes(fieldId))) fail('COLLAB_FORBIDDEN', 403);
       if (previous && (object(previous.options).businessKey || object(previous.options).customerRouteKey || lifecycleKey(previous))) fail('COLLAB_USE_BUSINESS_ACTION', 409);
       const assignmentField = !!previous && isProspectAssignee(previous) || isProspectTable(table) && text(input.name ?? previous?.name) === '跟进人';
       const type = assignmentField ? 'USER' : choice(input.type ?? previous?.type, FIELD_TYPES);
@@ -1806,6 +1811,8 @@ export class CollaborationService {
         if (target.access.workspaceId !== initial.access.workspaceId) fail('COLLAB_CROSS_WORKSPACE_RELATION');
       }
       if (input.archived === true && previous) {
+        if (fieldProtection(previous).core || fieldProtection(previous).system) fail('COLLAB_FIELD_PROTECTED', 409);
+        if ((await fieldDependencies(tx, tableId, previous)).length) fail('COLLAB_REFERENCED_FIELD', 409);
         if (previous.position === 0) fail('COLLAB_TITLE_FIELD_REQUIRED', 409);
         const views = await tx.collabView.findMany({ where: { tableId } });
         if (

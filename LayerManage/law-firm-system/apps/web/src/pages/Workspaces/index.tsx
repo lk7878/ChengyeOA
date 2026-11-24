@@ -1,3 +1,4 @@
+import { FieldManagement } from '@/features/workspaces/FieldManagement';
 import CaseRegistration from '@/features/workspaces/CaseRegistration';
 import MoveTable from '@/features/workspaces/MoveTable';
 import BulkTransfer from '@/features/workspaces/BulkTransfer';
@@ -1391,9 +1392,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                                 className="workspace-field-heading"
                                 title={fieldHint(f)}
                                 onClick={() =>
-                                  canManage &&
-                                  !f.options.businessKey &&
-                                  openDialog({ kind: 'field', field: f })
+                                  canManage && setSettings('fields')
                                 }
                               >
                                 {fieldLabel(f)}
@@ -1575,59 +1574,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
         size={520}
       >
         {settings === 'fields' ? (
-          <Space orientation="vertical" style={{ width: '100%' }}>
-            <Button type="primary" disabled={!canManage} onClick={() => openDialog({ kind: 'field' })}>
-              ＋新增字段
-            </Button>
-            {fields.map((f) => (
-              <div key={f.id} className="workspace-field-row">
-                <span>
-                  {f.name}
-                  <small>
-                    {fieldNames[f.type] || f.type}
-                    {detail?.table.source !== 'CUSTOM'
-                      ? f.options.businessKey
-                        ? ' · 业务字段（只读）'
-                        : ' · 扩展字段'
-                      : ''}
-                  </small>
-                </span>
-                <Space>
-                  <Button
-                    disabled={!canManage || !!f.options.businessKey}
-                    onClick={() => openDialog({ kind: 'field', field: f })}
-                  >
-                    配置
-                  </Button>
-                  <Button
-                    danger
-                    disabled={!canManage || f.position === 0 || !!f.options.businessKey || !!f.options.prospectAssignee}
-                    onClick={() =>
-                      Modal.confirm({
-                        okText: '确定',
-                        cancelText: '取消',
-                        title: '归档字段 ' + f.name + '？',
-                        content: '已有值保留，依赖此字段的筛选和分组需先移除。',
-                        onOk: async () => {
-                          try {
-                            await patch('/tables/' + tableId + '/fields/' + f.id, {
-                              version: detail?.table.schemaVersion,
-                              archived: true,
-                            });
-                            refresh();
-                          } catch (e) {
-                            message.error(errorMessage(e));
-                          }
-                        },
-                      })
-                    }
-                  >
-                    归档
-                  </Button>
-                </Space>
-              </div>
-            ))}
-          </Space>
+          <FieldManagement tableId={tableId!} version={detail?.table.schemaVersion ?? 0} canManage={canManage}
+            onCreate={() => openDialog({ kind: 'field' })} onEdit={field => openDialog({ kind: 'field', field })} onChanged={refresh} />
         ) : settings === 'filter' ? (
           <FilterEditor
             fields={fields.filter((f) => f.queryable !== false)}

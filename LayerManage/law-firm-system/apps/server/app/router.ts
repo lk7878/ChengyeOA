@@ -108,6 +108,9 @@ export default (app: Application) => {
   router.patch('/api/v1/tables/:tableId', controller.collaboration.mutateTable);
   router.post('/api/v1/tables/:tableId/fields', controller.collaboration.field);
   router.patch('/api/v1/tables/:tableId/fields/:fieldId', controller.collaboration.field);
+  router.get('/api/v1/tables/:tableId/field-management', controller.collaboration.managedFields);
+  router.get('/api/v1/tables/:tableId/fields/:fieldId/removal-preview', controller.collaboration.previewFieldRemoval);
+  router.post('/api/v1/tables/:tableId/fields/:fieldId/manage', controller.collaboration.changeField);
   router.post('/api/v1/tables/:tableId/views', controller.collaboration.view);
   router.patch('/api/v1/tables/:tableId/views/:viewId', controller.collaboration.view);
   router.get('/api/v1/collaboration/contract-choices', controller.collaboration.contractChoices);

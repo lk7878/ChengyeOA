@@ -20,13 +20,16 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  COLLAB_FIELD_PROTECTED: '此字段用于标识、人员关联或业务流程，不能停用或删除；可在视图配置中隐藏。',
+  COLLAB_FIELD_DEPENDENCIES: '字段仍有依赖，或属于受保护字段。请重新核对并处理依赖后操作。',
+  COLLAB_FIELD_DELETE_CHANGED: '字段或数据范围已变化，请重新打开删除核对窗口。',
   PERSONAL_FOLDER_DOWNLOAD_FORBIDDEN: '文件夹内存在无权读取的内容，无法打包下载，请联系所有者核对分享权限。',
   PERSONAL_FOLDER_DOWNLOAD_CHANGED: '打包期间文件或权限发生变化，请重新下载。',
   PERSONAL_FOLDER_DOWNLOAD_LIMIT: '单次打包最多支持 10000 项、2 GB，请进入子文件夹分别下载。',
   PERSONAL_FOLDER_DOWNLOAD_BUSY: '当前打包任务较多，请稍后重试。',
   COLLAB_ASSIGNMENT_ORGANIZATION_IN_USE: '现有跟进人不在所选律所体系，请先处理相关客资的人员分配。',
   COLLAB_ASSIGNMENT_ORGANIZATION_FORBIDDEN: '请选择本工作区或您负责的组织。',
-  COLLAB_ASSIGNMENT_FIELD_REQUIRED: '跟进人用于客资分配和数据权限，不能归档该字段。',
+  COLLAB_ASSIGNMENT_FIELD_REQUIRED: '跟进人用于客资分配和数据权限，不能停用该字段。',
   COLLAB_ASSIGNMENT_FIELD_DUPLICATE: '本表已有跟进人分配字段，请配置现有字段。',
 
   MANAGED_ROLE_PROTECTED: '智慧办案使用者是专用角色，请通过成员分配或移除资格。',
@@ -141,7 +144,7 @@ const messages: Record<string, string> = {
   COLLAB_INVALID_NUMBER: '请输入有效数字。',
   COLLAB_REQUIRED_BACKFILL_REQUIRED: '已有记录，请先补齐数据再设置必填。',
   COLLAB_FIELD_MIGRATION_REQUIRED: '此字段已有数据，修改类型需要数据迁移。',
-  COLLAB_REFERENCED_FIELD: '字段仍被视图引用，请先调整引用。',
+  COLLAB_REFERENCED_FIELD: '字段仍被视图、公式、授权或业务规则引用，请先调整引用。',
   COLLAB_REFERENCED_TABLE: '其他数据表仍在关联此表，请先处理关联。',
   COLLAB_NOT_FOUND: '数据不存在、已归档或不在你的权限范围内。',
   COLLAB_MODULE_WORKSPACE_MISMATCH: '工作区与业务模块不匹配，请选择本模块工作区。',

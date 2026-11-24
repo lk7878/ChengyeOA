@@ -1,3 +1,4 @@
+import { FieldManagement } from '../application/collaboration/field-management';
 import { CaseRegistrationService } from '../application/case/registration-service';
 import { servePreview } from '../application/files/preview';
 import { medicalOptions, medicalCustomer } from '../application/collaboration/medical-assessment';
@@ -198,6 +199,10 @@ export default class CollaborationController extends Controller {
       ),
     );
   }
+  private fieldManagement() { return new FieldManagement(this.ctx.prisma, this.ctx.state.authorization); }
+  async managedFields() { this.respond(await this.fieldManagement().listFields(this.ctx.params.tableId)); }
+  async previewFieldRemoval() { this.respond(await this.fieldManagement().previewRemoval(this.ctx.params.tableId, this.ctx.params.fieldId, this.ctx.query.action)); }
+  async changeField() { this.respond(await this.fieldManagement().changeField(this.ctx.params.tableId, this.ctx.params.fieldId, this.ctx.request.body, this.key())); }
   async field() {
     this.respond(
       await this.collaborationService().saveField(
