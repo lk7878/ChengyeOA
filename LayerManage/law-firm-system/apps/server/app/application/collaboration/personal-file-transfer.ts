@@ -19,7 +19,7 @@ export class PersonalFileTransfer extends PersonalFiles {
     if (!Number.isSafeInteger(total) || total < 0) fail('COLLAB_INVALID_VALUE');
     const fileId = v.fileId ? text(v.fileId) : null, parentId = v.parentId ? text(v.parentId) : null;
     if (fileId) { const r = await this.require(fileId, 2); if (r.row.kind !== 'FILE' || r.row.version !== integer(v.version)) fail('COLLAB_ACCESS_CONFLICT', 409); }
-    if (parentId) { const r = await this.require(parentId, 2); if (r.row.kind !== 'FOLDER' || r.path.length >= 12) fail('COLLAB_INVALID_VALUE'); }
+    if (parentId) { const r = await this.require(parentId, 2); if (r.row.kind !== 'FOLDER' || r.depth >= 12) fail('COLLAB_INVALID_VALUE'); }
     const lineage:{fileId:string;version:number;sha256:string}[]=[];
     if(v.lineage!==undefined){if(!Array.isArray(v.lineage)||v.lineage.length>1000)fail('COLLAB_INVALID_VALUE');for(const input of v.lineage){const ref=exact(input,['fileId','version','sha256']);const source=await this.content(text(ref.fileId),integer(ref.version));if(source.sha256!==ref.sha256)fail('COLLAB_ACCESS_CONFLICT',409);lineage.push({fileId:source.fileId,version:source.version,sha256:source.sha256});}}
     const source=v.source?text(v.source,150):'upload';

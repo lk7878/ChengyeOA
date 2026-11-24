@@ -379,8 +379,8 @@ export default function FileSharing({
                 <h3>上级文件夹权限来源</h3>
                 <p>
                   {draft.restricted
-                    ? '本项已限制分享对象：上级授权仅是访问前提，仍须同时符合本项授权。'
-                    : '本项继承上级权限；直接授权不能超过上级允许的权限。'}
+                    ? '本项仅向指定对象开放；单独分享不会开放上级目录或其他文件。'
+                    : '本项可继承上级权限，也可单独分享；接收人无需获得上级目录权限。'}
                 </p>
                 {inherited.map((source) => (
                   <section key={source.id} style={{ borderTop: '1px solid #ddd', padding: '10px 0' }}>

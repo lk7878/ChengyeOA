@@ -4,9 +4,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir,readFile,writeFile,unlink,rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Prisma } from '@prisma/client';
-import { CollaborationService,Access } from './collaboration-service';
+import { CollaborationService } from './collaboration-service';
 import { exact,fail,integer,text } from './collaboration-policy';
-import { resourcePolicy,restrictResourceAccess } from './resource-access';
+import { resourcePolicy } from './resource-access';
+import { personalFileResolver } from './personal-file-access';
 const storage=()=>path.resolve(process.env.PERSONAL_FILES_STORAGE_ROOT||path.join(process.cwd(),'var/storage/personal-files'));
 const nameOf=(raw:unknown)=>{const name=text(raw,150);if(/[\\/]/.test(name)||[...name].some(c=>c.charCodeAt(0)<32)||['.','..'].includes(name))fail('COLLAB_INVALID_VALUE');return name;};
 const ownerGrant=(id:string)=>({principalType:'USER',principalId:id,role:'MANAGER',rowScope:'ALL',canCreate:true,hiddenFields:[] as string[],readonlyFields:[] as string[]});
@@ -32,15 +33,7 @@ function subtree<T extends {id:string;parentId:string|null}>(rows:T[], ids:strin
 export class PersonalFiles extends CollaborationService {
   private async snapshot(tx:Prisma.TransactionClient=this.db){
     const [rows,principals]=await Promise.all([tx.personalFile.findMany({where:{deletedAt:null}}),this.principals(tx)]);
-    const byId=new Map(rows.map(r=>[r.id,r]));
-    const root:Access={level:3,canCreate:true,canManageAccess:true,selfOnly:false,hidden:[],readonly:[],workspaceId:'personal',organizationId:null};
-    const resolve=(id:string,trail:string[]=[]):{row:typeof rows[number];access:Access;path:{id:string;name:string}[]}|null=>{
-      const row=byId.get(id);if(!row||trail.includes(id)||trail.length>12)return null;
-      const parent=row.parentId?resolve(row.parentId,[...trail,id]):null;
-      if(row.parentId&&(!parent||parent.row.kind!=='FOLDER'))return null;
-      try{const access=restrictResourceAccess(parent?.access??root,row.accessPolicy,principals);return {row,access,path:[...(parent?.path??[]),{id:row.id,name:row.name}]};}
-      catch(e){if((e as {code:string}).code!=='COLLAB_FORBIDDEN')throw e;return null;}
-    };
+    const resolve=personalFileResolver(rows,principals);
     return {rows,resolve};
   }
   protected async require(id:string,level=1,tx:Prisma.TransactionClient=this.db){const s=await this.snapshot(tx),r=s.resolve(id);if(!r||r.access.level<level)fail('COLLAB_FORBIDDEN',403);return r;}
@@ -57,7 +50,7 @@ export class PersonalFiles extends CollaborationService {
     const s=await this.snapshot();const parent=parentId?s.resolve(parentId):null;if(parentId&&(!parent||parent.row.kind!=='FOLDER'))fail('COLLAB_FORBIDDEN',403);
     return {path:parent?.path??[],canUpload:!parent||parent.access.level>=2,items:s.rows.flatMap(row=>{
       if(parentId?row.parentId!==parentId:scope==='mine'?row.ownerId!==this.actor.userId||!!row.parentId:row.ownerId===this.actor.userId)return [];
-      const v=s.resolve(row.id);return v?[{id:row.id,name:row.name,kind:row.kind,size:row.kind==='FOLDER'?s.rows.reduce((total,child)=>{const visible=child.kind==='FILE'?s.resolve(child.id):null;return total+(visible?.path.some(part=>part.id===row.id)?child.size:0);},0):row.size,contentVersion:row.contentVersion,version:row.version,parentId:row.parentId,ownerId:row.ownerId,level:v.access.level,updatedAt:row.updatedAt,sharingState:this.sharingState(v.path.map(p=>s.rows.find(r=>r.id===p.id)!))}]:[];
+      const v=s.resolve(row.id);return v?[{id:row.id,name:row.name,kind:row.kind,size:row.kind==='FOLDER'?s.rows.reduce((total,child)=>{const visible=child.kind==='FILE'?s.resolve(child.id):null;return total+(visible?.path.some(part=>part.id===row.id)?child.size:0);},0):row.size,contentVersion:row.contentVersion,version:row.version,parentId:v.path.length>1?v.path[v.path.length-2].id:null,ownerId:row.ownerId,level:v.access.level,updatedAt:row.updatedAt,sharingState:this.sharingState(v.path.map(p=>s.rows.find(r=>r.id===p.id)!))}]:[];
     }).sort((a,b)=>a.kind.localeCompare(b.kind)||a.name.localeCompare(b.name))};
   }
   async create(raw:unknown){
@@ -67,12 +60,12 @@ export class PersonalFiles extends CollaborationService {
     if(kind==='FILE'){
       const bytes=fileBytes(name,v.content);size=bytes.length;
       // Check the parent before persisting any bytes, then recheck under the tree lock.
-      if(parentId){const p=await this.require(parentId,2);if(p.row.kind!=='FOLDER'||p.path.length>=12)fail('COLLAB_INVALID_VALUE');}
+      if(parentId){const p=await this.require(parentId,2);if(p.row.kind!=='FOLDER'||p.depth>=12)fail('COLLAB_INVALID_VALUE');}
       await mkdir(storage(),{recursive:true});await writeFile(path.join(storage(),storageKey!),bytes,{flag:'wx',mode:0o600});
     }
     try{return await this.db.$transaction(async tx=>{
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('personal-files',0))`;
-      if(parentId){const p=await this.require(parentId,2,tx);if(p.row.kind!=='FOLDER'||p.path.length>=12)fail('COLLAB_INVALID_VALUE');}
+      if(parentId){const p=await this.require(parentId,2,tx);if(p.row.kind!=='FOLDER'||p.depth>=12)fail('COLLAB_INVALID_VALUE');}
       const row=await tx.personalFile.create({data:{name,kind,parentId,ownerId:this.actor.userId,storageKey,size,accessPolicy:{restricted:!parentId,grants:[ownerGrant(this.actor.userId)]}}});
       await tx.operationLog.create({data:{userId:this.actor.userId,action:'PERSONAL_FILE_CREATE',targetType:'PERSONAL_FILE',targetId:row.id,newValues:JSON.stringify({kind,parentId,size})}});
       return {id:row.id};
@@ -129,7 +122,7 @@ export class PersonalFiles extends CollaborationService {
     return shared ? inherited ? 'inherited' : 'direct' : 'private';
   }
   private async sharingReport(id: string, path: {id:string;name:string}[]) {
-    const rows = await this.db.personalFile.findMany({where:{id:{in:path.map(p=>p.id)},deletedAt:null}});
+    const rows = await this.db.personalFile.findMany({where:{deletedAt:null}});
     const chain = path.map(p=>rows.find(r=>r.id===p.id)).filter((r):r is typeof rows[number]=>!!r);
     if(chain.length!==path.length) fail('COLLAB_ACCESS_CONFLICT',409);
     const grants=chain.flatMap(r=>resourcePolicy(r.accessPolicy).grants);
@@ -153,10 +146,8 @@ export class PersonalFiles extends CollaborationService {
         const principals=await new PersonalFiles(this.db,actor).principals(this.db);
         const matches=sources.flatMap(source=>source.grants.filter(g=>principals.some(p=>p.principalType===g.principalType&&p.principalId===g.principalId)).map(g=>({sourceId:source.id,principalType:g.principalType,principalId:g.principalId,role:g.role})));
         if(!matches.length)continue;
-        let access:Access={level:3,canCreate:true,canManageAccess:true,selfOnly:false,hidden:[],readonly:[],workspaceId:'personal',organizationId:null};
-        try{for(const row of chain)access=restrictResourceAccess(access,row.accessPolicy,principals);}
-        catch(e){if((e as {code:string}).code!=='COLLAB_FORBIDDEN')throw e;access={...access,level:0};}
-        audience.push({userId:user.id,name:user.employee?.name||user.username,username:user.username,level:access.level,matches});
+        const level=personalFileResolver(rows,principals)(id)?.access.level??0;
+        audience.push({userId:user.id,name:user.employee?.name||user.username,username:user.username,level,matches});
       }
     }));
     audience.sort((a,b)=>a.username.localeCompare(b.username));

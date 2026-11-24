@@ -30,7 +30,7 @@ test('direct file sharing reports names and revokes access to every content vers
  assert.equal((await owner.list({scope:'mine'})).items[0].sharingState,'private');
  await owner.content(f.id,1);await assert.rejects(revoke(owner,f.id,3,owner.actor.userId),/COLLAB_FORBIDDEN/);
 });
-test('folder revocation blocks descendants even when a child has direct sharing; siblings are unaffected',async()=>{
+test('revoking child and parent grants blocks descendants; unrelated shares are unaffected',async()=>{
  const folder=await owner.create({name:'测试文件夹',kind:'FOLDER'}),child=await file(folder.id),other=await file();
  await share(folder.id,1,[grant(reader.actor.userId)]);await share(child.id,1,[grant(reader.actor.userId)],false);await share(other.id,1,[grant(reader.actor.userId)]);
  const report=await owner.accessSettings(child.id);assert.equal(report.sources.length,2);assert.equal(report.audience.find(p=>p.userId===reader.actor.userId)?.level,1);
@@ -107,4 +107,38 @@ test('leaving an inherited item overrides role access without changing group gra
  const policy=await owner.accessSettings(folder.id);assert.ok(policy.sources[0].grants.some(g=>g.principalId===role.id));
  await assert.rejects(reader.leaveShare(child.id,{version:2}),/COLLAB_FORBIDDEN/);
  await assert.rejects(reader.folderArchive(folder.id),/PERSONAL_FOLDER_DOWNLOAD_FORBIDDEN/);
+});
+
+test('standalone child share exposes only its subtree, supports read-only, revoke and leave',async()=>{
+ const parent=await owner.create({name:'私有案件目录',kind:'FOLDER'});
+ const shared=await owner.create({name:'单独分享案件',kind:'FOLDER',parentId:parent.id});
+ const child=await file(shared.id),sibling=await file(parent.id);
+ await share(shared.id,1,[grant(reader.actor.userId)],false);
+ const listing=await reader.list({scope:'shared'});
+ assert.ok(listing.items.some(r=>r.id===shared.id));
+ assert.ok(!listing.items.some(r=>[parent.id,sibling.id].includes(r.id)));
+ assert.equal(listing.items.find(r=>r.id===shared.id)?.parentId,null);
+ const inside=await reader.list({parentId:shared.id});
+ assert.deepEqual(inside.path,[{id:shared.id,name:'单独分享案件'}]);
+ assert.equal(inside.canUpload,false);assert.equal(inside.items[0].level,1);
+ await reader.download(child.id);await reader.content(child.id,1);
+ await assert.rejects(reader.list({parentId:parent.id}),/COLLAB_FORBIDDEN/);
+ await assert.rejects(reader.download(sibling.id),/COLLAB_FORBIDDEN/);
+ await assert.rejects(reader.create({name:'forbidden',kind:'FOLDER',parentId:shared.id}),/COLLAB_FORBIDDEN/);
+ await assert.rejects(reader.rename(shared.id,{version:2,name:'forbidden'}),/COLLAB_FORBIDDEN/);
+ await assert.rejects(reader.remove({files:[{id:shared.id,version:2}]}),/COLLAB_FORBIDDEN/);
+ assert.equal((await owner.accessSettings(shared.id)).audience.find(a=>a.userId===reader.actor.userId)?.level,1);
+ await revoke(owner,shared.id,2,reader.actor.userId);
+ await assert.rejects(reader.download(child.id),/COLLAB_FORBIDDEN/);
+ assert.equal((await reader.list({scope:'shared'})).items.length,0);
+ await share(shared.id,3,[grant(reader.actor.userId)],false);
+ await share(child.id,1,[grant(reader.actor.userId)],false);
+ await reader.leaveShare(shared.id,{version:4});
+ await assert.rejects(reader.content(child.id,1),/COLLAB_FORBIDDEN/);
+ assert.equal((await reader.list({scope:'shared'})).items.length,0);
+ assert.equal((await owner.accessSettings(shared.id)).audience.find(a=>a.userId===reader.actor.userId)?.level,0);
+ await share(shared.id,5,[grant(reader.actor.userId)],false);
+ await reader.download(child.id);
+ await db.personalFile.update({where:{id:parent.id},data:{deletedAt:new Date()}});
+ await assert.rejects(reader.download(child.id),/COLLAB_FORBIDDEN/);
 });
