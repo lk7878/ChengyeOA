@@ -61,6 +61,7 @@ test('lawyer registration freezes submitted content; designated manager rejects,
     await assert.rejects(new WorkflowService(db, admin).act(instance.id, { action: 'APPROVE', version: instance.version }, key()));
     await review.act(instance.id, { action: 'REJECT', version: instance.version, remark: '补充登记内容' }, key());
     assert.equal((await db.caseRegistration.findFirstOrThrow()).status, 'REJECTED');
+    assert.equal((await db.case.findUniqueOrThrow({ where: { id: row.id } })).status, 'PENDING');
     assert.equal((await editor.record(table.id, row.id)).record.writable, true);
     const second = await service.submit(table.id, row.id, { version: info.version, reviewerId: manager.userId });
     await wf.act(second.workflowInstanceId, { action: 'WITHDRAW', version: (await wf.detail(second.workflowInstanceId)).version }, key());
@@ -71,18 +72,30 @@ test('lawyer registration freezes submitted content; designated manager rejects,
     await assert.rejects(review.act(third.workflowInstanceId, { action: 'APPROVE', version: (await wf.detail(third.workflowInstanceId)).version }, key()));
     await db.userRole.updateMany({ where: { userId: manager.userId }, data: { revokedAt: null, revokedByUserId: null, revokeReason: null } });
     const pending = await review.detail(third.workflowInstanceId);
-    await review.act(pending.id, { action: 'APPROVE', version: pending.version }, key());
-    assert.equal((await db.caseRegistration.findUniqueOrThrow({ where: { workflowInstanceId: pending.id } })).status, 'APPROVED');
-    assert.equal(await db.case.count({ where: { id: row.id, deletedAt: null } }), 1);
-    assert.equal(await db.approvalInstance.count(), 0);
-    const edited = await editor.saveRecord(table.id, row.id, { schemaVersion: schema.table.schemaVersion, version: info.version, values: { [extraField.id]: '审批后补充' } }, key());
-    await assert.rejects(business.transitionCase(row.id, { version: (await db.case.findUniqueOrThrow({ where: { id: row.id } })).version, status: 'ACCEPTED' }), /重新提交/);
+    // A change from another writer must not be accepted using a stale approval snapshot.
+    await db.collabExtension.create({ data: { tableId: table.id, recordId: row.id, values: { [extraField.id]: '并发补充' }, version: 1, updatedBy: admin.userId } });
+    await assert.rejects(review.act(pending.id, { action: 'APPROVE', version: pending.version }, key()), /已变化/);
+    assert.equal((await db.case.findUniqueOrThrow({ where: { id: row.id } })).status, 'PENDING');
+    assert.equal((await db.caseRegistration.findUniqueOrThrow({ where: { workflowInstanceId: pending.id } })).status, 'PENDING');
+    await review.act(pending.id, { action: 'REJECT', version: pending.version, remark: '退回核对修改' }, key());
+    const current = await editor.record(table.id, row.id);
     await assert.rejects(service.submit(table.id, row.id, { version: info.version, reviewerId: manager.userId }), /已被修改/);
+    const edited = await editor.saveRecord(table.id, row.id, { schemaVersion: schema.table.schemaVersion, version: current.record.version, values: { [extraField.id]: '已核对补充' } }, key());
     const fourth = await service.submit(table.id, row.id, { version: edited.version, reviewerId: manager.userId });
     const finalReview = await review.detail(fourth.workflowInstanceId);
-    await review.act(finalReview.id, { action: 'APPROVE', version: finalReview.version }, key());
-    const accepted = await business.transitionCase(row.id, { version: (await db.case.findUniqueOrThrow({ where: { id: row.id } })).version, status: 'ACCEPTED' });
+    const decisionKey = key();
+    await review.act(finalReview.id, { action: 'APPROVE', version: finalReview.version }, decisionKey);
+    const accepted = await db.case.findUniqueOrThrow({ where: { id: row.id } });
     assert.equal(accepted.status, 'ACCEPTED');
+    assert.equal(accepted.version, row.version + 1);
+    assert.equal(accepted.updatedBy, manager.userId);
+    assert.equal((await db.caseRegistration.findUniqueOrThrow({ where: { workflowInstanceId: finalReview.id } })).status, 'APPROVED');
+    await review.act(finalReview.id, { action: 'APPROVE', version: finalReview.version }, decisionKey);
+    assert.equal((await db.case.findUniqueOrThrow({ where: { id: row.id } })).version, accepted.version);
+    assert.equal(await db.operationLog.count({ where: { targetId: row.id, action: 'CASE_STATUS' } }), 1);
+    assert.equal((await service.detail(table.id, row.id)).canSubmit, false);
+    assert.equal(await db.approvalInstance.count(), 0);
+
   } finally {
     await clearTestApplicationData(db);
     await db.$disconnect();

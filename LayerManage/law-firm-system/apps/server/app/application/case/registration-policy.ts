@@ -6,6 +6,7 @@ import { requireCaseAccess } from './case-scope';
 import { worksheetContext } from '../collaboration/worksheet-business-grants';
 import { CollaborationService } from '../collaboration/collaboration-service';
 import { WorkspaceDomainSource } from '../crm/workspace-domain-source';
+import { AuditActor } from '../master-data/master-data-types';
 import { check } from '../../domain/workflow/schema';
 
 type DB = PrismaClient | Prisma.TransactionClient;
@@ -64,13 +65,26 @@ export async function guardRegistration(db: DB, actor: AuthorizationContext, id:
   if (action === 'WITHDRAW') check(request.submittedBy === actor.userId && fresh.permissionCodes.includes('approval.apply'), '只能撤回本人提交的登记', 403);
   else {
     check(reviewer && request.submittedBy !== actor.userId, '仅指定案件管理员可审批，且不能审批本人申请', 403);
-    if (action === 'APPROVE') check(request.case.version === request.caseVersion, '案件内容已变化，请退回后重新提交', 409);
+    if (action === 'APPROVE') {
+      const extension = await db.collabExtension.findUnique({ where: { tableId_recordId: { tableId: request.tableId, recordId: request.caseId } } });
+      check(request.case.status === 'PENDING' && request.case.version === request.caseVersion &&
+        request.recordVersion === request.case.version + (extension?.version ?? 0), '案件内容或状态已变化，请退回后重新提交', 409);
+    }
   }
 }
-export async function syncRegistration(tx: Prisma.TransactionClient, id: string) {
+export async function syncRegistration(tx: Prisma.TransactionClient, id: string, actor: AuditActor) {
   const request = await tx.caseRegistration.findUniqueOrThrow({ where: { workflowInstanceId: id }, include: { workflow: true } });
   const status = request.workflow!.status;
   if (status === 'PENDING' || request.status !== 'PENDING') return;
+  if (status === 'APPROVED') {
+    // Workflow approval and acceptance commit atomically; a retry must never accept twice.
+    const changed = await tx.case.updateMany({ where: { id: request.caseId, deletedAt: null, status: 'PENDING', version: request.caseVersion },
+      data: { status: 'ACCEPTED', version: { increment: 1 }, updatedBy: actor.actorUserId } });
+    check(changed.count === 1, '案件内容或状态已变化，请刷新', 409);
+    await tx.operationLog.create({ data: { userId: actor.actorUserId, action: 'CASE_STATUS', targetType: 'CASE', targetId: request.caseId,
+      oldValues: JSON.stringify({ status: 'PENDING', version: request.caseVersion }),
+      newValues: JSON.stringify({ status: 'ACCEPTED', version: request.caseVersion + 1, workflowInstanceId: id }), ip: actor.ip } });
+  }
   await tx.caseRegistration.update({ where: { id: request.id }, data: { status } });
   await notifyDeliveryChange(tx, request.submittedBy, request.caseId);
 }

@@ -49,7 +49,7 @@ export async function guardManagedReview(
 export async function syncManagedReview(tx: Prisma.TransactionClient, id: string, actor: AuditActor) {
   const i = await tx.workflowInstance.findUniqueOrThrow({ where: { id } });
   if (!isManagedReview(i.businessType) || i.status === 'PENDING') return;
-  if (i.businessType === 'CASE_REGISTRATION') await syncRegistration(tx, id);
+  if (i.businessType === 'CASE_REGISTRATION') await syncRegistration(tx, id, actor);
   else if (i.businessType === 'SOP_REVIEW') await sop.syncSopReview(tx, id, actor, 'workflow');
   else await analysis.syncAnalysisApproval(tx, id, actor, 'workflow');
   await tx.workflowInstance.update({ where: { id }, data: { syncStatus: 'SYNCED', syncError: null } });

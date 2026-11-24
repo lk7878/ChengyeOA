@@ -45,7 +45,7 @@ export default function CaseRegistration({ tableId, caseId, disabled, onChanged 
         {detail && <>
           <Typography.Paragraph strong>{detail.caseNo} · {detail.title}</Typography.Paragraph>
           {detail.canSubmit ? <>
-            <Typography.Paragraph>提交当前已保存的登记信息。审批期间不能修改，退回或撤回后可修改并重新提交。</Typography.Paragraph>
+            <Typography.Paragraph>提交当前已保存的登记信息，案件管理员审批通过后自动受理。审批期间不能修改，退回或撤回后可修改并重新提交。</Typography.Paragraph>
             <label htmlFor={`case-reviewer-${caseId}`}>案件管理员</label>
             <Select id={`case-reviewer-${caseId}`} aria-label="案件管理员" style={{ width: '100%' }} value={reviewer} onChange={setReviewer} options={detail.reviewers.map(u => ({ value: u.id, label: u.label }))} placeholder="选择案件管理员" />
             {!detail.reviewers.length && <Alert type="warning" title="暂无可用案件管理员，请联系超级管理员配置。" />}
