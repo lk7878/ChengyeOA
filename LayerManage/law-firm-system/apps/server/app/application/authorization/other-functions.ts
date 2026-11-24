@@ -3,6 +3,7 @@ import type { PermissionCode } from '../../domain/authorization/authorization-ty
 
 // No worksheet-backed operations here. Table grants remain resource-local.
 export const otherFunctionGroups = [
+  { id: 'case_seal', name: '合同核对与盖章', resources: [], codes: ['case.seal.manage'], menus: [] },
   { id: 'approval', name: '审批处理', resources: ['approval'], codes: ['approval.read', 'approval.apply', 'approval.process'], menus: [] },
   { id: 'organization', name: '组织管理', resources: ['organization'], codes: ['organization.read', 'organization.create', 'organization.update', 'organization.move', 'organization.status.manage'], menus: ['menu.organization_personnel', 'menu.organization'] },
   { id: 'position', name: '岗位管理', resources: ['position'], codes: ['position.read', 'position.create', 'position.update', 'position.status.manage', 'position.delete'], menus: ['menu.organization_personnel', 'menu.position'] },
