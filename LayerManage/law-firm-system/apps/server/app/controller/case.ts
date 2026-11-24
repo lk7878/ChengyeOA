@@ -1,3 +1,5 @@
+import { CaseIntakeCustomerService } from '../application/case/intake-customers';
+import { auditActor } from '../application/master-data/master-data-factory';
 import { servePreview } from '../application/files/preview';
 // SPEC-033 Task 3: case HTTP 控制器（整体替代 SPEC-001 遗留原型——直连 ctx.prisma、无权限门禁、
 // 无校验/审计/测试，本版本替换为薄控制器调正规 service 层）。
@@ -28,6 +30,12 @@ const FILE_LIST_QUERY_KEYS = ['page', 'pageSize'] as const;
 
 export default class CaseController extends Controller {
   /** GET /api/v1/cases（case.read）：案件列表（过滤 + 分页）。 */
+  async searchIntakeCustomers() {
+    this.respond(await new CaseIntakeCustomerService(this.ctx.prisma, auditActor(this.ctx), this.ctx.state.authorization).search(this.ctx.request.body as never));
+  }
+  async createIntakeCustomer() {
+    this.respond(await new CaseIntakeCustomerService(this.ctx.prisma, auditActor(this.ctx), this.ctx.state.authorization).create(this.ctx.request.body as never));
+  }
   async screenConflict() { this.respond(await caseService(this.ctx).screenConflict(this.ctx.request.body as never)); }
   async identityGaps() {
     assertExactKeys(this.ctx.query, ['page']);

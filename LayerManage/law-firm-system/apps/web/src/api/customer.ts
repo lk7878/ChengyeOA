@@ -16,6 +16,10 @@ import type {
 } from './types';
 
 export const customerApi = {
+  searchForCase: (data: { worksheetId?: string; keyword?: string }) =>
+    request.post<ApiResponse<PagedResult<CustomerView>>>('/v1/cases/intake-customers/search', data),
+  createForCase: (data: { worksheetId?: string; name: string; phone: string; address?: string; customerType?: 'INDIVIDUAL' | 'ENTERPRISE' }) =>
+    request.post<ApiResponse<{ customer: CustomerView; reused: boolean }>>('/v1/cases/intake-customers', data),
   /** POST /api/v1/customers */
   create: (data: CreateCustomerInput) =>
     request.post<ApiResponse<CustomerView>>('/v1/customers', data),

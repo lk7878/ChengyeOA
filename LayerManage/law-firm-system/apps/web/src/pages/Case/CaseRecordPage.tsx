@@ -143,9 +143,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   const location = useLocation();
   const canSmartCase=useAuthStore(s=>s.hasPermission('menu.smart_case'));
   const ownerId = useAuthStore((s) => s.userInfo?.id);
-  const canCreateCustomer = useAuthStore(
-    (s) => s.hasPermission('customer.create') && s.hasPermission('menu.customer'),
-  );
+
   const mounted = React.useRef(true);
   const [error, setError] = useState('');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -154,6 +152,12 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerSearching, setCustomerSearching] = useState(false);
   const customerSearchSequence = React.useRef(0);
+  const [customerSearchError, setCustomerSearchError] = useState('');
+  const [customerSearchRetry, setCustomerSearchRetry] = useState(0);
+  const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
+  const [customerCreating, setCustomerCreating] = useState(false);
+  const [customerCreateError, setCustomerCreateError] = useState('');
+  const [customerForm] = Form.useForm<{ name: string; phone: string; address?: string; customerType: 'INDIVIDUAL' | 'ENTERPRISE' }>();
   const [departments, setDepartments] = useState<{ value: string; label: string }[]>([]);
   const [attachments, setAttachments] = useState<Record<string, UploadFile[]>>(() =>
     resumeCase ? (caseDraft.attachments ?? {}) : {},
@@ -179,6 +183,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   const worksheet = worksheetResult?.tableId === sourceTable ? worksheetResult.data : undefined;
   const worksheetError = worksheetResult?.tableId === sourceTable ? worksheetResult.error ?? '' : '';
   const canCreate = sourceTable ? !!worksheet?.businessPermissions?.includes('case.create') : canCreateGlobal;
+  const canCreateCustomer = canCreate && !id;
   const [screenRevision,setScreenRevision]=useState(0);
   useEffect(()=>{
     if (!sourceTable) return;
@@ -280,16 +285,16 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   }, []);
 
   useEffect(() => {
-    if (!createOpen) return;
+    if (!createOpen || (sourceTable && !worksheet)) return;
     const sequence = ++customerSearchSequence.current;
     const timer = window.setTimeout(() => {
       setCustomerSearching(true);
-      void customerApi
-        .list({
-          page: 1,
-          pageSize: 100,
-          ...(customerSearch.trim() ? { keyword: customerSearch.trim() } : {}),
-        })
+      setCustomerSearchError('');
+      const query = customerSearch.trim() ? { keyword: customerSearch.trim() } : {};
+      const search = canCreateCustomer
+        ? customerApi.searchForCase({ ...query, ...(sourceTable ? { worksheetId: sourceTable } : {}) })
+        : customerApi.list({ page: 1, pageSize: 100, ...query });
+      void search
         .then((res) => {
           if (sequence !== customerSearchSequence.current) return;
           setCustomers((previous) => {
@@ -300,7 +305,9 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
             ];
           });
         })
-        .catch(() => undefined)
+        .catch((e) => {
+          if (sequence === customerSearchSequence.current) setCustomerSearchError(errorMessage(e));
+        })
         .finally(() => {
           if (sequence === customerSearchSequence.current) setCustomerSearching(false);
         });
@@ -309,16 +316,34 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
       window.clearTimeout(timer);
       customerSearchSequence.current = sequence + 1;
     };
-  }, [customerSearch, createOpen, createForm]);
+  }, [customerSearch, createOpen, createForm, sourceTable, worksheet, canCreateCustomer, customerSearchRetry]);
 
   const openCustomerCreate = () => {
     const name = customerSearch.trim();
     if (!name || !canCreateCustomer) return;
-    caseDraft.ownerId = ownerId;
-    caseDraft.values = { ...createForm.getFieldsValue(true), workspaceId };
-    caseDraft.attachments = attachments;
-    caseDraft.editingCase = editingCase;
-    navigate('/customers', { state: { createCustomerName: name, fromCase: true } });
+    customerForm.resetFields();
+    customerForm.setFieldsValue({ name, customerType: 'INDIVIDUAL' });
+    setCustomerCreateError('');
+    setCustomerCreateOpen(true);
+  };
+  const saveIntakeCustomer = async () => {
+    let values;
+    try { values = await customerForm.validateFields(); } catch { return; }
+    setCustomerCreating(true);
+    setCustomerCreateError('');
+    try {
+      const { data } = await customerApi.createForCase({ ...values, ...(sourceTable ? { worksheetId: sourceTable } : {}) });
+      const customer = data.customer;
+      customerSearchSequence.current += 1;
+      setCustomers(previous => [...previous.filter(item => item.id !== customer.id), customer]);
+      createForm.setFieldValue('customerId', customer.id);
+      if (!createForm.getFieldValue(['intakeData', 'customerPhone']))
+        createForm.setFieldValue(['intakeData', 'customerPhone'], values.phone);
+      setCustomerSearch('');
+      setCustomerCreateOpen(false);
+      message.success(data.reused ? '已关联已有客户' : '客户已创建并关联');
+    } catch (e) { setCustomerCreateError(errorMessage(e)); }
+    finally { setCustomerCreating(false); }
   };
 
   const openEdit = async (record: Case) => {
@@ -702,6 +727,16 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
 
   return (
     <div>
+      <Modal title="新建客户并关联案件" open={customerCreateOpen} onCancel={() => !customerCreating && setCustomerCreateOpen(false)}
+        onOk={() => void saveIntakeCustomer()} confirmLoading={customerCreating} okText="保存并关联" cancelText="取消" destroyOnHidden>
+        {customerCreateError && <Alert type="error" showIcon title={customerCreateError} />}
+        <Form form={customerForm} layout="vertical" disabled={customerCreating}>
+          <Form.Item name="name" label="客户名称" rules={[{ required: true, whitespace: true, message: '请输入客户名称' }, { max: 100 }]}><Input maxLength={100} /></Form.Item>
+          <Form.Item name="phone" label="联系电话" rules={[{ required: true, whitespace: true, message: '请输入联系电话' }]}><Input maxLength={50} /></Form.Item>
+          <Form.Item name="customerType" label="客户类型"><Select options={[{ value: 'INDIVIDUAL', label: '个人' }, { value: 'ENTERPRISE', label: '单位' }]} /></Form.Item>
+          <Form.Item name="address" label="地址"><Input maxLength={500} /></Form.Item>
+        </Form>
+      </Modal>
       <Space wrap style={{ marginBottom: 16 }}>
         <Link to="/cases">返回案件工作表</Link>
         {id && <BusinessTableLinks source="CASES" recordId={id} />}{id&&canAssessment&&<Link to={"/cases/"+id+"/assessments"}>百分制满意度评估</Link>}
@@ -865,6 +900,8 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
           )}
           <Row gutter={16}>
             <Col xs={24} md={12}>
+              {customerSearchError && <Alert type="error" showIcon title="客户列表加载失败" description={customerSearchError}
+                action={<Button onClick={() => setCustomerSearchRetry(value => value + 1)}>重试</Button>} />}
               <Form.Item name="customerId" label="客户" rules={[{ required: true, message: '请选择客户' }]}>
                 <Select
                   aria-label="客户"
@@ -891,7 +928,8 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
                       )}
                     </>
                   )}
-                  placeholder="搜索已有客户，或输入名称新建"
+                  notFoundContent={customerSearching ? '正在搜索…' : customerSearchError ? '加载失败，请重试' : '没有匹配的可用客户'}
+                  placeholder={canCreateCustomer ? '搜索已有客户，或输入名称新建' : '搜索已授权客户'}
                   options={[...(contractIntake.customer ? [contractIntake.customer] : []), ...customers.filter(c=>c.id!==contractIntake.customer?.id)].map(item=>({value:item.id,label:item.name}))}
                 />
               </Form.Item>
