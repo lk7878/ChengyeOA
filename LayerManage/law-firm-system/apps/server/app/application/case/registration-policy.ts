@@ -1,3 +1,4 @@
+import { createSealRequest } from './seal-service';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationContext } from '../authorization/authorization-service';
 import { AuthorizationContextLoader } from '../authorization/authorization-context-loader';
@@ -24,6 +25,8 @@ export async function isCaseRegistrar(db: DB, actor: AuthorizationContext) {
 export async function assertRegistrationEditable(tx: DB, caseId: string) {
   check(!await tx.caseRegistration.count({ where: { caseId, status: 'PENDING' } }),
     '案件登记正在审批，请先撤回或由案件管理员退回后再修改。', 409);
+  check(!await tx.caseSealRequest.count({where:{caseId,status:'PENDING'}}),
+    '案件合同正在核对盖章，已审核的登记信息和材料暂不可修改。',409);
 }
 export async function registrationScope(db: DB, actor: AuthorizationContext): Promise<Prisma.WorkflowInstanceWhereInput> {
   if (actor.isSystemSuperAdmin) return {};
@@ -77,6 +80,7 @@ export async function syncRegistration(tx: Prisma.TransactionClient, id: string,
   const status = request.workflow!.status;
   if (status === 'PENDING' || request.status !== 'PENDING') return;
   if (status === 'APPROVED') {
+    await createSealRequest(tx, request, actor.actorUserId);
     // Workflow approval and acceptance commit atomically; a retry must never accept twice.
     const changed = await tx.case.updateMany({ where: { id: request.caseId, deletedAt: null, status: 'PENDING', version: request.caseVersion },
       data: { status: 'ACCEPTED', version: { increment: 1 }, updatedBy: actor.actorUserId } });

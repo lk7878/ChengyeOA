@@ -6,6 +6,11 @@ import { requireAnyPermission } from './middleware/requireAnyPermission';
 export default (app: Application) => {
   const { router, controller } = app;
   const casePayAccess = requireAnyPermission(['case.read', 'performance.read']);
+  router.get('/api/v1/case-seals', controller.caseSeal.index);
+  router.get('/api/v1/case-seals/:id', controller.caseSeal.detail);
+  router.post('/api/v1/case-seals/:id/number', controller.caseSeal.correct);
+  router.post('/api/v1/case-seals/:id/stamp', controller.caseSeal.stamp);
+  router.get('/api/v1/case-seals/:id/files/:fileId', controller.caseSeal.file);
   router.get('/api/v1/case-performance', casePayAccess, controller.casePerformance.index);
   router.get('/api/v1/case-performance/sources', casePayAccess, controller.casePerformance.sources);
   router.post('/api/v1/case-performance/cost', casePayAccess, controller.casePerformance.cost);

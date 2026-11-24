@@ -164,6 +164,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
   const [editingLoading, setEditingLoading] = useState<string>();
   const [deleting, setDeleting] = useState<string>();
 
+  const canReadContracts = useAuthStore(s => s.hasPermission('contract.read'));
   const canCreateGlobal = useAuthStore((state) => state.hasPermission('case.create'));
   const canUpdate = useAuthStore((state) => state.hasPermission('case.update'));
   const canDelete = useAuthStore((state) => state.hasPermission('case.delete'));
@@ -388,13 +389,13 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
 
   useEffect(() => {
     let live = true;
-    if (!createOpen) return;
+    if (!createOpen || !canReadContracts) return;
     const timer=window.setTimeout(()=>{
       void contractApi.list({status:'EFFECTIVE',page:1,pageSize:100,keyword:contractSearch.trim() || undefined})
         .then(r=>{if(live)setUpstreamContracts(r.data.list)}).catch(()=>{if(live)setUpstreamContracts([])});
     },contractSearch ? 250 : 0);
     return ()=>{live=false;window.clearTimeout(timer)};
-  }, [createOpen,contractSearch]);
+  }, [createOpen,contractSearch,canReadContracts]);
   const handleCreate = async (values: CreateFormValues) => {
     if (sourceTable && (!worksheet || worksheetError)) return;
     if (contractIntake.loading || contractIntake.error) { message.error(contractIntake.error || '正在读取合同资料，请稍候保存'); return; }
@@ -553,7 +554,8 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
 
   // SPEC-042：案件文件/证据（case.file.read/manage 门控）。
   const canReadFiles = useAuthStore((state) => state.hasPermission('case.file.read'));
-  const canManageFiles = useAuthStore((state) => state.hasPermission('case.file.manage'));
+  const canManageFilesGlobal = useAuthStore((state) => state.hasPermission('case.file.manage'));
+  const canManageFiles = sourceTable ? !!worksheet?.businessPermissions?.includes('case.file.manage') : canManageFilesGlobal;
   const [files, setFiles] = useState<CaseFile[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [fileUploading, setFileUploading] = useState(false);
@@ -831,7 +833,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
           {contractIntake.loading && <Alert type="info" title="正在读取合同签约日期和客户地区、电话…" />}
           {contractIntake.error && <Alert type="error" title={contractIntake.error} />}
           {!editingCase && <LinkedContractCase contractId={selectedUpstreamContractId} />}
-          {!editingCase && <Form.Item name="contractId" label="关联合同（已生效）" extra="选择后自动回填客户、合同编号、金额及签约日期、地区、电话；客户、合同编号、日期、地区和电话由关联业务维护，清除合同后可手工填写。已自动建档的合同请进入已有案件办理。">
+          {!editingCase && canReadContracts && <Form.Item name="contractId" label="关联合同（已生效）" extra="选择后自动回填客户、合同编号、金额及签约日期、地区、电话；客户、合同编号、日期、地区和电话由关联业务维护，清除合同后可手工填写。已自动建档的合同请进入已有案件办理。">
               <Select showSearch filterOption={false} onSearch={setContractSearch} allowClear options={upstreamContracts.map(c=>({value:c.id,label:c.contractNo+' · '+c.title}))}
  />
             </Form.Item>}

@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { AuthorizationContext } from '../authorization/authorization-service';
 import { exact, fail, integer, text } from './collaboration-policy';
-export const menuTargets=['/leads','/leads/follows','/leads/pool','/customers','/channels','/negotiations','/contracts','/cases','/case-performance','/payments','/invoices','/refunds','/costs','/inventory/items','/inventory/movements','/inventory/stocktakes','/performances'];
+export const menuTargets=['/leads','/leads/follows','/leads/pool','/customers','/channels','/negotiations','/contracts','/cases','/case-seals','/case-performance','/payments','/invoices','/refunds','/costs','/inventory/items','/inventory/movements','/inventory/stocktakes','/performances'];
 export type MenuNode={id:string;label:string;parentId:string|null;target:string|null;position:number};
 export class NavigationMenuService {
   constructor(private db:PrismaClient,private actor:AuthorizationContext){}

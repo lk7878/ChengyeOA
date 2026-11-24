@@ -276,6 +276,7 @@ export const PERMISSION_CODES = [
   // SPEC-042 追加（案件文件/证据域二码；计数 132→134）
   'case.file.read',
   'case.file.manage',
+  'case.seal.manage',
 
   // SPEC-043 追加（绩效考核流程一码——目标设定/自评自助动作；计数 134→135）
   'performance.update',

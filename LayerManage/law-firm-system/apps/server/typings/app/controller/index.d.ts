@@ -1,3 +1,4 @@
+import CaseSeal from '../../../app/controller/caseSeal';
 // This file is created by egg-ts-helper@1.35.2
 // Do not modify this file!!!!!!!!!
 /* eslint-disable */
@@ -39,6 +40,7 @@ import ExportUser from '../../../app/controller/user';
 
 declare module 'egg' {
   interface IController {
+    caseSeal: CaseSeal;
     workflow: ExportWorkflow;
     adminGovernance: ExportAdminGovernance;
     anomaly: ExportAnomaly;

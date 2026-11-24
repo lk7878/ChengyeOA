@@ -603,7 +603,7 @@ export class WorkspaceDomainSource {
       linked.receiptFiles = Prisma.sql`(SELECT COALESCE(jsonb_agg(f.value),'[]'::jsonb) FROM payment p CROSS JOIN LATERAL jsonb_array_elements(p."voucherFiles") f WHERE p."contractId"=b."contractId" AND p."deletedAt" IS NULL AND p.status IN ('CONFIRMED','REFUNDED'))`;
       // Linked cases read the authorized customer; unlinked cases keep their manual contact value.
       linked['intake.customerPhone'] = this.actor.permissionCodes.includes('customer.read')
-        ? Prisma.sql`CASE WHEN b."contractId" IS NULL THEN b."intakeData"->>'customerPhone' ELSE (SELECT u.phone FROM (SELECT b.id,b.phone FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${await this.scope('CUSTOMERS', access)}) u WHERE u.id=b."customerId") END`
+        ? Prisma.sql`CASE WHEN b."contractId" IS NULL OR EXISTS(SELECT 1 FROM case_seal_request csr WHERE csr."caseId"=b.id) THEN b."intakeData"->>'customerPhone' ELSE (SELECT u.phone FROM (SELECT b.id,b.phone FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${await this.scope('CUSTOMERS', access)}) u WHERE u.id=b."customerId") END`
         : Prisma.sql`NULL::text`;
       linked.contractDisplayId = Prisma.sql`CASE WHEN b."contractDisplayId" < 1000 THEN lpad(b."contractDisplayId"::text, 3, '0') ELSE b."contractDisplayId"::text END`;
       linked.isClosed = Prisma.sql`b.status IN ('CLOSED', 'ARCHIVED')`;
@@ -621,9 +621,9 @@ export class WorkspaceDomainSource {
       const permitted = this.actor.permissionCodes.includes('contract.read')
         ? await this.scope('CONTRACTS', access)
         : Prisma.sql`FALSE`;
-      linked['intake.signedDate'] = Prisma.sql`CASE WHEN b."contractId" IS NULL THEN (b."intakeData"->>'signedDate')::timestamptz ELSE (SELECT u."signDate" FROM (SELECT b.id,b."signDate" FROM contract b WHERE ${permitted}) u WHERE u.id=b."contractId") END`;
+      linked['intake.signedDate'] = Prisma.sql`CASE WHEN b."contractId" IS NULL OR EXISTS(SELECT 1 FROM case_seal_request csr WHERE csr."caseId"=b.id) THEN (b."intakeData"->>'signedDate')::timestamptz ELSE (SELECT u."signDate" FROM (SELECT b.id,b."signDate" FROM contract b WHERE ${permitted}) u WHERE u.id=b."contractId") END`;
       const customerScope = this.actor.permissionCodes.includes('customer.read') ? await this.scope('CUSTOMERS', access) : Prisma.sql`FALSE`;
-      linked['intake.region'] = Prisma.sql`CASE WHEN b."contractId" IS NULL THEN b."intakeData"->>'region' ELSE (SELECT u.address FROM (SELECT b.id,b.address FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${customerScope}) u WHERE u.id=b."customerId") END`;
+      linked['intake.region'] = Prisma.sql`CASE WHEN b."contractId" IS NULL OR EXISTS(SELECT 1 FROM case_seal_request csr WHERE csr."caseId"=b.id) THEN b."intakeData"->>'region' ELSE (SELECT u.address FROM (SELECT b.id,b.address FROM customer b LEFT JOIN lead l ON l.id=b."sourceLeadId" WHERE ${customerScope}) u WHERE u.id=b."customerId") END`;
       linked.contractNo = Prisma.sql`(SELECT u."contractNo" FROM (SELECT b.id,b."contractNo" FROM contract b WHERE ${permitted}) u WHERE u.id=b."contractId")`;
       linked['intake.contractNumber'] = Prisma.sql`CASE WHEN b."contractId" IS NULL THEN b."intakeData"->>'contractNumber' ELSE ${linked.contractNo} END`;
       linked.contractAmount = Prisma.sql`(SELECT u.amount FROM (SELECT b.id,b.amount FROM contract b WHERE ${permitted}) u WHERE u.id=b."contractId")`;
@@ -734,6 +734,8 @@ export class WorkspaceDomainSource {
     if (source === 'CASES' && ids.size) {
       const pending = await this.db.caseRegistration.findMany({ where: { caseId: { in: [...ids] }, status: 'PENDING' }, select: { caseId: true } });
       pending.forEach(r => ids.delete(r.caseId));
+      const sealing=await this.db.caseSealRequest.findMany({where:{caseId:{in:[...ids]},status:'PENDING'},select:{caseId:true}});
+      sealing.forEach(r=>ids.delete(r.caseId));
     }
     const linkedCases = source === 'CASES' && rows.length
       ? await this.db.case.findMany({ where: { id: { in: rows.map(r => r.id) }, contractId: { not: null } }, select: { id: true } }) : [];

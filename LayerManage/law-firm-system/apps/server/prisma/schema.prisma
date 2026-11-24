@@ -923,6 +923,7 @@ model ContractNumberSequence {
 }
 
 model Contract {
+  caseSealRequest CaseSealRequest?
   readGrants ContractReadGrant[]
   caseSettlements CaseSettlement[]
   id                   String    @id @default(uuid())
@@ -1194,6 +1195,7 @@ model CostEntry {
 // ==================== 案件模块 ====================
 
 model Case {
+  sealRequest CaseSealRequest?
   registrationRequired Boolean @default(false)
   registrations CaseRegistration[]
   caseSettlement CaseSettlement?
@@ -2669,6 +2671,8 @@ model WorkflowInstance {
 
 // Registration snapshots are reviewed through the existing approval inbox.
 model CaseRegistration {
+  numberCode String?
+  sealReviewerId String?
   id String @id @default(uuid())
   caseId String
   tableId String
@@ -3028,4 +3032,34 @@ model PortalAsset {
   images   PortalRevision[] @relation("PortalImage")
   files    PortalRevision[] @relation("PortalFile")
   @@map("portal_asset")
+}
+
+// Contract number reservations are retained when a number is corrected, to prevent reuse.
+model CaseContractNumber {
+  number String @id
+  caseId String
+  createdAt DateTime @default(now())
+  @@index([caseId])
+  @@map("case_contract_number")
+}
+
+model CaseSealRequest {
+  id String @id @default(uuid())
+  caseId String @unique
+  contractId String @unique
+  registrationId String @unique
+  assigneeId String
+  submittedBy String
+  status String @default("PENDING")
+  snapshot Json
+  stampedFileIds Json @default("[]")
+  stampedAt DateTime?
+  stampedBy String?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  case Case @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  @@index([assigneeId, status])
+  @@map("case_seal_request")
 }

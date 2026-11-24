@@ -1,3 +1,5 @@
+import { sealReviewers } from './seal-service';
+import { numberingOptions, numberPrefix } from './registration-number';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { AuthorizationContext } from '../authorization/authorization-service';
 import { AuthorizationContextLoader } from '../authorization/authorization-context-loader';
@@ -54,10 +56,11 @@ export class CaseRegistrationService {
       canSubmit: row.status === 'PENDING' && !pending && record.record.writable !== false && actor.permissionCodes.includes('case.update') && actor.permissionCodes.includes('approval.apply'),
       history: history.map(r => ({ id: r.id, status: r.status, createdAt: r.createdAt, workflowInstanceId: r.workflowInstanceId })),
       reviewers: await this.reviewers(actor.userId, tableId, caseId),
+      needsNumber: !row.contractId, numberingOptions, sealReviewers: await sealReviewers(this.db),
     };
   }
-  async submit(tableId: string, caseId: string, input: { version: number; reviewerId: string }) {
-    check(input && Object.keys(input).every(k => ['version', 'reviewerId'].includes(k)) && Number.isInteger(input.version), '登记提交参数无效');
+  async submit(tableId: string, caseId: string, input: { version: number; reviewerId: string; numberCode?: string; sealReviewerId?: string }) {
+    check(input && Object.keys(input).every(k => ['version', 'reviewerId', 'numberCode', 'sealReviewerId'].includes(k)) && Number.isInteger(input.version), '登记提交参数无效');
     return this.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM "case" WHERE id=${caseId} FOR UPDATE`;
       const { actor, row, record, fields } = await this.access(tableId, caseId, true, tx);
@@ -65,6 +68,8 @@ export class CaseRegistrationService {
       check(row.status === 'PENDING', '仅待受理案件可提交登记审批', 409);
       check(!await tx.caseRegistration.count({ where: { caseId, status: 'PENDING' } }), '该案件已有登记申请待审批，请勿重复提交', 409);
       check((await this.reviewers(actor.userId, tableId, caseId)).some(u => u.id === input.reviewerId), '请选择有效的案件管理员', 403);
+      check((await sealReviewers(tx)).some(u => u.id === input.sealReviewerId), '请选择有效的印章管理员', 403);
+      if (!row.contractId) numberPrefix(input.numberCode || '', new Date().getFullYear());
       const values = record.record.values as Record<string, unknown>;
       const registration = fields.filter(f => f.id in values).map(f => `${f.name}：${typeof values[f.id] === 'object' ? JSON.stringify(values[f.id]) : String((record.record as { displayValues?: Record<string, unknown> }).displayValues?.[f.id] ?? values[f.id] ?? '')}`).join('\n');
       for (const field of fields.filter(f => f.required && f.id in values)) {
@@ -72,11 +77,11 @@ export class CaseRegistrationService {
         check(value !== null && value !== undefined && value !== '' && (!Array.isArray(value) || value.length > 0), `请先填写${field.name}`);
       }
       await tx.case.update({ where: { id: caseId }, data: { registrationRequired: true } });
-      const request = await tx.caseRegistration.create({ data: { caseId, tableId, caseVersion: row.version, recordVersion: record.record.version, submittedBy: actor.userId, reviewerId: input.reviewerId } });
+      const request = await tx.caseRegistration.create({ data: { caseId, tableId, caseVersion: row.version, recordVersion: record.record.version, submittedBy: actor.userId, reviewerId: input.reviewerId, numberCode: row.contractId ? null : input.numberCode, sealReviewerId: input.sealReviewerId } });
       const workflowInstanceId = await new WorkflowService(this.db, actor).startManaged(tx, {
         businessType: 'CASE_REGISTRATION', sourceId: request.id,
         title: `案件登记审批 · ${row.caseNo}`, reviewerId: input.reviewerId,
-        content: { caseNo: row.caseNo, title: row.title, registration },
+        content: { caseNo: row.caseNo, title: row.title, registration: registration + '\n合同编号类别：' + (row.contractId ? '沿用关联合同' : input.numberCode) },
         fields: [{ key: 'caseNo', label: '案件编号', type: 'text' }, { key: 'title', label: '案件名称', type: 'text' }, { key: 'registration', label: '提交的案件登记信息', type: 'textarea', maxLength: 20000 }],
       });
       await notifyDeliveryChange(tx, actor.userId, caseId);

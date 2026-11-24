@@ -197,6 +197,7 @@ export const PERMISSION_CODES = [
   // 合计 +2 码，服务端计数 132→134；Case 页文件区列表/上传/下载/删除门控 + 角色授予目录）
   'case.file.read',
   'case.file.manage',
+  'case.seal.manage',
   // SPEC-043 Task 3 追加（镜像服务端 authorization-types.ts PERMISSION_CODES 尾段；绩效考核流程一码——
   // 合计 +1 码，服务端计数 134→135；Performance 页目标设定/自评按钮门控 + 角色授予目录）
   'performance.update',

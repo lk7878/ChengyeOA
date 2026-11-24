@@ -5,8 +5,9 @@ import CaseRecordPage from '../CaseRecordPage';
 import { get } from '@/features/workspaces/api';
 import { clearCaseDraft } from '../case-draft';
 import { useAuthStore } from '@/stores/authStore';
-const api = vi.hoisted(() => ({ detail: vi.fn(), listFiles: vi.fn(), update: vi.fn(), transition: vi.fn() }));
+const api = vi.hoisted(() => ({ detail: vi.fn(), listFiles: vi.fn(), update: vi.fn(), transition: vi.fn(), contracts: vi.fn() }));
 vi.mock('@/api/business', () => ({ caseApi: api }));
+vi.mock('@/api/contract',()=>({contractApi:{list:api.contracts}}));
 vi.mock('@/api/customer', () => ({
   customerApi: { list: vi.fn().mockResolvedValue({ data: { list: [{ id: 'customer-1', name: '客户' }] } }) },
 }));
@@ -159,4 +160,14 @@ test('worksheet-only case creator loads organization choices through the authori
   await waitFor(()=>expect(vi.mocked(get)).toHaveBeenCalledWith('/collaboration/options?workspaceId=workspace&tableId=t'));
   await waitFor(()=>expect(within(dialog).getByRole('button',{name:'确 定'})).toBeEnabled());
   expect(within(dialog).getByRole('combobox',{name:'主办律师'})).toBeEnabled();
+});
+
+test('lawyers without global contract access can open new case without requesting the forbidden optional contract list',async()=>{
+ useAuthStore.setState({authorization:{...useAuthStore.getState().authorization!,permissions:['case.read','case.create','customer.read']}});
+ render(<MemoryRouter initialEntries={['/cases/new']}><Routes><Route path="/cases/new" element={<CaseRecordPage/>}/></Routes></MemoryRouter>);
+ await screen.findByRole('dialog',{name:'新建案件'});
+ await new Promise(resolve=>setTimeout(resolve,450));
+ expect(screen.queryByText('关联合同（已生效）')).not.toBeInTheDocument();
+ expect(api.contracts).not.toHaveBeenCalled();
+ expect(screen.getByRole('textbox',{name:'案由'})).toBeEnabled();
 });

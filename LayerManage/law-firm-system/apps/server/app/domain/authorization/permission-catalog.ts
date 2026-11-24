@@ -44,6 +44,7 @@ function permission(
 }
 
 export const PERMISSION_CATALOG = Object.freeze([
+  permission('case.seal.manage', '案件合同编号核对与盖章', 'ACTION', 'case', 'seal.manage', 'HIGH'),
   permission('knowledge.review','审核知识投稿','ACTION','workspace','review','HIGH'),
   permission('hr.worksheet.read','查看人力资源表','ACTION','workspace','read','HIGH'),
   permission('hr.worksheet.manage','维护人力资源表','ACTION','workspace','manage','HIGH'),

@@ -1115,3 +1115,44 @@ test('read-all plus edit/export-own cannot edit or export another rule’s rows 
  assert.deepEqual(result.records.map(r=>r.id),[own.id]);assert.equal(result.records[0].values[secret.id],undefined);
  await member.saveRecord(t.id,own.id,{values:{[field.id]:'合法修改'},schemaVersion:2,version:1},key());
 });
+
+test('role-only case editor can upload own registration without contract access or direct table sharing',async()=>{
+ const {RoleAuthorizationService}=await import('../../app/application/authorization/role-authorization-service');
+ const {AuthorizationContextLoader}=await import('../../app/application/authorization/authorization-context-loader');
+ const {worksheetContext,tableBusinessCapabilities}=await import('../../app/application/collaboration/worksheet-business-grants');
+ const {defaultRule}=await import('../../app/application/collaboration/worksheet-roles');
+ const {CaseService}=await import('../../app/application/case/case-service');
+ const fs=await import('node:fs/promises');
+ const path=await import('node:path');
+ const t=await table('CASES');
+ const scope=await db.dataScope.create({data:{name:'本人',scopeType:'SELF'}});
+ const caps=tableBusinessCapabilities(t.detail.table);
+ const rule={...defaultRule('EDITOR'),business:{permissions:[...caps.basic,...caps.edit],scopeIds:[scope.id]}};
+ const role=await new RoleAuthorizationService(db,{actorUserId:user},svc.actor).create({name:'仅案件表编辑',worksheets:[{tableId:t.id,version:0,rule}]});
+ await db.rolePermission.create({data:{roleId:role.id,permissionId:'permission:customer.read'}});
+ await db.roleDataScope.create({data:{roleId:role.id,resource:'customer',dataScopeId:scope.id}});
+ const emp=await db.employee.create({data:{employeeNo:key(),name:'角色律师',phone:'0',type:'LAWYER',status:'FORMAL',entryDate:new Date()}});
+ const account=await db.user.create({data:{username:key(),password:'unused',employeeId:emp.id,userRoles:{create:{roleId:role.id}}}});
+ const customer=await db.customer.create({data:{customerNo:key(),name:'合成私有客户',phone:'0',phoneHash:key(),createdBy:account.id}});
+ const actor=await new AuthorizationContextLoader(db).load(account.id);
+ assert.equal(actor.permissionCodes.includes('contract.read'),false);
+ assert.equal(actor.permissionCodes.includes('case.file.manage'),false);
+ const scoped=await worksheetContext(db,actor,t.id);
+ assert.equal(scoped.permissionCodes.includes('case.file.manage'),true);
+ assert.equal(await db.collabMember.count({where:{principalId:account.id}}),0);
+ const service=new CaseService(db,{actorUserId:account.id},scoped);
+ const created=await service.createCase({worksheetId:t.id,customerId:customer.id,lawyerId:emp.id,branchId:org,caseType:'合同纠纷',attachments:[{fileName:'原合同.txt',fileType:'text/plain',category:'合同附件',base64:Buffer.from('合成原合同').toString('base64')}]});
+ try{
+  assert.equal(created.status,'PENDING');
+  const outsider=await db.case.create({data:{caseNo:key(),title:'他人案件',customerId:customer.id,createdBy:user,lawyerId:employee,caseType:'合同纠纷'}});
+  await assert.rejects(service.getCase(outsider.id));
+  const file=await db.caseFile.findFirstOrThrow({where:{caseId:created.id}});
+  assert.equal(file.fileName,'原合同.txt');
+  const restricted={...rule,fields:Object.fromEntries(t.detail.fields.filter(f=>String(f.options.businessKey).startsWith('files.')).map(f=>[f.id,'READ']))};
+  await db.worksheetRolePolicy.update({where:{tableId:t.id},data:{rules:{[role.id]:restricted}}});
+  const readOnlyFiles=await worksheetContext(db,actor,t.id);
+  assert.equal(readOnlyFiles.permissionCodes.includes('case.file.manage'),false);
+ }finally{
+  for(const f of await db.caseFile.findMany({where:{caseId:created.id}}))await fs.rm(path.join(process.cwd(),'var/storage/case-files',f.filePath),{force:true});
+ }
+});

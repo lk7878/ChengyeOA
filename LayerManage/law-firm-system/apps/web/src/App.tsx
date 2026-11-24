@@ -1,3 +1,4 @@
+import CaseSealsPage from './pages/Case/CaseSealsPage';
 import PortalHome from './features/portal/PortalHome';
 import PortalAdmin from './features/portal/PortalAdmin';
 import CasePerformancePage from './pages/Performance/CasePerformancePage';
@@ -301,6 +302,7 @@ function SessionBootstrap() {
               </AuthorizedPage>
             }
           />
+          <Route path="/case-seals" element={<AuthorizedPage permission="case.seal.manage"><CaseSealsPage /></AuthorizedPage>} />
           <Route path="/case-performance" element={<CasePerformancePage />} />
           <Route path="/cases" element={<CaseWorkspacePage />} />
           <Route path="/cases/:id/assessments" element={<AssessmentPage/>}/>

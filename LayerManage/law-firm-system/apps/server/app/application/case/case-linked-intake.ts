@@ -44,17 +44,22 @@ export async function projectLinkedIntake(
     ? new FieldProjectionService().fieldCapability(actor, 'customer', 'customer.phone', 'customer.read')
         .readLevel
     : 'NONE';
+  const generated = new Set((await reader.caseSealRequest.findMany({where:{caseId:{in:rows.map(r=>r.id)}},select:{caseId:true}})).map(r=>r.caseId));
   const lawyers = await handlingLawyers(reader, rows.map(r => r.intakeData.handlingLawyer));
   const result = rows.map((row) => {
     const intakeData = { ...row.intakeData };
     if (row.contractId) {
       const customer = customers.find((c) => c.id === row.customerId);
       const contract = contracts.find((c) => c.id === row.contractId);
-      for (const key of CONTRACT_INTAKE_KEYS) delete intakeData[key];
-      if (customer?.address) intakeData.region = customer.address;
-      if (customer?.phone) intakeData.customerPhone = customer.phone;
+      // Registration-generated contracts preserve the approved case inputs; upstream contracts still supply their own data.
+      if (!generated.has(row.id)) {
+        for (const key of CONTRACT_INTAKE_KEYS) delete intakeData[key];
+        if (customer?.address) intakeData.region = customer.address;
+        if (customer?.phone) intakeData.customerPhone = customer.phone;
+        if (contract?.signDate) intakeData.signedDate = contract.signDate.toISOString();
+      }
+      delete intakeData.contractNumber;
       if (contract) intakeData.contractNumber = contract.contractNo;
-      if (contract?.signDate) intakeData.signedDate = contract.signDate.toISOString();
     }
     if (phoneLevel === 'NONE') delete intakeData.customerPhone;
     else if (phoneLevel !== 'READ' && intakeData.customerPhone)

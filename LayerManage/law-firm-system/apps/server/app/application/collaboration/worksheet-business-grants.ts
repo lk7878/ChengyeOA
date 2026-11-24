@@ -86,7 +86,12 @@ export async function worksheetContext(db:DB, actor:AuthorizationContext, tableI
         fieldRules.push({sourceRoleId:roleId,resource:resource!,fieldCode:policy.code,readLevel:mode==='HIDDEN'?'NONE':mode==='MASK'?'MASKED':'READ',
           canWrite:mode==='EDIT'&&['EDITOR','MANAGER'].includes(rule.level),canExport:rule.copy&&mode!=='HIDDEN'});
     }
-    for(const code of rule.business.permissions) {
+    const scopedPermissions = [...rule.business.permissions];
+    if (table.source === 'CASES' && ['EDITOR','MANAGER'].includes(rule.level) && rule.business.permissions.includes('case.update') &&
+      table.fields.some(f => String(object(f.options).businessKey).startsWith('files.') && (rule.fields[f.id] ?? 'EDIT') === 'EDIT')) {
+      scopedPermissions.push('case.file.read', 'case.file.manage');
+    }
+    for(const code of scopedPermissions) {
       const p=PERMISSION_CATALOG.find(p=>p.code===code);
       if(!p) continue;
       extra.push({sourceType:'ROLE',sourceId:'worksheet:'+tableId+':'+roleId,sourceRoleId:roleId,
