@@ -2,11 +2,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, test, vi } from 'vitest';
 import GridCell from './GridCell';
 import { ConfigProvider } from 'antd';
-import { patch } from './api';
+import { post } from './api';
 import type { Field, RecordRow } from './types';
 
 vi.mock('./api', () => ({
-  patch: vi.fn(),
+  post: vi.fn(),
   get: vi.fn(),
   errorMessage: () => '保存失败',
   errorStatus: () => 500,
@@ -54,20 +54,20 @@ const props = {
 };
 
 test('changing font and row height preserves the active cell draft and original write versions', async () => {
-  vi.mocked(patch).mockResolvedValue({ id: 'r', version: 3 });
+  vi.mocked(post).mockResolvedValue({ id: 'r', version: 3 });
   const { rerender } = render(<ConfigProvider theme={{ token: { fontSize: 14 } }}><GridCell {...props}/></ConfigProvider>);
   fireEvent.click(screen.getByRole('button', { name: '标题：原值' }));
   fireEvent.change(screen.getByLabelText('单元格编辑'), { target: { value: '外观切换前填写的内容' } });
   rerender(<ConfigProvider theme={{ token: { fontSize: 18, controlHeight: 40 } }}><GridCell {...props} height={72}/></ConfigProvider>);
   expect(screen.getByLabelText('单元格编辑')).toHaveValue('外观切换前填写的内容');
-  expect(patch).not.toHaveBeenCalled();
+  expect(post).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
-  await waitFor(() => expect(patch).toHaveBeenCalledWith('/tables/t/records/r',
+  await waitFor(() => expect(post).toHaveBeenCalledWith('/tables/t/records/r/update',
     { values: { f: '外观切换前填写的内容' }, version: 2, schemaVersion: 3 }, expect.any(String)));
 });
 
 test('legacy prospect contact masking is disabled in the grid and edits preserve the actual value', async () => {
-  vi.mocked(patch).mockResolvedValue({ id: 'r', version: 3 });
+  vi.mocked(post).mockResolvedValue({ id: 'r', version: 3 });
   render(<GridCell {...props} field={{ ...field, name: '联系方式', options: { maskDisplay: true } }}
     row={{ ...row, values: { f: '13812345678' } }} />);
   fireEvent.doubleClick(screen.getByRole('button', { name: '联系方式：13812345678' }));
@@ -75,7 +75,7 @@ test('legacy prospect contact masking is disabled in the grid and edits preserve
   fireEvent.change(screen.getByLabelText('单元格编辑'), { target: { value: '13912345678' } });
   fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
   await waitFor(() => expect(props.onSaved).toHaveBeenCalled());
-  expect(patch).toHaveBeenCalledWith('/tables/t/records/r',
+  expect(post).toHaveBeenCalledWith('/tables/t/records/r/update',
     { values: { f: '13912345678' }, version: 2, schemaVersion: 3 }, expect.any(String));
 });
 test('administrative status is highlighted while remaining editable',()=>{
@@ -101,18 +101,18 @@ test('contract status provides a workflow action instead of an unvalidated statu
     'title',
     expect.stringContaining('业务流程'),
   );
-  expect(patch).not.toHaveBeenCalled();
+  expect(post).not.toHaveBeenCalled();
 });
 
 test('a single click edits a cell and saves with record/schema versions', async () => {
-  vi.mocked(patch).mockResolvedValue({ id: 'r', version: 3 });
+  vi.mocked(post).mockResolvedValue({ id: 'r', version: 3 });
   render(<GridCell {...props} />);
   fireEvent.click(screen.getByRole('button', { name: '标题：原值' }));
   fireEvent.change(screen.getByLabelText('单元格编辑'), { target: { value: '新值' } });
   fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
   await waitFor(() => expect(props.onSaved).toHaveBeenCalled());
-  expect(patch).toHaveBeenCalledWith(
-    '/tables/t/records/r',
+  expect(post).toHaveBeenCalledWith(
+    '/tables/t/records/r/update',
     { values: { f: '新值' }, version: 2, schemaVersion: 3 },
     expect.any(String),
   );
@@ -125,7 +125,7 @@ test('readonly rows and fields cannot enter editing or submit writes', () => {
   rerender(<GridCell {...props} row={{ ...row, writable: false }} />);
   fireEvent.keyDown(screen.getByRole('button', { name: '标题：原值' }), { key: 'Enter' });
   expect(screen.queryByLabelText('单元格编辑')).toBeNull();
-  expect(patch).not.toHaveBeenCalled();
+  expect(post).not.toHaveBeenCalled();
 });
 test.each([
   'LEADS',
@@ -137,20 +137,20 @@ test.each([
   'COSTS',
   'INVENTORY_ITEMS',
 ])('%s double-click editing can cancel or save a versioned field value', async (source) => {
-  vi.mocked(patch).mockResolvedValue({ id: 'r', version: 3 });
+  vi.mocked(post).mockResolvedValue({ id: 'r', version: 3 });
   render(
     <GridCell {...props} field={{ ...field, options: { businessSource: source, businessKey: 'name' } }} />,
   );
   fireEvent.doubleClick(screen.getByRole('button', { name: '标题：原值' }));
   fireEvent.change(screen.getByLabelText('单元格编辑'), { target: { value: '取消的修改' } });
   fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
-  expect(patch).not.toHaveBeenCalled();
+  expect(post).not.toHaveBeenCalled();
   fireEvent.doubleClick(screen.getByRole('button', { name: '标题：原值' }));
   fireEvent.change(screen.getByLabelText('单元格编辑'), { target: { value: '保存的修改' } });
   fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
   await waitFor(() =>
-    expect(patch).toHaveBeenCalledWith(
-      '/tables/t/records/r',
+    expect(post).toHaveBeenCalledWith(
+      '/tables/t/records/r/update',
       { values: { f: '保存的修改' }, version: 2, schemaVersion: 3 },
       expect.any(String),
     ),

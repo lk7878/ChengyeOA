@@ -715,8 +715,8 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
         schemaVersion: editing.schemaVersion,
         ...(editing.row ? { version: editing.row.version } : {}),
       };
-      await (editing.row ? patch : post)(
-        '/tables/' + tableId + '/records' + (editing.row ? '/' + editing.row.id : ''),
+      await post(
+        '/tables/' + tableId + '/records' + (editing.row ? '/' + editing.row.id + '/update' : ''),
         input,
         editing.key,
       );

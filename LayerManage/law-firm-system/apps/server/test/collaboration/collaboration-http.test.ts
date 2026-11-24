@@ -6211,3 +6211,26 @@ test('November feedback browser: menu labels, personal upload, medical lookup an
   }catch(error){await writeFile('/tmp/oa-feedback-browser-error.txt',await page.locator('body').ariaSnapshot());await page.screenshot({path:'/tmp/oa-feedback-browser-error.png',fullPage:true});throw error;}
   finally{await browser.close();await vite.close();}
 });
+
+
+test('record update command preserves versions, idempotency and revoked permissions', async () => {
+  const root = '/api/v1/tables/' + tableId + '/records';
+  const created = await app.httpRequest().post(root)
+    .set('Authorization', 'Bearer ' + editorToken).set('Idempotency-Key', randomUUID())
+    .send({ values: { [fieldId]: 'before' }, schemaVersion: 1 }).expect(200);
+  const endpoint = root + '/' + created.body.data.id + '/update';
+  const body = { values: { [fieldId]: 'after' }, schemaVersion: 1, version: created.body.data.version };
+  await app.httpRequest().post(endpoint).send(body).expect(401);
+  const key = randomUUID();
+  const saved = await app.httpRequest().post(endpoint).set('Authorization', 'Bearer ' + editorToken)
+    .set('Idempotency-Key', key).send(body).expect(200);
+  const replay = await app.httpRequest().post(endpoint).set('Authorization', 'Bearer ' + editorToken)
+    .set('Idempotency-Key', key).send(body).expect(200);
+  assert.equal(replay.body.data.version, saved.body.data.version);
+  assert.equal(((await db.collabRecord.findUniqueOrThrow({ where: { id: created.body.data.id } })).values as Record<string, unknown>)[fieldId], 'after');
+  await app.httpRequest().post(endpoint).set('Authorization', 'Bearer ' + editorToken)
+    .set('Idempotency-Key', randomUUID()).send(body).expect(409);
+  await db.collabMember.deleteMany({ where: { workspaceId, principalId: editor } });
+  await app.httpRequest().post(endpoint).set('Authorization', 'Bearer ' + editorToken)
+    .set('Idempotency-Key', randomUUID()).send({ ...body, version: saved.body.data.version }).expect(403);
+});

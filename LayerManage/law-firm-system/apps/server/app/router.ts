@@ -118,6 +118,8 @@ export default (app: Application) => {
   router.get('/api/v1/tables/:tableId/records/:recordId', controller.collaboration.record);
   router.post('/api/v1/tables/:tableId/records', controller.collaboration.saveRecord);
   router.patch('/api/v1/tables/:tableId/records/:recordId', controller.collaboration.saveRecord);
+  // Explicit update command for clients whose transport rejects PATCH; shares all save guards.
+  router.post('/api/v1/tables/:tableId/records/:recordId/update', controller.collaboration.saveRecord);
   router.get('/api/v1/collaboration/events', controller.collaboration.events);
   router.post('/api/v1/tables/:tableId/files', controller.collaboration.upload);
   router.get('/api/v1/tables/:tableId/files/:fileId', controller.collaboration.download);

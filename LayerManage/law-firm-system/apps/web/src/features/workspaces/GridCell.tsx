@@ -4,7 +4,7 @@ import { Button, Space, Tag, message } from 'antd';
 import AttachmentItem from './AttachmentItem';
 import FieldInput from './FieldInput';
 import { displayValue, fieldHint } from './display-value';
-import { errorMessage, errorStatus, get, patch } from './api';
+import { errorMessage, errorStatus, get, post } from './api';
 import type { Directory, Field, RecordDetail, RecordRow } from './types';
 
 export default function GridCell({
@@ -72,8 +72,8 @@ export default function GridCell({
     if (!draft || saving) return;
     setSaving(true);
     try {
-      await patch(
-        '/tables/' + tableId + '/records/' + row.id,
+      await post(
+        '/tables/' + tableId + '/records/' + row.id + '/update',
         { values: { [field.id]: draft.value ?? null }, version: draft.version, schemaVersion: draft.schema },
         draft.key,
       );

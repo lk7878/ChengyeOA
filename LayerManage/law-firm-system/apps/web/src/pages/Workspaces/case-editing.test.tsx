@@ -175,8 +175,8 @@ test.each(['CASES', 'CONTRACTS', 'FOLLOWS'])('%s detail keeps edited core-field 
   expect(input).toHaveValue('修改后的案件名称');
   fireEvent.click(screen.getByRole('button', { name: /^保\s*存$/ }));
   await waitFor(() =>
-    expect(patch).toHaveBeenCalledWith(
-      '/tables/t/records/r',
+    expect(post).toHaveBeenCalledWith(
+      '/tables/t/records/r/update',
       { values: { title: '修改后的案件名称' }, version: 4, schemaVersion: 1 },
       expect.any(String),
     ),
@@ -186,7 +186,7 @@ test.each(['CASES', 'CONTRACTS', 'FOLLOWS'])('%s detail keeps edited core-field 
   expect(confirm).toHaveBeenCalledOnce();
   const config = confirm.mock.calls[0][0];
   expect(config.content).toContain('回收站');
-  expect(patch).toHaveBeenCalledTimes(1);
+  expect(patch).not.toHaveBeenCalled();
   await act(async () => { await config.onOk?.(); });
   await waitFor(() => expect(patch).toHaveBeenCalledWith(
     '/tables/t/records/r', { archived: true, version: 4, schemaVersion: 1 }, expect.any(String),
