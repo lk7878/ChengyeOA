@@ -10,7 +10,7 @@
   flex-shrink: 0;
 }
 .collab-workspace {
-  height: 100vh;
+  height: 100dvh;
   background: #fff;
   color: #263044;
   display: flex;
@@ -92,11 +92,12 @@
   white-space: nowrap;
 }
 .workspace-main {
+  min-height: 0;
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: auto;
 }
 .workspace-heading {
   display: flex;
@@ -127,15 +128,35 @@
   padding: 10px 14px;
   border-bottom: 1px solid #e7eaf0;
 }
-.workspace-grid {
-  overflow: auto;
-  min-height: 200px;
-  flex: 1;
+/* Keep controls and pagination outside the virtual table's scrolling body.
+   At very short heights the main pane can scroll instead of clipping controls. */
+.workspace-heading,
+.workspace-views,
+.workspace-toolbar,
+.workspace-top {
+  flex-shrink: 0;
 }
-.workspace-main > .ant-spin-nested-loading {
+.workspace-main > .workspace-table-region {
+  flex: 1 0 240px;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.workspace-table-region > .workspace-table-content {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.workspace-grid {
   overflow: auto;
+  min-height: 0;
+  flex: 1;
+}
+.workspace-table-content > .workspace-pagination {
+  flex-shrink: 0;
+  margin: 0;
 }
 .workspace-cell {
   width: 100%;

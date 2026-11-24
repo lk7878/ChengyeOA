@@ -58,6 +58,7 @@ import RecordOperations from '@/features/workspaces/RecordOperations';
 import GridCell from '@/features/workspaces/GridCell';
 import { changedValues, rebaseDraft, initialValues } from '@/features/workspaces/editing';
 import FilterEditor from '@/features/workspaces/FilterEditor';
+import { useGridViewport } from '@/features/workspaces/use-grid-viewport';
 import './workspace.css';
 
 // The draggable modal remounts its form on opening. Initialize after that mount,
@@ -94,6 +95,7 @@ export default function WorkspacesPage() {
 
 export function WorkspaceEditor({ businessMode = false }: { businessMode?: boolean }) {
   const { sourceLabel } = useMenuLabels();
+  const { gridRef, bodyHeight } = useGridViewport();
   const superAdmin = useAuthStore(state=>!!state.authorization?.isSystemSuperAdmin);
   const appearance = useAppearance();
   const saveAppearance = useAppearanceStore(state => state.save);
@@ -1299,9 +1301,10 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
               />
             ) : (
               detail && (
-                <Spin spinning={loading}>
+                <Spin spinning={loading} classNames={{ root: 'workspace-table-region', container: 'workspace-table-content' }}>
                   <div
                     className="workspace-grid"
+                    ref={gridRef}
                     onCopy={e=>{if(detail.access.copy===false)e.preventDefault()}}
                     onFocusCapture={(e) => {
                       const cell = (e.target as HTMLElement).closest<HTMLElement>('.workspace-cell');
@@ -1327,7 +1330,7 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                             700,
                             visibleFields.reduce((n, f) => n + (config.widths?.[f.id] || 180), 220),
                           ),
-                          y: 520,
+                          y: bodyHeight,
                         }}
                         rowKey="id"
                         rowSelection={detail.canDeleteRecords ? { selectedRowKeys: selectedRecords, onChange: keys => setRecordSelection({ scope: selectionScope, ids: keys.map(String) }), getCheckboxProps: (row: GridRow) => ({ disabled: Boolean(row.group) || inlineDirty }) } : undefined}
