@@ -50,6 +50,8 @@ export class PersonalFiles extends CollaborationService {
     const s=await this.snapshot();const parent=parentId?s.resolve(parentId):null;if(parentId&&(!parent||parent.row.kind!=='FOLDER'))fail('COLLAB_FORBIDDEN',403);
     return {path:parent?.path??[],canUpload:!parent||parent.access.level>=2,items:s.rows.flatMap(row=>{
       if(parentId?row.parentId!==parentId:scope==='mine'?row.ownerId!==this.actor.userId||!!row.parentId:row.ownerId===this.actor.userId)return [];
+      // Show shared entry points once; browse inherited children inside their folder.
+      if(!parentId&&scope==='shared'&&row.parentId&&s.resolve(row.parentId))return [];
       const v=s.resolve(row.id);return v?[{id:row.id,name:row.name,kind:row.kind,size:row.kind==='FOLDER'?s.rows.reduce((total,child)=>{const visible=child.kind==='FILE'?s.resolve(child.id):null;return total+(visible?.path.some(part=>part.id===row.id)?child.size:0);},0):row.size,contentVersion:row.contentVersion,version:row.version,parentId:v.path.length>1?v.path[v.path.length-2].id:null,ownerId:row.ownerId,level:v.access.level,updatedAt:row.updatedAt,sharingState:this.sharingState(v.path.map(p=>s.rows.find(r=>r.id===p.id)!))}]:[];
     }).sort((a,b)=>a.kind.localeCompare(b.kind)||a.name.localeCompare(b.name))};
   }

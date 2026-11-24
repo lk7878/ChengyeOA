@@ -115,7 +115,7 @@ test('standalone child share exposes only its subtree, supports read-only, revok
  const child=await file(shared.id),sibling=await file(parent.id);
  await share(shared.id,1,[grant(reader.actor.userId)],false);
  const listing=await reader.list({scope:'shared'});
- assert.ok(listing.items.some(r=>r.id===shared.id));
+ assert.deepEqual(listing.items.map(r=>r.id),[shared.id]);
  assert.ok(!listing.items.some(r=>[parent.id,sibling.id].includes(r.id)));
  assert.equal(listing.items.find(r=>r.id===shared.id)?.parentId,null);
  const inside=await reader.list({parentId:shared.id});
