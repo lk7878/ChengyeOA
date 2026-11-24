@@ -1,3 +1,4 @@
+import { fieldDependencies } from '../../app/application/collaboration/field-dependencies';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID as key, createHash } from 'node:crypto';
@@ -880,4 +881,68 @@ test('role, form contact, applicant selection and manager rules resolve enabled 
   assert.equal((await action(other, sequential.id)).status, 'APPROVED');
   await db.rolePermission.deleteMany({ where: { roleId: r.roleId, permission: { code: 'approval.read' } } });
   await assert.rejects(start(d), /PERMISSION_DENIED/);
+});
+
+test('relation references capture authorized business values and remain frozen for reviewers without table access', async () => {
+  const row = await drive.saveRecord(table, undefined, { schemaVersion: 1, values: { [titleField]: '合同001 · 张三' } }, key());
+  const s = schema();
+  s.fields.push({ key: 'contract', label: '关联合同', type: 'relation', tableId: table,
+    displayFieldIds: [titleField], referenceFieldIds: [titleField] });
+  const d = await publish(s);
+  await assert.rejects(new DriveService(db, reviewer.actor).record(table, row.id));
+  const i = await start(d, { title: '引用测试', contract: row.id });
+  const original = (await reviewer.detail(i.id)).relationSnapshots.contract;
+  assert.equal(original.label, '合同001 · 张三');
+  assert.equal(original.references[0].text, '合同001 · 张三');
+  assert.equal(original.version, 1);
+  const deps = await fieldDependencies(db, table, await db.collabField.findUniqueOrThrow({ where: { id: titleField } }));
+  assert.ok(deps.some(d => d.startsWith('已发布审批流程')));
+  assert.ok(deps.some(d => d.startsWith('历史审批流程引用')));
+  await drive.saveRecord(table, row.id, { schemaVersion: 1, version: 1, values: { [titleField]: '更新后的合同' } }, key());
+  assert.deepEqual((await reviewer.detail(i.id)).relationSnapshots.contract, original);
+  await action(reviewer, i.id);
+  assert.deepEqual((await applicant.detail(i.id)).relationSnapshots.contract, original);
+  await assert.rejects(other.detail(i.id));
+  await assert.rejects(start(d, { title: '伪造', contract: row.id, _relationSnapshots: { contract: 'fake' } }));
+  await assert.rejects(other.start({ definitionId: d.id, title: '越权', content: { title: '越权', contract: row.id } }, key()));
+});
+
+test('hidden relation snapshots are not disclosed and inaccessible configured fields cannot be published', async () => {
+  const row = await drive.saveRecord(table, undefined, { schemaVersion: 1, values: { [titleField]: '隐藏内容' } }, key());
+  const s = schema();
+  s.fields.push({ key: 'contract', label: '关联合同', type: 'relation', tableId: table, referenceFieldIds: [titleField] });
+  s.nodes[1].fields = { contract: 'HIDDEN' };
+  const i = await start(await publish(s), { title: '隐藏测试', contract: row.id });
+  const detail = await reviewer.detail(i.id);
+  assert.equal('contract' in detail.content, false);
+  assert.equal('contract' in detail.relationSnapshots, false);
+  s.fields[2].referenceFieldIds = ['missing-field'];
+  await assert.rejects(publish(s), /字段/);
+});
+
+test('editing or clearing a relation replaces its snapshot rather than keeping stale references', async () => {
+  const a = await drive.saveRecord(table, undefined, { schemaVersion: 1, values: { [titleField]: '第一份合同' } }, key());
+  const b = await drive.saveRecord(table, undefined, { schemaVersion: 1, values: { [titleField]: '第二份合同' } }, key());
+  const s = schema();
+  s.fields.push({ key: 'contract', label: '关联合同', type: 'relation', tableId: table, referenceFieldIds: [titleField] });
+  s.nodes[1].fields = { contract: 'EDIT' };
+  await drive.saveMember(workspace, { baseId: base, principalType: 'ROLE', principalId: (await db.userRole.findFirstOrThrow({ where: { userId: reviewer.actor.userId } })).roleId, role: 'READER', rowScope: 'ALL' }, key());
+  const d = await publish(s);
+  const i = await start(d, { title: '切换', contract: a.id });
+  await action(reviewer, i.id, 'APPROVE', { values: { contract: b.id } });
+  assert.equal((await applicant.detail(i.id)).relationSnapshots.contract.references[0].text, '第二份合同');
+  const j = await start(d, { title: '清空', contract: a.id });
+  await action(reviewer, j.id, 'APPROVE', { values: { contract: null } });
+  assert.equal('contract' in (await applicant.detail(j.id)).relationSnapshots, false);
+});
+
+test('resubmitting after return refreshes references from the selected authorized record', async () => {
+  const row = await drive.saveRecord(table, undefined, { schemaVersion: 1, values: { [titleField]: '初稿' } }, key());
+  const s = schema();
+  s.fields.push({ key: 'contract', label: '关联合同', type: 'relation', tableId: table, referenceFieldIds: [titleField] });
+  const i = await start(await publish(s), { title: '退回引用', contract: row.id });
+  await action(reviewer, i.id, 'RETURN', { returnNode: 'start', remark: '补充资料' });
+  await drive.saveRecord(table, row.id, { schemaVersion: 1, version: 1, values: { [titleField]: '修订稿' } }, key());
+  await action(applicant, i.id, 'RESUBMIT', { values: { title: '已补充' } });
+  assert.equal((await reviewer.detail(i.id)).relationSnapshots.contract.references[0].text, '修订稿');
 });

@@ -38,6 +38,8 @@ export interface FormField {
   formula?: { op: 'add' | 'subtract' | 'multiply' | 'divide' | 'sum'; fields: string[] };
   sourceField?: string;
   tableId?: string;
+  displayFieldIds?: string[];
+  referenceFieldIds?: string[];
 }
 export interface AssigneeRule {
   type: 'USER' | 'ROLE' | 'MANAGER' | 'SUPERVISOR' | 'SELECT' | 'FIELD' | 'SELF';
@@ -282,8 +284,13 @@ export function validateSchema(raw: unknown): WorkflowSchema {
           !child || !['formula', 'moneyUpper', 'file', 'relation'].includes(f.type),
           '明细列支持基础控件和人员控件',
         );
-        if (f.type === 'relation')
+        if (f.type === 'relation') {
           check(typeof f.tableId === 'string' && f.tableId.length > 0, '请选择关联业务数据表');
+          for (const [ids, limit] of [[f.displayFieldIds, 5], [f.referenceFieldIds, 20]] as const)
+            check(ids === undefined || Array.isArray(ids) && ids.length <= limit &&
+              ids.every(id => typeof id === 'string' && id.length > 0 && id.length <= 100) &&
+              new Set(ids).size === ids.length, '关联显示字段或引用字段配置无效');
+        }
         if (f.type === 'moneyUpper')
           check(
             keys.has(f.sourceField!) && s.fields.find((x) => x.key === f.sourceField)?.type === 'number',

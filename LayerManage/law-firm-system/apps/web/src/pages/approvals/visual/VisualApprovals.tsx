@@ -575,7 +575,7 @@ export default function VisualApprovals() {
                   key={chosen.schema.binding.tableId}
                   tableId={chosen.schema.binding.tableId}
                   value={target || undefined}
-                  onChange={setTarget}
+                  onChange={id => setTarget(id ?? '')}
                   disabled={!!correction}
                 />
               </div>
@@ -690,7 +690,7 @@ export default function VisualApprovals() {
                 return f && matches(f.visibleWhen, detail.content) ? (
                   <div key={key}>
                     <small>{f.label}</small>
-                    <strong>{displayValue(f, detail.content[key], options.users)}</strong>
+                    <strong>{f.type === 'relation' ? detail.relationSnapshots?.[key]?.label ?? '已关联业务记录' : displayValue(f, detail.content[key], options.users)}</strong>
                   </div>
                 ) : null;
               })}
@@ -725,6 +725,7 @@ export default function VisualApprovals() {
                         users={options.users}
                         editable={detail.editable}
                         instanceId={detail.id}
+                        relationSnapshots={detail.relationSnapshots}
                       />
                       {pending && (process || (node?.type === 'START' && apply)) && (
                         <div className="wf-actions">

@@ -146,3 +146,16 @@ test('completed application opens a prefilled correction and submits its origina
     title: '更正：原申请',
   });
 });
+
+test('relation print uses business labels and escapes referenced values rather than raw record IDs', () => {
+  const i = original();
+  i.snapshot.fields = [{ key: 'contract', label: '关联合同', type: 'relation', tableId: 'table' }];
+  i.content = { contract: 'internal-record-id' };
+  i.relationSnapshots = { contract: { tableId: 'table', recordId: 'internal-record-id', capturedAt: '', label: '合同001 · 张三', references: [{ fieldId: 'bank', name: '开户行', text: '<img src=x onerror=alert(1)>' }] } };
+  const html = approvalPrintHtml(i, options.users, '复核人');
+  expect(html).toContain('合同001 · 张三');
+  expect(html).toContain('开户行');
+  expect(html).toContain('&lt;img');
+  expect(html).not.toContain('<img');
+  expect(html).not.toContain('internal-record-id');
+});

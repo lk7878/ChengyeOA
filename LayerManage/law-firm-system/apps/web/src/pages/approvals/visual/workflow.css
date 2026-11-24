@@ -437,3 +437,10 @@
   justify-content: space-between;
   align-items: center;
 }
+
+.wf-relation-details { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border-color, #d9d9d9); border-radius: 6px; }
+.wf-relation-details dl { margin: 0; }
+.wf-relation-details dl > div { display: grid; grid-template-columns: minmax(90px, 30%) 1fr; gap: 12px; padding: 5px 0; }
+.wf-relation-details dt { color: var(--text-secondary, #666); }
+.wf-relation-details dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wf-relation-details small { color: var(--text-secondary, #666); }

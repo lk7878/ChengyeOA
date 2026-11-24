@@ -1,3 +1,4 @@
+import { relationSnapshot, type RelationSnapshots, type RelationRecord } from '../../domain/workflow/relation-display';
 import { checkSettlementApprovals } from '../performance/settlement-approval';
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -137,7 +138,9 @@ export class WorkflowService {
       const collab = new CollaborationService(this.db, this.actor);
       for (const f of s.fields.filter((f) => f.type === 'relation')) {
         location = { section: 'form', label: `表单字段：${f.label}`, field: f.key };
-        await collab.describe(f.tableId!);
+        const described = await collab.describe(f.tableId!);
+        check([...(f.displayFieldIds ?? []), ...(f.referenceFieldIds ?? [])].every(id =>
+          described.fields.some(field => field.id === id)), '关联显示或引用字段不存在、已停用或无权访问');
       }
       location = { section: 'settings', label: '多维表格与自动化' };
       if (s.binding) {
@@ -283,6 +286,7 @@ export class WorkflowService {
             );
             selections[node] = ids.map((id) => str(id));
           }
+          selections._relationSnapshots = await this.captureRelations(s, content, content);
           if (s.binding) {
             const c = new CollaborationService(this.db, this.actor);
             check((await c.tableAccess(s.binding.tableId, tx, 2)).access.automate !== false, '当前角色无自动化权限');
@@ -686,6 +690,20 @@ export class WorkflowService {
     }
     throw new WorkflowError('流程自动流转超出安全步数');
   }
+  private async captureRelations(s: WorkflowSchema, values: Values, changed: Values, previous: RelationSnapshots = {}) {
+    const result: RelationSnapshots = { ...previous };
+    const collab = new CollaborationService(this.db, this.actor);
+    for (const f of s.fields.filter(f => f.type === 'relation' && f.key in changed)) {
+      delete result[f.key];
+      if (!values[f.key] || !matches(f.visibleWhen, values)) continue;
+      const schema = await collab.describe(f.tableId!);
+      check([...(f.displayFieldIds ?? []), ...(f.referenceFieldIds ?? [])].every(id => schema.fields.some(field => field.id === id)),
+        `${f.label}：关联字段已停用或无权读取，请联系流程管理员`);
+      const { record } = await collab.record(f.tableId!, String(values[f.key]));
+      result[f.key] = relationSnapshot(f, schema.fields, record as unknown as RelationRecord);
+    }
+    return result;
+  }
   private async merge(tx: Tx, s: WorkflowSchema, n: FlowNode, old: Values, patch: Values) {
     check(patch && typeof patch === 'object' && !Array.isArray(patch), '表单数据格式错误');
     const roles = await this.roles(tx);
@@ -841,10 +859,17 @@ export class WorkflowService {
           }
           if (['APPROVE', 'RESUBMIT'].includes(input.action)) {
             const values = await this.merge(tx, s, n, i.content as Values, input.values ?? {});
+            const prior = (i.selections as Values)._relationSnapshots as RelationSnapshots | undefined;
+            const currentRoles = await this.roles(tx);
+            const changed = input.action === 'RESUBMIT'
+              ? Object.fromEntries(s.fields.filter(f => f.type === 'relation' && fieldMode(n, f.key, currentRoles) === 'EDIT').map(f => [f.key, values[f.key]]))
+              : Object.fromEntries(Object.entries(input.values ?? {}).filter(([k, v]) => digest(v) !== digest((i.content as Values)[k] ?? null)));
+            const relations = await this.captureRelations(s, values, changed, prior);
+            i.selections = json({ ...(i.selections as Values), _relationSnapshots: relations }) as Prisma.JsonValue;
             i.content = json(values) as Prisma.JsonValue;
             await tx.workflowInstance.update({
               where: { id },
-              data: { content: i.content as Prisma.InputJsonValue, decidedBy: this.actor.userId },
+              data: { content: i.content as Prisma.InputJsonValue, selections: i.selections as Prisma.InputJsonValue, decidedBy: this.actor.userId },
             });
             if (i.businessType === 'SOP_REVIEW') await freezeSopReviewChecklist(tx, id, 'workflow');
             await tx.workflowTask.update({
@@ -1124,6 +1149,11 @@ export class WorkflowService {
             ? '/quality/special-analyses/' + encodeURIComponent(String((i.content as Values).analysisId))
             : undefined,
       snapshot: { ...s, fields },
+      relationSnapshots: Object.fromEntries(fields.filter(f => f.type === 'relation' && f.key in content)
+        .flatMap(f => {
+          const saved = ((i.selections as Values)._relationSnapshots as RelationSnapshots | undefined)?.[f.key];
+          return saved && saved.recordId === content[f.key] ? [[f.key, saved]] : [];
+        })),
       content,
       editable,
       correctionOf: (i.selections as Values)._corrects ?? null,

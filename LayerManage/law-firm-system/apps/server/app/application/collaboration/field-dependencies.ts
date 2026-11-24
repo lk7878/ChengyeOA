@@ -26,6 +26,8 @@ export async function fieldDependencies(tx: Tx, tableId: string, field: CollabFi
       ['drive_node', 'accessPolicy', '目录字段授权'], ['approval_definition', 'formSchema', '审批表单'],
       ['approval_definition', 'nodeSchema', '审批节点'], ['approval_instance', 'content', '审批记录'],
       ['analytics_dashboard', 'widgets', '数据分析图表'],
+      ['workflow_definition', 'draft', '审批流程草稿'], ['workflow_definition', 'published', '已发布审批流程'],
+      ['workflow_instance', 'snapshot', '历史审批流程引用'],
     ];
     for (const [table, column, label] of checks) {
       // SQL identifiers are a fixed allowlist, never user input.

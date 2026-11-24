@@ -8,6 +8,7 @@ const escape = (value: unknown) =>
 export function displayValue(f: FormField, value: unknown, users: Option[]): string {
   if (value == null || value === '') return '—';
   if (f.type === 'user') return users.find((u) => u.id === value)?.name ?? String(value);
+  if (f.type === 'relation') return '已关联业务记录';
   if (f.type === 'file') return Array.isArray(value) ? `${value.length}份附件（在原单查看）` : '—';
   if (f.type === 'detail') return Array.isArray(value) ? `${value.length}行明细` : '—';
   return Array.isArray(value) ? value.join('、') : String(value);
@@ -28,7 +29,10 @@ export function approvalPrintHtml(i: Instance, users: Option[], printer: string)
                     `<div class="print-detail"><b>明细 ${index + 1}</b>${fields(f.children ?? [], row)}</div>`,
                 )
                 .join('') || '—'
-            : escape(displayValue(f, value, users));
+            : f.type === 'relation' && i.relationSnapshots?.[f.key]
+              ? escape(i.relationSnapshots[f.key].label) + i.relationSnapshots[f.key].references.map(r =>
+                `<div>${escape(r.name)}：${escape(r.text)}</div>`).join('')
+              : escape(displayValue(f, value, users));
         return `<div class="print-field"><strong>${escape(f.label)}</strong><div>${contents}</div></div>`;
       })
       .join('');

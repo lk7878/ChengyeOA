@@ -98,6 +98,31 @@ function ConditionEditor({
     </Space>
   );
 }
+function RelationProperties({ field, tables, onChange }: { field: FormField; tables: Option[]; onChange: (f: FormField) => void }) {
+  const [schema, setSchema] = useState<TableSchema>();
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let live = true;
+    queueMicrotask(() => { if (live) { setSchema(undefined); setError(''); } });
+    if (field.tableId) get<TableSchema>(`/tables/${field.tableId}`).then(s => { if (live) setSchema(s); })
+      .catch(e => { if (live) setError(errorText(e)); });
+    return () => { live = false; };
+  }, [field.tableId]);
+  const choices = schema?.fields.map(f => option(f.id, f.name)) ?? [];
+  return <>
+    <Field title="关联数据表"><Select aria-label="关联数据表" style={{ width: '100%' }} showSearch optionFilterProp="label"
+      value={field.tableId} options={tables.map(t => option(t.id, t.name))}
+      onChange={tableId => onChange({ ...field, tableId, displayFieldIds: [], referenceFieldIds: [] })} /></Field>
+    {error && <Alert type="warning" title={error} />}
+    <Field title="下拉显示字段（按选择顺序组合）"><Select aria-label="下拉显示字段" mode="multiple" style={{ width: '100%' }}
+      placeholder="默认优先显示编号、客户或名称" disabled={!schema} maxCount={5} options={choices}
+      value={field.displayFieldIds ?? []} onChange={displayFieldIds => onChange({ ...field, displayFieldIds })} /></Field>
+    <Field title="只读引用字段"><Select aria-label="只读引用字段" mode="multiple" style={{ width: '100%' }}
+      placeholder="例如申请金额、开户行、退款人" disabled={!schema} maxCount={20} options={choices}
+      value={field.referenceFieldIds ?? []} onChange={referenceFieldIds => onChange({ ...field, referenceFieldIds })} /></Field>
+    <p className="wf-field-help">选中记录后展示引用内容，提交时保存快照供审批核对。仅可引用发起人有权读取的字段。</p>
+  </>;
+}
 function FieldProperties({
   field,
   fields,
@@ -183,18 +208,7 @@ function FieldProperties({
           />
         </Field>
       )}
-      {field.type === 'relation' && (
-        <Field title="关联数据表">
-          <Select
-            style={{ width: '100%' }}
-            showSearch
-            optionFilterProp="label"
-            value={field.tableId}
-            options={tables.map((t) => option(t.id, t.name))}
-            onChange={(tableId) => set({ tableId })}
-          />
-        </Field>
-      )}
+      {field.type === 'relation' && <RelationProperties field={field} tables={tables} onChange={onChange} />}
       {field.type === 'moneyUpper' && (
         <Field title="来源金额字段">
           <Select

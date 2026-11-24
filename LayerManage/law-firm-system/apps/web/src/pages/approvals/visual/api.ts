@@ -39,6 +39,7 @@ export interface Definition {
   enabled: boolean;
 }
 export interface Instance {
+  relationSnapshots?: import('../../../../../server/app/domain/workflow/relation-display').RelationSnapshots;
   businessType?: string;
   businessLink?: string;
   id: string;

@@ -1,81 +1,20 @@
 import FilePreviewButton from '@/features/files/FilePreviewButton';
-import { useEffect, useState } from 'react';
+import RecordPicker from './RelationPicker';
+import type { RelationSnapshots } from '../../../../../server/app/domain/workflow/relation-display';
 import { Button, DatePicker, Input, InputNumber, Select, Space, Upload, message } from 'antd';
 import dayjs from 'dayjs';
 import {
   calculate,
   matches,
-  get,
-  post,
   upload,
   download,
   errorText,
   type FormField,
   type Values,
   type Option,
-  type TableSchema,
 } from './api';
 
-export function RecordPicker({
-  tableId,
-  value,
-  onChange,
-  disabled = false,
-}: {
-  tableId: string;
-  value?: string;
-  onChange: (id: string) => void;
-  disabled?: boolean;
-}) {
-  const [rows, setRows] = useState<Option[]>([]),
-    [page, setPage] = useState(1),
-    [total, setTotal] = useState(0),
-    [loading, setLoading] = useState(true);
-  useEffect(() => {
-    let live = true;
-    Promise.all([
-      get<TableSchema>(`/tables/${tableId}`),
-      post<{ records: Array<{ id: string; values: Values }>; total: number }>(
-        `/tables/${tableId}/records/query`,
-        { page, pageSize: 50 },
-      ),
-    ])
-      .then(([schema, data]) => {
-        if (!live) return;
-        const primary = schema.fields[0]?.id;
-        const next = data.records.map((r) => ({ id: r.id, name: String(r.values[primary] ?? r.id) }));
-        setRows((old) => (page === 1 ? next : [...old, ...next]));
-        setTotal(data.total);
-      })
-      .catch((e) => message.error(errorText(e)))
-      .finally(() => {
-        if (live) setLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [tableId, page]);
-  return (
-    <Space.Compact style={{ width: '100%' }}>
-      <Select
-        style={{ width: '100%' }}
-        disabled={disabled}
-        loading={loading}
-        showSearch
-        optionFilterProp="label"
-        value={value}
-        onChange={onChange}
-        placeholder="选择有权访问的业务记录"
-        options={rows.map((r) => ({ value: r.id, label: r.name }))}
-      />
-      {!disabled && rows.length < total && (
-        <Button loading={loading} onClick={() => setPage((p) => p + 1)}>
-          加载更多
-        </Button>
-      )}
-    </Space.Compact>
-  );
-}
+export { default as RecordPicker } from './RelationPicker';
 export default function WorkflowForm({
   fields,
   values,
@@ -83,6 +22,7 @@ export default function WorkflowForm({
   editable,
   users,
   instanceId,
+  relationSnapshots,
   preview = false,
 }: {
   fields: FormField[];
@@ -91,6 +31,7 @@ export default function WorkflowForm({
   editable: string[];
   users: Option[];
   instanceId?: string;
+  relationSnapshots?: RelationSnapshots;
   preview?: boolean;
 }) {
   let display = values;
@@ -163,11 +104,13 @@ export default function WorkflowForm({
               control =
                 !preview && f.tableId ? (
                   <RecordPicker
-                    key={f.tableId}
+                    key={f.key + f.tableId}
+                    field={f}
+                    saved={relationSnapshots?.[f.key]}
                     tableId={f.tableId}
                     disabled={disabled}
                     value={value as string}
-                    onChange={(v) => change(f.key, v)}
+                    onChange={(v) => change(f.key, v ?? null)}
                   />
                 ) : (
                   <Input disabled placeholder={preview ? '选择有权访问的业务记录' : '先配置关联表'} />
