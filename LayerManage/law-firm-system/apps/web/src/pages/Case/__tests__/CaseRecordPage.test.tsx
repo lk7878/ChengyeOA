@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import { beforeEach, expect, test, vi } from 'vitest';
 import CaseRecordPage from '../CaseRecordPage';
 import { get } from '@/features/workspaces/api';
-import { clearCaseDraft } from '../case-draft';
+import { caseDraft, clearCaseDraft } from '../case-draft';
 import { useAuthStore } from '@/stores/authStore';
-const api = vi.hoisted(() => ({ detail: vi.fn(), listFiles: vi.fn(), update: vi.fn(), transition: vi.fn(), contracts: vi.fn() }));
+const api = vi.hoisted(() => ({ create: vi.fn(), detail: vi.fn(), listFiles: vi.fn(), update: vi.fn(), transition: vi.fn(), contracts: vi.fn() }));
 vi.mock('@/api/business', () => ({ caseApi: api }));
 vi.mock('@/api/contract',()=>({contractApi:{list:api.contracts}}));
 vi.mock('@/api/customer', () => ({
@@ -170,4 +170,29 @@ test('lawyers without global contract access can open new case without requestin
  expect(screen.queryByText('关联合同（已生效）')).not.toBeInTheDocument();
  expect(api.contracts).not.toHaveBeenCalled();
  expect(screen.getByRole('textbox',{name:'案由'})).toBeEnabled();
+});
+
+
+test('worksheet-only creation returns to the authorized table and selects the new record', async () => {
+  const original = vi.mocked(get).getMockImplementation()!;
+  vi.mocked(get).mockImplementation(async (url, ...args) => url === '/tables/t' ? ({
+    table: { id: 't', source: 'CASES' }, access: { level: 2, add: true, readonly: [] },
+    businessPermissions: ['case.read', 'case.create', 'case.update'],
+    fields: [{ id: 'customer', options: { businessKey: 'customerName' } }, { id: 'caseType', options: { businessKey: 'caseType' } }],
+  } as never) : original(url, ...args));
+  useAuthStore.setState({ authorization: { ...useAuthStore.getState().authorization!, permissions: ['customer.read'] } });
+  caseDraft.ownerId = useAuthStore.getState().userInfo?.id;
+  caseDraft.values = { workspaceId: 'workspace', branchId: 'org', customerId: 'customer-1', lawyerId: 'lawyer', caseType: '合成测试' };
+  api.create.mockResolvedValue({ data: row });
+  function Destination() { return <output>{useLocation().search}</output>; }
+  render(<MemoryRouter initialEntries={[{ pathname: '/cases/new', search: '?base=b&table=t&workspace=workspace', state: { resumeCase: true } }]}>
+    <Routes><Route path="/cases/new" element={<CaseRecordPage />} /><Route path="/cases" element={<Destination />} /></Routes>
+  </MemoryRouter>);
+  const dialog = await screen.findByRole('dialog');
+  const save = within(dialog).getByRole('button', { name: '确 定' });
+  await waitFor(() => expect(save).toBeEnabled());
+  fireEvent.click(save);
+  await waitFor(() => expect(api.create).toHaveBeenCalledWith(expect.objectContaining({ worksheetId: 't', customerId: 'customer-1' })));
+  expect(await screen.findByText('?table=t&record=case-1&base=b&workspace=workspace')).toBeInTheDocument();
+  expect(api.detail).not.toHaveBeenCalled();
 });

@@ -465,6 +465,13 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
       setCreateOpen(false);
       setContractSearch('');
       if (editingCase) await openDetailWithFiles(saved);
+      else if (sourceTable) {
+        const destination = new URLSearchParams({ table: sourceTable, record: saved.id });
+        const sourceBase = searchParams.get('base');
+        if (sourceBase) destination.set('base', sourceBase);
+        if (workspaceId) destination.set('workspace', workspaceId);
+        navigate('/cases?' + destination.toString(), { replace: true });
+      }
       else navigate('/cases/' + saved.id, { replace: true });
     } catch (error) {
       if ((error as {response?:{data?:{message?:string}}}).response?.data?.message==='CASE_CONFLICT_REVIEW_REQUIRED') setScreenRevision(n=>n+1);
