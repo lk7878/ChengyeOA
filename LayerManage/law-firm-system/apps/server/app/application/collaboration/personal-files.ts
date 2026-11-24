@@ -15,6 +15,19 @@ function fileBytes(name:string,content:unknown){
   const bytes=Buffer.from(content,'base64');if(!bytes.length)fail('COLLAB_FILE_TOO_LARGE');
   return bytes;
 }
+// Expand structural descendants, including separately trashed items, once per tree.
+function subtree<T extends {id:string;parentId:string|null}>(rows:T[], ids:string[]) {
+  const children=new Map<string,T[]>();
+  for(const row of rows)if(row.parentId)children.set(row.parentId,[...(children.get(row.parentId)??[]),row]);
+  const byId=new Map(rows.map(row=>[row.id,row])),seen=new Set<string>(),result:T[]=[];
+  const queue=[...ids];
+  for(let i=0;i<queue.length;i++){
+    const id=queue[i];if(seen.has(id))continue;seen.add(id);
+    const row=byId.get(id);if(row)result.push(row);
+    for(const child of children.get(id)??[])queue.push(child.id);
+  }
+  return result;
+}
 export class PersonalFiles extends CollaborationService {
   private async snapshot(tx:Prisma.TransactionClient=this.db){
     const [rows,principals]=await Promise.all([tx.personalFile.findMany({where:{deletedAt:null}}),this.principals(tx)]);
@@ -181,14 +194,21 @@ export class PersonalFiles extends CollaborationService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('personal-files',0))`;
       // Validate the whole batch before any mutation, including inherited rights.
       const snapshot=await this.snapshot(tx);
-      for(const file of files){const resolved=snapshot.resolve(file.id);if(!resolved||resolved.access.level<3)fail('COLLAB_FORBIDDEN',403);const {row}=resolved;if(row.kind!=='FILE')fail('COLLAB_INVALID_VALUE');if(row.version!==file.version)fail('COLLAB_ACCESS_CONFLICT',409);}
-      for(const file of files){await tx.personalFile.update({where:{id:file.id},data:{deletedAt:new Date(),version:{increment:1}}});await tx.operationLog.create({data:{userId:this.actor.userId,action:'PERSONAL_FILE_DELETE',targetType:'PERSONAL_FILE',targetId:file.id}});}
-      return {count:files.length};
+      for(const file of files){const resolved=snapshot.resolve(file.id);if(!resolved||resolved.access.level<3)fail('COLLAB_FORBIDDEN',403);const {row}=resolved;if(row.version!==file.version)fail('COLLAB_ACCESS_CONFLICT',409);}
+      for(const row of subtree(snapshot.rows,files.map(f=>f.id))){
+        if((snapshot.resolve(row.id)?.access.level??0)<3)fail('COLLAB_FORBIDDEN',403);
+      }
+      // Only tombstone selected roots. Their descendants become inaccessible through
+      // the ancestor check and restore together; earlier trashed children stay trashed.
+      const selected=new Set(files.map(f=>f.id));
+      const roots=files.filter(f=>!snapshot.resolve(f.id)!.path.slice(0,-1).some(p=>selected.has(p.id)));
+      for(const file of roots){await tx.personalFile.update({where:{id:file.id},data:{deletedAt:new Date(),version:{increment:1}}});await tx.operationLog.create({data:{userId:this.actor.userId,action:'PERSONAL_FILE_DELETE',targetType:'PERSONAL_FILE',targetId:file.id}});}
+      return {count:roots.length};
     });
   }
   async trash(){
     const [files,pending]=await Promise.all([
-      this.db.personalFile.findMany({where:{ownerId:this.actor.userId,deletedAt:{not:null}},select:{id:true,name:true,version:true,deletedAt:true},orderBy:{deletedAt:'desc'}}),
+      this.db.personalFile.findMany({where:{ownerId:this.actor.userId,deletedAt:{not:null}},select:{id:true,name:true,kind:true,version:true,deletedAt:true},orderBy:{deletedAt:'desc'}}),
       this.db.personalFilePurge.findMany({where:{ownerId:this.actor.userId,completedAt:null},orderBy:{createdAt:'desc'}}),
     ]);
     return {items:[...pending.map(p=>({id:p.fileId,name:p.name,version:p.version,deletedAt:p.createdAt,purging:true})),...files.map(f=>({...f,purging:false}))]};
@@ -203,25 +223,43 @@ export class PersonalFiles extends CollaborationService {
     const input=exact(raw,['files']);
     if(!Array.isArray(input.files)||!input.files.length||input.files.length>10000)fail('COLLAB_INVALID_VALUE');
     const refs=input.files.map(value=>{const ref=exact(value,['id','version']);return {id:text(ref.id),version:integer(ref.version)};});
-    const ids=refs.map(ref=>ref.id);
+    const rootIds=refs.map(ref=>ref.id);
+    let ids=[...rootIds];
     if(new Set(ids).size!==ids.length)fail('COLLAB_INVALID_VALUE');
     // The submitted list is the confirmation snapshot. Never include files newly
     // moved to trash after the user reviewed a “clear recycle bin” confirmation.
     const [files,jobs]=await Promise.all([this.db.personalFile.findMany({where:{id:{in:ids}}}),this.db.personalFilePurge.findMany({where:{fileId:{in:ids}}})]);
     const byFile=new Map(files.map(f=>[f.id,f])),byJob=new Map(jobs.map(j=>[j.fileId,j]));
-    for(const {id} of refs){const file=byFile.get(id),job=byJob.get(id);if(job?job.ownerId!==this.actor.userId:!file||file.ownerId!==this.actor.userId||!file.deletedAt||file.kind!=='FILE')fail('COLLAB_FORBIDDEN',403);}
+    for(const {id} of refs){const file=byFile.get(id),job=byJob.get(id);if(job?job.ownerId!==this.actor.userId:!file||file.ownerId!==this.actor.userId||!file.deletedAt)fail('COLLAB_FORBIDDEN',403);}
+    const tree=await this.db.personalFile.findMany();
+    const descendants=subtree(tree,rootIds);
+    for(const row of descendants)if(row.ownerId!==this.actor.userId)fail('COLLAB_FORBIDDEN',403);
+    // Capture every descendant version before taking upload locks; recheck the
+    // entire tree under the lock, so concurrent restore/purge cannot be swept in.
+    const expanded=new Map(refs.map(ref=>[ref.id,ref]));
+    for(const row of descendants)if(!expanded.has(row.id))expanded.set(row.id,{id:row.id,version:row.version});
+    ids=[...expanded.keys()];
     // Upload completion takes upload locks before the tree lock. A concurrent
     // restore changes the version, checked again before committing the whole batch.
     const uploads=await this.db.personalFileUpload.findMany({where:{OR:[{fileId:{in:ids}},{resultId:{in:ids}}]},select:{id:true,fileId:true,resultId:true},orderBy:{id:'asc'}});
     const receipts=await this.db.$transaction(async tx=>{
       for(const upload of uploads)await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${upload.id},0))`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('personal-files',0))`;
+      const currentTree=subtree(await tx.personalFile.findMany(),rootIds);
+      const expected=new Map(descendants.map(row=>[row.id,row.version]));
+      if(currentTree.length!==expected.size||currentTree.some(row=>expected.get(row.id)!==row.version))fail('COLLAB_ACCESS_CONFLICT',409);
+      // Deepest nodes first to satisfy the parent foreign key. Pending cleanup
+      // receipts have no live node and can be retried independently.
+      const byId=new Map(currentTree.map(row=>[row.id,row]));
+      const depth=(id:string):number=>{const seen=new Set<string>();let row=byId.get(id);while(row?.parentId&&byId.has(row.parentId)&&!seen.has(row.id)){seen.add(row.id);row=byId.get(row.parentId);}return seen.size;};
+      const order=[...currentTree].sort((a,b)=>depth(b.id)-depth(a.id)).map(row=>expanded.get(row.id)!);
+      order.push(...refs.filter(ref=>!expected.has(ref.id)));
       const receipts=[];
-      for(const {id,version} of refs){
+      for(const {id,version} of order){
         const previous=await tx.personalFilePurge.findUnique({where:{fileId:id}});
         if(previous){if(previous.ownerId!==this.actor.userId)fail('COLLAB_FORBIDDEN',403);if(previous.version!==version)fail('COLLAB_ACCESS_CONFLICT',409);receipts.push(previous);continue;}
         const row=await tx.personalFile.findUnique({where:{id}});
-        if(!row||row.ownerId!==this.actor.userId||!row.deletedAt||row.kind!=='FILE')fail('COLLAB_FORBIDDEN',403);
+        if(!row||row.ownerId!==this.actor.userId||(rootIds.includes(id)&&!row.deletedAt))fail('COLLAB_FORBIDDEN',403);
         if(row.version!==version)fail('COLLAB_ACCESS_CONFLICT',409);
         const versions=await tx.personalFileVersion.findMany({where:{fileId:id}});
         const storageKeys=[...new Set([row.storageKey,...versions.map(v=>v.storageKey)].filter((key):key is string=>!!key))];

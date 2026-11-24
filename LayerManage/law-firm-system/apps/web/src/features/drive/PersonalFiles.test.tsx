@@ -18,7 +18,7 @@ test('permanent deletion requires explicit confirmation; cancelling does not sen
  const trash=await screen.findByRole('dialog',{name:'我的文件回收站'});
  fireEvent.click(within(trash).getByRole('button',{name:'彻底删除'}));
  let confirm=await screen.findByRole('dialog',{name:'确认彻底删除'});
- expect(within(confirm).getByText('原文件及全部历史版本将被永久删除，无法恢复。')).toBeInTheDocument();
+ expect(within(confirm).getByText('所选文件、文件夹的全部下级内容及历史版本将被永久删除，无法恢复。')).toBeInTheDocument();
  expect(post).not.toHaveBeenCalled();
  fireEvent.click(within(confirm).getByRole('button',{name:/取\s*消/}));
  await waitFor(()=>expect(confirm).not.toBeVisible());
@@ -74,4 +74,22 @@ test('network loss preserves checked files and a later permission denial removes
   vi.mocked(get).mockRejectedValue({isAxiosError:true,response:{status:403}});
   fireEvent.click(screen.getByRole('button',{name:'刷新文件'}));
   await waitFor(()=>expect(screen.queryByText('选中文件.txt')).toBeNull());
+});
+
+
+test('owned folders can be selected and deleted after confirmation; readers remain disabled',async()=>{
+ const folder={id:'folder',name:'我的目录',kind:'FOLDER',level:3,version:2,size:55};
+ vi.mocked(get).mockResolvedValue({items:[folder,{...folder,id:'shared',name:'只读目录',level:1}],path:[],canUpload:true});
+ render(<PersonalFiles scope="mine"/>);
+ const row=await screen.findByRole('row',{name:/我的目录/});
+ expect(within(row).getByRole('checkbox')).toBeEnabled();
+ expect(within(screen.getByRole('row',{name:/只读目录/})).getByRole('checkbox')).toBeDisabled();
+ fireEvent.click(within(row).getByRole('checkbox'));
+ fireEvent.click(screen.getByRole('button',{name:'刷新文件'}));
+ await waitFor(()=>expect(within(row).getByRole('checkbox')).toBeChecked());
+ fireEvent.click(screen.getByRole('button',{name:'删除所选（1）'}));
+ const confirm=await screen.findByRole('dialog',{name:'确认删除文件或文件夹'});
+ expect(post).not.toHaveBeenCalled();
+ fireEvent.click(within(confirm).getByRole('button',{name:'移入回收站'}));
+ await waitFor(()=>expect(post).toHaveBeenCalledWith('/personal-files/delete',{files:[{id:'folder',version:2}]}));
 });

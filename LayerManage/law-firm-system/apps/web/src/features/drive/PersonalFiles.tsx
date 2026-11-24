@@ -36,7 +36,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
       .then(result => {
         if (!active) return;
         setData(result);
-        setSelected(ids => ids.filter(id => result.items.some(item => item.id === id && item.kind === 'FILE' && item.level >= 3)));
+        setSelected(ids => ids.filter(id => result.items.some(item => item.id === id && item.level >= 3)));
         setError('');
       })
       .catch(e => {
@@ -72,7 +72,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
     <input hidden type="file" multiple ref={fileInput} onChange={e=>void upload(e.target.files)}/><input hidden type="file" multiple {...{webkitdirectory:''}} ref={folderInput} onChange={e=>void upload(e.target.files)}/>
     {Object.entries(progress).map(([file,state])=><p key={file}>{file}：{state}</p>)}
     {failed.length>0&&<Button disabled={busy} onClick={()=>void upload(failed)}>重试失败文件（续传）</Button>}
-    <ResizableTable<Item> columnWidthsKey={`personal-files:${authorization?.userId??'anonymous'}:${scope}`} style={{marginTop:12}} rowKey="id" dataSource={data?.items??[]} pagination={{pageSize:10}} rowSelection={{columnWidth:48,selectedRowKeys:selected,onChange:keys=>setSelected(keys.map(String)),getCheckboxProps:r=>({disabled:busy||r.kind!=='FILE'||r.level<3})}} columns={[
+    <ResizableTable<Item> columnWidthsKey={`personal-files:${authorization?.userId??'anonymous'}:${scope}`} style={{marginTop:12}} rowKey="id" dataSource={data?.items??[]} pagination={{pageSize:10}} rowSelection={{columnWidth:48,selectedRowKeys:selected,onChange:keys=>setSelected(keys.map(String)),getCheckboxProps:r=>({disabled:busy||r.level<3})}} columns={[
       {title:'文件名称',dataIndex:'name',width:320,render:(_,r)=>r.kind==='FOLDER'?<Button type="link" onClick={()=>setParent(r.id)}>📁 {r.name}</Button>:<FilePreviewButton link url={versionUrl(r.id,r.contentVersion)} name={r.name}>{r.name}</FilePreviewButton>},
       {title:'分享状态',key:'sharingState',width:150,render:(_,r)=>r.level>=3?<Button size="small" type="link" style={sharingStatusStyle} aria-label={r.name+'的分享管理'} onClick={()=>setSharingId(r.id)}>{r.sharingState==='inherited'?'继承文件夹分享':r.sharingState==='direct'?'已分享':'未分享'}</Button>:<small style={sharingStatusStyle}>{r.sharingState==='inherited'?'继承文件夹分享':r.sharingState==='direct'?'已分享':'未分享'}</small>},
       {title:'权限',key:'permission',width:90,render:(_,r)=>['无权限','只读','编辑','管理'][r.level]},
@@ -85,7 +85,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
           ...(r.kind==='FILE'&&r.contentVersion>1?[{key:'history',label:'历史版本'}]:[]),
           ...(r.level>=2?[{key:'rename',label:'重命名'}]:[]),
           ...(r.level>=3?[{key:'share',label:'分享管理'}]:[]),
-          ...(r.kind==='FILE'&&r.level>=3?[{key:'delete',label:'删除',danger:true}]:[]),
+          ...(r.level>=3?[{key:'delete',label:'删除',danger:true}]:[]),
         ],onClick:({key})=>{
           if(key==='update')setReplacing({file:r});
           if(key==='history')void get<NonNullable<typeof history>['versions']>('/personal-files/'+r.id+'/versions').then(versions=>setHistory({file:r,versions})).catch(e=>message.error(errorMessage(e)));
@@ -95,8 +95,8 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
         }}}><Button disabled={busy} aria-label={r.name+'的更多操作'}>更多</Button></Dropdown>}
       </Space>},
     ]}/>
-    <Modal title="确认删除文件" open={!!deleting} confirmLoading={busy} onCancel={()=>setDeleting(undefined)} okText="移入回收站" onOk={async()=>{if(!deleting?.length)return;setBusy(true);try{await post('/personal-files/delete',{files:deleting.map(({id,version})=>({id,version}))});setDeleting(undefined);setHistory(undefined);setSelected([]);refresh();message.success('文件已移入所有者的回收站');}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}><p>将删除以下 {deleting?.length} 个文件。共享访问及任务材料读取将失效，正在引用这些材料的 AI 任务可能中断；已发布的知识快照与正式归档不受影响。文件所有者可从回收站恢复。</p><ul>{deleting?.map(f=><li key={f.id}>{f.name}</li>)}</ul></Modal>
-    <Drawer title="我的文件回收站" open={!!trash} onClose={()=>{if(!busy)setTrash(undefined);}} width={620}><p>文件可恢复到原目录，并沿用原有分享权限。彻底删除会移除原文件及全部历史版本，无法恢复。</p>
+    <Modal title="确认删除文件或文件夹" open={!!deleting} confirmLoading={busy} onCancel={()=>setDeleting(undefined)} okText="移入回收站" onOk={async()=>{if(!deleting?.length)return;setBusy(true);try{await post('/personal-files/delete',{files:deleting.map(({id,version})=>({id,version}))});setDeleting(undefined);setHistory(undefined);setSelected([]);refresh();message.success('所选内容已移入所有者的回收站');}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}><p>将删除以下 {deleting?.length} 项。文件夹会连同下级内容一起移入回收站，恢复文件夹时一并恢复。共享访问及任务材料读取将失效，正在引用这些材料的 AI 任务可能中断；已发布的知识快照与正式归档不受影响。文件所有者可从回收站恢复。</p><ul>{deleting?.map(f=><li key={f.id}>{f.name}</li>)}</ul></Modal>
+    <Drawer title="我的文件回收站" open={!!trash} onClose={()=>{if(!busy)setTrash(undefined);}} width={620}><p>文件和文件夹可恢复到原目录，并沿用原有分享权限。彻底删除文件夹会删除其全部下级内容（含已删除的子项）和历史版本，无法恢复。</p>
       <Space wrap style={{marginBottom:12}}>
         <Button danger disabled={busy||!trashSelected.length} onClick={()=>setPurging({files:(trash??[]).filter(f=>trashSelected.includes(f.id)),all:false})}>彻底删除所选（{trashSelected.length}）</Button>
         <Button danger disabled={busy||!trash?.length} onClick={async()=>{setBusy(true);try{const {items}=await get<{items:TrashItem[]}>('/personal-files/trash');setTrash(items);setTrashSelected([]);if(items.length)setPurging({files:items,all:true});else message.info('回收站已为空');}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}>清空回收站</Button>
@@ -111,7 +111,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
         if(result.failed.length)message.warning('已彻底删除 '+result.count+' 个文件，'+result.failed.length+' 个清理未完成，可重试');else message.success('已彻底删除 '+result.count+' 个文件及其全部历史版本');
       }catch(e){message.error(errorMessage(e));setPurging(undefined);setTrashSelected([]);}
       finally{try{setTrash((await get<{items:TrashItem[]}>('/personal-files/trash')).items);}catch{message.error('回收站刷新失败，请重新打开后重试');}setBusy(false);}
-    }}><p>{purging?.all?'将清空本次确认的回收站文件':'将彻底删除所选文件'}，共 {purging?.files.length??0} 个：</p><ul>{purging?.files.slice(0,20).map(f=><li key={f.id}>{f.name}</li>)}</ul>{(purging?.files.length??0)>20&&<p>其余 {(purging?.files.length??0)-20} 个文件也将删除。</p>}<Alert type="warning" showIcon title="原文件及全部历史版本将被永久删除，无法恢复。"/><p>共享用户和 AI 任务将无法再读取这些文件。已单独保存的知识库副本和正式归档文件不受影响。确认后新移入回收站的文件不包含在本次删除范围内。</p></Modal>
+    }}><p>{purging?.all?'将清空本次确认的回收站文件':'将彻底删除所选文件'}，共 {purging?.files.length??0} 个：</p><ul>{purging?.files.slice(0,20).map(f=><li key={f.id}>{f.name}</li>)}</ul>{(purging?.files.length??0)>20&&<p>其余 {(purging?.files.length??0)-20} 个文件也将删除。</p>}<Alert type="warning" showIcon title="所选文件、文件夹的全部下级内容及历史版本将被永久删除，无法恢复。"/><p>共享用户和 AI 任务将无法再读取这些文件。已单独保存的知识库副本和正式归档文件不受影响。确认后新移入回收站的文件不包含在本次删除范围内。</p></Modal>
     <Drawer title={'历史版本 · '+(history?.file.name??'')} open={!!history} onClose={()=>setHistory(undefined)} width={620}><p>更新文件会保留旧版本。已有 AI 任务和已投稿知识继续使用当时选定的版本。</p>{history?.versions.map((v,index)=><section key={v.version} style={{marginBottom:20,paddingBottom:16,borderBottom:'1px solid #e5e8ee'}}><h3>版本 {v.version}{index===0?'（最新）':''}</h3><p>{v.name} · {Math.ceil(v.size/1024)} KB</p><p>保存于：{new Date(v.createdAt).toLocaleString('zh-CN',{hour12:false})}</p><FilePreviewButton url={versionUrl(history.file.id,v.version)} name={v.name}>预览此版本</FilePreviewButton> <Button onClick={()=>void downloadVersion(history.file.id,v.version,v.name).catch(e=>message.error(errorMessage(e)))}>下载此版本</Button><details style={{marginTop:12}}><summary style={{cursor:'pointer'}}>技术信息</summary><p style={{overflowWrap:'anywhere'}}>文件校验码（SHA-256）：{v.sha256}</p><p>解析状态：{v.parseStatus==='PARSED'?'已解析':'待任务处理'}；模型可读性由任务工具确认。</p></details></section>)}</Drawer>
     <Modal title="更新文件" open={!!replacing} destroyOnHidden confirmLoading={busy} closable={!busy} maskClosable={!busy} keyboard={!busy} cancelButtonProps={{disabled:busy}} okButtonProps={{disabled:!replacing?.upload}} okText="确认更新" cancelText="取消" onCancel={()=>{if(!busy)setReplacing(undefined);}} onOk={async()=>{
       if(!replacing?.upload)return;const {file,upload:next}=replacing;setBusy(true);

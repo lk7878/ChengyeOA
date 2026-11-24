@@ -109,3 +109,40 @@ test('bulk disk cleanup reports partial failure and retries completed items safe
  assert.equal(await db.operationLog.count({where:{action:'PERSONAL_FILE_PURGE'}}),2);
  await assert.rejects(owner.purgeMany({files:[files[0],files[0]]}),/COLLAB_INVALID_VALUE/);
 });
+
+
+test('folder deletion hides descendants, restores the tree and preserves earlier trash',async()=>{
+ const folder=await owner.create({name:'测试目录',kind:'FOLDER'});
+ const nested=await owner.create({name:'子目录',kind:'FOLDER',parentId:folder.id});
+ const file=await owner.create({name:'资料.txt',kind:'FILE',parentId:nested.id,content:Buffer.from('nested').toString('base64')});
+ const old=await owner.create({name:'原回收站.txt',kind:'FILE',parentId:folder.id,content:Buffer.from('old').toString('base64')});
+ await owner.remove({files:[{id:old.id,version:1}]});
+ await assert.rejects(other.remove({files:[{id:folder.id,version:1}]}),/COLLAB_FORBIDDEN/);
+ await owner.remove({files:[{id:folder.id,version:1},{id:file.id,version:1}]});
+ assert.equal((await owner.list({scope:'mine'})).items.length,0);
+ await assert.rejects(owner.download(file.id),/COLLAB_FORBIDDEN/);
+ await assert.rejects(owner.create({name:'并发.txt',kind:'FILE',parentId:nested.id,content:Buffer.from('new').toString('base64')}),/COLLAB_FORBIDDEN/);
+ await owner.restore(folder.id,{version:2});
+ assert.equal(Buffer.from((await owner.download(file.id)).content,'base64').toString(),'nested');
+ assert.ok((await db.personalFile.findUniqueOrThrow({where:{id:old.id}})).deletedAt);
+ // Reversed overlapping selections must still purge children before parents.
+ await owner.remove({files:[{id:folder.id,version:3}]});
+ const result=await owner.purgeMany({files:[{id:old.id,version:2},{id:folder.id,version:4}]});
+ assert.deepEqual(result,{count:4,failed:[]});
+ assert.equal(await db.personalFile.count(),0);
+ assert.equal((await owner.trash()).items.length,0);
+});
+
+test('folder management cannot bypass a restricted descendant or purge another owner',async()=>{
+ const folder=await owner.create({name:'共享目录',kind:'FOLDER'});
+ await owner.share(folder.id,{version:1,policy:{restricted:true,grants:[{principalType:'USER',principalId:other.actor.userId,role:'MANAGER',rowScope:'ALL',canCreate:true,hiddenFields:[],readonlyFields:[]}]}});
+ const file=await other.create({name:'他人资料.txt',kind:'FILE',parentId:folder.id,content:Buffer.from('foreign').toString('base64')});
+ await other.share(file.id,{version:1,policy:{restricted:true,grants:[]}});
+ await assert.rejects(owner.remove({files:[{id:folder.id,version:2}]}),/COLLAB_FORBIDDEN/);
+ assert.equal((await db.personalFile.findUniqueOrThrow({where:{id:folder.id}})).deletedAt,null);
+ await other.share(file.id,{version:2,policy:{restricted:false,grants:[]}});
+ await owner.remove({files:[{id:folder.id,version:2}]});
+ await assert.rejects(owner.purge(folder.id,{version:3}),/COLLAB_FORBIDDEN/);
+ await owner.restore(folder.id,{version:3});
+ assert.equal(Buffer.from((await other.download(file.id)).content,'base64').toString(),'foreign');
+});
