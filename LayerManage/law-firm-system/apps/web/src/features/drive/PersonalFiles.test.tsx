@@ -106,3 +106,24 @@ test('read-only shared folders offer ZIP download without deletion or preview',a
  expect(screen.queryByRole('menuitem',{name:'删除'})).not.toBeInTheDocument();
  expect(screen.queryByRole('button',{name:'预览'})).not.toBeInTheDocument();
 });
+
+
+test.each(['FILE','FOLDER'])('recipient can leave a %s after confirmation and the row disappears',async(kind)=>{
+ const item={id:'shared',ownerId:'someone-else',name:'共享材料',kind,level:1,version:2,contentVersion:1,size:55};
+ vi.mocked(get).mockResolvedValue({items:[item],path:[],canUpload:false});
+ vi.mocked(post).mockImplementation(async()=>{vi.mocked(get).mockResolvedValue({items:[],path:[],canUpload:false});return {ok:true};});
+ render(<PersonalFiles scope="shared"/>);
+ fireEvent.click(await screen.findByRole('button',{name:'退出共享'}));
+ let confirm=await screen.findByRole('dialog',{name:'确认退出共享'});
+ expect(within(confirm).getByText(/原文件和其他人的访问不受影响/)).toBeInTheDocument();
+ fireEvent.click(within(confirm).getByRole('button',{name:'取消'}));expect(post).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'退出共享'}));confirm=await screen.findByRole('dialog',{name:'确认退出共享'});
+ fireEvent.click(within(confirm).getByRole('button',{name:'退出共享'}));
+ await waitFor(()=>expect(post).toHaveBeenCalledWith('/personal-files/shared/leave-share',{version:2}));
+ await waitFor(()=>expect(screen.queryByRole('button',{name:'退出共享'})).not.toBeInTheDocument());
+});
+test('owned content does not offer leave sharing even within a shared folder',async()=>{
+ vi.mocked(get).mockResolvedValue({items:[{id:'mine',ownerId:'owner',name:'自己的材料',kind:'FILE',level:3,version:1,contentVersion:1,size:1}],path:[],canUpload:true});
+ render(<PersonalFiles scope="shared"/>);await screen.findByText('自己的材料');
+ expect(screen.queryByRole('button',{name:'退出共享'})).not.toBeInTheDocument();
+});

@@ -168,6 +168,7 @@ export default (app: Application) => {
   router.get('/api/v1/personal-files/:id/access',controller.personalFile.access);
   router.put('/api/v1/personal-files/:id/access',controller.personalFile.share);
   router.post('/api/v1/personal-files/:id/access/revoke',controller.personalFile.revokeShare);
+  router.post('/api/v1/personal-files/:id/leave-share',controller.personalFile.leaveShare);
   router.patch('/api/v1/personal-files/:id',controller.personalFile.rename);
   router.get('/api/v1/tables/:tableId/move-targets',controller.collaboration.moveTargets);
   router.post('/api/v1/tables/:tableId/move-preview',controller.collaboration.previewMove);

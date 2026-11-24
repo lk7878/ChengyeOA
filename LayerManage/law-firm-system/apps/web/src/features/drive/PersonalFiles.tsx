@@ -9,7 +9,7 @@ import Drawer from '@/components/DraggableDrawer';
 import ResizableTable from '@/components/ResizableTable';
 import Modal from '@/components/DraggableModal';
 import {get,post,patch,errorMessage} from '../workspaces/api';
-type Item={id:string;name:string;kind:string;size:number;level:number;version:number;contentVersion:number;parentId:string|null;sharingState?:'direct'|'inherited'|'private'};
+type Item={id:string;name:string;kind:string;size:number;level:number;version:number;contentVersion:number;parentId:string|null;ownerId?:string;sharingState?:'direct'|'inherited'|'private'};
 type TrashItem={id:string;name:string;version:number;deletedAt:string;purging?:boolean};
 export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
   const {token}=theme.useToken();
@@ -17,6 +17,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
   const authorization=useAuthStore(s=>s.authorization);
   const [parentId,setParent]=useState<string>(),[data,setData]=useState<{items:Item[];path:{id:string;name:string}[];canUpload:boolean}>(),[error,setError]=useState(''),[busy,setBusy]=useState(false),[revision,bump]=useState(0);
   const [downloading,setDownloading]=useState<string>();
+  const [leaving,setLeaving]=useState<Item>();
   const [sharingId,setSharingId]=useState<string>();
   const [dialog,setDialog]=useState<{kind:'folder'|'rename';item?:Item}>(),[name,setName]=useState('');
   const fileInput=useRef<HTMLInputElement>(null),folderInput=useRef<HTMLInputElement>(null);
@@ -81,6 +82,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
       {title:'操作',key:'actions',width:242,render:(_,r)=><Space wrap>
         {r.kind==='FILE'&&<FilePreviewButton url={versionUrl(r.id,r.contentVersion)} name={r.name}/>}
         {r.kind==='FILE'&&<Button onClick={()=>void downloadVersion(r.id,r.contentVersion,r.name).catch(e=>message.error(errorMessage(e)))}>下载</Button>}
+        {scope==='shared'&&r.ownerId&&r.ownerId!==authorization?.userId&&<Button disabled={busy} onClick={()=>setLeaving(r)}>退出共享</Button>}
         {(r.kind==='FOLDER'||r.level>=2||(r.kind==='FILE'&&r.contentVersion>1))&&<Dropdown trigger={['click']} menu={{items:[
           ...(r.kind==='FOLDER'?[{key:'download',label:downloading===r.id?'正在打包…':'下载压缩包',disabled:!!downloading}]:[]),
           ...(r.kind==='FILE'&&r.level>=2?[{key:'update',label:'更新文件'}]:[]),
@@ -98,6 +100,11 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
         }}}><Button disabled={busy} loading={downloading===r.id} aria-label={r.name+'的更多操作'}>更多</Button></Dropdown>}
       </Space>},
     ]}/>
+    <Modal title="确认退出共享" open={!!leaving} confirmLoading={busy} closable={!busy} maskClosable={!busy} keyboard={!busy} cancelButtonProps={{disabled:busy}} okText="退出共享" cancelText="取消" onCancel={()=>{if(!busy)setLeaving(undefined);}} onOk={async()=>{
+      if(!leaving||busy)return;setBusy(true);
+      try{await post('/personal-files/'+leaving.id+'/leave-share',{version:leaving.version});setLeaving(undefined);setData(undefined);setSelected([]);setHistory(undefined);refresh();message.success('已退出共享');}
+      catch(e){message.error(errorMessage(e));}finally{setBusy(false);}
+    }}><p>退出“{leaving?.name}”后，你将无法再查看或下载{leaving?.kind==='FOLDER'?'该文件夹及其下级内容':'该文件'}。原文件和其他人的访问不受影响。</p><p>如需重新访问，请联系文件所有者重新分享。</p></Modal>
     <Modal title="确认删除文件或文件夹" open={!!deleting} confirmLoading={busy} onCancel={()=>setDeleting(undefined)} okText="移入回收站" onOk={async()=>{if(!deleting?.length)return;setBusy(true);try{await post('/personal-files/delete',{files:deleting.map(({id,version})=>({id,version}))});setDeleting(undefined);setHistory(undefined);setSelected([]);refresh();message.success('所选内容已移入所有者的回收站');}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}><p>将删除以下 {deleting?.length} 项。文件夹会连同下级内容一起移入回收站，恢复文件夹时一并恢复。共享访问及任务材料读取将失效，正在引用这些材料的 AI 任务可能中断；已发布的知识快照与正式归档不受影响。文件所有者可从回收站恢复。</p><ul>{deleting?.map(f=><li key={f.id}>{f.name}</li>)}</ul></Modal>
     <Drawer title="我的文件回收站" open={!!trash} onClose={()=>{if(!busy)setTrash(undefined);}} width={620}><p>文件和文件夹可恢复到原目录，并沿用原有分享权限。彻底删除文件夹会删除其全部下级内容（含已删除的子项）和历史版本，无法恢复。</p>
       <Space wrap style={{marginBottom:12}}>

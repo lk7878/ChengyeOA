@@ -65,3 +65,46 @@ test('department coverage includes active descendant assignments and respects de
  assert.equal((await revoke(owner,f.id,3,reader.actor.userId)).retained[0].level,1);await reader.download(f.id);
  await db.employee.update({where:{id:employee.id},data:{status:'LEAVED'}});report=await owner.accessSettings(f.id);assert.equal(report.audience.some(p=>p.userId===reader.actor.userId),false);await assert.rejects(reader.download(f.id),/COLLAB_FORBIDDEN/);
 });
+
+
+test('recipient leaves a file without affecting owner or another reader; owner can share again',async()=>{
+ const f=await file();await share(f.id,1,[grant(reader.actor.userId),grant(outsider.actor.userId)]);
+ await assert.rejects(owner.leaveShare(f.id,{version:2}),/COLLAB_FORBIDDEN/);
+ await assert.rejects(reader.leaveShare(f.id,{version:1}),/COLLAB_ACCESS_CONFLICT/);
+ await assert.rejects(reader.leaveShare(f.id,{version:2,userId:outsider.actor.userId}),/COLLAB/);
+ await reader.leaveShare(f.id,{version:2});
+ assert.equal((await reader.list({scope:'shared'})).items.length,0);
+ await assert.rejects(reader.download(f.id),/COLLAB_FORBIDDEN/);
+ await assert.rejects(reader.content(f.id,1),/COLLAB_FORBIDDEN/);
+ await assert.rejects(reader.versions(f.id),/COLLAB_FORBIDDEN/);
+ await owner.download(f.id);await outsider.download(f.id);
+ assert.equal((await db.personalFile.findUniqueOrThrow({where:{id:f.id}})).deletedAt,null);
+ const report=await owner.accessSettings(f.id);assert.equal(report.audience.find(p=>p.userId===reader.actor.userId)?.level,0);
+ await share(f.id,3,[grant(reader.actor.userId),grant(outsider.actor.userId)]);await reader.download(f.id);
+ assert.equal(await db.operationLog.count({where:{action:'PERSONAL_FILE_SHARE_LEAVE',userId:reader.actor.userId,targetId:f.id}}),1);
+});
+test('leaving a shared folder blocks descendants, archives and future children only for the recipient',async()=>{
+ const folder=await owner.create({name:'退出目录',kind:'FOLDER'}),child=await file(folder.id),other=await file();
+ await share(folder.id,1,[grant(reader.actor.userId),grant(outsider.actor.userId)]);
+ await share(other.id,1,[grant(reader.actor.userId)]);
+ await share(child.id,1,[grant(reader.actor.userId)],false);
+ await reader.leaveShare(folder.id,{version:2});
+ const later=await file(folder.id);
+ for(const id of [child.id,later.id])await assert.rejects(reader.content(id,1),/COLLAB_FORBIDDEN/);
+ await assert.rejects(reader.list({parentId:folder.id}),/COLLAB_FORBIDDEN/);
+ await assert.rejects(reader.folderArchive(folder.id),/COLLAB_FORBIDDEN/);
+ assert.deepEqual((await reader.list({scope:'shared'})).items.map(f=>f.id),[other.id]);
+ await reader.download(other.id);await outsider.download(child.id);await owner.download(later.id);
+});
+test('leaving an inherited item overrides role access without changing group grants or siblings',async()=>{
+ const role=await db.role.create({data:{name:'共享角色',code:randomUUID(),type:'BUSINESS'}});
+ for(const userId of [reader.actor.userId,outsider.actor.userId])await db.userRole.create({data:{userId,roleId:role.id}});
+ const folder=await owner.create({name:'角色目录',kind:'FOLDER'}),child=await file(folder.id),sibling=await file(folder.id);
+ await share(folder.id,1,[grant(role.id,'ROLE')]);
+ await reader.leaveShare(child.id,{version:1});
+ await assert.rejects(reader.download(child.id),/COLLAB_FORBIDDEN/);
+ await reader.download(sibling.id);await outsider.download(child.id);
+ const policy=await owner.accessSettings(folder.id);assert.ok(policy.sources[0].grants.some(g=>g.principalId===role.id));
+ await assert.rejects(reader.leaveShare(child.id,{version:2}),/COLLAB_FORBIDDEN/);
+ await assert.rejects(reader.folderArchive(folder.id),/PERSONAL_FOLDER_DOWNLOAD_FORBIDDEN/);
+});

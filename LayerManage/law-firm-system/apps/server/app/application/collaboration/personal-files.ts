@@ -167,6 +167,25 @@ export class PersonalFiles extends CollaborationService {
     const report=await this.sharingReport(id,r.path);
     return {id,name:r.row.name,kind:r.row.kind,version:r.row.version,policy:r.row.accessPolicy,path:r.path,ownerId:r.row.ownerId,...report};
   }
+  async leaveShare(id:string,raw:unknown){
+    const v=exact(raw,['version']);
+    return this.db.$transaction(async tx=>{
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('personal-files',0))`;
+      const {row}=await this.require(id,1,tx);
+      if(row.ownerId===this.actor.userId)fail('COLLAB_FORBIDDEN',403);
+      if(row.version!==integer(v.version))fail('COLLAB_ACCESS_CONFLICT',409);
+      const policy=resourcePolicy(row.accessPolicy);
+      // A recipient-only deny also stops inherited/role/department grants. Merely
+      // removing a direct grant would leave these access paths active.
+      const next=resourcePolicy({...policy,grants:[
+        ...policy.grants.filter(g=>g.principalType!=='USER'||g.principalId!==this.actor.userId),
+        {...ownerGrant(this.actor.userId),role:'DENY',canCreate:false},
+      ]});
+      await tx.personalFile.update({where:{id},data:{accessPolicy:next as unknown as Prisma.InputJsonValue,version:{increment:1}}});
+      await tx.operationLog.create({data:{userId:this.actor.userId,action:'PERSONAL_FILE_SHARE_LEAVE',targetType:'PERSONAL_FILE',targetId:id,oldValues:JSON.stringify(row.accessPolicy),newValues:JSON.stringify(next)}});
+      return {ok:true};
+    });
+  }
   async revokeShare(id:string,raw:unknown){
     const v=exact(raw,['version','principalType','principalId']);
     const principalType=text(v.principalType),principalId=text(v.principalId);
