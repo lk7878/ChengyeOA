@@ -2,7 +2,7 @@ import FileSharing from './FileSharing';
 import { isTransientRequestError } from '@/api/transient-error';
 import FilePreviewButton from '@/features/files/FilePreviewButton';
 import {useAuthStore} from '@/stores/authStore';
-import {uploadFile,downloadVersion,versionUrl} from './file-transfer';
+import {uploadFile,downloadVersion,downloadFolder,versionUrl} from './file-transfer';
 import { useCallback,useEffect,useRef,useState } from 'react';
 import { Alert,Button,Dropdown,Input,Space,Table,message,theme } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
@@ -16,6 +16,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
   const sharingStatusStyle={fontSize:token.fontSizeSM,color:token.colorTextSecondary,fontWeight:400,lineHeight:1.5,height:'auto',paddingBlock:0};
   const authorization=useAuthStore(s=>s.authorization);
   const [parentId,setParent]=useState<string>(),[data,setData]=useState<{items:Item[];path:{id:string;name:string}[];canUpload:boolean}>(),[error,setError]=useState(''),[busy,setBusy]=useState(false),[revision,bump]=useState(0);
+  const [downloading,setDownloading]=useState<string>();
   const [sharingId,setSharingId]=useState<string>();
   const [dialog,setDialog]=useState<{kind:'folder'|'rename';item?:Item}>(),[name,setName]=useState('');
   const fileInput=useRef<HTMLInputElement>(null),folderInput=useRef<HTMLInputElement>(null);
@@ -80,19 +81,21 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
       {title:'操作',key:'actions',width:242,render:(_,r)=><Space wrap>
         {r.kind==='FILE'&&<FilePreviewButton url={versionUrl(r.id,r.contentVersion)} name={r.name}/>}
         {r.kind==='FILE'&&<Button onClick={()=>void downloadVersion(r.id,r.contentVersion,r.name).catch(e=>message.error(errorMessage(e)))}>下载</Button>}
-        {(r.level>=2||(r.kind==='FILE'&&r.contentVersion>1))&&<Dropdown trigger={['click']} menu={{items:[
+        {(r.kind==='FOLDER'||r.level>=2||(r.kind==='FILE'&&r.contentVersion>1))&&<Dropdown trigger={['click']} menu={{items:[
+          ...(r.kind==='FOLDER'?[{key:'download',label:downloading===r.id?'正在打包…':'下载压缩包',disabled:!!downloading}]:[]),
           ...(r.kind==='FILE'&&r.level>=2?[{key:'update',label:'更新文件'}]:[]),
           ...(r.kind==='FILE'&&r.contentVersion>1?[{key:'history',label:'历史版本'}]:[]),
           ...(r.level>=2?[{key:'rename',label:'重命名'}]:[]),
           ...(r.level>=3?[{key:'share',label:'分享管理'}]:[]),
           ...(r.level>=3?[{key:'delete',label:'删除',danger:true}]:[]),
         ],onClick:({key})=>{
+          if(key==='download'){setDownloading(r.id);void downloadFolder(r.id,r.name).catch(e=>message.error(errorMessage(e))).finally(()=>setDownloading(undefined));}
           if(key==='update')setReplacing({file:r});
           if(key==='history')void get<NonNullable<typeof history>['versions']>('/personal-files/'+r.id+'/versions').then(versions=>setHistory({file:r,versions})).catch(e=>message.error(errorMessage(e)));
           if(key==='rename'){setName(r.name);setDialog({kind:'rename',item:r});}
           if(key==='share')setSharingId(r.id);
           if(key==='delete')setDeleting([r]);
-        }}}><Button disabled={busy} aria-label={r.name+'的更多操作'}>更多</Button></Dropdown>}
+        }}}><Button disabled={busy} loading={downloading===r.id} aria-label={r.name+'的更多操作'}>更多</Button></Dropdown>}
       </Space>},
     ]}/>
     <Modal title="确认删除文件或文件夹" open={!!deleting} confirmLoading={busy} onCancel={()=>setDeleting(undefined)} okText="移入回收站" onOk={async()=>{if(!deleting?.length)return;setBusy(true);try{await post('/personal-files/delete',{files:deleting.map(({id,version})=>({id,version}))});setDeleting(undefined);setHistory(undefined);setSelected([]);refresh();message.success('所选内容已移入所有者的回收站');}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}><p>将删除以下 {deleting?.length} 项。文件夹会连同下级内容一起移入回收站，恢复文件夹时一并恢复。共享访问及任务材料读取将失效，正在引用这些材料的 AI 任务可能中断；已发布的知识快照与正式归档不受影响。文件所有者可从回收站恢复。</p><ul>{deleting?.map(f=><li key={f.id}>{f.name}</li>)}</ul></Modal>

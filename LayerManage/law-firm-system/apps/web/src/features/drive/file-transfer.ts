@@ -1,6 +1,6 @@
 import { useAuthStore } from '@/stores/authStore';
 import { runtimeSession } from '@/features/auth/runtime-session';
-import { get, post } from '../workspaces/api';
+import { authenticatedFetch, get, post } from '../workspaces/api';
 export async function uploadFile(file:File, target:{parentId?:string;fileId?:string;version?:number}, progress:(offset:number)=>void){
   const key='oa-upload:'+JSON.stringify([useAuthStore.getState().authorization?.userId,file.name,file.size,file.lastModified,target]);
   let id=localStorage.getItem(key);
@@ -25,4 +25,11 @@ export async function downloadVersion(id:string,version:number,name:string,globa
   const response=await fetch(versionUrl(id,version,global),{headers:{Authorization:'Bearer '+runtimeSession.getAccessToken()}});
   if(!response.ok)throw new Error('文件访问被拒绝或版本不存在');
   const url=URL.createObjectURL(await response.blob()),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+export async function downloadFolder(id:string,name:string){
+  const response=await authenticatedFetch('/api/v1/personal-files/'+encodeURIComponent(id)+'/archive');
+  if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.message||'COLLAB_FORBIDDEN');}
+  const url=URL.createObjectURL(await response.blob()),a=document.createElement('a');
+  a.href=url;a.download=name+'.zip';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }

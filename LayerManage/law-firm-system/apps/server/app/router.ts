@@ -164,6 +164,7 @@ export default (app: Application) => {
   router.get('/api/v1/personal-files/people',controller.personalFile.people);
   router.put('/api/v1/personal-files/:id/content',controller.personalFile.replace);
   router.get('/api/v1/personal-files/:id/download',controller.personalFile.download);
+  router.get('/api/v1/personal-files/:id/archive',controller.personalFile.archive);
   router.get('/api/v1/personal-files/:id/access',controller.personalFile.access);
   router.put('/api/v1/personal-files/:id/access',controller.personalFile.share);
   router.post('/api/v1/personal-files/:id/access/revoke',controller.personalFile.revokeShare);

@@ -15,6 +15,23 @@ export default class PersonalFileController extends Controller {
   async create(){this.respond(await this.svc().create(this.ctx.request.body));}
   async replace(){this.respond(await this.svc().replace(this.ctx.params.id,this.ctx.request.body));}
   async download(){this.respond(await this.svc().download(this.ctx.params.id));}
+  async archive(){
+    const cancellation=new AbortController();
+    const cancel=()=>cancellation.abort();
+    this.ctx.res.once('close',cancel);
+    try{
+      const zip=await this.svc().folderArchive(this.ctx.params.id,cancellation.signal);
+      if(cancellation.signal.aborted){await zip.cleanup();return;}
+      const stream=createReadStream(zip.path);
+      const cleanup=()=>{stream.destroy();void zip.cleanup().catch(error=>this.ctx.logger.error(error));};
+      stream.once('close',cleanup);
+      this.ctx.res.once('close',cleanup);
+      this.ctx.set('Cache-Control','private, no-store');
+      this.ctx.type='application/zip';
+      this.ctx.attachment(zip.name);
+      this.ctx.body=stream;
+    }finally{this.ctx.res.removeListener('close',cancel);}
+  }
   async access(){this.respond(await this.svc().accessSettings(this.ctx.params.id));}
   async share(){this.respond(await this.svc().share(this.ctx.params.id,this.ctx.request.body));}
   async revokeShare(){this.respond(await this.svc().revokeShare(this.ctx.params.id,this.ctx.request.body));}

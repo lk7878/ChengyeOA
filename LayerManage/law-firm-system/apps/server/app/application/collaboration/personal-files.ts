@@ -1,4 +1,5 @@
 import { createReadStream } from 'node:fs';
+import { buildFolderZip } from './personal-folder-zip';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir,readFile,writeFile,unlink,rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -99,6 +100,25 @@ export class PersonalFiles extends CollaborationService {
   }
   async download(id:string){const {row}=await this.require(id);if(row.kind!=='FILE'||!row.storageKey||!/^[a-f0-9-]{36}$/.test(row.storageKey))fail('COLLAB_NOT_FOUND',404);
     const content=await readFile(path.join(storage(),row.storageKey));return {name:row.name,content:content.toString('base64')};}
+  async folderArchive(id:string,signal?:AbortSignal){
+    const snapshot=await this.snapshot(),root=snapshot.resolve(id);
+    if(!root||root.access.level<1)fail('COLLAB_FORBIDDEN',403);
+    if(root.row.kind!=='FOLDER')fail('COLLAB_INVALID_VALUE');
+    // Deleted subtrees (including their live descendants) are excluded completely.
+    const rows=subtree(snapshot.rows,[id]);
+    for(const row of rows)if((snapshot.resolve(row.id)?.access.level??0)<1)fail('PERSONAL_FOLDER_DOWNLOAD_FORBIDDEN',403);
+    const entries=rows.map(row=>{
+      if(row.kind==='FILE'&&(!row.storageKey||!/^[a-f0-9-]{36}$/.test(row.storageKey)))fail('COLLAB_NOT_FOUND',404);
+      return {id:row.id,parentId:row.parentId,name:row.name,folder:row.kind==='FOLDER',path:row.kind==='FILE'?path.join(storage(),row.storageKey!):undefined};
+    });
+    return buildFolderZip(entries,async()=>{
+      const user=await this.db.user.findUnique({where:{id:this.actor.userId},select:{status:true}});
+      if(user?.status!=='ENABLED')fail('COLLAB_FORBIDDEN',403);
+      const current=await this.snapshot(),next=subtree(current.rows,[id]),versions=new Map(rows.map(row=>[row.id,row.version]));
+      for(const row of next)if((current.resolve(row.id)?.access.level??0)<1)fail('PERSONAL_FOLDER_DOWNLOAD_FORBIDDEN',403);
+      if(next.length!==rows.length||next.some(row=>versions.get(row.id)!==row.version))fail('PERSONAL_FOLDER_DOWNLOAD_CHANGED',409);
+    },signal);
+  }
   private sharingState(chain: { ownerId: string; accessPolicy: unknown }[]) {
     let shared = false, inherited = false;
     for (const row of chain) {

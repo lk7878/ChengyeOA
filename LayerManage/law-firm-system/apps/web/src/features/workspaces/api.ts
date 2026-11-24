@@ -20,6 +20,10 @@ export async function patch<T>(url: string, body: unknown, key: string = crypto.
   ).data;
 }
 const messages: Record<string, string> = {
+  PERSONAL_FOLDER_DOWNLOAD_FORBIDDEN: '文件夹内存在无权读取的内容，无法打包下载，请联系所有者核对分享权限。',
+  PERSONAL_FOLDER_DOWNLOAD_CHANGED: '打包期间文件或权限发生变化，请重新下载。',
+  PERSONAL_FOLDER_DOWNLOAD_LIMIT: '单次打包最多支持 10000 项、2 GB，请进入子文件夹分别下载。',
+  PERSONAL_FOLDER_DOWNLOAD_BUSY: '当前打包任务较多，请稍后重试。',
   COLLAB_ASSIGNMENT_ORGANIZATION_IN_USE: '现有跟进人不在所选律所体系，请先处理相关客资的人员分配。',
   COLLAB_ASSIGNMENT_ORGANIZATION_FORBIDDEN: '请选择本工作区或您负责的组织。',
   COLLAB_ASSIGNMENT_FIELD_REQUIRED: '跟进人用于客资分配和数据权限，不能归档该字段。',

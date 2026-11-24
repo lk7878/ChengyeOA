@@ -3,7 +3,9 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import type { ModalProps } from 'antd';
 import PersonalFiles from './PersonalFiles';
+import { downloadFolder } from './file-transfer';
 import { get, post } from '../workspaces/api';
+vi.mock('./file-transfer',()=>({uploadFile:vi.fn(),downloadVersion:vi.fn(),downloadFolder:vi.fn().mockResolvedValue(undefined),versionUrl:vi.fn()}));
 vi.mock('../workspaces/api',()=>({get:vi.fn(),post:vi.fn(),patch:vi.fn(),errorMessage:()=> '清理失败'}));
 vi.mock('@/stores/authStore',()=>({useAuthStore:()=>({userId:'owner',isSystemSuperAdmin:false})}));
 // Test the confirmation state without relying on portal closing animations in jsdom.
@@ -92,4 +94,15 @@ test('owned folders can be selected and deleted after confirmation; readers rema
  expect(post).not.toHaveBeenCalled();
  fireEvent.click(within(confirm).getByRole('button',{name:'移入回收站'}));
  await waitFor(()=>expect(post).toHaveBeenCalledWith('/personal-files/delete',{files:[{id:'folder',version:2}]}));
+});
+
+
+test('read-only shared folders offer ZIP download without deletion or preview',async()=>{
+ vi.mocked(get).mockResolvedValue({items:[{id:'shared-folder',name:'共享目录',kind:'FOLDER',level:1,version:1,size:55}],path:[],canUpload:false});
+ render(<PersonalFiles scope="shared"/>);
+ fireEvent.click(await screen.findByRole('button',{name:'共享目录的更多操作'}));
+ fireEvent.click(await screen.findByText('下载压缩包'));
+ await waitFor(()=>expect(downloadFolder).toHaveBeenCalledWith('shared-folder','共享目录'));
+ expect(screen.queryByRole('menuitem',{name:'删除'})).not.toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:'预览'})).not.toBeInTheDocument();
 });
