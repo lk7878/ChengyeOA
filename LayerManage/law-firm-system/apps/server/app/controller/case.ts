@@ -1,3 +1,4 @@
+import { CaseSourceService } from '../application/case/case-sources';
 import { CaseIntakeCustomerService } from '../application/case/intake-customers';
 import { auditActor } from '../application/master-data/master-data-factory';
 import { servePreview } from '../application/files/preview';
@@ -29,6 +30,8 @@ const UPLOAD_FILE_BODY_KEYS = ['fileName', 'fileType', 'base64'] as const;
 const FILE_LIST_QUERY_KEYS = ['page', 'pageSize'] as const;
 
 export default class CaseController extends Controller {
+  async sources() { this.respond(await new CaseSourceService(this.ctx.prisma, this.ctx.state.authorization).list()); }
+  async saveSource() { this.respond(await new CaseSourceService(this.ctx.prisma, this.ctx.state.authorization).save(this.ctx.request.body as never)); }
   /** GET /api/v1/cases（case.read）：案件列表（过滤 + 分页）。 */
   async searchIntakeCustomers() {
     this.respond(await new CaseIntakeCustomerService(this.ctx.prisma, auditActor(this.ctx), this.ctx.state.authorization).search(this.ctx.request.body as never));

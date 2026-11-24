@@ -482,6 +482,8 @@ export default (app: Application) => {
   // 案件模块（SPEC-033：+requirePermission 门禁；移除 destroy——案件业务不可删，归档替代；路由 15→22）
   router.get('/api/v1/tables/:tableId/records/:recordId/case-registration', requirePermission('case.read'), controller.collaboration.caseRegistration);
   router.post('/api/v1/tables/:tableId/records/:recordId/case-registration', requirePermission('case.update'), controller.collaboration.submitCaseRegistration);
+  router.get('/api/v1/case-sources', controller.case.sources);
+  router.post('/api/v1/case-sources', controller.case.saveSource);
   router.post('/api/v1/cases/intake-customers/search', requirePermission('case.create'), controller.case.searchIntakeCustomers);
   router.post('/api/v1/cases/intake-customers', requirePermission('case.create'), controller.case.createIntakeCustomer);
   router.post('/api/v1/cases/conflict-screen', controller.case.screenConflict);

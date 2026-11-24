@@ -9,12 +9,12 @@ const api = vi.hoisted(() => ({ create: vi.fn(), detail: vi.fn(), listFiles: vi.
 vi.mock('@/api/business', () => ({ caseApi: api }));
 vi.mock('@/api/contract',()=>({contractApi:{list:api.contracts}}));
 vi.mock('@/api/customer', () => ({
-  customerApi: { list: vi.fn().mockResolvedValue({ data: { list: [{ id: 'customer-1', name: '客户' }] } }) },
+  customerApi: { searchForCase: vi.fn().mockResolvedValue({data:{list:[{id:'customer-1',name:'客户'}]}}), list: vi.fn().mockResolvedValue({ data: { list: [{ id: 'customer-1', name: '客户' }] } }) },
 }));
 vi.mock('@/features/crm/BusinessWorkspacePage', () => ({ BusinessTableLinks: () => null }));
 vi.mock('@/features/workspaces/api', () => ({
   get: vi.fn(async (url: string) =>
-    url === '/workspaces'
+    url === '/case-sources' ? { items: [{name:'个人',enabled:true,version:1}], canManage:false } : url === '/workspaces'
       ? { workspaces: [{ id: 'workspace', name: '工作区' }] }
       : { organizations: [{ id: 'org', name: '本部' }], employees: [{ id: 'lawyer', name: '律师' }] },
   ),
@@ -160,6 +160,7 @@ test('worksheet-only case creator loads organization choices through the authori
   await waitFor(()=>expect(vi.mocked(get)).toHaveBeenCalledWith('/collaboration/options?workspaceId=workspace&tableId=t'));
   await waitFor(()=>expect(within(dialog).getByRole('button',{name:'确 定'})).toBeEnabled());
   expect(within(dialog).getByRole('combobox',{name:'主办律师'})).toBeEnabled();
+  expect(within(dialog).getByRole('combobox',{name:'案件归属组织'}).closest('.ant-select')).toHaveTextContent('本部');
 });
 
 test('lawyers without global contract access can open new case without requesting the forbidden optional contract list',async()=>{

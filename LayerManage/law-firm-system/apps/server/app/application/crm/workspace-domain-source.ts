@@ -254,7 +254,7 @@ export const domainSources = {
               : kind === 'datetime'
                 ? 'DATETIME'
                 : kind === 'multi' ? 'MULTI_SELECT'
-                  : kind === 'select' ? 'SINGLE_SELECT'
+                  : kind === 'select' || kind === 'source' ? 'SINGLE_SELECT'
                     : kind === 'boolean' ? 'BOOLEAN'
                       : kind === 'user' ? 'USER'
                         : ['number', 'ratio', 'integerRatio', 'formulaNumber', 'formulaRatio'].includes(kind)
@@ -262,7 +262,7 @@ export const domainSources = {
                           : kind === 'department' ? 'ORGANIZATION' : 'TEXT',
           ] as const,
       ),
-      ['branchId', '所属组织', 'ORGANIZATION'],
+      ['branchId', '案件归属组织', 'ORGANIZATION'],
       ['createdBy', '创建人', 'CREATED_BY'],
       ['createdAt', '创建时间', 'CREATED_AT'],
       ['updatedAt', '更新时间', 'UPDATED_AT'],

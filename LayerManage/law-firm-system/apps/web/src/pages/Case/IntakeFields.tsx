@@ -1,3 +1,4 @@
+import CaseSourceSelect from './CaseSourceSelect';
 import type { Field } from '@/features/workspaces/types';
 import { Checkbox, Col, DatePicker, Divider, Form, Input, InputNumber, Row, Select } from 'antd';
 import { CASE_FIELD_ORDER, INTAKE_FIELDS, INTAKE_OPTIONS, intakeSelections } from './intake-contract';
@@ -54,7 +55,9 @@ export default function IntakeFields({
                           : []),
                       ]}
                     >
-                      {kind.startsWith('formula') ? (
+                      {kind === 'source' ? (
+                        <CaseSourceSelect disabled={locked} />
+                      ) : kind.startsWith('formula') ? (
                         <Input disabled aria-label={label} placeholder="待配置计算口径；已有数值保留" />
                       ) : kind === 'boolean' ? (
                         <Checkbox disabled={locked} aria-label={label} />

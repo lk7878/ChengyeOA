@@ -1,3 +1,4 @@
+import { validateCaseSource } from './case-sources';
 import { assertRegistrationEditable, assertRegistrationApproved } from './registration-policy';
 import { check } from '../../domain/workflow/schema';
 import { checkHandlingLawyer } from './handling-lawyer';
@@ -303,6 +304,7 @@ export class CaseService {
     const lawyerId = normalizeRequiredText(input.lawyerId, 1, 100);
     const intakeData = normalizeIntake(input.intakeData);
     await this.validateIntakeUsers(intakeData);
+    await validateCaseSource(this.prisma, intakeData.caseSource);
     if (FORMULA_KEYS.some(key => intakeData[key] !== undefined)) throw new MasterDataError('VALIDATION_FAILED', 400);
     const branchId = normalizeOptionalText(input.branchId, 100) || intakeData.departmentId || null;
     if (
@@ -524,6 +526,7 @@ export class CaseService {
       if (existing.contractId && CONTRACT_INTAKE_KEYS.some(key => intakeData[key] !== undefined && intakeData[key] !== ((existing.intakeData ?? {}) as CaseIntake)[key]))
         throw new MasterDataError('VALIDATION_FAILED', 400);
       await this.validateIntakeUsers(intakeData, (existing.intakeData ?? {}) as CaseIntake);
+      await validateCaseSource(this.prisma, intakeData.caseSource, ((existing.intakeData ?? {}) as CaseIntake).caseSource);
       const previous = (existing.intakeData ?? {}) as Record<string, string>;
       for (const key of FORMULA_KEYS) {
         if (intakeData[key] !== undefined && intakeData[key] !== previous[key]) throw new MasterDataError('VALIDATION_FAILED', 400);

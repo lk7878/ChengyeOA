@@ -1501,6 +1501,7 @@ export class CollaborationService {
   }
   async describe(tableId: string) {
     const { table, access, fields } = await this.tableAccess(tableId);
+    const caseSources = table.source === 'CASES' ? await this.db.caseSource.findMany({ where: { enabled: true }, orderBy: { name: 'asc' } }) : [];
     const views = await this.db.collabView.findMany({
       where: { tableId, ...(access.viewIds && {id:{in:access.viewIds}}), OR: [{ shared: true }, { ownerId: this.actor.userId }] },
       orderBy: [{ position: 'asc' }, { id: 'asc' }],
@@ -1529,6 +1530,7 @@ export class CollaborationService {
       canCreateBusiness: await this.canCreateBusiness(table, access, fields),
       fields: fields.filter(f => !fieldStopped(f)).map(presentedField).map((f) => ({
         ...f,
+        ...(table.source === 'CASES' && object(f.options).businessKey === 'intake.caseSource' ? { type: 'SINGLE_SELECT', options: { ...object(f.options), choices: caseSources.map(s => ({ id: s.name, name: s.name })) } } : {}),
         ...(isProspectAssignee(f) && access.prospectAssignment ? {options:{...object(f.options),assignmentOrganizationId:access.prospectAssignment.organizationId,choices:access.prospectAssignment.candidates}} : {}),
         ...(table.source === 'FOLLOWS' && object(f.options).businessKey === 'type'
           ? { type: 'SINGLE_SELECT', options: { ...object(f.options), choices: followTypeChoices } } : {}),

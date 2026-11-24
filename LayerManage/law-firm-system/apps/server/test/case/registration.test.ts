@@ -33,6 +33,7 @@ test('lawyer registration freezes submitted content; designated manager rejects,
     const sealer = await person('seal_test', 'SEAL_ADMIN', ['case.seal.manage']);
     const otherSealer = await person('seal_other', 'SEAL_OTHER', ['case.seal.manage']);
     const sealInput = { numberCode: 'MS', sealReviewerId: sealer.userId };
+    await db.caseSource.create({ data: { name: '门市' } });
     const orgId = key();
     await db.organization.create({ data: { id: orgId, code: orgId, name: '隔离审批测试', type: 'FIRM', path: '/' + orgId } });
     const owner = new CollaborationService(db, admin);
@@ -42,7 +43,7 @@ test('lawyer registration freezes submitted content; designated manager rejects,
     const extraField = await db.collabField.create({ data: { tableId: table.id, name: '测试补充信息', type: 'TEXT' } });
     for (const actor of [lawyer, other, manager]) await db.collabMember.create({ data: { workspaceId: workspace.id, principalId: actor.userId, role: 'EDITOR', rowScope: actor.userId === manager.userId ? 'ALL' : 'SELF' } });
     const customer = await db.customer.create({ data: { customerNo: key(), name: '合成客户', phone: '0', phoneHash: key(), createdBy: lawyer.userId } });
-    const row = await db.case.create({ data: { caseNo: key(), title: '合成登记案件', caseType: '合同纠纷', branchId: orgId, customerId: customer.id, createdBy: lawyer.userId, registrationRequired: true, intakeData:{region:'已审核地区',signedDate:'2026-11-01'} } });
+    const row = await db.case.create({ data: { caseNo: key(), title: '合成登记案件', caseType: '合同纠纷', branchId: orgId, customerId: customer.id, createdBy: lawyer.userId, registrationRequired: true, intakeData:{region:'已审核地区',signedDate:'2026-11-01',caseSource:'门市'} } });
     const service = new CaseRegistrationService(db, lawyer);
     const editor = new CollaborationService(db, lawyer);
     const business = new CaseService(db, { actorUserId: lawyer.userId }, lawyer);
@@ -55,6 +56,7 @@ test('lawyer registration freezes submitted content; designated manager rejects,
     await assert.rejects(business.transitionCase(row.id, { version: row.version, status: 'ACCEPTED' }), /登记/);
     await assert.rejects(business.closeCase(row.id, {}), /登记/);
     const first = await service.submit(table.id, row.id, { ...sealInput, version: info.version, reviewerId: manager.userId });
+    assert.match(JSON.stringify((await db.workflowInstance.findUniqueOrThrow({where:{id:first.workflowInstanceId}})).content), /案件来源：门市/);
     assert.equal((await editor.record(table.id, row.id)).record.writable, false);
     await assert.rejects(service.submit(table.id, row.id, { ...sealInput, version: info.version, reviewerId: manager.userId }));
     const schema = await editor.describe(table.id);
@@ -108,11 +110,13 @@ test('lawyer registration freezes submitted content; designated manager rejects,
     assert.equal(await db.approvalInstance.count(), 0);
     assert.equal(await db.caseContractNumber.count(), 1);
     const contract = await db.contract.findUniqueOrThrow({ where: { id: accepted.contractId! } });
+    assert.equal(JSON.parse(contract.terms!).caseSource, '门市');
     const year = new Intl.DateTimeFormat('en', {timeZone:'Asia/Shanghai',year:'numeric'}).format(new Date());
     assert.equal(contract.contractNo, `渝承民字（${year}）MS${year.slice(-2)}0001`);
     assert.equal(await db.contractReadGrant.count({where:{userId:lawyer.userId,contractId:contract.id}}),1);
     const task = await db.caseSealRequest.findUniqueOrThrow({where:{caseId:row.id}});
     assert.equal(await db.caseSealRequest.count(),1);
+    assert.equal((task.snapshot as {intake:{caseSource:string}}).intake.caseSource,'门市');
     assert.equal((await editor.record(table.id,row.id)).record.writable,false);
     const seal = new CaseSealService(db,sealer);
     await assert.rejects(new CaseSealService(db,lawyer).detail(task.id));

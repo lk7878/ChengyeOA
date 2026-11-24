@@ -1,5 +1,6 @@
 // Shared case intake specification. Keep web/server definitions aligned.
 export const INTAKE_FIELDS = [
+  ['caseSource', '案件来源', 'source', '基本信息'],
   ['signedDate', '签约日期', 'datetime', '基本信息'],
   ['contractNumber', '合同编号', 'text', '基本信息'],
   ['region', '地区', 'text', '基本信息'],
@@ -155,7 +156,7 @@ export function intakeSelections(value: unknown): string[] {
 
 export const CASE_FIELD_ORDER = [
   'contractDisplayId', 'intake.contractMissing', 'intake.signedDate', 'intake.contractNumber',
-  'customerName', 'intake.region', 'intake.customerPhone', 'intake.opposingParty',
+  'customerName', 'intake.caseSource', 'intake.region', 'intake.customerPhone', 'intake.opposingParty',
   'intake.caseCategory', 'caseType', 'intake.agencyProcedure', 'intake.feeCollectionMethod',
   'intake.fixedAgencyFee', 'intake.baseAgencyFee', 'intake.riskAgencyAmount', 'intake.riskAgencyRatio',
   'intake.paymentTerms', 'intake.businessDepartment', 'lawyerId', 'intake.handlingLawyer', 'files.合同附件',

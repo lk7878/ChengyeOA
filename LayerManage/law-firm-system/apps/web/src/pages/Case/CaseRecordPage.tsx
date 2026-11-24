@@ -258,6 +258,9 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
         .then((value) => {
           if (active) {
             setDirectory(value);
+            if (!editingCase && value.organizations.length === 1 && !createForm.getFieldValue('branchId')) {
+              createForm.setFieldValue('branchId', value.organizations[0].id);
+            }
             setEmployees(value.employees as Employee[]);
             setDepartments(value.organizations.map((o) => ({ value: o.id, label: o.name })));
           }
@@ -268,7 +271,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
     return () => {
       active = false;
     };
-  }, [workspaceId, createOpen, sourceTable]);
+  }, [workspaceId, createOpen, sourceTable, createForm, editingCase]);
 
   useEffect(() => {
     if (!resumeCase) return;
@@ -894,7 +897,7 @@ const CaseRecordEditor: React.FC<{ id?: string }> = ({ id }) => {
             />
           </Form.Item>
           {!editingCase && (
-            <Form.Item name="branchId" label="所属组织" rules={[{ required: true }]}>
+            <Form.Item name="branchId" label="案件归属组织" rules={[{ required: true }]}>
               <Select options={directory?.organizations.map((o) => ({ value: o.id, label: o.name }))} />
             </Form.Item>
           )}
