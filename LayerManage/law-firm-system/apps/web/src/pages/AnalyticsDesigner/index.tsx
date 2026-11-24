@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Modal from '@/components/DraggableModal';
+import Drawer from '@/components/DraggableDrawer';
 import {
   Alert,
   Button,
   Checkbox,
-  Drawer,
   Empty,
   Input,
   InputNumber,

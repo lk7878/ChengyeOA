@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { InputRef } from 'antd';
-import { Alert, Button, Checkbox, Input, InputNumber, Select, Space, Tabs, Tag, Modal, message } from 'antd';
+import { Alert, Button, Checkbox, Input, InputNumber, Select, Space, Tabs, Tag, message } from 'antd';
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import WorkflowForm from './WorkflowForm';
 import CcRecipients from './CcRecipients';
@@ -1250,7 +1250,7 @@ export default function WorkflowDesigner({
           <Button
             onClick={() =>
               dirty
-                ? Modal.confirm({
+                ? DraggableModal.confirm({
                     title: '放弃未保存的修改？',
                     okText: '放弃修改',
                     cancelText: '继续编辑',

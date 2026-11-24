@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { integrationApi, type PayrollBatch } from '@/api/business-integration';
-import { Alert, Button, Input, Modal, Select, Space, Statistic, Table, Tabs, Tag, message } from 'antd';
+import { Alert, Button, Input, Select, Space, Statistic, Table, Tabs, Tag, message } from 'antd';
 import DraggableModal from '@/components/DraggableModal';
 import { useAuthStore } from '@/stores/authStore';
 import WorkflowDesigner from './WorkflowDesigner';
@@ -292,7 +292,7 @@ export default function VisualApprovals() {
         const r = await get<{ record: { version: number } }>(
           `/tables/${b.tableId}/records/${detail.targetRecordId}`,
         );
-        Modal.confirm({
+        DraggableModal.confirm({
           title: '确认重新回写',
           content: `将把本次审批结果写入当前业务记录（版本 ${r.record.version}）。请先核对表格中的最新内容。`,
           onOk: () => act('RETRY_SYNC', r.record.version),
@@ -644,7 +644,7 @@ export default function VisualApprovals() {
               <span>当前节点：{node?.name}</span>
               <Button
                 onClick={() => {
-                  Modal.confirm({
+                  DraggableModal.confirm({
                     title: '刷新详情',
                     content: '刷新会丢弃尚未提交的输入。',
                     onOk: () => open(detail.id),
@@ -810,7 +810,7 @@ export default function VisualApprovals() {
                             danger
                             disabled={busy}
                             onClick={() =>
-                              Modal.confirm({ title: '撤回本次申请？', onOk: () => act('WITHDRAW') })
+                              DraggableModal.confirm({ title: '撤回本次申请？', onOk: () => act('WITHDRAW') })
                             }
                           >
                             撤回申请

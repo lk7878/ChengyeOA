@@ -27,6 +27,7 @@ export function DragSurface({ children, fill = false }: { children: ReactNode; f
   return <div ref={ref} className="oa-modal-drag-surface" style={{ height: fill ? '100%' : undefined, transform: position.x || position.y ? `translate(${position.x}px, ${position.y}px)` : undefined }}
     onPointerDown={event => {
       const target = event.target as HTMLElement;
+      if (target.closest('.oa-modal-drag-surface') !== event.currentTarget) return;
       if (event.button !== 0 || !target.closest('.ant-modal-header,.ant-modal-confirm-title,.ant-drawer-header') || target.closest('button,a,input,select,textarea')) return;
       drag.current = { x: event.clientX, y: event.clientY };
       event.currentTarget.setPointerCapture(event.pointerId);

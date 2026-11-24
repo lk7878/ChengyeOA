@@ -1,7 +1,8 @@
+import Drawer from '@/components/DraggableDrawer';
 import { createPortal } from 'react-dom';
 import CurrentPagePreview from './CurrentPagePreview';
 import { useEffect, useState } from 'react';
-import { Alert, Button, Drawer, Empty, Select, Space, Table, Tag, Watermark } from 'antd';
+import { Alert, Button, Empty, Select, Space, Table, Tag, Watermark } from 'antd';
 import { useLocation } from 'react-router';
 import PermissionOverview, { type OverviewSubject } from './PermissionOverview';
 import { get, post, errorMessage } from '@/features/workspaces/api';
