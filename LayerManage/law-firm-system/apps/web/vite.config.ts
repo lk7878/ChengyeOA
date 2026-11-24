@@ -5,8 +5,10 @@ import path from 'path'
 import { readFile, readdir } from 'node:fs/promises'
 import { searchForWorkspaceRoot, transformWithOxc } from 'vite'
 
-const workflowSchemaPath = path.resolve(__dirname, '../server/app/domain/workflow/schema.ts')
-const workflowModuleId = '\0oa-workflow-schema'
+const workflowModules = new Map(['schema', 'relation-display'].map(name => [
+  `\0oa-workflow-${name}`,
+  path.resolve(__dirname, `../server/app/domain/workflow/${name}.ts`),
+]))
 
 export default defineConfig({
   plugins: [react(), {
@@ -20,15 +22,18 @@ export default defineConfig({
       }
     },
   }, {
-    // Publish only the shared workflow contract, without browser /@fs/ requests.
+    // Publish shared workflow modules without server filesystem URLs in the browser.
     name: 'oa-workflow-contract', enforce: 'pre',
     resolveId(source) {
-      if (source === '../../../../../server/app/domain/workflow/schema') return workflowModuleId
+      for (const name of ['schema', 'relation-display']) {
+        if (source === `../../../../../server/app/domain/workflow/${name}`) return `\0oa-workflow-${name}`
+      }
     },
     async load(id) {
-      if (id !== workflowModuleId) return
-      this.addWatchFile(workflowSchemaPath)
-      return (await transformWithOxc(await readFile(workflowSchemaPath, 'utf8'), workflowSchemaPath)).code
+      const modulePath = workflowModules.get(id)
+      if (!modulePath) return
+      this.addWatchFile(modulePath)
+      return (await transformWithOxc(await readFile(modulePath, 'utf8'), modulePath)).code
     },
   }, { name: 'chengye-product-title', transformIndexHtml: html => html.replace(/<title>.*?<\/title>/, '<title>' + BROWSER_TITLE + '</title>') }],
   resolve: {
