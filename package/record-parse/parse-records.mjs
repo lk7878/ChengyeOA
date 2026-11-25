@@ -350,23 +350,18 @@ function attachParseJob(jobs, exec, { child, pid, jobPath, outDir }) {
       kind: 'parse',
       label: '病历解析 parse_records',
       owner: exec.agent,
-      run: () => ({
-        cancel: () => {
-          if (child) {
-            try { child.kill() } catch { /* ignore */ }
-          } else {
-            stopPid(pid)
-          }
-        },
-        done: (child ? waitForProcess(child) : waitWhileAlive(pid, jobPath))
-          .then(() => parseOutcome(reconcileJob(jobPath)))
-          .catch((err) => ({
-            status: 'failed',
-            detail: String(err?.message || err).slice(0, 200),
-            output: String(err?.message || err),
-          })),
-        readOutput: () => liveParseOutput(jobPath, outDir),
-      }),
+      run: (job) => {
+        let previous=''
+        const report=()=>{const text=liveParseOutput(jobPath,outDir);if(text!==previous){previous=text;job.updateProgress(jobSummary(reconcileJob(jobPath)));job.append(text+'\n')}}
+        report();const timer=setInterval(report,2000)
+        return {
+          cancel: () => {if(child){try{child.kill()}catch{}}else stopPid(pid)},
+          done: (child ? waitForProcess(child) : waitWhileAlive(pid, jobPath))
+            .then(() => {report();const outcome=parseOutcome(reconcileJob(jobPath));return {...outcome,result:outcome.output||liveParseOutput(jobPath,outDir)}})
+            .catch(err => ({status:'failed',detail:String(err?.message||err).slice(0,200),result:String(err?.message||err)}))
+            .finally(()=>clearInterval(timer)),
+        }
+      },
     })
     writeHarnessJob(outDir, { id, pid: pid || child?.pid || 0 })
     return id

@@ -16,7 +16,7 @@ export async function runTaskModel({task,policy,channel,body,signal,localOnly,re
   return {base:base.replace(/\/$/,''),key,model:choice.model}
  }
  const primary=route(selected||{connection:channel==='CHAT'?'legacy':'legacy-ocr',model})
- const backup=channel==='CHAT'&&(snapshot.backup||(snapshot.fallbackModel?{connection:'legacy',model:snapshot.fallbackModel}:null))
+ const backup=channel==='CHAT'?(snapshot.backup||(snapshot.fallbackModel?{connection:'legacy',model:snapshot.fallbackModel}:null)):snapshot.ocrBackup
  const payload={...body}
  if(snapshot.maxTokens){
   delete payload.max_completion_tokens

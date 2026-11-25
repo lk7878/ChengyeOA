@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {oa} from './oa-client.js'
 import {installPublicTunnel} from './public-network.js'
-export async function createTaskBroker({task,token,validate,knowledge,policy}){
+export async function createTaskBroker({task,token,validate,knowledge,policy,materials}){
  const dir=await mkdtemp(path.join(tmpdir(),'oa-broker-')),socket=path.join(dir,'api.sock')
  const localOnly=()=>Boolean(task.aiPolicy?.localOnly||policy?.localOnly)
  const requests=new Set()
@@ -17,6 +17,7 @@ export async function createTaskBroker({task,token,validate,knowledge,policy}){
    if(req.method==='POST'&&url.pathname==='/api/v1/auth/auto-setup'){res.setHeader('content-type','application/json');res.end(JSON.stringify({token:'task-scoped'}));return}
    if(url.pathname==='/clinical/api/v1/plugins/google-search'&&req.method==='GET'){if(localOnly()||task.aiPolicy?.network===false)throw Error('本任务未获准联网');const legacy=policy?.connections?.resolve({connection:'legacy',model:process.env.CHAT_MODEL});const target=new URL('/api/v1/plugins/google-search',legacy?.base||process.env.CHAT_BASE_URL);target.searchParams.set('query',url.searchParams.get('query')||'');target.searchParams.set('num','10');target.searchParams.set('page','1');const r=await fetch(target,{headers:{Authorization:'Bearer '+(legacy?.key||process.env.CHAT_API_KEY)},redirect:'error',signal:AbortSignal.any([cancel.signal,AbortSignal.timeout(45000)])});res.writeHead(r.status,{'content-type':'application/json'});res.end(await r.text());return}
    const parts=[];let size=0;for await(const part of req){size+=part.length;if(size>32*1024*1024)throw Error('单次工具请求过大，请分批解析');parts.push(part)}const body=parts.length?JSON.parse(Buffer.concat(parts).toString()):{}
+   if(req.method==='POST'&&url.pathname==='/oa/materials/read'&&materials){const result=await materials(body);res.setHeader('content-type','application/json');res.end(JSON.stringify(result));return}
    if(task.businessSnapshot&&(match||url.pathname==='/oa/knowledge/search')&&!task.businessSnapshot.tools.includes('knowledge'))throw Error('此预设未启用知识检索')
    if(localOnly()&&(match||url.pathname==='/oa/knowledge/search')&&!knowledge.searchLocal)throw Error('本地检索未配置')
    const search=(...args)=>localOnly()?knowledge.searchLocal(...args):knowledge.search(...args)

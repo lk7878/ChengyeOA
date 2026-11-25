@@ -22,7 +22,6 @@ const EXACT = new Map([
   ['Internal Testing Notice', '使用说明'],
   ['HARNESS', '承业智慧办案'],
   ['DeepSeek Harness', '承业智慧办案'],
-  ['深度求索中', '正在分析'],
   ['DSH 本地构建', 'AI 助手'],
   ['DSH Local Build', 'AI 助手'],
 ])
@@ -30,7 +29,7 @@ const EXACT = new Map([
 const CSS = [
   'html[data-oa-harness-role=member] nav[class*="_panelList"]{display:none!important}',
   'html[data-oa-harness-role=member] [data-composer-card]:has(.oa-upload-trigger) button[class*="_add"]{display:none!important}.oa-upload-trigger{border:0;border-radius:50%;min-width:28px;height:28px;cursor:pointer;background:var(--dsw-alias-background-secondary,#f4f5f7);color:inherit;font-size:18px}.oa-upload-trigger[data-admin]{border-radius:6px;font-size:13px;padding:0 8px}',
-  '.oa-upload-dialog{width:min(620px,90vw);max-height:80vh;overflow:auto;padding:24px;border:1px solid #dce2ee;border-radius:16px;background:var(--dsw-alias-background-primary,#fff);color:var(--dsw-alias-label-primary,#182238)}.oa-upload-dialog::backdrop{background:#0006}.oa-upload-dialog p{line-height:1.7}.oa-upload-dialog button{margin:8px;padding:8px 12px;border:1px solid #ccc;border-radius:6px;cursor:pointer}.oa-upload-list>div{display:flex;flex-direction:column;gap:8px;padding:12px 0;overflow-wrap:anywhere}',
+  '.oa-material-badge{font-size:12px;color:var(--dsw-alias-label-secondary,#52617a);background:none;border:0;cursor:pointer;margin-left:6px}.oa-material-status>div{display:flex;flex-wrap:wrap;gap:8px;padding:12px 0;border-bottom:1px solid #dce2ee}.oa-material-status strong,.oa-material-status span{width:100%;overflow-wrap:anywhere}.oa-upload-dialog{width:min(620px,90vw);max-height:80vh;overflow:auto;padding:24px;border:1px solid #dce2ee;border-radius:16px;background:var(--dsw-alias-background-primary,#fff);color:var(--dsw-alias-label-primary,#182238)}.oa-upload-dialog::backdrop{background:#0006}.oa-upload-dialog p{line-height:1.7}.oa-upload-dialog button{margin:8px;padding:8px 12px;border:1px solid #ccc;border-radius:6px;cursor:pointer}.oa-upload-list>div{display:flex;flex-direction:column;gap:8px;padding:12px 0;overflow-wrap:anywhere}',
   '.by-mark{display:inline-flex;flex:none;border-radius:8px;overflow:hidden}',
   '.by-name{display:flex;flex-direction:column;justify-content:center;line-height:normal;gap:2px;min-width:0;white-space:nowrap}',
   '.by-name__zh{line-height:21px}.by-name__en{line-height:17px}',
@@ -147,7 +146,6 @@ function patchLabels() {
       if (text !== next) el.textContent = next
       continue
     }
-    if (text.startsWith('深度求索中') && text.length < 100) { el.textContent = text.replace('深度求索中', '正在分析'); continue }
     if (text.includes('DeepSeek Harness') && text.length > 80) {
       el.textContent = text.replaceAll('DeepSeek Harness', '承业智慧办案')
     }

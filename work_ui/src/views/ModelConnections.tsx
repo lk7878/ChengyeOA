@@ -32,6 +32,8 @@ export function ModelConnections({catalog,refresh}:{catalog:Catalog;refresh:()=>
  <h3>连通性测试</h3><p>服务器发送固定测试消息，分别验证流式回复和工具调用。新增模型须逐个测试。仅轮换密钥时，任选一个已启用的模型测试即可。</p>
  {rows.map(row=><fieldset key={row.id} disabled={busy}><legend>{row.label} · {catalog.drafts.includes(row)?'草稿':'已启用'}</legend>
  {row.models.map(m=><button key={m} onClick={()=>void run(async()=>{await api('/api/model-connections/'+row.id+'/test',{revision:row.revision,model:m});return m+' 流式回复和工具调用测试通过'})}>{row.testedModels?.includes(m)?'重新测试':'测试'} {m}</button>)}
+ <p>图片识别测试会发送一张固定的合成中文材料，并产生少量模型调用费用。</p>
+ {row.models.map(m=><button key={'ocr-'+m} onClick={()=>void run(async()=>{const r=await api<{ok:boolean;message:string}>('/api/model-connections/'+row.id+'/test-recognition',{revision:row.revision,model:m});return r.message})}>测试图片识别 {m}</button>)}
  {catalog.drafts.includes(row)&&<button disabled={!row.verifiedAt} onClick={()=>void run(async()=>{await api('/api/model-connections/'+row.id+'/enable',{revision:row.revision});return '连接已启用'})}>启用已测试连接</button>}</fieldset>)}
  {status&&<p role="status">{status}</p>}</section>
 }

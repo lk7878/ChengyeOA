@@ -3,6 +3,7 @@ import {mkdir,writeFile,rename,readdir,lstat,open,rm,copyFile} from 'node:fs/pro
 import {createReadStream,createWriteStream} from 'node:fs'
 import {pipeline} from 'node:stream/promises'
 import path from 'node:path'
+import {MaterialProcessing} from './material-processing.js'
 import {AiPolicy} from './ai-policy.js'
 import {personalWorkspaceTitle} from './harness-experience.js'
 import {Store} from './atomic-store.js'
@@ -16,7 +17,7 @@ const presets=Object.fromEntries(catalog.map(p=>[p.id,p.agent]))
 const fail=(message,statusCode=400)=>{throw Object.assign(new Error(message),{statusCode})}
 const hashFile=async file=>{const hash=createHash('sha256');for await(const part of createReadStream(file))hash.update(part);return hash.digest('hex')}
 export class OaTasks {
- constructor(root,knowledge,policy,business){this.business=business;this.aiPolicy=policy||new AiPolicy(root);this.knowledge=knowledge;this.root=root;this.store=new Store(path.join(root,'tasks.json'));this.runtimes=new Map();this.busy=new Set();this.store.update(data=>{for(const t of Object.values(data))if(['PREPARING','RUNNING'].includes(t.status)){t.status='INTERRUPTED';t.error='服务重启，任务已中断，请重新启动';}})}
+ constructor(root,knowledge,policy,business){this.business=business;this.aiPolicy=policy||new AiPolicy(root);this.knowledge=knowledge;this.root=root;this.store=new Store(path.join(root,'tasks.json'));this.runtimes=new Map();this.busy=new Set();this.store.update(data=>{for(const t of Object.values(data))if(['PREPARING','RUNNING'].includes(t.status)){t.status='INTERRUPTED';t.error='服务重启，任务已中断，请重新启动';}});this.materials=new MaterialProcessing(this)}
  list(owner){return Object.values(this.store.read()).filter(t=>t.owner===owner&&!t.deletedAt).map(({token,...t})=>t)}
  get(id,owner){const task=this.store.read()[id];if(!task||task.deletedAt||task.owner!==owner)fail('任务不存在',404);return task}
  update(id,patch){return this.store.update(data=>data[id]?.deletedAt?undefined:Object.assign(data[id],patch,{updatedAt:new Date().toISOString()}))}
@@ -61,8 +62,8 @@ export class OaTasks {
     if(this.aiPolicy.connections)for(const r of [task.aiPolicy.primary,task.aiPolicy.backup,task.aiPolicy.ocr].filter(Boolean))this.aiPolicy.connections.resolve(r,this.aiPolicy.localOnly||task.aiPolicy.localOnly)
     this.update(id,{businessSnapshot:task.businessSnapshot,aiPolicy:task.aiPolicy})
    }else{task.aiPolicy??=this.aiPolicy.snapshot(task.kind);this.update(id,{aiPolicy:task.aiPolicy})}
-   if(task.caseId)task.caseSnapshot=await oa(token,'/smart-case/cases/'+encodeURIComponent(task.caseId));await this.manifest(task);this.update(id,{status:'PREPARING',error:null});
-   const broker=await createTaskBroker({task,token,policy:this.aiPolicy,validate:(_snapshot,currentToken)=>this.validate(this.get(id,user.id),currentToken),knowledge:this.knowledge});
+   if(task.caseId)task.caseSnapshot=await oa(token,'/smart-case/cases/'+encodeURIComponent(task.caseId));await this.manifest(task);this.materials.ensure(task,token);this.update(id,{status:'PREPARING',error:null});
+   const broker=await createTaskBroker({task,token,policy:this.aiPolicy,validate:(_snapshot,currentToken)=>this.validate(this.get(id,user.id),currentToken),knowledge:this.knowledge,materials:body=>this.materials.read(id,user,token,body)});
    let runtime;try{runtime=await launchIsolatedHarness({dir:this.directory(id),id,publicBase:process.env.WORKBENCH_PUBLIC_BASE||'http://127.0.0.1:5180',brokerSocket:broker.socket,preset:task.aiPolicy?.preset||presets[task.kind],policy:task.aiPolicy,business:task.businessSnapshot})}catch(e){broker.close();throw e};const stopRuntime=runtime.stop;runtime.stop=()=>{stopRuntime();broker.close()};
    try{const w=await harnessRpc(runtime,'workspace/create',{request:{path:runtime.workspacePath||'/workspace'}});if(w.created||w.workspace.title==='workspace')await harnessRpc(runtime,'workspace/rename',{request:{workspaceId:w.workspace.workspaceId,title:personalWorkspaceTitle(user)}});const s=await harnessRpc(runtime,'session/create',{request:{workspaceId:w.workspace.workspaceId,agentPreset:task.aiPolicy?.preset||presets[task.kind]}});this.runtimes.set(id,{...runtime,token});this.update(id,{status:'RUNNING',sessionId:s.sessionId,workspaceId:w.workspace.workspaceId});runtime.child.on('exit',()=>{if(this.runtimes.has(id)){this.runtimes.delete(id);this.update(id,{status:'INTERRUPTED',error:'运行进程退出，已有个人成果保留'})}})}catch(e){runtime.stop();throw e}
    return this.get(id,user.id)
@@ -112,11 +113,14 @@ export class OaTasks {
   if(this.runtimes.get(id)!==runtime)continue
   // Generated drafts remain in the task until the owner confirms an exact content hash.
  }}
- close(){for(const runtime of this.runtimes.values())runtime.stop();this.runtimes.clear()}
+ close(){this.materials.close();for(const runtime of this.runtimes.values())runtime.stop();this.runtimes.clear()}
 }
 export async function registerTasks(app){
  const business=new BusinessPresets(process.env.DATA_DIR,app.oaKnowledge,app.aiPolicy);registerPresetRoutes(app,business);
  const tasks=new OaTasks(process.env.DATA_DIR,app.oaKnowledge,app.aiPolicy,business);app.decorate('oaTasks',tasks)
+ app.get('/api/tasks/:id/materials',async r=>tasks.materials.read(r.params.id,r.user,r.oa.token))
+ app.post('/api/tasks/:id/materials/retry',async r=>tasks.materials.retry(r.params.id,r.user,r.oa.token,r.body))
+ app.post('/api/tasks/:id/materials/remove',async r=>tasks.materials.remove(r.params.id,r.user,r.oa.token,r.body))
  app.get('/api/tasks',async req=>({items:tasks.list(req.user.id)}))
  app.post('/api/tasks',async req=>tasks.create(req.user,req.oa.token,req.body))
  app.get('/api/tasks/:id',async req=>tasks.get(req.params.id,req.user.id))

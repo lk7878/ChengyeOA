@@ -92,7 +92,9 @@ f=bundle/'package/record-parse/parse-records.mjs';text=f.read_text();text=re.sub
 
 # Brand initial HTML before any upstream JavaScript or plugins execute.
 import subprocess
-subprocess.run([os.environ.get("NODE_BINARY", "node"), str(root/"deploy/integration/brand-entrypoints.mjs"), str(root)], check=True)
+if not os.environ.get('OA_RUNTIME_BUNDLE_DIR'):
+ subprocess.run([os.environ.get("NODE_BINARY", "node"), str(root/"deploy/integration/brand-entrypoints.mjs"), str(root)], check=True)
+ subprocess.run([os.environ.get("NODE_BINARY", "node"), str(root/"deploy/integration/patch-material-ui.mjs"), str(engine)], check=True)
 
 # Keep each released runtime immutable so historical business snapshots can resume.
 # Staged builds are only installed when the caller explicitly supplies a destination.

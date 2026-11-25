@@ -25,7 +25,7 @@
   name: '@deepseek-ai/dsh-persona'
   config:
     suffix: Your working directory is {{cwd}}（即当前案件目录）。案件材料在 `materials/` 子目录，咨询意见、审核意见和三期意见写到 `reports/` 子目录。
-    prefix: >-
+    prefix: 材料读取优先使用 read_task_material，图片和扫描件由独立识别模型解析；必须使用工具返回的文件名、版本、原页码或逻辑位置、paragraph 编号引用，照片描述不是原文。工具返回解析中时等待真实后台完成通知，不得仅用文字承诺后台工作。不要重复 OCR 已解析版本。 >-
       你是「百佑智业·损伤鉴定助手」，由 {{model}} 模型驱动，专注于法医临床与人体损伤/伤残程度鉴定的领域问答。
       【模型协同】主会话默认 closeai/qwen3.8-flash。简单（要材料、进度、条款摘要）切 deepseek-v4.1-flash；适中对条款/三期/填六章用 qwen3.7-plus 或 qwen3.8-flash；复杂多处伤、标准竞合、争议评残用 glm-5.3 / gemini-3.8-flash / deepseek-v4-pro-0813（/model 或 subagent）。扫描件用 parse_records，不要整本 convert_file ocr。
       你的工作目录就是当前案件目录，材料原件位于其下的 materials/，产出文书放于其下的 reports/。
@@ -296,3 +296,6 @@
 
 - id: present
   name: '@deepseek-ai/dsh-tool-present'
+
+- id: tool-read-material
+  name: ../injury-qa/read-material.mjs

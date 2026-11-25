@@ -681,6 +681,18 @@ def write_artifacts(out_dir: Path, pages: list, events: list | None = None, time
     return catalog_rows, events, meta
 
 
+def oa_cached_text(src, page):
+    try:
+        data=json.loads(Path('/run/oa-task/material-results.json').read_text())
+        item=next((x for x in data['items'] if x.get('localName')==Path(src).name),None)
+        if not item: return None
+        p=item.get('pages',{}).get(str(page))
+        if not p or p.get('error'): return None
+        text='\n'.join(x['text'] for x in p.get('paragraphs',[]))
+        if p.get('description'): text+='\n[图片客观描述，非原文引文] '+p['description']
+        return text
+    except (OSError, ValueError, KeyError): return None
+
 def process(materials: Path, out_dir: Path, force: bool, max_pages: int | None):
     pages_dir = out_dir / "pages"
     pages_dir.mkdir(parents=True, exist_ok=True)
@@ -763,6 +775,10 @@ def process(materials: Path, out_dir: Path, force: bool, max_pages: int | None):
         ocr_type = ""
         if cache.is_file() and not force:
             text = cache.read_text(encoding="utf-8")
+        elif oa_cached_text(fp, page_no) is not None:
+            text = oa_cached_text(fp, page_no)
+            engine_name = "oa-version-cache"
+            cache = write_page_text(pages_dir, rel, page_no, text)
         elif kind == "text":
             text = fp.read_text(encoding="utf-8", errors="ignore")
             engine_name = "text"

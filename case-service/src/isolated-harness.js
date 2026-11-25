@@ -25,11 +25,22 @@ export async function launchIsolatedHarness({dir,id,publicBase,brokerSocket,pres
  }
  const manifest=path.join(dir,'workspace/task.json'),manifestExists=await access(manifest).then(()=>true,()=>false)
  const bwrapArgs=['--die-with-parent','--unshare-all','--new-session','--ro-bind','/usr','/usr','--symlink','usr/bin','/bin','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--proc','/proc','--dev','/dev','--tmpfs','/tmp','--dir','/etc','--ro-bind','/etc/ssl','/etc/ssl','--ro-bind',engine,'/engine','--ro-bind',bundle,'/app','--ro-bind',path.join(root,'runtime/plugin-deps'),'/deps','--ro-bind',node,'/runtime','--ro-bind',path.join(root,'runtime/python-deps'),'/pydeps','--bind',home,'/home/task']
+ bwrapArgs.push('--ro-bind',path.join(root,'plugins/dsh-baiyou-brand'),'/app/plugins/dsh-baiyou-brand','--ro-bind',path.join(root,'package/injury-qa/read-material.mjs'),'/run/oa-reader/read-material.mjs','--symlink','/app/node_modules','/run/oa-reader/node_modules')
+ bwrapArgs.push('--ro-bind',path.join(root,'package/record-parse/worker.py'),'/app/package/record-parse/worker.py','--ro-bind',path.join(root,'package/record-parse/parse-records.mjs'),'/app/package/record-parse/parse-records.mjs')
  if(business){
   bwrapArgs.push('--ro-bind',path.join(dir,'context'),'/run/oa-task')
   const declaration=path.join(bundle,'plugins/oa-legal-presets',preset+'.yml')
   await access(declaration)
-  bwrapArgs.push('--ro-bind',declaration,'/app/plugins/oa-legal-presets/cordis.patch.yml')
+  // Common material reader is a maintenance fix, independent of frozen business rules.
+  let patched=await readFile(declaration,'utf8')
+  patched=patched.replaceAll('/app/package/injury-qa/read-material.mjs','/run/oa-reader/read-material.mjs')
+  if(!patched.includes('tool-read-material'))patched+='\n          - id: tool-read-material\n            name: /run/oa-reader/read-material.mjs\n'
+  if(!patched.includes('材料读取优先使用 read_task_material'))patched=patched.replace(/^(\s*)prefix: (.*)$/m,(_match,indent,value)=>{
+   const note='材料读取优先使用 read_task_material；按工具返回的文件名、版本、页码和段落引用，图片描述不是原文。解析中需等待工具后台完成通知，不要重复识别。 '
+   return /^[>|]/.test(value)?indent+'prefix: '+value+'\n'+indent+'  '+note:indent+'prefix: '+note+value
+  })
+  const materialDeclaration=path.join(home,'profiles/web/material-preset.yml');await writeFile(materialDeclaration,patched,{mode:0o400})
+  bwrapArgs.push('--ro-bind',materialDeclaration,'/app/plugins/oa-legal-presets/cordis.patch.yml')
   const deployed=JSON.parse(await readFile(path.join(bundle,'presets/business.json'),'utf8')).find(p=>p.id===business.id)
   for(const skill of deployed.skills.filter(id=>!business.skills.includes(id))){
    bwrapArgs.push('--tmpfs','/app/package/'+business.agent+'/.agents/skills/'+skill)

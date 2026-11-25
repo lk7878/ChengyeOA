@@ -22,7 +22,7 @@ test('upload saves an owner-only OA version and attaches it once; retries do not
   if(route.endsWith('/content')){if(failDownload)throw Error('attachment offline');return new Response(bytes)}
   throw Error('Unexpected route '+route)
  })
- t.after(async()=>{tasks.close();await rm(root,{recursive:true,force:true})})
+ t.after(async()=>{tasks.close();await tasks.materials.queue;await rm(root,{recursive:true,force:true})})
  await assert.rejects(uploads.create(id,{id:'other'},'owner-token',{name:'a',size:1}),{statusCode:404});assert.equal(created,0)
  await assert.rejects(uploads.create(id,user,'owner-token',{name:'../file',size:1}))
  const u=await uploads.create(id,user,'owner-token',{name:'材料.txt',size:bytes.length})
@@ -58,7 +58,7 @@ test('upload routes parse binary chunks without affecting JSON and reject other 
  assert.equal((await app.inject({method:'PUT',url:base+'/chunk?offset=0',headers:{'content-type':'application/octet-stream'},payload:Buffer.from('abcd')})).statusCode,200)
  assert.equal((await app.inject({method:'PUT',url:base+'/chunk?offset=0',headers:{'content-type':'application/octet-stream'},payload:Buffer.alloc(4*1024*1024+1)})).statusCode,413)
  owner='other';assert.equal((await app.inject({method:'GET',url:base})).statusCode,404)
- assert.equal((await app.inject({method:'PUT',url:base+'/chunk?offset=0',headers:{'content-type':'application/octet-stream'},payload:Buffer.from('abcd')})).statusCode,404);assert.equal(forwarded,1)
+ assert.equal((await app.inject({method:'PUT',url:base+'/chunk?offset=0',headers:{'content-type':'application/octet-stream'},payload:Buffer.from('abcd')})).statusCode,404);assert.equal(forwarded,0)
 })
 
 test('composer upload is scoped to its own input, serializes files and inserts saved material paths',async()=>{
@@ -74,7 +74,7 @@ test('composer upload is scoped to its own input, serializes files and inserts s
   return Response.json({offset:0,chunkSize:4})
  }
  const anchor=doc.querySelector('button'),dispose=bindOaUpload({}, {captureInsertion:()=>({draftRev:1}),insertText:(text,span)=>{assert.equal(span.draftRev,1);inserted=text;return true},persistDraft:()=>persisted++},browser,anchor)
- doc.querySelectorAll('button')[1].click();assert.equal(doc.querySelector('dialog'),null)
+ doc.querySelectorAll('.oa-upload-trigger')[1].click();assert.equal(doc.querySelector('dialog'),null)
  anchor.click();assert.ok(doc.querySelector('dialog[open]'))
  const picker=doc.querySelector('input[type=file]');Object.defineProperty(picker,'files',{value:[new File(['abcd'],'one.txt'),new File(['abcd'],'two.txt')]});picker.dispatchEvent(new browser.Event('change'))
  for(let i=0;i<100&&doc.querySelectorAll('.oa-upload-list span').length===2&&!Array.from(doc.querySelectorAll('.oa-upload-list span')).every(e=>e.textContent.includes('已保存到 OA'));i++)await new Promise(r=>setTimeout(r,5))

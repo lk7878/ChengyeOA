@@ -71,3 +71,16 @@ test('staged deployment exposes approved Skills for every preset and ignores wor
   assert.doesNotMatch(runtime.diagnostics(),/did not activate|failed to import|skipping profile bundle/);
  }finally{if(runtime){const exit=new Promise(resolve=>runtime.child.once('exit',resolve));runtime.stop();await exit}await rm(dir,{recursive:true,force:true})}
 });
+
+test('historical business runtime receives maintenance reader without changing frozen preset rules',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'oa-historical-materials-'));let runtime
+ try{
+  for(const box of ['materials','drafts','reports'])await mkdir(path.join(dir,'workspace',box),{recursive:true});await mkdir(path.join(dir,'context'))
+  const version='20261119.2',bundle=fileURLToPath(new URL('../../runtime/business-bundles/'+version+'/',import.meta.url));
+  const presets=JSON.parse(await readFile(path.join(bundle,'presets/business.json'),'utf8')),business=presets.find(p=>p.id==='general');business.runtimeVersion=version
+  runtime=await launchIsolatedHarness({dir,id:crypto.randomUUID(),publicBase:'http://127.0.0.1:5180',preset:business.agent,business})
+  const w=await harnessRpc(runtime,'workspace/create',{request:{path:'/workspace'}});await harnessRpc(runtime,'session/create',{request:{workspaceId:w.workspace.workspaceId,agentPreset:business.agent}})
+  const declaration=await readFile(path.join(dir,'home/profiles/web/material-preset.yml'),'utf8');assert.match(declaration,/tool-read-material/);assert.match(declaration,/\/run\/oa-reader\/read-material.mjs/)
+  assert.doesNotMatch(runtime.diagnostics(),/did not activate|failed to import|skipping profile bundle/)
+ }finally{if(runtime){const exited=new Promise(r=>runtime.child.once('exit',r));runtime.stop();await exited}await rm(dir,{recursive:true,force:true})}
+})
