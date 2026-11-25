@@ -89,6 +89,11 @@ export class PhotoCache {
     }
   }
 
+  ready(source: string) {
+    const photo = this.entries.get(source);
+    return photo && photo.expires > Date.now() ? photo.url : undefined;
+  }
+
   contains(source: string, url: string) {
     return this.entries.get(source)?.url === url;
   }

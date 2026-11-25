@@ -83,9 +83,13 @@ test('a preload does not finish until image decoding is ready', async () => {
     });
     await vi.waitFor(() => expect(decoded).toBeTypeOf('function'));
     expect(ready).toBe(false);
+    expect(cache.ready('/decode')).toBeUndefined();
     decoded();
     await job;
     expect(ready).toBe(true);
+    expect(cache.ready('/decode')).toBeTruthy();
+    cache.clear();
+    expect(cache.ready('/decode')).toBeUndefined();
   } finally {
     cache.clear();
     if (original) Object.defineProperty(HTMLImageElement.prototype, 'decode', original);

@@ -73,11 +73,12 @@ function Photo({
     };
   }, [source, cache, visible, enabled]);
   const current = enabled && loaded?.source === source ? loaded : undefined;
-  return current?.url && source && cache.contains(source, current.url) ? (
+  const readyUrl = current?.url || (enabled && source ? cache.ready(source) : undefined);
+  return readyUrl && source && cache.contains(source, readyUrl) ? (
     <img
       ref={photo}
       className="portal-photo"
-      src={current.url}
+      src={readyUrl}
       alt={card.caption || card.personName || card.title}
       onError={() => setLoaded({ source: source!, failed: true })}
     />
