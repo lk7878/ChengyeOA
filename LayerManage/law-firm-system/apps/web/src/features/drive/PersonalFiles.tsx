@@ -70,12 +70,11 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
       <Button danger disabled={busy||!selected.length} onClick={()=>setDeleting((data?.items??[]).filter(i=>selected.includes(i.id)))}>删除所选（{selected.length}）</Button>
       {scope==='mine'&&<Button disabled={busy} onClick={()=>void get<{items:NonNullable<typeof trash>}>('/personal-files/trash').then(r=>{setTrash(r.items);setTrashSelected([]);}).catch(e=>message.error(errorMessage(e)))}>回收站</Button>}
     </Space>
-    <p style={{color:'#667085',marginTop:8}}>可在“更多”中更新文件或管理分享。文件更新后保留旧版本，有多个版本时可查看历史版本。拖动表头分隔线可调整列宽，双击恢复默认。</p>
     <input hidden type="file" multiple ref={fileInput} onChange={e=>void upload(e.target.files)}/><input hidden type="file" multiple {...{webkitdirectory:''}} ref={folderInput} onChange={e=>void upload(e.target.files)}/>
     {Object.entries(progress).map(([file,state])=><p key={file}>{file}：{state}</p>)}
     {failed.length>0&&<Button disabled={busy} onClick={()=>void upload(failed)}>重试失败文件（续传）</Button>}
     <ResizableTable<Item> columnWidthsKey={`personal-files:${authorization?.userId??'anonymous'}:${scope}`} style={{marginTop:12}} rowKey="id" dataSource={data?.items??[]} pagination={{pageSize:10}} rowSelection={{columnWidth:48,selectedRowKeys:selected,onChange:keys=>setSelected(keys.map(String)),getCheckboxProps:r=>({disabled:busy||r.level<3})}} columns={[
-      {title:'文件名称',dataIndex:'name',width:320,render:(_,r)=>r.kind==='FOLDER'?<Button type="link" onClick={()=>setParent(r.id)}>📁 {r.name}</Button>:<FilePreviewButton link url={versionUrl(r.id,r.contentVersion)} name={r.name}>{r.name}</FilePreviewButton>},
+      {title:'文件名称',dataIndex:'name',width:320,render:(_,r)=>r.kind==='FOLDER'?<Button type="link" style={{maxWidth:'100%',whiteSpace:'normal',height:'auto',overflowWrap:'anywhere',textAlign:'left'}} onClick={()=>setParent(r.id)}>📁 {r.name}</Button>:<FilePreviewButton link url={versionUrl(r.id,r.contentVersion)} name={r.name}>{r.name}</FilePreviewButton>},
       {title:'分享状态',key:'sharingState',width:150,render:(_,r)=>r.level>=3?<Button size="small" type="link" style={sharingStatusStyle} aria-label={r.name+'的分享管理'} onClick={()=>setSharingId(r.id)}>{r.sharingState==='inherited'?'继承文件夹分享':r.sharingState==='direct'?'已分享':'未分享'}</Button>:<small style={sharingStatusStyle}>{r.sharingState==='inherited'?'继承文件夹分享':r.sharingState==='direct'?'已分享':'未分享'}</small>},
       {title:'权限',key:'permission',width:90,render:(_,r)=>['无权限','只读','编辑','管理'][r.level]},
       {title:'大小',key:'size',width:120,render:(_,r)=>Math.ceil(r.size/1024)+' KB'},
