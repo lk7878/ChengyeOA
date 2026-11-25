@@ -91,7 +91,6 @@ export default function CloudDrivePage() {
   const [canCreateWorkspace, setCanCreateWorkspace] = useState(false);
   const workspaceId = params.get('workspace') || workspaces[0]?.id || '';
   const allWorkspaces = workspaceId === '__all__';
-  const [storageWorkspaces, setStorageWorkspaces] = useState<{id:string;name:string}[]>([]);
   const [chooseWorkspace, setChooseWorkspace] = useState(false);
   const [destination, setDestination] = useState<string>();
   const parentId = params.get('folder') || '';
@@ -514,22 +513,22 @@ export default function CloudDrivePage() {
   );
   const navigation = (
     <>
-      <Select
+      {scope !== 'storage' && <><Select
         aria-label="工作区"
         value={workspaceId || undefined}
         placeholder="选择工作区"
-        options={[{value:'__all__',label:'全部工作区'}, ...(scope === 'storage' ? [{value:'__unassigned__',label:'未归属工作区（个人文件）'}] : []), ...(scope === 'storage' && storageWorkspaces.length ? storageWorkspaces : workspaces).map((w) => ({ value: w.id, label: w.name }))]}
-        onChange={(id) => setParams({ workspace: id, ...(scope === 'storage' ? {scope:'storage'} : {}) })}
+        options={[{value:'__all__',label:'全部工作区'}, ...workspaces.map((w) => ({ value: w.id, label: w.name }))]}
+        onChange={(id) => setParams({ workspace: id })}
       />
       <Input.Search
         key={workspaceId + parentId + scope + search}
         aria-label="搜索资源"
         placeholder={allWorkspaces ? '搜索全部工作区可访问的资源' : '搜索此工作区可访问的资源'}
-        disabled={scope === 'storage'}
         defaultValue={search}
         allowClear
         onSearch={(q) => change({ q })}
       />
+      </>}
       <div className="drive-nav-title">资源目录</div>
       {[
         ['all', allWorkspaces ? '跨工作区可访问资源' : '当前工作区资源'],
@@ -596,7 +595,7 @@ export default function CloudDrivePage() {
       <div className="drive-body">
         <aside className="drive-sidebar">{navigation}</aside>
         <main className="drive-main">
-          {scope === 'storage' ? <StorageManager workspace={workspaceId || '__all__'} onWorkspaces={setStorageWorkspaces} onMine={()=>change({workspace:'__all__',scope:'mine',folder:'',q:''})}/> : <>
+          {scope === 'storage' ? <StorageManager onWorkspaceChange={id => change({workspace:id,scope:'storage'})} workspace={workspaceId || '__all__'} onMine={()=>change({workspace:'__all__',scope:'mine',folder:'',q:''})}/> : <>
           <div className="drive-toolbar">
             <Space wrap>
               <Button

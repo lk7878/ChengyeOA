@@ -34,6 +34,7 @@ test('all-workspace creation asks for a concrete destination instead of submitti
 test('storage navigation preserves aggregate scope and does not query a synthetic workspace resource', async () => {
   render(<MemoryRouter initialEntries={['/workspaces?workspace=__all__&scope=storage']}><CloudDrivePage /></MemoryRouter>);
   expect(await screen.findByText('存储范围：__all__')).toBeInTheDocument();
+  expect(screen.queryByRole('combobox', {name:'工作区'})).not.toBeInTheDocument();
   expect(vi.mocked(get).mock.calls.some(([url])=>url.includes('/drive?'))).toBe(false);
 });
 

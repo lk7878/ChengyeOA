@@ -24,42 +24,48 @@ export type StorageReport = { audience: string; workspace: string; workspaces: {
   coverage: string; referenceNotice: string; computedAt: string };
 const candidates: Record<string, string> = { all: '全部文件版本', duplicate: '内容重复', history: '历史版本', trash: '回收站', large: '大文件（≥100 MB）', old: '超过180天未更新' };
 
-export default function StorageManager({ workspace, onWorkspaces, onMine }: {
-  workspace: string; onWorkspaces: (items: { id: string; name: string }[]) => void; onMine: () => void;
+export default function StorageManager({ workspace, onMine, onWorkspaceChange }: {
+  workspace: string; onMine: () => void; onWorkspaceChange: (workspace: string) => void;
 }) {
   const authorization = useAuthStore(s => s.authorization);
   const superAdmin = !!authorization?.isSystemSuperAdmin;
   const [audience, setAudience] = useState('mine');
   const [q, setQ] = useState(''), [ownerId, setOwnerId] = useState(''), [department, setDepartment] = useState('');
   const [candidate, setCandidate] = useState('all'), [sort, setSort] = useState('size');
-  const [pageSelection, setPageSelection] = useState({ workspace, page: 1 });
-  const page = pageSelection.workspace === workspace ? pageSelection.page : 1;
-  const setPage = (value: number) => setPageSelection({ workspace, page: value });
+  const effectiveAudience = superAdmin ? audience : 'mine';
+  const organizationScope = effectiveAudience === 'organization';
+  const effectiveWorkspace = organizationScope ? workspace : '__all__';
+  const scopeKey = `${authorization?.userId}:${effectiveAudience}:${effectiveWorkspace}`;
+  const [pageSelection, setPageSelection] = useState({ scopeKey, page: 1 });
+  const page = pageSelection.scopeKey === scopeKey ? pageSelection.page : 1;
+  const setPage = (value: number) => setPageSelection({ scopeKey, page: value });
   const [revision, setRevision] = useState(0), [loading, setLoading] = useState(true), [error, setError] = useState('');
   const [result, setResult] = useState<{ key: string; data: StorageReport }>();
-  const effectiveAudience = superAdmin ? audience : 'mine';
-  const query = new URLSearchParams({ audience: effectiveAudience, workspace, q, ownerId, department, candidate, sort, page: String(page) }).toString();
+  const query = new URLSearchParams({ audience: effectiveAudience, workspace: effectiveWorkspace, q,
+    ownerId: organizationScope ? ownerId : '', department: organizationScope ? department : '',
+    candidate, sort, page: String(page) }).toString();
   // Do not display the previous scope's data while switching identities or filters.
   const requestKey = `${authorization?.userId}:${query}:${revision}`;
   const data = result?.key === requestKey ? result.data : undefined;
   useEffect(() => {
     let active = true;
-    onWorkspaces([]);
     void get<StorageReport>('/storage-management?' + query).then(report => {
-      if (active) { setResult({ key: requestKey, data: report }); onWorkspaces(report.workspaces); setError(''); }
+      if (active) { setResult({ key: requestKey, data: report }); setError(''); }
     }).catch(e => { if (active) { setResult(undefined); setError(errorMessage(e)); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [query, requestKey, onWorkspaces]);
+  }, [query, requestKey]);
   const update = (fn: () => void) => { setPage(1); setLoading(true); setError(''); fn(); };
   return <section className="storage-manager" aria-label="存储管理">
     <Space wrap className="storage-heading"><h2>存储管理</h2>
-      <Select aria-label="存储查看范围" value={effectiveAudience} onChange={value => update(() => { setAudience(value); setOwnerId(''); setDepartment(''); })}
-        options={[{ value: 'mine', label: '我的占用' }, ...(superAdmin ? [{ value: 'organization', label: '全组织（只读审计）' }] : [])]} />
+      {superAdmin ? <Select aria-label="存储查看范围" value={effectiveAudience} onChange={value => update(() => { setAudience(value); setOwnerId(''); setDepartment(''); })}
+        options={[{ value: 'mine', label: '我的占用' }, { value: 'organization', label: '全组织（只读审计）' }]} /> : <span>我的占用</span>}
+      {organizationScope && <Select aria-label="存储工作区筛选" value={workspace} onChange={value => onWorkspaceChange(value)}
+        options={[{value:'__all__',label:'全部工作区'}, {value:'__unassigned__',label:'未归属工作区（个人文件）'}, ...(data?.workspaces || []).map(w => ({value:w.id,label:w.name}))]} />}
       <Button onClick={() => update(() => setRevision(r => r + 1))}>刷新统计</Button>
       <Button onClick={onMine}>管理我的文件 / 回收站</Button>
     </Space>
-    <p>范围：{workspace === '__all__' ? '全部工作区及未归属工作区文件' : workspace === '__unassigned__' ? '未归属工作区文件' : data?.workspaces.find(w => w.id === workspace)?.name || '所选工作区'} · {effectiveAudience === 'organization' ? '跨用户查看已记录审计；此处不授予修改和删除权。' : '仅统计本人文件，不包含其他成员共享给我的副本。'}</p>
+    <p>范围：{!organizationScope ? '全部本人文件' : workspace === '__all__' ? '全部工作区及未归属工作区文件' : workspace === '__unassigned__' ? '未归属工作区文件' : data?.workspaces.find(w => w.id === workspace)?.name || '所选工作区'} · {effectiveAudience === 'organization' ? '跨用户查看已记录审计；此处不授予修改和删除权。' : '仅统计本人文件，不包含其他成员共享给我的副本。'}</p>
     {error && <Alert type="error" title={error} />}
     {data && <>
       <div className="storage-stats">{[
@@ -70,17 +76,17 @@ export default function StorageManager({ workspace, onWorkspaces, onMine }: {
       <p>{data.totals.files} 个文件 · {data.totals.versions} 个内容版本 · 已核对 {data.measured.objects} 个独立存储对象。同一路径或硬链接仅计算一次实际占用。</p>
       {data.measured.unavailable > 0 && <Alert type="warning" title={`${data.measured.unavailable} 个存储对象不可核对，实际占用为已核对部分，不代表完整容量。`} />}
       {effectiveAudience === 'organization' && <Alert type="info" title={data.disk ? `个人文件所在磁盘：总容量 ${formatBytes(data.disk.total)} · 已用 ${formatBytes(data.disk.used)} · 可用 ${formatBytes(data.disk.available)}` : '磁盘容量暂不可用'} />}
-      <Tabs items={(['workspaces', 'members', 'departments'] as const).map((key, index) => ({ key, label: ['按工作区', '按成员', '按部门'][index], children:
+      {organizationScope && <Tabs items={(['workspaces', 'members', 'departments'] as const).map((key, index) => ({ key, label: ['按工作区', '按成员', '按部门'][index], children:
         <Table size="small" rowKey="name" dataSource={data.breakdown[key]} pagination={{ pageSize: 8, showSizeChanger: false }} columns={[
           { title: ['工作区', '成员', '部门'][index], dataIndex: 'name' }, { title: '版本数', dataIndex: 'versions' },
           { title: '文件大小合计', dataIndex: 'bytes', render: formatBytes },
-        ]} /> }))} />
+        ]} /> }))} />}
       <p>相同内容：{data.totals.duplicateGroups} 组 · 重复逻辑大小上限 {formatBytes(data.totals.potentialDuplicateBytes)}。不等于可安全释放的物理空间；未记录内容校验值的文件不参与判重。</p>
     </>}
     <Space wrap className="storage-filters">
       <Input.Search aria-label="搜索存储文件" placeholder="文件名或位置" allowClear onSearch={value => update(() => setQ(value))} />
-      <Select aria-label="存储成员筛选" value={ownerId} onChange={value => update(() => setOwnerId(value))} options={[{ value: '', label: '全部成员' }, ...(data?.owners || []).map(o => ({ value: o.id, label: o.name }))]} />
-      <Select aria-label="存储部门筛选" value={department} onChange={value => update(() => setDepartment(value))} options={[{ value: '', label: '全部部门' }, ...(data?.departments || []).map(name => ({ value: name, label: name }))]} />
+      {organizationScope && <><Select aria-label="存储成员筛选" value={ownerId} onChange={value => update(() => setOwnerId(value))} options={[{ value: '', label: '全部成员' }, ...(data?.owners || []).map(o => ({ value: o.id, label: o.name }))]} />
+      <Select aria-label="存储部门筛选" value={department} onChange={value => update(() => setDepartment(value))} options={[{ value: '', label: '全部部门' }, ...(data?.departments || []).map(name => ({ value: name, label: name }))]} /></>}
       <Select aria-label="清理候选筛选" value={candidate} onChange={value => update(() => setCandidate(value))} options={Object.entries(candidates).map(([value, label]) => ({ value, label }))} />
       <Select aria-label="存储排序" value={sort} onChange={value => update(() => setSort(value))} options={[{ value: 'size', label: '大小降序' }, { value: 'updatedAt', label: '最近更新' }, { value: 'name', label: '文件名称' }]} />
     </Space>
