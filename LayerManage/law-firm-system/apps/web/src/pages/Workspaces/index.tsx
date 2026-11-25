@@ -1154,8 +1154,6 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   </Dropdown>
                 </div>
                 <div className="workspace-toolbar">
-                  {detail.access.level>=3&&detail.access.canManageAccess&&<MoveTable tableId={tableId} disabled={configDirty||inlineDirty||!!editing}/>}
-                  <BulkTransfer detail={detail} config={config} viewId={view?.id} onImported={refresh} superAdmin={!!useAuthStore.getState().authorization?.isSystemSuperAdmin}/>
                   <Button
                     type="primary"
                     icon={<PlusOutlined aria-hidden="true" />}
@@ -1241,8 +1239,15 @@ export function WorkspaceEditor({ businessMode = false }: { businessMode?: boole
                   )}
                   {detail.access.level >= 2 && <RecordOperations key={tableId} tableId={tableId} schemaVersion={detail.table.schemaVersion} selected={records.filter(r => selectedRecords.includes(r.id))} canDelete={Boolean(detail.canDeleteRecords)} disabled={inlineDirty || busy} revision={revision} onChanged={refresh} />}
                   {canStartWorkflow && detail.access.automate !== false && <Button disabled={inlineDirty || busy} onClick={() => navigate('/approvals?table=' + tableId + (selectedRecords.length === 1 ? '&record=' + selectedRecords[0] : ''))}>发起审批</Button>}
-                  <Button onClick={() => setSettings('fields')}>字段配置</Button>
-                  <Button onClick={() => setSettings('view')}>视图配置</Button>
+                  <details className="workspace-management-menu">
+                    <summary>表格管理</summary>
+                    <div>
+                      {detail.access.level>=3&&detail.access.canManageAccess&&<MoveTable tableId={tableId} disabled={configDirty||inlineDirty||!!editing}/>}
+                      <BulkTransfer detail={detail} config={config} viewId={view?.id} onImported={refresh} superAdmin={!!useAuthStore.getState().authorization?.isSystemSuperAdmin}/>
+                      <Button onClick={() => setSettings('fields')}>字段配置</Button>
+                      <Button onClick={() => setSettings('view')}>视图配置</Button>
+                    </div>
+                  </details>
                   <Button icon={<FilterOutlined />} onClick={() => setSettings('filter')}>
                     筛选{config.filter ? ' · 已设置' : ''}
                   </Button>

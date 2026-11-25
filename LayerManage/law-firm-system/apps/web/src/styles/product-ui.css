@@ -1,0 +1,42 @@
+/* Product UI: use appearance tokens so user-selected themes remain intact. */
+:root { --oa-ui-brand:#3370ff; --oa-ui-radius:10px; --oa-border:#e4e9f0; --oa-text-muted:#66758c; }
+html[data-oa-color-mode="dark"] { --oa-ui-brand:#91b3ff; --oa-border:#343b47; --oa-text-muted:#b2bdcf; }
+body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif; }
+:where(button,a,input,select,textarea,summary):focus-visible { outline:2px solid var(--oa-ui-brand); outline-offset:3px; }
+:where(.unified-area-page,.personal-files-panel) h2 { font-size:calc(var(--oa-font-size,14px) + 8px); font-weight:600; line-height:1.4; }
+.personal-files-panel { border:1px solid var(--oa-border,#e4e9f0); border-radius:var(--oa-ui-radius); padding:20px; margin-top:16px; background:var(--oa-panel-bg,#fff); min-width:0; }
+.personal-files-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+.personal-files-heading h2 { margin:0; }
+.personal-files-heading .ant-btn { color:var(--oa-text-muted,#66758c); }
+.personal-files-path { padding:0 0 12px; overflow-wrap:anywhere; }
+.personal-files-path .ant-btn { max-width:100%; white-space:normal; height:auto; text-align:left; }
+.personal-files-toolbar { margin-bottom:4px; }
+.personal-files-selection { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:12px; margin-top:12px; border:1px solid var(--oa-ui-brand); border-radius:6px; background:var(--oa-panel-bg,#fff); }
+.personal-files-selection strong { margin-right:8px; font-size:var(--oa-font-small,12px); }
+.personal-files-panel .ant-table-cell { font-variant-numeric:tabular-nums; }
+.workspace-toolbar { gap:8px; padding-block:10px; }
+.workspace-management-menu { position:relative; }
+.workspace-management-menu>summary { list-style:none; cursor:pointer; border:1px solid var(--oa-border,#d9dfe8); border-radius:6px; padding:6px 12px; line-height:22px; background:var(--oa-panel-bg,#fff); }
+.workspace-management-menu>summary::-webkit-details-marker { display:none; }
+.workspace-management-menu>summary::after { content:"⌄"; padding-left:10px; }
+.workspace-management-menu>div { display:flex; flex-wrap:wrap; gap:8px; padding:12px; margin-top:8px; border:1px solid var(--oa-border); border-radius:8px; background:var(--oa-panel-bg,#fff); }
+.workspace-cell:disabled { opacity:1; color:var(--oa-text-muted,#66758c); cursor:default; }
+.workspace-grid .ant-table-thead>tr>th { font-weight:600; }
+.ant-modal-title,.ant-drawer-title { line-height:1.5; }
+.ant-modal-body .ant-form-item-label>label { font-weight:500; }
+.ant-modal-footer { border-top:1px solid var(--oa-border,#e4e9f0); padding-top:16px; }
+.ant-form-item-extra { font-size:var(--oa-font-small,12px); }
+.ui-money { font-variant-numeric:tabular-nums; white-space:nowrap; }
+.ui-money-primary { font-weight:600; color:var(--oa-ui-brand); }
+.portal-panel { border-radius:var(--oa-ui-radius); }
+.portal-panel header { align-items:center; }
+.portal-panel h2 { font-size:calc(var(--oa-font-size,14px) + 4px); font-weight:600; }
+.portal-lawyer-slider .portal-person-info { min-height:128px; }
+.portal-lawyer-slider .portal-person strong { font-size:calc(var(--oa-font-size,14px) + 2px); }
+.portal-contact { font-size:var(--oa-font-small,12px); line-height:1.6; }
+.portal-contact h2 { font-size:calc(var(--oa-font-size,14px) + 2px); }
+@media(max-width:900px) {
+ .personal-files-panel { padding:16px; }
+ .workspace-toolbar .ant-btn { padding-inline:10px; }
+}
+@media(prefers-reduced-motion:reduce) { :where(.portal-page,.cloud-drive,.unified-area-page) * { scroll-behavior:auto!important; } }

@@ -297,8 +297,8 @@ export default function CasePerformancePage() {
                 columns={[
                   { title: '案件 / 合同编号', render: (_, r) => sourceCell(r) },
                   { title: '团队 / 个人', render: (_, r) => teamName(r) },
-                  { title: '本期基数（元）', dataIndex: 'basisAmount' },
-                  { title: '可分配（元）', dataIndex: 'pool' },
+                  { title: '本期基数（元）', dataIndex: 'basisAmount', align: 'right', className: 'ui-money' },
+                  { title: '可分配（元）', dataIndex: 'pool', align: 'right', className: 'ui-money ui-money-primary' },
                   { title: '状态', render: (_, r) => <Tag>{statusName[r.status]}</Tag> },
                   { title: '操作', render: (_, r) => buttons(r) },
                 ]}
@@ -326,9 +326,9 @@ export default function CasePerformancePage() {
                         ? l.rate + ' · 个人规则'
                         : l.rate,
                   },
-                  { title: '调整额（元）', dataIndex: 'adjustment' },
+                  { title: '调整额（元）', dataIndex: 'adjustment', align: 'right', className: 'ui-money' },
                   { title: '调整原因', dataIndex: 'reason' },
-                  { title: '分配金额（元）', dataIndex: 'amount' },
+                  { title: '分配金额（元）', dataIndex: 'amount', align: 'right', className: 'ui-money ui-money-primary' },
                   { title: '状态', render: (_, l) => statusName[l.row.status] },
                 ]}
               />

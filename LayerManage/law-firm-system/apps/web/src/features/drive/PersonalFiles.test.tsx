@@ -133,11 +133,16 @@ test('only owner selections can use organize controls, even with shared manageme
  vi.mocked(get).mockResolvedValue({items:[own,{...own,id:'someone',name:'别人文件.txt',ownerId:'someone'}],path:[],canUpload:true});
  render(<PersonalFiles scope="mine"/>);
  const mine=await screen.findByRole('row',{name:/本人文件/});const theirs=screen.getByRole('row',{name:/别人文件/});
+ expect(screen.queryByRole('region',{name:'已选文件操作'})).not.toBeInTheDocument();
  fireEvent.click(within(mine).getByRole('checkbox'));
  expect(screen.getByRole('button',{name:'移动所选'})).toBeEnabled();
  fireEvent.click(within(theirs).getByRole('checkbox'));
  expect(screen.getByRole('button',{name:'移动所选'})).toBeDisabled();
  expect(screen.getByRole('button',{name:'复制所选'})).toBeDisabled();
+ fireEvent.click(screen.getByRole('button',{name:'取消选择'}));
+ expect(screen.queryByRole('region',{name:'已选文件操作'})).not.toBeInTheDocument();
+ expect(within(mine).getByRole('checkbox')).not.toBeChecked();
+ expect(within(theirs).getByRole('checkbox')).not.toBeChecked();
 });
 test('shared view does not expose organize controls for shared managers',async()=>{
  vi.mocked(get).mockResolvedValue({items:[{id:'s',name:'共享文件夹',kind:'FOLDER',level:3,version:1,size:1,ownerId:'someone'}],path:[],canUpload:true});

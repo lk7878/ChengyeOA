@@ -5,7 +5,7 @@ import { appearanceKey, fontPixels, normalizeAppearance, useAppearance, useAppea
 import './appearance.css';
 
 const colors = {
-  default: { page: '#ffffff', panel: '#ffffff', rail: '#f3f5fa' },
+  default: { page: '#f5f7fa', panel: '#ffffff', rail: '#f3f5fa' },
   beige: { page: '#f7f2e8', panel: '#fffcf5', rail: '#f0e9da' },
   green: { page: '#eff6ef', panel: '#f8fcf8', rail: '#e4efe4' },
 };
@@ -34,7 +34,7 @@ export default function AppearanceProvider({ children }: PropsWithChildren) {
   const padding = { compact: 4, standard: 8, comfortable: 16 }[preferences.rowHeight];
   const theme = useMemo<ThemeConfig>(() => ({
     algorithm: dark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-    token: { fontSize, controlHeight: 32 + (fontSize - 14) * 2, colorBgLayout: palette.page, colorBgContainer: palette.panel },
+    token: { fontSize, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei","Noto Sans CJK SC", sans-serif', colorPrimary:'#3370ff', borderRadius:6, controlHeight: 36 + (fontSize - 14) * 2, colorBgLayout: palette.page, colorBgContainer: palette.panel },
     components: { Table: { cellPaddingBlock: padding, cellPaddingBlockMD: padding, cellPaddingBlockSM: padding,
       cellFontSize: fontSize, cellFontSizeMD: fontSize, cellFontSizeSM: fontSize } },
   }), [dark, fontSize, palette, padding]);
