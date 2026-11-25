@@ -34,7 +34,7 @@ export class PersonalFiles extends CollaborationService {
   private async snapshot(tx:Prisma.TransactionClient=this.db){
     const [rows,principals]=await Promise.all([tx.personalFile.findMany({where:{deletedAt:null}}),this.principals(tx)]);
     const resolve=personalFileResolver(rows,principals);
-    return {rows,resolve};
+    return {rows,resolve,principals};
   }
   protected async require(id:string,level=1,tx:Prisma.TransactionClient=this.db){const s=await this.snapshot(tx),r=s.resolve(id);if(!r||r.access.level<level)fail('COLLAB_FORBIDDEN',403);return r;}
   protected async snapshotVersion(id:string,tx:Prisma.TransactionClient){
@@ -48,12 +48,39 @@ export class PersonalFiles extends CollaborationService {
   async list(raw:unknown){
     const v=exact(raw,['scope','parentId']);const scope=v.scope==='shared'?'shared':'mine';const parentId=v.parentId?text(v.parentId):null;
     const s=await this.snapshot();const parent=parentId?s.resolve(parentId):null;if(parentId&&(!parent||parent.row.kind!=='FOLDER'))fail('COLLAB_FORBIDDEN',403);
-    return {path:parent?.path??[],canUpload:!parent||parent.access.level>=2,items:s.rows.flatMap(row=>{
+    const items=s.rows.flatMap(row=>{
       if(parentId?row.parentId!==parentId:scope==='mine'?row.ownerId!==this.actor.userId||!!row.parentId:row.ownerId===this.actor.userId)return [];
       // Show shared entry points once; browse inherited children inside their folder.
       if(!parentId&&scope==='shared'&&row.parentId&&s.resolve(row.parentId))return [];
       const v=s.resolve(row.id);return v?[{id:row.id,name:row.name,kind:row.kind,size:row.kind==='FOLDER'?s.rows.reduce((total,child)=>{const visible=child.kind==='FILE'?s.resolve(child.id):null;return total+(visible?.path.some(part=>part.id===row.id)?child.size:0);},0):row.size,contentVersion:row.contentVersion,version:row.version,parentId:v.path.length>1?v.path[v.path.length-2].id:null,ownerId:row.ownerId,level:v.access.level,updatedAt:row.updatedAt,sharingState:this.sharingState(v.path.map(p=>s.rows.find(r=>r.id===p.id)!))}]:[];
-    }).sort((a,b)=>a.kind.localeCompare(b.kind)||a.name.localeCompare(b.name))};
+    }).sort((a,b)=>a.kind.localeCompare(b.kind)||a.name.localeCompare(b.name));
+    const sharingSources=scope==='shared'?await this.receivedShareSources(items.map(item=>item.id),s):new Map();
+    return {path:parent?.path??[],canUpload:!parent||parent.access.level>=2,items:items.map(item=>({...item,sharingSources:sharingSources.get(item.id)??[]}))};
+  }
+  // Recipient metadata is built only from their accessible path and matching grants.
+  // Do not reuse the manager report: it exposes other recipients and their permissions.
+  private async receivedShareSources(ids:string[], snapshot:Awaited<ReturnType<PersonalFiles['snapshot']>>) {
+    const byId=new Map(snapshot.rows.map(row=>[row.id,row]));
+    const entries=ids.map(id=>({id,sources:(snapshot.resolve(id)?.path??[]).flatMap(part=>{
+      const row=byId.get(part.id)!;
+      if(row.ownerId===this.actor.userId)return [];
+      return resourcePolicy(row.accessPolicy).grants.filter(g=>g.role!=='DENY'&&snapshot.principals.some(p=>p.principalType===g.principalType&&p.principalId===g.principalId)).map(grant=>({row,grant}));
+    })}));
+    const sourceIds=[...new Set(entries.flatMap(entry=>entry.sources.map(source=>source.row.id)))];
+    if(!sourceIds.length)return new Map();
+    const logs=await this.db.operationLog.findMany({where:{targetType:'PERSONAL_FILE',targetId:{in:sourceIds},action:'PERSONAL_FILE_SHARE'},orderBy:{createdAt:'desc'},select:{targetId:true,userId:true,oldValues:true,newValues:true}});
+    const parsed=logs.flatMap(log=>{
+      try{return [{...log,before:resourcePolicy(JSON.parse(log.oldValues??'null')).grants,after:resourcePolicy(JSON.parse(log.newValues??'null')).grants}];}catch{return [];}
+    });
+    const attributed=entries.map(entry=>({...entry,sources:entry.sources.map(({row,grant})=>{
+      const matches=(g:typeof grant)=>g.principalType===grant.principalType&&g.principalId===grant.principalId&&g.role!=='DENY';
+      // Keep the original sender when a manager later edits another person's grant.
+      const log=parsed.find(log=>log.targetId===row.id&&log.after.some(matches)&&!log.before.some(matches));
+      return {sourceId:row.id,sourceName:row.name,inherited:row.id!==entry.id,userId:log?.userId??row.ownerId,attribution:log?.userId?'sharer':'owner'};
+    })}));
+    const users=await this.db.user.findMany({where:{id:{in:[...new Set(attributed.flatMap(entry=>entry.sources.map(source=>source.userId)))]}},select:{id:true,username:true,employee:{select:{name:true}}}});
+    const labels=new Map(users.map(user=>[user.id,user.employee?.name?user.employee.name+'（'+user.username+'）':user.username]));
+    return new Map(attributed.map(entry=>[entry.id,[...new Map(entry.sources.map(source=>[source.sourceId+':'+source.userId,{sourceId:source.sourceId,sourceName:source.sourceName,inherited:source.inherited,attribution:source.attribution,sharedBy:labels.get(source.userId)??'已注销账号'}])).values()]]));
   }
   async create(raw:unknown){
     const v=exact(raw,['name','kind','parentId','content']);const name=nameOf(v.name),parentId=v.parentId?text(v.parentId):null;

@@ -5,12 +5,12 @@ import FilePreviewButton from '@/features/files/FilePreviewButton';
 import {useAuthStore} from '@/stores/authStore';
 import {uploadFile,downloadVersion,downloadFolder,versionUrl} from './file-transfer';
 import { useCallback,useEffect,useRef,useState } from 'react';
-import { Alert,Button,Dropdown,Input,Space,Table,message,theme } from 'antd';
+import { Alert,Button,Dropdown,Input,Space,Table,message,theme,Popover } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
 import ResizableTable from '@/components/ResizableTable';
 import Modal from '@/components/DraggableModal';
 import {get,post,patch,errorMessage} from '../workspaces/api';
-type Item={id:string;name:string;kind:string;size:number;level:number;version:number;contentVersion:number;parentId:string|null;ownerId?:string;sharingState?:'direct'|'inherited'|'private'};
+type Item={id:string;name:string;kind:string;size:number;level:number;version:number;contentVersion:number;parentId:string|null;ownerId?:string;sharingState?:'direct'|'inherited'|'private';sharingSources?:{sourceId:string;sourceName:string;inherited:boolean;attribution:'sharer'|'owner';sharedBy:string}[]};
 type TrashItem={id:string;name:string;version:number;deletedAt:string;purging?:boolean};
 export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
   const {token}=theme.useToken();
@@ -81,7 +81,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
     {failed.length>0&&<Button disabled={busy} onClick={()=>void upload(failed)}>重试失败文件（续传）</Button>}
     <ResizableTable<Item> columnWidthsKey={`personal-files:${authorization?.userId??'anonymous'}:${scope}`} style={{marginTop:12}} rowKey="id" dataSource={data?.items??[]} pagination={{pageSize:10}} rowSelection={{columnWidth:48,selectedRowKeys:selected,onChange:keys=>setSelected(keys.map(String)),getCheckboxProps:r=>({disabled:busy||r.level<3})}} columns={[
       {title:'文件名称',dataIndex:'name',width:320,render:(_,r)=>r.kind==='FOLDER'?<Button type="link" style={{maxWidth:'100%',whiteSpace:'normal',height:'auto',overflowWrap:'anywhere',textAlign:'left'}} onClick={()=>setParent(r.id)}>📁 {r.name}</Button>:<FilePreviewButton link url={versionUrl(r.id,r.contentVersion)} name={r.name}>{r.name}</FilePreviewButton>},
-      {title:'分享状态',key:'sharingState',width:150,render:(_,r)=>r.level>=3?<Button size="small" type="link" style={sharingStatusStyle} aria-label={r.name+'的分享管理'} onClick={()=>setSharingId(r.id)}>{r.sharingState==='inherited'?'继承文件夹分享':r.sharingState==='direct'?'已分享':'未分享'}</Button>:<small style={sharingStatusStyle}>{r.sharingState==='inherited'?'继承文件夹分享':r.sharingState==='direct'?'已分享':'未分享'}</small>},
+      {title:'分享状态',key:'sharingState',width:scope==='shared'?220:150,render:(_,r)=>scope==='shared'&&r.sharingSources?.length?<Popover trigger="click" title="共享来源" content={<div style={{maxWidth:320,overflowWrap:'anywhere'}}>{r.sharingSources.map((source,index)=><div key={source.sourceId+':'+index} style={{marginBottom:8}}><div>{source.attribution==='sharer'?'分享人：':'文件所有者：'}{source.sharedBy}</div><small>{source.inherited?'通过文件夹：':'直接共享：'}{source.sourceName}</small></div>)}</div>}><Button type="link" size="small" style={{...sharingStatusStyle,maxWidth:'100%',whiteSpace:'normal',textAlign:'left',overflowWrap:'anywhere'}} aria-label={r.name+'的共享来源'}>{[...new Set(r.sharingSources.map(source=>(source.attribution==='sharer'?'来自 ':'所有者：')+source.sharedBy))].join('、')}</Button></Popover>:r.level>=3?<Button size="small" type="link" style={sharingStatusStyle} aria-label={r.name+'的分享管理'} onClick={()=>setSharingId(r.id)}>{r.sharingState==='inherited'?'继承文件夹分享':r.sharingState==='direct'?'已分享':'未分享'}</Button>:<small style={sharingStatusStyle}>{r.sharingState==='inherited'?'继承文件夹分享':r.sharingState==='direct'?'已分享':'未分享'}</small>},
       {title:'权限',key:'permission',width:90,render:(_,r)=>['无权限','只读','编辑','管理'][r.level]},
       {title:'大小',key:'size',width:120,render:(_,r)=>Math.ceil(r.size/1024)+' KB'},
       {title:'操作',key:'actions',width:242,render:(_,r)=><Space wrap>

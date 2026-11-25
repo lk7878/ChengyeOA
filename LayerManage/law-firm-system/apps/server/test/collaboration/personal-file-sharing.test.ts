@@ -142,3 +142,31 @@ test('standalone child share exposes only its subtree, supports read-only, revok
  await db.personalFile.update({where:{id:parent.id},data:{deletedAt:new Date()}});
  await assert.rejects(reader.download(child.id),/COLLAB_FORBIDDEN/);
 });
+
+test('recipient sees the actual sender and accessible source, never private ancestors or other recipients',async()=>{
+ const parent=await owner.create({name:'私密上级',kind:'FOLDER'});
+ const folder=await owner.create({name:'共享案件',kind:'FOLDER',parentId:parent.id});
+ const child=await file(folder.id);
+ await share(folder.id,1,[grant(outsider.actor.userId,'USER','MANAGER')],false);
+ await outsider.share(folder.id,{version:2,policy:{restricted:false,grants:[grant(outsider.actor.userId,'USER','MANAGER'),grant(reader.actor.userId)]}});
+ // An unrelated edit by the owner must not relabel the sender.
+ await share(folder.id,3,[grant(outsider.actor.userId,'USER','MANAGER'),grant(reader.actor.userId)],false);
+ const root=await reader.list({scope:'shared'});
+ assert.deepEqual(root.items[0].sharingSources,[{sourceId:folder.id,sourceName:'共享案件',inherited:false,attribution:'sharer',sharedBy:'outsider'}]);
+ assert.ok(!JSON.stringify(root).includes('私密上级'));
+ const inside=await reader.list({scope:'shared',parentId:folder.id});
+ assert.equal(inside.items[0].sharingSources[0].inherited,true);
+ assert.equal(inside.items[0].sharingSources[0].sharedBy,'outsider');
+ await assert.rejects(reader.accessSettings(child.id),/COLLAB_FORBIDDEN/);
+ await revoke(owner,folder.id,4,reader.actor.userId);
+ assert.equal((await reader.list({scope:'shared'})).items.length,0);
+});
+test('historical shares without audit identify the owner explicitly instead of inventing a sender',async()=>{
+ const f=await file();await share(f.id,1,[grant(reader.actor.userId)]);
+ await db.operationLog.deleteMany({where:{targetId:f.id,action:'PERSONAL_FILE_SHARE'}});
+ const result=await reader.list({scope:'shared'});
+ assert.equal(result.items[0].sharingSources[0].attribution,'owner');
+ assert.equal(result.items[0].sharingSources[0].sharedBy,'owner');
+ await reader.leaveShare(f.id,{version:2});
+ assert.equal((await reader.list({scope:'shared'})).items.length,0);
+});

@@ -146,3 +146,13 @@ test('shared view does not expose organize controls for shared managers',async()
  fireEvent.click(screen.getByRole('button',{name:/更\s*多/}));await screen.findByRole('menu');
  expect(screen.queryByText('移动到')).toBeNull();expect(screen.queryByText('复制到')).toBeNull();
 });
+
+test('recipients can inspect sender and inherited folder without opening sharing management',async()=>{
+ vi.mocked(get).mockResolvedValue({items:[{id:'shared-file',name:'共享材料.txt',kind:'FILE',level:1,version:1,contentVersion:1,size:10,ownerId:'another',sharingState:'inherited',sharingSources:[{sourceId:'folder',sourceName:'共享案件',inherited:true,attribution:'sharer',sharedBy:'刘佳（chengyelj）'}]}],path:[],canUpload:false});
+ render(<PersonalFiles scope="shared"/>);
+ fireEvent.click(await screen.findByRole('button',{name:'共享材料.txt的共享来源'}));
+ expect(await screen.findByText('分享人：刘佳（chengyelj）')).toBeInTheDocument();
+ expect(screen.getByText('通过文件夹：共享案件')).toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:'共享材料.txt的分享管理'})).not.toBeInTheDocument();
+ expect(post).not.toHaveBeenCalled();
+});
