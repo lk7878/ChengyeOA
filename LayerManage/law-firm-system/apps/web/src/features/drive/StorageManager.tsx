@@ -70,7 +70,6 @@ export default function StorageManager({ workspace, onWorkspaces, onMine }: {
       <p>{data.totals.files} 个文件 · {data.totals.versions} 个内容版本 · 已核对 {data.measured.objects} 个独立存储对象。同一路径或硬链接仅计算一次实际占用。</p>
       {data.measured.unavailable > 0 && <Alert type="warning" title={`${data.measured.unavailable} 个存储对象不可核对，实际占用为已核对部分，不代表完整容量。`} />}
       {effectiveAudience === 'organization' && <Alert type="info" title={data.disk ? `个人文件所在磁盘：总容量 ${formatBytes(data.disk.total)} · 已用 ${formatBytes(data.disk.used)} · 可用 ${formatBytes(data.disk.available)}` : '磁盘容量暂不可用'} />}
-      <Alert type="info" title="统计口径" description={data.coverage} />
       <Tabs items={(['workspaces', 'members', 'departments'] as const).map((key, index) => ({ key, label: ['按工作区', '按成员', '按部门'][index], children:
         <Table size="small" rowKey="name" dataSource={data.breakdown[key]} pagination={{ pageSize: 8, showSizeChanger: false }} columns={[
           { title: ['工作区', '成员', '部门'][index], dataIndex: 'name' }, { title: '版本数', dataIndex: 'versions' },

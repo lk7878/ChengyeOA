@@ -21,7 +21,7 @@ test('ordinary users only get personal scope, storage metrics and no organizatio
   fireEvent.mouseDown(screen.getByRole('combobox', { name: '存储查看范围' }));
   expect(screen.queryByText('全组织（只读审计）')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /删除|清空/ })).not.toBeInTheDocument();
-  expect(screen.getByText('已知统计范围')).toBeInTheDocument();
+  expect(screen.queryByText('已知统计范围')).not.toBeInTheDocument();
 });
 
 test('super administrator can switch to audited organization scope and keeps it when workspace changes', async () => {
