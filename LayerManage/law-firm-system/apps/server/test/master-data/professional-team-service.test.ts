@@ -111,39 +111,42 @@ test('rolls back creation when team audit fails',async()=>{
   assert.equal(await prisma.professionalTeam.count({where:{code:'ROLLBACK_TEAM'}}),0);
 });
 
-test('unions home-organization TEAM and active SELF team visibility without ended memberships',async()=>{
-  const rootTeam=await service.create({code:'ROOT_TEAM',name:'Root Team',categoryCode:'LEGAL',homeOrganizationId:rootId});
-  const branchTeam=await service.create({code:'BRANCH_TEAM',name:'Branch Team',categoryCode:'LEGAL',homeOrganizationId:branchId});
-  const memberDetail=await service.addMember(rootTeam.id,{employeeId:employeeA,memberRole:'LAWYER'});
-  const member=memberDetail.members.find(item=>item.employeeId===employeeA)!;
-  const branchScope=await prisma.dataScope.create({data:{
-    name:'Branch teams',scopeType:'BRANCH',organizationId:branchId,includeDescendants:true,
-  }});
-  const teamScope=await prisma.dataScope.create({data:{
-    name:'Root team only',scopeType:'TEAM',professionalTeamId:rootTeam.id,
-  }});
-  const selfScope=await prisma.dataScope.create({data:{name:'Current member self',scopeType:'SELF'}});
+test('only active leaders see their teams even with ALL scope; super admins still see all', async () => {
+  const own = await service.create({code:'OWN',name:'Own',categoryCode:'LEGAL',homeOrganizationId:rootId});
+  const other = await service.create({code:'OTHER',name:'Other',categoryCode:'LEGAL',homeOrganizationId:branchId});
+  await service.addMember(own.id,{employeeId:employeeA,memberRole:'LEAD'});
+  await service.addMember(other.id,{employeeId:employeeA,memberRole:'LAWYER'});
+  const leader = new ProfessionalTeamService(prisma,{actorUserId:'team-actor'},teamContext({employeeId:employeeA,superAdmin:false}));
+  assert.deepEqual((await leader.list({page:1,pageSize:20})).list.map(t=>t.id),[own.id]);
+  assert.equal((await service.list({page:1,pageSize:20})).list.length,2);
+  await assert.rejects(()=>leader.detail(other.id),hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'));
+  await assert.rejects(()=>leader.addMember(other.id,{employeeId:employeeB,memberRole:'EXPERT'}),hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'));
+  await assert.rejects(()=>leader.memberOptions(other.id),hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'));
+  await assert.rejects(()=>leader.update(other.id,{name:'changed',version:2}),hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'));
+  await assert.rejects(()=>leader.remove(other.id,2),hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'));
+  await assert.rejects(()=>leader.replaceLead(other.id,{employeeId:employeeB,teamVersion:2}),hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'));
+  const added=await leader.addMember(own.id,{employeeId:employeeB,memberRole:'LAWYER'});
+  const member=added.members.find(m=>m.employeeId===employeeB)!;
+  await leader.endMember(own.id,member.id,member.version);
+  const options=await leader.memberOptions(own.id,'EMP-B');
+  assert.deepEqual(options,[{id:employeeB,name:'EMP-B',employeeNo:'EMP-B'}]);
+  const detail=await leader.detail(own.id);
+  assert.equal(detail.homeOrganizationName,'Root');
+  assert.equal(detail.members.find(m=>m.employeeId===employeeB)?.employeeName,'EMP-B');
+  await service.replaceLead(own.id,{employeeId:employeeB,teamVersion:detail.version});
+  assert.deepEqual((await leader.list({page:1,pageSize:20})).list,[]);
+  await assert.rejects(()=>leader.addMember(own.id,{employeeId:employeeA,memberRole:'LAWYER'}),hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'));
+  const unbound = new ProfessionalTeamService(prisma,{actorUserId:'team-actor'},teamContext({superAdmin:false}));
+  assert.deepEqual((await unbound.list({page:1,pageSize:20})).list,[]);
+});
 
-  const branchReader=new ProfessionalTeamService(prisma,{actorUserId:'team-actor'},teamContext({
-    permissionCodes:['professional_team.read'],scopeIds:[branchScope.id],superAdmin:false,
-  }));
-  assert.deepEqual((await branchReader.list({page:1,pageSize:20})).list.map(item=>item.id),[branchTeam.id]);
-  await assert.rejects(()=>branchReader.detail(rootTeam.id),hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'));
-
-  const teamReader=new ProfessionalTeamService(prisma,{actorUserId:'team-actor'},teamContext({
-    permissionCodes:['professional_team.read'],scopeIds:[teamScope.id],superAdmin:false,
-  }));
-  assert.deepEqual((await teamReader.list({page:1,pageSize:20})).list.map(item=>item.id),[rootTeam.id]);
-
-  const selfReader=new ProfessionalTeamService(prisma,{actorUserId:'team-actor'},teamContext({
-    permissionCodes:['professional_team.read'],scopeIds:[selfScope.id],employeeId:employeeA,superAdmin:false,
-  }));
-  assert.deepEqual((await selfReader.list({page:1,pageSize:20})).list.map(item=>item.id),[rootTeam.id]);
-  await service.endMember(rootTeam.id,member.id,member.version);
-  const endedSelfReader=new ProfessionalTeamService(prisma,{actorUserId:'team-actor'},teamContext({
-    permissionCodes:['professional_team.read'],scopeIds:[selfScope.id],employeeId:employeeA,superAdmin:false,
-  }));
-  assert.deepEqual((await endedSelfReader.list({page:1,pageSize:20})).list,[]);
+test('expired and future leader assignments do not grant team visibility',async()=>{
+  const team=await service.create({code:'DATES',name:'Dates',categoryCode:'LEGAL',homeOrganizationId:rootId});
+  const member=await prisma.professionalTeamMember.create({data:{professionalTeamId:team.id,employeeId:employeeA,memberRole:'LEAD',startedAt:new Date(Date.now()+3600000)}});
+  const leader=new ProfessionalTeamService(prisma,{actorUserId:'team-actor'},teamContext({employeeId:employeeA,superAdmin:false}));
+  assert.equal((await leader.list({page:1,pageSize:20})).pagination.total,0);
+  await prisma.professionalTeamMember.update({where:{id:member.id},data:{startedAt:new Date('2026-01-01'),endedAt:new Date('2026-01-02')}});
+  assert.equal((await leader.list({page:1,pageSize:20})).pagination.total,0);
 });
 
 test('requires both team and employee scope for member operations',async()=>{
@@ -151,10 +154,11 @@ test('requires both team and employee scope for member operations',async()=>{
   const branchScope=await prisma.dataScope.create({data:{
     name:'Branch member manage',scopeType:'BRANCH',organizationId:branchId,includeDescendants:true,
   }});
+  await service.addMember(branchTeam.id,{employeeId:employeeB,memberRole:'LEAD'});
   const scoped=new ProfessionalTeamService(prisma,{actorUserId:'team-actor'},teamContext({
-    permissionCodes:['professional_team.member.manage'],scopeIds:[branchScope.id],superAdmin:false,
+    permissionCodes:['professional_team.member.manage'],scopeIds:[branchScope.id],employeeId:employeeB,superAdmin:false,
   }));
-  assert.equal((await scoped.addMember(branchTeam.id,{employeeId:employeeB,memberRole:'LAWYER'})).activeMemberCount,1);
+  assert.deepEqual((await scoped.memberOptions(branchTeam.id)).map(e=>e.id),[employeeB]);
   await assert.rejects(
     ()=>scoped.addMember(branchTeam.id,{employeeId:employeeA,memberRole:'EXPERT'}),
     hasCode('RESOURCE_NOT_FOUND_OR_FORBIDDEN'),

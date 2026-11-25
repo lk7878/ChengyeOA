@@ -44,6 +44,8 @@ export const masterDataApi = {
     viewSensitive: (id: string, fieldCodes: string[], purpose: string) => request.post<ApiResponse<Record<string, string | null>>>('/v1/authorization/sensitive-view', { resource: 'employee', resourceId: id, fieldCodes, purpose }),
   },
   professionalTeams: {
+    organizationOptions: (teamId?: string) => request.get<ApiResponse<{ id: string; name: string }[]>>('/v1/professional-teams/organization-options', { params: { teamId } }),
+    memberOptions: (id: string, keyword?: string, forLead = false) => request.get<ApiResponse<{ id: string; name: string; employeeNo: string }[]>>(`/v1/professional-teams/${id}/member-options`, { params: { keyword: keyword || undefined, forLead } }),
     remove: (id: string, data: VersionedMutation) => request.delete<ApiResponse<null>>(`/v1/professional-teams/${id}`, { data }),
     list: (params?: ProfessionalTeamListQuery) => request.get<ApiResponse<ProfessionalTeamPage>>('/v1/professional-teams', { params }),
     detail: (id: string) => request.get<ApiResponse<ProfessionalTeamDetail>>(`/v1/professional-teams/${id}`),

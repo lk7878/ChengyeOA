@@ -337,6 +337,8 @@ export default (app: Application) => {
 
   // 专业团队模块
   router.get('/api/v1/professional-teams', requirePermission('professional_team.read'), controller.professionalTeam.index);
+  router.get('/api/v1/professional-teams/organization-options', controller.professionalTeam.organizationOptions);
+  router.get('/api/v1/professional-teams/:id/member-options', controller.professionalTeam.memberOptions);
   router.get('/api/v1/professional-teams/:id', requirePermission('professional_team.read'), controller.professionalTeam.show);
   router.post('/api/v1/professional-teams', requirePermission('professional_team.create'), controller.professionalTeam.create);
   router.patch('/api/v1/professional-teams/:id', requirePermission('professional_team.update'), controller.professionalTeam.update);

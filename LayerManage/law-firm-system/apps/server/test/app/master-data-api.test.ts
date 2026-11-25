@@ -138,6 +138,45 @@ test('supports the complete organization-to-employee-to-team administration flow
   }) > 0, true);
 });
 
+test('team leaders manage only their own team without employee or organization read privileges', async () => {
+  const leader = await prisma.employee.create({ data: { employeeNo: 'LEADER', name: '团队负责人', phone: '13800000000', type: 'LAWYER', entryDate: new Date('2026-01-01') } });
+  const candidate = await prisma.employee.create({ data: { employeeNo: 'CANDIDATE', name: '候选成员', phone: '13800000001', type: 'LAWYER', entryDate: new Date('2026-01-01') } });
+  const user = await prisma.user.create({ data: { username: 'leader.team.test', password: 'unused', employeeId: leader.id } });
+  const role = await prisma.role.create({ data: { code: 'TEAM_LEADER_TEST', name: '团队管理测试', type: 'BUSINESS' } });
+  const permissions = await prisma.permission.findMany({ where: { code: { in: ['professional_team.read', 'professional_team.member.manage'] } } });
+  await prisma.rolePermission.createMany({ data: permissions.map(p => ({ roleId: role.id, permissionId: p.id })) });
+  const scope = await prisma.dataScope.create({ data: { name: '全范围仍需负责人身份', scopeType: 'ALL' } });
+  await prisma.roleDataScope.create({ data: { roleId: role.id, resource: 'professional_team', dataScopeId: scope.id } });
+  await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
+  const token = (await createApiSession(prisma, user.id, 'PASSWORD')).token;
+  const own = await prisma.professionalTeam.create({ data: { code: 'OWN', name: '本团队', categoryCode: 'LAW', homeOrganizationId: rootId } });
+  const other = await prisma.professionalTeam.create({ data: { code: 'OTHER', name: '其他团队', categoryCode: 'LAW', homeOrganizationId: rootId } });
+  const leaderMembership = await prisma.professionalTeamMember.create({ data: { professionalTeamId: own.id, employeeId: leader.id, memberRole: 'LEAD', startedAt: new Date('2026-01-01') } });
+  await app.httpRequest().get('/api/v1/employees').set(bearer(token)).expect(403);
+  await app.httpRequest().get('/api/v1/organizations/options').set(bearer(token)).expect(403);
+  const listing = await app.httpRequest().get('/api/v1/professional-teams').set(bearer(token)).expect(200);
+  assert.deepEqual(listing.body.data.list.map((t: {id: string})=>t.id), [own.id]);
+  const detail = await app.httpRequest().get(`/api/v1/professional-teams/${own.id}`).set(bearer(token)).expect(200);
+  assert.equal(detail.body.data.members[0].employeeName, '团队负责人');
+  assert.doesNotMatch(JSON.stringify(detail.body.data), /13800000000/);
+  const options = await app.httpRequest().get(`/api/v1/professional-teams/${own.id}/member-options?keyword=CANDIDATE`).set(bearer(token)).expect(200);
+  assert.deepEqual(options.body.data, [{ id: candidate.id, name: '候选成员', employeeNo: 'CANDIDATE' }]);
+  await app.httpRequest().get(`/api/v1/professional-teams/${other.id}`).set(bearer(token)).expect(404);
+  await app.httpRequest().get(`/api/v1/professional-teams/${other.id}/member-options`).set(bearer(token)).expect(404);
+  await app.httpRequest().get(`/api/v1/professional-teams/${own.id}/member-options?forLead=true`).set(bearer(token)).expect(403);
+  await app.httpRequest().get('/api/v1/professional-teams/organization-options').set(bearer(token)).expect(403);
+  await app.httpRequest().post(`/api/v1/professional-teams/${other.id}/members`).set(bearer(token)).send({ employeeId: candidate.id, memberRole: 'LAWYER' }).expect(404);
+  await app.httpRequest().post(`/api/v1/professional-teams/${own.id}/members`).set(bearer(token)).send({ employeeId: candidate.id, memberRole: 'LEAD' }).expect(403);
+  const added = await app.httpRequest().post(`/api/v1/professional-teams/${own.id}/members`).set(bearer(token)).send({ employeeId: candidate.id, memberRole: 'LAWYER' }).expect(200);
+  const member = added.body.data.members.find((m: {employeeId:string})=>m.employeeId===candidate.id);
+  await app.httpRequest().post(`/api/v1/professional-teams/${own.id}/members/${member.id}/end`).set(bearer(token)).send({ version: member.version }).expect(200);
+  await prisma.professionalTeamMember.update({ where: { id: leaderMembership.id }, data: { endedAt: new Date() } });
+  await app.httpRequest().get(`/api/v1/professional-teams/${own.id}`).set(bearer(token)).expect(404);
+  await app.httpRequest().post(`/api/v1/professional-teams/${own.id}/members`).set(bearer(token)).send({ employeeId: candidate.id, memberRole: 'LAWYER' }).expect(404);
+  const adminListing = await app.httpRequest().get('/api/v1/professional-teams').set(bearer()).expect(200);
+  assert.equal(adminListing.body.data.pagination.total, 2);
+});
+
 test('rejects users without formal permissions for every SPEC-003 resource prefix', async () => {
   const ordinaryToken = await tokenForRole('BUSINESS_ADMIN', 'BUSINESS');
   for (const path of [

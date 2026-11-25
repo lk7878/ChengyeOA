@@ -105,6 +105,8 @@ export interface EmployeeDetail extends EmployeeListItem {
 }
 
 export interface ProfessionalTeamMemberView {
+  employeeName?: string;
+  employeeNo?: string;
   id: string;
   professionalTeamId: string;
   employeeId: string;
@@ -126,6 +128,7 @@ export interface ProfessionalTeamListItem {
 }
 
 export interface ProfessionalTeamDetail extends ProfessionalTeamListItem {
+  homeOrganizationName?: string;
   description: string | null;
   members: ProfessionalTeamMemberView[];
 }

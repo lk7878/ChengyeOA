@@ -12,10 +12,10 @@ export interface OrganizationDetail extends Organization { parent: Organization 
 export interface Position { id: string; organizationId: string; code: string; name: string; categoryCode: string; level: number; responsibilities: string | null; status: MasterDataStatus; version: number; activeAssignmentCount: number }
 export interface EmployeeAssignment { id: string; employeeId: string; organizationId: string; positionId: string; assignmentType: AssignmentType; startedAt: string; endedAt: string | null; version: number }
 export interface EmployeeListItem { id: string; employeeNo: string; name: string; employeeType: string; status: EmployeeStatus; entryDate: string; activeProfessionalTeamIds: string[]; version: number; primaryAssignment: EmployeeAssignment | null }
-export interface ProfessionalTeamMember { id: string; professionalTeamId: string; employeeId: string; memberRole: TeamMemberRole; startedAt: string; endedAt: string | null; version: number }
+export interface ProfessionalTeamMember { employeeName?: string; employeeNo?: string; id: string; professionalTeamId: string; employeeId: string; memberRole: TeamMemberRole; startedAt: string; endedAt: string | null; version: number }
 export interface EmployeeDetail extends EmployeeListItem { phone?: string; email?: string | null; licenseNo?: string | null; professionalDirections?: string[]; formalDate: string | null; leaveDate: string | null; assignments: EmployeeAssignment[]; professionalTeams: ProfessionalTeamMember[]; account: { id: string; username: string; status: string } | null }
 export interface ProfessionalTeam { id: string; code: string; name: string; categoryCode: string; homeOrganizationId: string; status: MasterDataStatus; version: number; activeMemberCount: number }
-export interface ProfessionalTeamDetail extends ProfessionalTeam { description: string | null; members: ProfessionalTeamMember[] }
+export interface ProfessionalTeamDetail extends ProfessionalTeam { homeOrganizationName?: string; description: string | null; members: ProfessionalTeamMember[] }
 
 export interface EmployeeListQuery { page?: number; pageSize?: number; keyword?: string; status?: EmployeeStatus; organizationId?: string; teamId?: string }
 export interface ProfessionalTeamListQuery { page?: number; pageSize?: number; keyword?: string; categoryCode?: string; homeOrganizationId?: string; status?: MasterDataStatus }

@@ -13,6 +13,17 @@ import {
 import { MasterDataError } from '../domain/master-data/master-data-errors';
 
 export default class ProfessionalTeamController extends Controller {
+  async memberOptions() {
+    assertExactKeys(this.ctx.query, ['keyword', 'forLead']);
+    const keyword = this.ctx.query.keyword === undefined ? '' : normalizeOptionalText(this.ctx.query.keyword, 100) || '';
+    const forLead = this.ctx.query.forLead === undefined ? false : normalizeAllowedValue(this.ctx.query.forLead, ['true', 'false'] as const) === 'true';
+    this.respond(await professionalTeamService(this.ctx).memberOptions(this.ctx.params.id, keyword, forLead));
+  }
+  async organizationOptions() {
+    assertExactKeys(this.ctx.query, ['teamId']);
+    const id = this.ctx.query.teamId === undefined ? undefined : normalizeRequiredText(this.ctx.query.teamId, 1, 100);
+    this.respond(await professionalTeamService(this.ctx).organizationOptions(id));
+  }
   async destroy() {
     const input = this.ctx.request.body;
     assertExactKeys(input, ['version']);
