@@ -81,6 +81,7 @@ test('historical business runtime receives maintenance reader without changing f
   runtime=await launchIsolatedHarness({dir,id:crypto.randomUUID(),publicBase:'http://127.0.0.1:5180',preset:business.agent,business})
   const w=await harnessRpc(runtime,'workspace/create',{request:{path:'/workspace'}});await harnessRpc(runtime,'session/create',{request:{workspaceId:w.workspace.workspaceId,agentPreset:business.agent}})
   const declaration=await readFile(path.join(dir,'home/profiles/web/material-preset.yml'),'utf8');assert.match(declaration,/tool-read-material/);assert.match(declaration,/\/run\/oa-reader\/read-material.mjs/)
+  const parser=await readFile(path.join(dir,'home/profiles/web/parse-records.mjs'),'utf8');assert.match(parser,/const CLOSE_BASE = 'http:\/\/127.0.0.1:8090\/ocr\/v1'/);assert.match(parser,/const ALIYUN_BASE = 'http:\/\/127.0.0.1:8090\/ocr\/v1'/)
   assert.doesNotMatch(runtime.diagnostics(),/did not activate|failed to import|skipping profile bundle/)
  }finally{if(runtime){const exited=new Promise(r=>runtime.child.once('exit',r));runtime.stop();await exited}await rm(dir,{recursive:true,force:true})}
 })

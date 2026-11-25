@@ -26,7 +26,10 @@ export async function launchIsolatedHarness({dir,id,publicBase,brokerSocket,pres
  const manifest=path.join(dir,'workspace/task.json'),manifestExists=await access(manifest).then(()=>true,()=>false)
  const bwrapArgs=['--die-with-parent','--unshare-all','--new-session','--ro-bind','/usr','/usr','--symlink','usr/bin','/bin','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--proc','/proc','--dev','/dev','--tmpfs','/tmp','--dir','/etc','--ro-bind','/etc/ssl','/etc/ssl','--ro-bind',engine,'/engine','--ro-bind',bundle,'/app','--ro-bind',path.join(root,'runtime/plugin-deps'),'/deps','--ro-bind',node,'/runtime','--ro-bind',path.join(root,'runtime/python-deps'),'/pydeps','--bind',home,'/home/task']
  bwrapArgs.push('--ro-bind',path.join(root,'plugins/dsh-baiyou-brand'),'/app/plugins/dsh-baiyou-brand','--ro-bind',path.join(root,'package/injury-qa/read-material.mjs'),'/run/oa-reader/read-material.mjs','--symlink','/app/node_modules','/run/oa-reader/node_modules')
- bwrapArgs.push('--ro-bind',path.join(root,'package/record-parse/worker.py'),'/app/package/record-parse/worker.py','--ro-bind',path.join(root,'package/record-parse/parse-records.mjs'),'/app/package/record-parse/parse-records.mjs')
+ const parserOverlay=path.join(home,'profiles/web/parse-records.mjs')
+ const parserSource=(await readFile(path.join(root,'package/record-parse/parse-records.mjs'),'utf8')).replace(/const (CLOSE_BASE|ALIYUN_BASE) = '[^']+'/g,"const $1 = 'http://127.0.0.1:8090/ocr/v1'").replaceAll('E:/A','/app').replace("spawn('python',","spawn('python3',")
+ await writeFile(parserOverlay,parserSource,{mode:0o400})
+ bwrapArgs.push('--ro-bind',path.join(root,'package/record-parse/worker.py'),'/app/package/record-parse/worker.py','--ro-bind',parserOverlay,'/app/package/record-parse/parse-records.mjs')
  if(business){
   bwrapArgs.push('--ro-bind',path.join(dir,'context'),'/run/oa-task')
   const declaration=path.join(bundle,'plugins/oa-legal-presets',preset+'.yml')
