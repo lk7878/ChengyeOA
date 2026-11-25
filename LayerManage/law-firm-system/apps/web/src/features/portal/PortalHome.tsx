@@ -13,20 +13,20 @@ import './portal.css';
 import { PhotoCache } from './photo-cache';
 
 const PhotoContext = createContext<PhotoCache | null>(null);
-function photoSource(card: Card, external: boolean, thumbnail: boolean) {
+function photoSource(card: Card, external: boolean, thumbnail: boolean | 'display') {
   const source = card.imageUrl || (card.image && assetUrl(card, card.image, external));
-  return source && thumbnail ? source + (source.includes('?') ? '&' : '?') + 'thumbnail=1' : source;
+  return source && thumbnail ? source + (source.includes('?') ? '&' : '?') + 'thumbnail=' + (thumbnail === 'display' ? 'display' : '1') : source;
 }
 
 function Photo({
   card,
   external = false,
-  thumbnail = false,
+  thumbnail = 'display',
   enabled = true,
 }: {
   card: Card;
   external?: boolean;
-  thumbnail?: boolean;
+  thumbnail?: boolean | 'display';
   enabled?: boolean;
 }) {
   const source = photoSource(card, external, thumbnail);

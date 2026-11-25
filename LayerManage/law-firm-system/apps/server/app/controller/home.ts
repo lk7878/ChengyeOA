@@ -101,9 +101,9 @@ export default class HomeController extends Controller {
     ctx.set('Cache-Control', 'no-store');
     ctx.set('X-Content-Type-Options', 'nosniff');
     if (!file.mime.startsWith('image/')) ctx.attachment(file.name);
-    if (ctx.query.thumbnail === '1' && file.mime.startsWith('image/')) {
+    if (['1', 'display'].includes(String(ctx.query.thumbnail)) && file.mime.startsWith('image/')) {
       try {
-        ctx.body = await portalThumbnail(file.id, Buffer.from(file.bytes));
+        ctx.body = await portalThumbnail(file.id, Buffer.from(file.bytes), ctx.query.thumbnail === 'display');
         ctx.type = 'image/webp';
         return;
       } catch {

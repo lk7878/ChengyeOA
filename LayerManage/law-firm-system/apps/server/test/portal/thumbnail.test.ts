@@ -35,3 +35,20 @@ test('small images are not enlarged and a failed conversion can be retried', asy
   assert.equal(meta.width, 60);
   assert.equal(meta.height, 80);
 });
+
+test("large display pictures use a separate bounded size and cache from cards", async () => {
+  const original = await sharp({
+    create: { width: 2400, height: 1800, channels: 3, background: "#abcdef" },
+  })
+    .jpeg()
+    .toBuffer();
+  const card = await portalThumbnail("shared-asset", original);
+  const display = await portalThumbnail("shared-asset", original, true);
+  const small = await sharp(card).metadata();
+  const large = await sharp(display).metadata();
+  assert.equal(small.width, 400);
+  assert.equal(large.width, 1600);
+  assert.equal(large.height, 1200);
+  assert.equal(await portalThumbnail("shared-asset", original, true), display);
+  assert.equal(await portalThumbnail("shared-asset", original), card);
+});

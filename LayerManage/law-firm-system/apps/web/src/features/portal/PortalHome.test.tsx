@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { get, authenticatedFetch } from '@/features/workspaces/api';
 import { useAuthStore } from '@/stores/authStore';
-import PortalHome from './PortalHome';
+import PortalHome, { Article } from './PortalHome';
 import PortalAdmin from './PortalAdmin';
 import { blank, type Feed } from './types';
 vi.mock('@/features/workspaces/api', () => ({
@@ -174,4 +174,33 @@ test('the carousel warms the next portraits without fetching the entire roster',
   await vi.waitFor(() => expect(authenticatedFetch).toHaveBeenCalledTimes(3));
   unmount();
   vi.restoreAllMocks();
+});
+
+test("article display pictures use display-sized assets instead of original downloads", async () => {
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:display");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+  vi.mocked(authenticatedFetch).mockResolvedValue({
+    ok: true,
+    blob: async () => new Blob(["display"]),
+  } as Response);
+  const { unmount } = render(
+    <Article
+      card={{
+        ...blank,
+        id: "intro",
+        subject: null,
+        kind: "INTRO",
+        title: "介绍",
+        image: { id: "photo", name: "photo.jpg" },
+        date: null,
+      }}
+    />,
+  );
+  await vi.waitFor(() =>
+    expect(authenticatedFetch).toHaveBeenCalledWith(
+      "/api/v1/portal/files/intro/photo?thumbnail=display",
+      expect.any(AbortSignal),
+    ),
+  );
+  unmount();
 });
