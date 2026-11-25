@@ -5,14 +5,14 @@ import { mkdir, rename, rm, statfs } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
-import { PersonalFiles } from './personal-files';
+import { PersonalFileOrganization } from './personal-file-organization';
 import { exact, fail, integer, text } from './collaboration-policy';
 
 const root = () => path.resolve(process.env.PERSONAL_FILES_STORAGE_ROOT||path.join(process.cwd(), 'var/storage/personal-files'));
 const chunkSize = 4 * 1024 * 1024;
 const validName = (v: unknown) => { const n = text(v, 150); if (/[\\/]/.test(n) || [...n].some(c => c.charCodeAt(0) < 32) || ['.', '..'].includes(n)) fail('COLLAB_INVALID_VALUE'); return n; };
 const hashFile = async (file: string) => { const hash = createHash('sha256'); for await (const chunk of createReadStream(file)) hash.update(chunk); return hash.digest('hex'); };
-export class PersonalFileTransfer extends PersonalFiles {
+export class PersonalFileTransfer extends PersonalFileOrganization {
   async begin(raw: unknown) {
     const v = exact(raw, ['name', 'size', 'parentId', 'fileId', 'version', 'lineage', 'source']);
     const name = validName(v.name), total = Number(v.size);

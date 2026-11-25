@@ -3,10 +3,11 @@ import { runtimeSession } from '@/features/auth/runtime-session';
 export async function get<T>(url: string): Promise<T> {
   return (await request.get<{ data: T }>('/v1' + url, { suppressGlobalError: true })).data;
 }
-export async function post<T>(url: string, body: unknown, key: string = crypto.randomUUID()): Promise<T> {
+export async function post<T>(url: string, body: unknown, key: string = crypto.randomUUID(), timeout?: number): Promise<T> {
   return (
     await request.post<{ data: T }>('/v1' + url, body, {
       suppressGlobalError: true,
+      ...(timeout === undefined ? {} : { timeout }),
       headers: { 'Idempotency-Key': key },
     })
   ).data;
@@ -27,6 +28,11 @@ const messages: Record<string, string> = {
   PERSONAL_FOLDER_DOWNLOAD_CHANGED: '打包期间文件或权限发生变化，请重新下载。',
   PERSONAL_FOLDER_DOWNLOAD_LIMIT: '单次打包最多支持 10000 项、2 GB，请进入子文件夹分别下载。',
   PERSONAL_FOLDER_DOWNLOAD_BUSY: '当前打包任务较多，请稍后重试。',
+  PERSONAL_ORGANIZE_OWNER_ONLY: '只能移动或复制自己所有的资料，并选择自己的文件夹。',
+  PERSONAL_ORGANIZE_MIXED_OWNER: '文件夹内含有其他人所有的资料，无法整夹整理，请单独选择自己的内容。',
+  PERSONAL_ORGANIZE_INVALID_TARGET: '目标目录不可用，不能移入自身、下级目录或超过 12 层的目录。',
+  PERSONAL_ORGANIZE_CHANGED: '文件或共享权限已变化，请关闭整理窗口，刷新列表后重新选择并核对。',
+  PERSONAL_ORGANIZE_LIMIT: '单次整理最多 1000 项，复制内容最多 2 GB，请分批操作。',
   COLLAB_ASSIGNMENT_ORGANIZATION_IN_USE: '现有跟进人不在所选律所体系，请先处理相关客资的人员分配。',
   COLLAB_ASSIGNMENT_ORGANIZATION_FORBIDDEN: '请选择本工作区或您负责的组织。',
   COLLAB_ASSIGNMENT_FIELD_REQUIRED: '跟进人用于客资分配和数据权限，不能停用该字段。',

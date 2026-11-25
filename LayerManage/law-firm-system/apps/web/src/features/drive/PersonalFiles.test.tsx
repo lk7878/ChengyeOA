@@ -127,3 +127,22 @@ test('owned content does not offer leave sharing even within a shared folder',as
  render(<PersonalFiles scope="shared"/>);await screen.findByText('自己的材料');
  expect(screen.queryByRole('button',{name:'退出共享'})).not.toBeInTheDocument();
 });
+
+test('only owner selections can use organize controls, even with shared management access',async()=>{
+ const own={id:'own',name:'本人文件.txt',kind:'FILE',level:3,version:1,size:1,ownerId:'owner'};
+ vi.mocked(get).mockResolvedValue({items:[own,{...own,id:'someone',name:'别人文件.txt',ownerId:'someone'}],path:[],canUpload:true});
+ render(<PersonalFiles scope="mine"/>);
+ const mine=await screen.findByRole('row',{name:/本人文件/});const theirs=screen.getByRole('row',{name:/别人文件/});
+ fireEvent.click(within(mine).getByRole('checkbox'));
+ expect(screen.getByRole('button',{name:'移动所选'})).toBeEnabled();
+ fireEvent.click(within(theirs).getByRole('checkbox'));
+ expect(screen.getByRole('button',{name:'移动所选'})).toBeDisabled();
+ expect(screen.getByRole('button',{name:'复制所选'})).toBeDisabled();
+});
+test('shared view does not expose organize controls for shared managers',async()=>{
+ vi.mocked(get).mockResolvedValue({items:[{id:'s',name:'共享文件夹',kind:'FOLDER',level:3,version:1,size:1,ownerId:'someone'}],path:[],canUpload:true});
+ render(<PersonalFiles scope="shared"/>);await screen.findByRole('row',{name:/共享文件夹/});
+ expect(screen.queryByRole('button',{name:'移动所选'})).toBeNull();expect(screen.queryByRole('button',{name:'复制所选'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:/更\s*多/}));await screen.findByRole('menu');
+ expect(screen.queryByText('移动到')).toBeNull();expect(screen.queryByText('复制到')).toBeNull();
+});

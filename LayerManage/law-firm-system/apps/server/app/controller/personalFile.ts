@@ -7,6 +7,9 @@ export default class PersonalFileController extends Controller {
   private svc(){return new PersonalFileTransfer(this.ctx.prisma,this.ctx.state.authorization);}
   private respond(data:unknown){this.ctx.body={code:200,data};}
   async index(){this.respond(await this.svc().list(this.ctx.query));}
+  async organizationFolders(){this.respond(await this.svc().organizationFolders());}
+  async previewOrganization(){this.respond(await this.svc().previewOrganization(this.ctx.request.body));}
+  async organize(){this.respond(await this.svc().organize(this.ctx.request.body));}
   async remove(){this.respond(await this.svc().remove(this.ctx.request.body));}
   async trash(){this.respond(await this.svc().trash());}
   async restore(){this.respond(await this.svc().restore(this.ctx.params.id,this.ctx.request.body));}

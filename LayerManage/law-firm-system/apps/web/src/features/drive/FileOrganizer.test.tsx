@@ -1,0 +1,46 @@
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import type { ModalProps } from 'antd';
+import FileOrganizer from './FileOrganizer';
+import { get, post } from '../workspaces/api';
+vi.mock('../workspaces/api', () => ({ get: vi.fn(), post: vi.fn(), errorMessage: () => '文件或权限发生变化' }));
+vi.mock('@/components/DraggableModal', () => ({ default: (props: ModalProps) => <section role="dialog" aria-label={String(props.title)}>{props.children}{typeof props.footer === 'function' ? null : props.footer}</section> }));
+const files = [{ id: 'source', name: '材料目录', version: 3 }];
+const preview = { token: 'verified-state', count: 2, size: 200, entries: [{ id: 'source', from: '材料目录', to: '材料目录（副本1）', skipped: false }], changes: [{ name: '接收人（reader）', gained: 0, lost: 2, changed: 0 }] };
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(get).mockResolvedValue({ items: [{ id: 'source', name: '材料目录', parentId: null }, { id: 'child', name: '源子目录', parentId: 'source' }, { id: 'target', name: '目标目录', parentId: null }] }); vi.mocked(post).mockResolvedValue(preview); });
+afterEach(cleanup);
+test('preview and explicit confirmation bind execution to the reviewed state and display access changes', async () => {
+  const done = vi.fn(); render(<FileOrganizer operation="move" files={files} onClose={vi.fn()} onDone={done} />);
+  await waitFor(() => expect(screen.getByRole('button', { name: '下一步：核对整理结果' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '下一步：核对整理结果' }));
+  await screen.findByText(/接收人（reader）/); expect(screen.getByText(/失去访问 2 项/)).toBeInTheDocument();
+  expect(post).toHaveBeenCalledTimes(1); expect(done).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.getByRole('button', { name: '确认移动' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '确认移动' }));
+  await waitFor(() => expect(post).toHaveBeenLastCalledWith('/personal-files/organize', { operation: 'move', files: [{ id: 'source', version: 3 }], targetId: null, collision: 'rename', token: 'verified-state' }, undefined, 130000));
+  expect(done).toHaveBeenCalledTimes(1);
+});
+test('cancel does not mutate files and stale confirmation returns to review selection', async () => {
+  const close = vi.fn(); render(<FileOrganizer operation="copy" files={files} onClose={close} onDone={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: /取\s*消/ })); expect(close).toHaveBeenCalled(); expect(post).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.getByRole('button', { name: '下一步：核对整理结果' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '下一步：核对整理结果' }));
+  const confirm = await screen.findByRole('button', { name: '确认复制' });
+  await waitFor(() => expect(confirm).toBeEnabled());
+  vi.mocked(post).mockRejectedValueOnce(new Error('stale')); fireEvent.click(confirm);
+  await screen.findByText('文件或权限发生变化'); expect(screen.getByRole('button', { name: '下一步：核对整理结果' })).toBeInTheDocument();
+});
+test('empty skipped result cannot execute and target creation selects the new directory', async () => {
+  const empty = { ...preview, count: 0, entries: [{ ...preview.entries[0], skipped: true }], changes: [] };
+  vi.mocked(post).mockImplementation(async url => url === '/personal-files' ? { id: 'new' } : empty);
+  render(<FileOrganizer operation="copy" files={files} onClose={vi.fn()} onDone={vi.fn()} />);
+  await screen.findByRole('textbox', { name: '新建目标文件夹名称' });
+  fireEvent.change(screen.getByRole('textbox', { name: '新建目标文件夹名称' }), { target: { value: '新目标' } });
+  fireEvent.click(screen.getByRole('button', { name: '新建文件夹' }));
+  await waitFor(() => expect(post).toHaveBeenCalledWith('/personal-files', { name: '新目标', kind: 'FOLDER', parentId: null }));
+  await waitFor(() => expect(screen.getByRole('button', { name: '下一步：核对整理结果' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '下一步：核对整理结果' }));
+  const dialog = screen.getByRole('dialog'); await within(dialog).findByText(/将复制 0 项/);
+  expect(screen.getByRole('button', { name: '确认复制' })).toBeDisabled();
+  expect(post).toHaveBeenLastCalledWith('/personal-files/organize/preview', expect.objectContaining({ targetId: 'new' }), undefined, 130000);
+});

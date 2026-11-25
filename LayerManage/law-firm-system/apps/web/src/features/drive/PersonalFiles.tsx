@@ -1,4 +1,5 @@
 import FileSharing from './FileSharing';
+import FileOrganizer from './FileOrganizer';
 import { isTransientRequestError } from '@/api/transient-error';
 import FilePreviewButton from '@/features/files/FilePreviewButton';
 import {useAuthStore} from '@/stores/authStore';
@@ -18,6 +19,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
   const [parentId,setParent]=useState<string>(),[data,setData]=useState<{items:Item[];path:{id:string;name:string}[];canUpload:boolean}>(),[error,setError]=useState(''),[busy,setBusy]=useState(false),[revision,bump]=useState(0);
   const [downloading,setDownloading]=useState<string>();
   const [leaving,setLeaving]=useState<Item>();
+  const [organizing,setOrganizing]=useState<{operation:'move'|'copy';files:Item[]}>();
   const [sharingId,setSharingId]=useState<string>();
   const [dialog,setDialog]=useState<{kind:'folder'|'rename';item?:Item}>(),[name,setName]=useState('');
   const fileInput=useRef<HTMLInputElement>(null),folderInput=useRef<HTMLInputElement>(null);
@@ -30,6 +32,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
   useEffect(() => {
     setData(undefined);
     setSelected([]);
+    setOrganizing(undefined);
     setError('');
   }, [scope, parentId, authorization?.userId]);
   useEffect(() => {
@@ -52,6 +55,8 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
     return () => { active = false; };
   }, [scope, parentId, revision, authorization?.userId]);
   const refresh=useCallback(()=>bump(n=>n+1),[]);
+  const selectedItems=(data?.items??[]).filter(i=>selected.includes(i.id));
+  const canOrganize=scope==='mine'&&selectedItems.length>0&&selectedItems.every(i=>i.ownerId===authorization?.userId);
   const upload=async(files:FileList|File[]|null)=>{if(!files?.length)return;setBusy(true);setError('');let completed=0;const failures:File[]=[];const folders=new Map<string,string>();try{
     for(const f of Array.from(files)){
       let destination=parentId;const parts=f.webkitRelativePath?.split('/').slice(0,-1)??[];let key='';
@@ -67,6 +72,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
       <Button onClick={()=>setParent(undefined)}>文件根目录</Button>{data?.path.map(p=><Button key={p.id} type="link" onClick={()=>setParent(p.id)}>{p.name}</Button>)}
       {data?.canUpload&&<><Button loading={busy} onClick={()=>fileInput.current?.click()}>上传文件</Button><Button disabled={busy} onClick={()=>folderInput.current?.click()}>上传文件夹</Button><Button disabled={busy} onClick={()=>{setName('');setDialog({kind:'folder'});}}>新建文件夹</Button></>}
       <Button disabled={busy} onClick={refresh}>刷新文件</Button>
+      {scope==='mine'&&<><Button disabled={busy||!canOrganize} onClick={()=>setOrganizing({operation:'move',files:selectedItems})}>移动所选</Button><Button disabled={busy||!canOrganize} onClick={()=>setOrganizing({operation:'copy',files:selectedItems})}>复制所选</Button></>}
       <Button danger disabled={busy||!selected.length} onClick={()=>setDeleting((data?.items??[]).filter(i=>selected.includes(i.id)))}>删除所选（{selected.length}）</Button>
       {scope==='mine'&&<Button disabled={busy} onClick={()=>void get<{items:NonNullable<typeof trash>}>('/personal-files/trash').then(r=>{setTrash(r.items);setTrashSelected([]);}).catch(e=>message.error(errorMessage(e)))}>回收站</Button>}
     </Space>
@@ -84,12 +90,14 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
         {scope==='shared'&&r.ownerId&&r.ownerId!==authorization?.userId&&<Button disabled={busy} onClick={()=>setLeaving(r)}>退出共享</Button>}
         {(r.kind==='FOLDER'||r.level>=2||(r.kind==='FILE'&&r.contentVersion>1))&&<Dropdown trigger={['click']} menu={{items:[
           ...(r.kind==='FOLDER'?[{key:'download',label:downloading===r.id?'正在打包…':'下载压缩包',disabled:!!downloading}]:[]),
+          ...(scope==='mine'&&r.ownerId===authorization?.userId?[{key:'move',label:'移动到'},{key:'copy',label:'复制到'}]:[]),
           ...(r.kind==='FILE'&&r.level>=2?[{key:'update',label:'更新文件'}]:[]),
           ...(r.kind==='FILE'&&r.contentVersion>1?[{key:'history',label:'历史版本'}]:[]),
           ...(r.level>=2?[{key:'rename',label:'重命名'}]:[]),
           ...(r.level>=3?[{key:'share',label:'分享管理'}]:[]),
           ...(r.level>=3?[{key:'delete',label:'删除',danger:true}]:[]),
         ],onClick:({key})=>{
+          if(key==='move'||key==='copy')setOrganizing({operation:key,files:[r]});
           if(key==='download'){setDownloading(r.id);void downloadFolder(r.id,r.name).catch(e=>message.error(errorMessage(e))).finally(()=>setDownloading(undefined));}
           if(key==='update')setReplacing({file:r});
           if(key==='history')void get<NonNullable<typeof history>['versions']>('/personal-files/'+r.id+'/versions').then(versions=>setHistory({file:r,versions})).catch(e=>message.error(errorMessage(e)));
@@ -128,6 +136,7 @@ export default function PersonalFiles({scope}:{scope:'mine'|'shared'}){
       catch(e){message.error(errorMessage(e));}finally{setBusy(false);}
     }}><p>正在更新：{replacing?.file.name}</p><Alert type="info" title="旧版本会保留，已有 AI 任务和已投稿知识不会自动改用新版。原有分享权限保持不变。"/><p>请选择同一份材料的修订文件；不同材料请使用“上传文件”。</p><label>选择修订文件<input type="file" disabled={busy} style={{display:'block',marginTop:8,maxWidth:'100%'}} onChange={e=>{const upload=e.target.files?.[0];setReplacing(p=>p&&({...p,upload}));}}/></label>{replacing?.upload&&<p>待更新文件：{replacing.upload.name} · {Math.ceil(replacing.upload.size/1024)} KB</p>}</Modal>
     <Modal title={dialog?.kind==='folder'?'新建文件夹':'重命名'} open={!!dialog} confirmLoading={busy} onCancel={()=>setDialog(undefined)} onOk={async()=>{if(!dialog)return;setBusy(true);try{if(dialog.kind==='folder')await post('/personal-files',{name,kind:'FOLDER',parentId:parentId??null});else await patch('/personal-files/'+dialog.item!.id,{name,version:dialog.item!.version});setDialog(undefined);refresh();}catch(e){message.error(errorMessage(e));}finally{setBusy(false);}}}><Input aria-label="文件名称" value={name} onChange={e=>setName(e.target.value)} maxLength={150}/></Modal>
+    {organizing&&<FileOrganizer key={authorization?.userId} {...organizing} onClose={()=>setOrganizing(undefined)} onDone={()=>{setOrganizing(undefined);setSelected([]);refresh();message.success('整理完成');}}/>}
     {sharingId&&<FileSharing fileId={sharingId} onClose={()=>setSharingId(undefined)} onChanged={refresh}/>}
   </section>;
 }
