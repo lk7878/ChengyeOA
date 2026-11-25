@@ -13,7 +13,7 @@ export async function portalThumbnail(id: string, bytes: Buffer): Promise<Buffer
   }
   const running = pending.get(id);
   if (running) return running;
-  const job = sharp(bytes, { limitInputPixels: 40000000 })
+  const job = sharp(bytes, { limitInputPixels: 100000000 })
     .rotate()
     .resize({
       width: 400,

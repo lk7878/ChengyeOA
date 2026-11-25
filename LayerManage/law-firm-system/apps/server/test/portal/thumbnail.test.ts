@@ -5,9 +5,9 @@ import { portalThumbnail } from '../../app/application/portal/thumbnail';
 
 test('portrait thumbnail preserves aspect ratio, reduces payload, and leaves original intact', async () => {
   const original = await sharp({
-    create: { width: 2400, height: 3600, channels: 3, background: '#789abc' },
+    create: { width: 5200, height: 7800, channels: 3, background: '#789abc' },
   })
-    .png()
+    .jpeg()
     .toBuffer();
   const copy = Buffer.from(original);
   const [a, b] = await Promise.all([
