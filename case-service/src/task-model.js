@@ -1,7 +1,9 @@
+import {meteredCompletion} from './metered-model.js'
+import {randomUUID} from 'node:crypto'
 import {once} from 'node:events'
-import {completion,sseLines} from './model-connections.js'
+import {sseLines} from './model-connections.js'
 
-export async function runTaskModel({task,policy,channel,body,signal,localOnly,res}){
+export async function runTaskModel({task,policy,channel,body,signal,localOnly,res,actor}){
  const snapshot=task.aiPolicy||{},registry=policy?.connections
  const selected=channel==='CHAT'?snapshot.primary:snapshot.ocr
  const model=selected?.model||(channel==='CHAT'?snapshot.model:undefined)||process.env[channel+'_MODEL']
@@ -20,14 +22,17 @@ export async function runTaskModel({task,policy,channel,body,signal,localOnly,re
   delete payload.max_completion_tokens
   payload.max_tokens=Math.max(1,Math.min(Math.floor(Number(body.max_tokens))||snapshot.maxTokens,snapshot.maxTokens))
  }
- const send=target=>completion(target,payload,AbortSignal.any([signal,AbortSignal.timeout(300000)]))
+ const requestId=randomUUID();let attempt=0
+ const send=(target,choice)=>meteredCompletion({billing:policy?.billing,context:{task,actor,requestId,attempt:++attempt,connection:choice?.connection||(channel==='CHAT'?'legacy':'legacy-ocr'),connectionLabel:registry?.list().active.find(c=>c.id===choice?.connection)?.label,model:target.model,purpose:channel},route:target,body:payload,signal:AbortSignal.any([signal,AbortSignal.timeout(300000)])})
+ const drainError=async(response)=>{if(!response?.body)return;try{let bytes=0;for await(const part of response.body){bytes+=part.length;if(bytes>1024*1024)break}}catch{/* Missing usage stays pending. */}}
  let response,usedBackup=false
- try{response=await send(primary)}catch{if(!backup||signal.aborted)throw Error(localOnly()?'内网模型不可用，请联系管理员':'模型连接不可用')}
+ try{response=await send(primary,selected)}catch{if(!backup||signal.aborted)throw Error(localOnly()?'内网模型不可用，请联系管理员':'模型连接不可用')}
  if(backup&&(!response||[429,502,503,504].includes(response.status))){
-  await response?.body?.cancel();signal.throwIfAborted()
-  response=await send(route(backup));usedBackup=true
+  await drainError(response);signal.throwIfAborted()
+  response=await send(route(backup),backup);usedBackup=true
  }
- if(!response.ok&&registry){await response.body?.cancel();throw Error((localOnly()?'内网模型':'模型服务')+'返回 HTTP '+response.status)}
+ if(!response.ok&&registry){await drainError(response);throw Error((localOnly()?'内网模型':'模型服务')+'返回 HTTP '+response.status)}
+ try {
  const type=response.headers.get('content-type')||'application/json'
  res.writeHead(response.status,{'content-type':type})
  const write=async chunk=>{if(!res.write(chunk))await once(res,'drain',{signal})}
@@ -50,4 +55,5 @@ export async function runTaskModel({task,policy,channel,body,signal,localOnly,re
   }
  }else if(response.body)for await(const part of response.body)await write(part)
  res.end()
+ } finally {if(!response.bodyUsed)await response.body?.cancel()}
 }

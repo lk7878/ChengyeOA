@@ -90,10 +90,10 @@ export class ModelConnections {
    return describe(row)
   })
  }
- async test(id,revision,model){
+ async test(id,revision,model,actor){
   const s=this.store.read(),row=s.drafts[id]||s.active[id]
   if(!row||row.revision!==revision||!row.models.includes(model))invalid('模型或连接版本已变更，请刷新',409)
-  await probe(this.resolveRow(row,model))
+  await probe(this.resolveRow(row,model),this.billing,{actor,connection:id,model,purpose:'ADMIN_TEST'})
   this.store.update(now=>{
    const current=now.drafts[id]||now.active[id]
    if(current?.revision!==revision)invalid('测试期间连接已更新，请重新测试',409)
@@ -144,10 +144,12 @@ export async function* sseLines(body){
  }
  pending+=decoder.decode();if(pending)yield pending
 }
-async function probe(route){
+async function probe(route,billing,context){
+ const {meteredCompletion}=await import('./metered-model.js')
+ const call=(route,body,signal)=>meteredCompletion({billing,context,route,body,signal})
  const signal=AbortSignal.timeout(45000)
  try{
-  const stream=await completion(route,{stream:true,messages:[{role:'user',content:'Reply only OK.'}],max_tokens:128},signal)
+  const stream=await call(route,{stream:true,messages:[{role:'user',content:'Reply only OK.'}],max_tokens:128},signal)
   if(!stream.ok){await stream.body?.cancel();invalid('流式测试失败，服务返回 HTTP '+stream.status,422)}
   let text=false,done=false,size=0
   for await(const line of sseLines(stream.body)){
@@ -160,12 +162,12 @@ async function probe(route){
   }
   if(!text||!done)invalid('模型未返回完整流式文本',422)
   const tool={type:'function',function:{name:'oa_ping',description:'Connectivity probe',parameters:{type:'object',properties:{},additionalProperties:false}}}
-  const result=await completion(route,{messages:[{role:'user',content:'Call oa_ping once.'}],tools:[tool],tool_choice:{type:'function',function:{name:'oa_ping'}},max_tokens:128},signal)
+  const result=await call(route,{messages:[{role:'user',content:'Call oa_ping once.'}],tools:[tool],tool_choice:{type:'function',function:{name:'oa_ping'}},max_tokens:128},signal)
   if(!result.ok){await result.body?.cancel();invalid('工具测试失败，服务返回 HTTP '+result.status,422)}
   let parts=[],bytes=0
   for await(const part of result.body){bytes+=part.length;if(bytes>524288)invalid('测试响应超出预期',422);parts.push(part)}
-  const call=JSON.parse(Buffer.concat(parts)).choices?.[0]?.message?.tool_calls?.[0]
-  const args=call?.function?.arguments?JSON.parse(call.function.arguments):null
-  if(call?.type!=='function'||call.function.name!=='oa_ping'||!args||Array.isArray(args)||typeof args!=='object')invalid('模型未按要求返回工具调用',422)
+  const toolCall=JSON.parse(Buffer.concat(parts)).choices?.[0]?.message?.tool_calls?.[0]
+  const args=toolCall?.function?.arguments?JSON.parse(toolCall.function.arguments):null
+  if(toolCall?.type!=='function'||toolCall.function.name!=='oa_ping'||!args||Array.isArray(args)||typeof args!=='object')invalid('模型未按要求返回工具调用',422)
  }catch(e){if(e.statusCode)throw e;invalid('模型服务未连通、响应超时或协议不兼容',422)}
 }

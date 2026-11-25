@@ -1,3 +1,4 @@
+import {BillingAdmin} from './views/Billing'
 import {useNavigation,updateLocation} from './navigation'
 import {clearAccountDrafts} from './views/task-draft'
 import {AiCapabilities} from './views/AiCapabilities'
@@ -194,6 +195,7 @@ export default function App() {
               <BusinessPresets/>
               <KnowledgeAccess/>
               <AiCapabilities/>
+              <BillingAdmin/>
               <section className="oa-panel"><h2>开源组件</h2><p>DeepSeek Harness（MIT）、WeKnora 及法律 Skills 的原许可证与来源声明保留在部署包中。</p></section>
             </div>
           )}

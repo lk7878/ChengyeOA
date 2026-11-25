@@ -1,3 +1,4 @@
+import {BillingButton} from '../views/Billing'
 import { Button } from './Button'
 import { IconSpark, IconBook } from './icons'
 import type { Account, ViewId } from '@/types'
@@ -60,6 +61,7 @@ export function TopBar({
           AI 任务
         </Button>
 
+        <BillingButton key={user.id}/>
         <div className="wb-topbar__user">
           <div className="wb-topbar__avatar" aria-hidden>
             {user.displayName.slice(0, 1)}

@@ -72,7 +72,7 @@ export async function registerAiPolicy(app,models,managed=false,imports=[]){
  if(connections){
   app.get('/api/model-connections',async req=>{guard(req);return connections.list()})
   app.post('/api/model-connections/save',async req=>{guard(req);return connections.save(req.body)})
-  app.post('/api/model-connections/:id/test',async req=>{guard(req);return connections.test(req.params.id,req.body?.revision,req.body?.model)})
+  app.post('/api/model-connections/:id/test',async req=>{guard(req);return connections.test(req.params.id,req.body?.revision,req.body?.model,req.oa)})
   app.post('/api/model-connections/:id/enable',async req=>{guard(req);return connections.enable(req.params.id,req.body?.revision)})
  }
  app.get('/api/ai-capabilities',async req=>{guard(req);return policy.view()})

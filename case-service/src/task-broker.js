@@ -30,7 +30,7 @@ export async function createTaskBroker({task,token,validate,knowledge,policy}){
    if(channel&&req.method==='POST'&&url.pathname.endsWith('/chat/completions')){
     if(channel==='OCR'&&task.businessSnapshot&&!task.businessSnapshot.tools.includes('ocr'))throw Error('此预设未启用 OCR')
     if(channel==='OCR'&&policy?.connections&&!task.aiPolicy?.ocr)throw Error('本任务尚未配置 OCR 模型')
-    await runTaskModel({task,policy,channel,body,localOnly,signal:cancel.signal,res});return
+    await runTaskModel({task,policy,channel,body,localOnly,signal:cancel.signal,res,actor:user});return
    }
    res.writeHead(404);res.end('工具接口不存在')
   }catch(e){if(res.destroyed)return;if(res.headersSent){res.destroy();return}res.writeHead(403,{'content-type':'application/json'});res.end(JSON.stringify({error:e.message}))}
