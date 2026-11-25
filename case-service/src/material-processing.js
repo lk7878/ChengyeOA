@@ -14,7 +14,10 @@ const paragraphs=text=>text.split(/\r?\n/).map(t=>t.trim()).filter(Boolean).map(
 export async function* extractMaterial(file,signal){
  const runtime=process.env.MATERIAL_RUNTIME_ROOT||path.resolve(here,'../../runtime')
  const args=['--die-with-parent','--unshare-all','--new-session','--ro-bind','/usr','/usr','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--proc','/proc','--dev','/dev','--tmpfs','/tmp','--ro-bind',path.join(runtime,'python-deps'),'/deps','--ro-bind',path.join(here,'material-extract.py'),'/extract.py','--ro-bind',file,'/input'+path.extname(file),'--setenv','PYTHONPATH','/deps','/usr/bin/python3','/extract.py','/input'+path.extname(file)]
- const child=spawn('bwrap',args,{signal,stdio:['ignore','pipe','pipe']});let error=''
+ const command=process.env.HARNESS_APPARMOR_PROFILE?'aa-exec':'bwrap'
+ const launchArgs=[...(process.env.HARNESS_APPARMOR_PROFILE?['-p',process.env.HARNESS_APPARMOR_PROFILE,'--','bwrap']:[]),...args]
+ const pythonIndex=launchArgs.indexOf('--setenv');launchArgs.splice(pythonIndex,0,'--clearenv','--setenv','PATH','/usr/bin:/bin','--setenv','LANG','C.UTF-8')
+ const child=spawn(command,launchArgs,{signal,stdio:['ignore','pipe','pipe']});let error=''
  const done=new Promise((resolve,reject)=>{child.on('error',reject);child.on('exit',code=>code===0?resolve():reject(Error(error.split('\n').filter(Boolean).at(-1)||'材料解码失败')))})
  done.catch(()=>{})
  child.stderr.on('data',b=>{error=(error+b).slice(-2000)})
