@@ -1,4 +1,5 @@
 import { Context, Controller } from 'egg';
+import { effectiveUserRoleWhere } from '../application/authorization/effective-user-role';
 import {
   createAuthenticationService,
   createAuthenticationServices,
@@ -105,6 +106,7 @@ export default class AuthController extends Controller {
       include: {
         employee: { include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE },
         userRoles: {
+          where: effectiveUserRoleWhere(),
           include: { role: { include: { permissions: { include: { permission: true } } } } },
         },
       },

@@ -3,6 +3,7 @@ import { Controller } from 'egg';
 import { AuthorizationContext, AuthorizationService } from '../application/authorization/authorization-service';
 import { DataScopeService } from '../application/authorization/data-scope-service';
 import { UserGrantService } from '../application/authorization/user-grant-service';
+import { effectiveUserRoleWhere } from '../application/authorization/effective-user-role';
 import {
   EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
   projectEmployeeWithPrimaryAssignment,
@@ -62,6 +63,7 @@ export default class UserController extends Controller {
           include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
         },
         userRoles: {
+          where: effectiveUserRoleWhere(),
           include: {
             role: true,
           },
@@ -109,6 +111,7 @@ export default class UserController extends Controller {
           include: EMPLOYEE_PRIMARY_ASSIGNMENT_INCLUDE,
         },
         userRoles: {
+          where: effectiveUserRoleWhere(),
           include: {
             role: {
               include: {

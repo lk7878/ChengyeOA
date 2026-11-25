@@ -81,6 +81,55 @@ test('account role assignment endpoint preserves history and refuses system-role
   assert.ok(response.body.data.permissionCodes.includes('position.delete'));
 });
 
+test('current account roles exclude inactive grants while authorization history remains available', async () => {
+  const target = await prisma.user.create({ data: { username: 'current-role-target', password: 'unused' } });
+  const past = new Date(Date.now() - 60_000);
+  const future = new Date(Date.now() + 3_600_000);
+  const fixtures = [
+    { code: 'CURRENT', status: 'ENABLED', validFrom: past, validUntil: null, revokedAt: null },
+    { code: 'TEMPORARY', status: 'ENABLED', validFrom: past, validUntil: future, revokedAt: null },
+    { code: 'REVOKED', status: 'ENABLED', validFrom: past, validUntil: null, revokedAt: past },
+    { code: 'EXPIRED', status: 'ENABLED', validFrom: new Date(past.getTime() - 60_000), validUntil: past, revokedAt: null },
+    { code: 'PENDING', status: 'ENABLED', validFrom: future, validUntil: null, revokedAt: null },
+    { code: 'DISABLED', status: 'DISABLED', validFrom: past, validUntil: null, revokedAt: null },
+    { code: 'DELETED', status: 'DELETED', validFrom: past, validUntil: null, revokedAt: null },
+  ];
+  for (const { code, status, ...window } of fixtures) {
+    const role = await prisma.role.create({ data: {
+      code, name: code, type: 'BUSINESS', status,
+      ...(code === 'REVOKED' ? { permissions: { create: { permission: { connect: { code: 'employee.read' } } } } } : {}),
+    } });
+    await prisma.userRole.create({ data: {
+      userId: target.id, roleId: role.id, ...window,
+      source: window.validUntil ? 'TEMPORARY' : 'PERMANENT',
+      ...(window.revokedAt ? { revokedByUserId: superAdminId, revokeReason: 'Historical role revoked for regression test' } : {}),
+    } });
+  }
+  const session = await createApiSession(prisma, target.id, 'PASSWORD');
+  async function checkCurrentRoles(expected: string[]) {
+    const list = await app.httpRequest().get('/api/v1/users?keyword=current-role-target').set(bearer()).expect(200);
+    const detail = await app.httpRequest().get(`/api/v1/users/${target.id}`).set(bearer()).expect(200);
+    const me = await app.httpRequest().get('/api/v1/auth/me').set(bearer(session.token)).expect(200);
+    for (const user of [list.body.data.list[0], detail.body.data]) {
+      assert.deepEqual(user.userRoles.map((grant: { role: { code: string } }) => grant.role.code).sort(), expected);
+    }
+    assert.deepEqual(me.body.data.roles.sort(), expected);
+    assert.ok(!me.body.data.permissions.includes('employee.read'));
+  }
+  await checkCurrentRoles(['CURRENT', 'TEMPORARY']);
+  const grant = await prisma.userRole.findFirstOrThrow({ where: { userId: target.id, role: { code: 'CURRENT' } } });
+  await app.httpRequest().post(`/api/v1/users/${target.id}/role-grants/${grant.id}/revoke`)
+    .set(bearer()).send({ reason: 'Regression: revoke current role', version: grant.version }).expect(200);
+  await checkCurrentRoles(['TEMPORARY']);
+  const history = await app.httpRequest().get(`/api/v1/users/${target.id}/authorization`).set(bearer()).expect(200);
+  assert.equal(history.body.data.roleGrants.length, fixtures.length);
+  for (const state of ['REVOKED', 'EXPIRED', 'PENDING']) {
+    assert.equal(history.body.data.roleGrants.find((item: { roleCode: string }) => item.roleCode === state).state, state);
+  }
+  const members = await app.httpRequest().get(`/api/v1/roles/${grant.roleId}/members`).set(bearer()).expect(200);
+  assert.equal(members.body.data.find((item: { id: string }) => item.id === grant.id).state, 'REVOKED');
+});
+
 test('lists safe field and data-scope catalogs for authorization editors', async () => {
   const organizationId = randomUUID();
   const organization = await prisma.organization.create({ data: {

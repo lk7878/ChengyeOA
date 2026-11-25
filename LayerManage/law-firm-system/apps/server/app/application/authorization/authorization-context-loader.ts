@@ -1,4 +1,5 @@
 import { worksheetNavigationGrants } from '../collaboration/worksheet-business-grants';
+import { effectiveUserRoleWhere } from './effective-user-role';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthorizationError, AUTHORIZATION_CODES } from '../../domain/authorization/authorization-errors';
 import { PERMISSION_CATALOG } from '../../domain/authorization/permission-catalog';
@@ -57,12 +58,7 @@ export class AuthorizationContextLoader {
         lockedUntil: true,
         employeeId: true,
         userRoles: {
-          where: {
-            revokedAt: null,
-            validFrom: { lte: evaluatedAt },
-            OR: [{ validUntil: null }, { validUntil: { gt: evaluatedAt } }],
-            role: { status: 'ENABLED' },
-          },
+          where: effectiveUserRoleWhere(evaluatedAt),
           select: {
             id: true,
             validUntil: true,
