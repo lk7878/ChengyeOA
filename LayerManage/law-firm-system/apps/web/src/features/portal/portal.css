@@ -491,3 +491,7 @@ html[data-oa-color-mode='dark'] .portal-monogram {
   max-height: 60vh;
   overflow-y: auto;
 }
+
+.portal-photo-loading {
+  background: linear-gradient(120deg, var(--oa-surface-muted, #eef1f4), var(--oa-surface, #fafbfc));
+}

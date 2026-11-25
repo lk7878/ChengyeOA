@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, expect, test, vi } from 'vitest';
-import { get } from '@/features/workspaces/api';
+import { get, authenticatedFetch } from '@/features/workspaces/api';
 import { useAuthStore } from '@/stores/authStore';
 import PortalHome from './PortalHome';
 import PortalAdmin from './PortalAdmin';
@@ -125,8 +125,53 @@ test('a large lawyer directory shows five portraits, moves one at a time and sea
     });
     expect(screen.getByText('共 1 项')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /律师100/ }));
-    expect(screen.getAllByRole('dialog').some((e) => e.textContent?.includes('专业方向 · 民事'))).toBe(true);
+    expect(
+      screen.getAllByRole('dialog').some((e) => e.textContent?.includes('专业方向 · 民事')),
+    ).toBe(true);
   } finally {
     globalThis.ResizeObserver = originalObserver;
   }
+});
+
+test('the carousel warms the next portraits without fetching the entire roster', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:${Math.random()}`);
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  vi.mocked(authenticatedFetch).mockResolvedValue({
+    ok: true,
+    blob: async () => new Blob(['portrait']),
+  } as Response);
+  const people = Array.from({ length: 100 }, (_, i) => ({
+    ...feed.people[0],
+    id: `p${i}`,
+    name: `照片律师${i}`,
+  }));
+  vi.mocked(get).mockResolvedValue({
+    ...feed,
+    people,
+    entries: people.map((p) => ({
+      ...blank,
+      id: p.id,
+      subject: p.id,
+      kind: 'LAWYER',
+      title: p.name,
+      personName: p.name,
+      date: null,
+      image: { id: `image-${p.id}`, name: 'portrait.jpg' },
+    })),
+  });
+  const { unmount } = render(
+    <MemoryRouter>
+      <PortalHome />
+    </MemoryRouter>,
+  );
+  await screen.findByText('共 100 位 · 同时展示 1 位');
+  await vi.waitFor(() => expect(authenticatedFetch).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(authenticatedFetch).mock.calls.map(([url]) => url)).toEqual([
+    '/api/v1/portal/files/p0/image-p0?thumbnail=1',
+    '/api/v1/portal/files/p1/image-p1?thumbnail=1',
+  ]);
+  fireEvent.click(screen.getByRole('button', { name: '下一位' }));
+  await vi.waitFor(() => expect(authenticatedFetch).toHaveBeenCalledTimes(3));
+  unmount();
+  vi.restoreAllMocks();
 });

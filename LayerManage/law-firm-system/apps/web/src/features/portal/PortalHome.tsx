@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Carousel, Input, Segmented, Space, Spin, message } from 'antd';
 import type { CarouselRef } from 'antd/es/carousel';
 import { Link, useSearchParams } from 'react-router';
@@ -10,9 +10,30 @@ import { authenticatedFetch, get } from '@/features/workspaces/api';
 import { employeeTypeLabel } from '@/locales/employee-types';
 import { assetUrl, blank, labels, portalError, type Card, type Feed, type Kind } from './types';
 import './portal.css';
+import { PhotoCache } from './photo-cache';
 
-function Photo({ card, external = false }: { card: Card; external?: boolean }) {
+const PhotoContext = createContext<PhotoCache | null>(null);
+function photoSource(card: Card, external: boolean, thumbnail: boolean) {
   const source = card.imageUrl || (card.image && assetUrl(card, card.image, external));
+  return source && thumbnail ? source + (source.includes('?') ? '&' : '?') + 'thumbnail=1' : source;
+}
+
+function Photo({
+  card,
+  external = false,
+  thumbnail = false,
+  enabled = true,
+}: {
+  card: Card;
+  external?: boolean;
+  thumbnail?: boolean;
+  enabled?: boolean;
+}) {
+  const source = photoSource(card, external, thumbnail);
+  const sharedCache = useContext(PhotoContext);
+  const ownCache = useMemo(() => new PhotoCache(external), [external]);
+  const cache = sharedCache || ownCache;
+  useEffect(() => () => ownCache.clear(), [ownCache]);
   const photo = useRef<HTMLImageElement & HTMLDivElement>(null);
   const [visible, setVisible] = useState(() => typeof IntersectionObserver === 'undefined');
   useEffect(() => {
@@ -29,41 +50,46 @@ function Photo({ card, external = false }: { card: Card; external?: boolean }) {
     observer.observe(photo.current);
     return () => observer.disconnect();
   }, [visible]);
-  const [loaded, setLoaded] = useState<{ source: string; url: string }>();
+  const [loaded, setLoaded] = useState<{
+    source: string;
+    url?: string;
+    failed?: boolean;
+  }>();
   useEffect(() => {
-    if (!source || !visible || external || inPreviewFrame) return;
-    let url = '';
-    const controller = new AbortController();
-    void authenticatedFetch(source, controller.signal)
-      .then(async (response) => {
-        if (!response.ok) return;
-        const blob = await response.blob();
-        if (!controller.signal.aborted) {
-          url = URL.createObjectURL(blob);
-          setLoaded({ source, url });
-        }
+    if (!source || !visible || !enabled || inPreviewFrame || !cache) return;
+    let active = true;
+    const release = cache.retain(source);
+    void cache
+      .load(source)
+      .then((url) => {
+        if (active) setLoaded({ source, url });
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setLoaded({ source, failed: true });
+      });
     return () => {
-      controller.abort();
-      if (url) URL.revokeObjectURL(url);
+      active = false;
+      release();
     };
-  }, [source, external, visible]);
-  const src = external ? source : loaded?.source === source ? loaded?.url : undefined;
-  return src ? (
+  }, [source, cache, visible, enabled]);
+  const current = enabled && loaded?.source === source ? loaded : undefined;
+  return current?.url && source && cache.contains(source, current.url) ? (
     <img
       ref={photo}
-      loading="lazy"
       className="portal-photo"
-      src={src}
+      src={current.url}
       alt={card.caption || card.personName || card.title}
+      onError={() => setLoaded({ source: source!, failed: true })}
     />
+  ) : source && !current?.failed ? (
+    <div ref={photo} className="portal-monogram portal-photo-loading" aria-label="照片加载中" />
   ) : (
     <div ref={photo} className="portal-monogram" aria-hidden="true">
       {(card.personName || card.title).slice(0, 1)}
     </div>
   );
 }
+
 function FileActions({ card }: { card: Card }) {
   if (!card.file) return null;
   const file = card.file,
@@ -96,7 +122,9 @@ export function Article({ card, external = false }: { card: Card; external?: boo
   return (
     <article className="portal-article">
       <p className="portal-meta">
-        {[labels[card.kind], card.subtitle, card.period, card.date?.slice(0, 10)].filter(Boolean).join(' · ')}
+        {[labels[card.kind], card.subtitle, card.period, card.date?.slice(0, 10)]
+          .filter(Boolean)
+          .join(' · ')}
       </p>
       {card.image && (
         <figure>
@@ -143,13 +171,36 @@ function Slider({
     observer.observe(container.current);
     return () => observer.disconnect();
   }, [multiple]);
-  const [paused, setPaused] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const [paused, setPaused] = useState(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  );
   const [index, setIndex] = useState(0);
   const count = multiple ? capacity : 1;
   const cycling = cards.length > count;
+  const cache = useContext(PhotoContext);
+  // Warm only the visible portraits and the next screen, not the entire roster.
+  const sources = Array.from({ length: Math.min(cards.length, count * 2) }, (_, offset) =>
+    photoSource(cards[(index + offset) % cards.length], external, true),
+  ).filter(Boolean) as string[];
+  const batch = JSON.stringify(sources);
+  const [readyBatch, setReadyBatch] = useState('');
+  useEffect(() => {
+    if (!cache || inPreviewFrame) return;
+    let active = true;
+    const urls: string[] = JSON.parse(batch);
+    void Promise.allSettled(urls.map((url) => cache.load(url))).then(() => {
+      if (active) setReadyBatch(batch);
+    });
+    return () => {
+      active = false;
+    };
+  }, [batch, cache]);
   if (!cards.length) return <p className="portal-empty">暂无展示资料</p>;
   return (
-    <div ref={container} className={multiple ? 'portal-slider portal-lawyer-slider' : 'portal-slider'}>
+    <div
+      ref={container}
+      className={multiple ? 'portal-slider portal-lawyer-slider' : 'portal-slider'}
+    >
       <Carousel
         ref={slider}
         dots={false}
@@ -157,7 +208,7 @@ function Slider({
         slidesToScroll={1}
         infinite={cycling}
         lazyLoad="ondemand"
-        autoplay={!paused && !suspended && cycling}
+        autoplay={!paused && !suspended && cycling && readyBatch === batch}
         autoplaySpeed={multiple ? 5000 : 6500}
         pauseOnFocus
         pauseOnHover
@@ -165,10 +216,15 @@ function Slider({
         waitForAnimate={false}
         afterChange={setIndex}
       >
-        {cards.map((c) => (
+        {cards.map((c, position) => (
           <div key={c.id}>
             <button className="portal-person" onClick={() => open(c)}>
-              <Photo card={c} external={external} />
+              <Photo
+                card={c}
+                external={external}
+                thumbnail
+                enabled={(position - index + cards.length) % cards.length < count * 2}
+              />
               <span className="portal-person-info">
                 <strong>{c.title}</strong>
                 <small>{[c.period, c.subtitle].filter(Boolean).join(' · ')}</small>
@@ -259,6 +315,19 @@ function directory(feed: Feed) {
 }
 
 export default function PortalHome({ external = false }: { external?: boolean }) {
+  const userId = useAuthStore((s) => s.authorization?.userId);
+  return <ScopedPortalHome key={`${external}:${userId}`} external={external} />;
+}
+function ScopedPortalHome({ external }: { external: boolean }) {
+  const cache = useMemo(() => new PhotoCache(external), [external]);
+  useEffect(() => () => cache.clear(), [cache]);
+  return (
+    <PhotoContext.Provider value={cache}>
+      <PortalContent external={external} />
+    </PhotoContext.Provider>
+  );
+}
+function PortalContent({ external }: { external: boolean }) {
   const admin = useAuthStore((s) => s.authorization?.isSystemSuperAdmin);
   const [feed, setFeed] = useState<Feed>(),
     [error, setError] = useState(''),
@@ -291,7 +360,11 @@ export default function PortalHome({ external = false }: { external?: boolean })
   }, [external, retry]);
   if (error)
     return (
-      <Alert type="error" title={error} action={<Button onClick={() => refresh(retry + 1)}>重试</Button>} />
+      <Alert
+        type="error"
+        title={error}
+        action={<Button onClick={() => refresh(retry + 1)}>重试</Button>}
+      />
     );
   if (!feed) return <Spin aria-label="加载承业首页" />;
   const by = (kind: Kind) => feed.entries.filter((c) => c.kind === kind);
@@ -334,26 +407,32 @@ export default function PortalHome({ external = false }: { external?: boolean })
       <section className={'portal-panel portal-section-' + kind.toLowerCase()}>
         <header>
           <h2>{labels[kind]}</h2>
-          {cards.length > limit && <button onClick={() => showAll(labels[kind], cards)}>查看全部</button>}
+          {cards.length > limit && (
+            <button onClick={() => showAll(labels[kind], cards)}>查看全部</button>
+          )}
         </header>
         {cards.slice(0, limit).map((c) => (
           <div className="portal-list-row" key={c.id}>
             {kind === 'NEWS' && c.image && (
               <div className="portal-thumb">
-                <Photo card={c} external={external} />
+                <Photo card={c} external={external} thumbnail />
               </div>
             )}
             <button className="portal-row-title" onClick={() => open(c)}>
               {c.pinned && <small>置顶 </small>}
               {c.title}
               <small>
-                {kind === 'DOWNLOAD' ? (c.file?.name ?? '') + ' · v' + c.number : c.date?.slice(0, 10)}
+                {kind === 'DOWNLOAD'
+                  ? (c.file?.name ?? '') + ' · v' + c.number
+                  : c.date?.slice(0, 10)}
               </small>
             </button>
             {kind === 'DOWNLOAD' && <FileActions card={c} />}
           </div>
         ))}
-        {!cards.length && <p className="portal-empty">暂无已发布{kind === 'DOWNLOAD' ? '文件' : '内容'}</p>}
+        {!cards.length && (
+          <p className="portal-empty">暂无已发布{kind === 'DOWNLOAD' ? '文件' : '内容'}</p>
+        )}
       </section>
     );
   }
@@ -370,7 +449,9 @@ export default function PortalHome({ external = false }: { external?: boolean })
             <h2>{intro?.title || '承业律师事务所'}</h2>
             {intro?.body && <p className="portal-excerpt">{intro.body}</p>}
             {about.length > 0 && (
-              <button onClick={() => (about.length === 1 ? open(about[0]) : showAll('了解承业', about))}>
+              <button
+                onClick={() => (about.length === 1 ? open(about[0]) : showAll('了解承业', about))}
+              >
                 了解承业 →
               </button>
             )}
@@ -410,7 +491,12 @@ export default function PortalHome({ external = false }: { external?: boolean })
                 <button onClick={() => showAll('优秀员工', by('HONOR'))}>查看全部</button>
               )}
             </header>
-            <Slider cards={honors} external={false} open={open} suspended={Boolean(detail || list)} />
+            <Slider
+              cards={honors}
+              external={false}
+              open={open}
+              suspended={Boolean(detail || list)}
+            />
           </section>
         )}
         {panel('CASE', 4)}
@@ -430,7 +516,11 @@ export default function PortalHome({ external = false }: { external?: boolean })
                       <h3>{name}</h3>
                       {lines.map((line, lineIndex) => {
                         const phone = line.match(/^电话[：:]\s*([\d+-]+)\s*$/);
-                        return <p key={lineIndex}>{phone ? <a href={'tel:' + phone[1]}>{line}</a> : line}</p>;
+                        return (
+                          <p key={lineIndex}>
+                            {phone ? <a href={'tel:' + phone[1]}>{line}</a> : line}
+                          </p>
+                        );
                       })}
                     </section>
                   );

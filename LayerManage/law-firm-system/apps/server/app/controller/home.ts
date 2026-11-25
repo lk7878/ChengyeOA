@@ -6,6 +6,7 @@ import {
   publishPortal,
   readAsset,
 } from '../application/portal/portal';
+import { portalThumbnail } from '../application/portal/thumbnail';
 import { servePreview } from '../application/files/preview';
 import { Controller } from 'egg';
 import * as path from 'path';
@@ -100,6 +101,16 @@ export default class HomeController extends Controller {
     ctx.set('Cache-Control', 'no-store');
     ctx.set('X-Content-Type-Options', 'nosniff');
     if (!file.mime.startsWith('image/')) ctx.attachment(file.name);
+    if (ctx.query.thumbnail === '1' && file.mime.startsWith('image/')) {
+      try {
+        ctx.body = await portalThumbnail(file.id, Buffer.from(file.bytes));
+        ctx.type = 'image/webp';
+        return;
+      } catch {
+        // A legacy or unsupported image must not break the published page.
+        ctx.logger.warn('Portal thumbnail conversion failed for asset %s', file.id);
+      }
+    }
     ctx.type = file.mime;
     ctx.body = Buffer.from(file.bytes);
   }
