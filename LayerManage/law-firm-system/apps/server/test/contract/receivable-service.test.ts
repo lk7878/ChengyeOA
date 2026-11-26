@@ -423,7 +423,8 @@ interface PaymentContextOverrides {
 
 /** 收款授权上下文：grants 的 resource 取 permissionCode 前缀（=catalog.resource，与生产 loader 一致）。 */
 function paymentContext(userId: string, overrides: PaymentContextOverrides = {}): AuthorizationContext {
-  const permissionCodes = overrides.permissionCodes ?? PAYMENT_PERMISSIONS;
+  const requested = overrides.permissionCodes ?? PAYMENT_PERMISSIONS;
+  const permissionCodes: PermissionCode[] = requested.includes('payment.create') ? [...new Set<PermissionCode>([...requested, 'contract.read'])] : requested;
   const scopeIds = overrides.scopeIds ?? ['ALL'];
   return {
     userId,

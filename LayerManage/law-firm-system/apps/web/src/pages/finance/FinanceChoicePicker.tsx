@@ -6,6 +6,12 @@ export interface FinanceChoice {
   label: string;
   amount?: string;
   remaining?: string;
+  contractNo?: string;
+  customerName?: string;
+  caseNo?: string;
+  caseTitle?: string;
+  status?: string;
+  organizationName?: string;
 }
 export type ChoiceLoader = (
   page: number,
@@ -19,6 +25,7 @@ export default function FinanceChoicePicker({
   load,
   label,
   disabled,
+  valueChoice,
 }: {
   id?: string;
   value?: string;
@@ -27,6 +34,7 @@ export default function FinanceChoicePicker({
   load: ChoiceLoader;
   label: string;
   disabled?: boolean;
+  valueChoice?: FinanceChoice;
 }) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -62,9 +70,10 @@ export default function FinanceChoicePicker({
       window.clearTimeout(timer);
     };
   }, [load, page, search, revision, disabled]);
+  const currentChoice = valueChoice?.id === value ? valueChoice : selected;
   const choices =
-    selected && selected.id === value && !result.list.some((row) => row.id === value)
-      ? [selected, ...result.list]
+    currentChoice && currentChoice.id === value && !result.list.some((row) => row.id === value)
+      ? [currentChoice, ...result.list]
       : result.list;
   return (
     <>

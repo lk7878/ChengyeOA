@@ -1,3 +1,4 @@
+import { paymentContractScope } from './payment-contract-choices';
 import { createOnce } from '../finance/domain-mutation';
 import { notifyDeliveryChange } from '../collaboration/delivery-change';
 import { buildFinancialRecordScopeWhere, FinancialRecordScope } from '../finance/financial-record-scope';
@@ -339,7 +340,7 @@ export class ReceivableService {
     const remark = normalizeOptionalText(input.remark, 500);
     const idempotencyKey = normalizeOptionalText(input.idempotencyKey, 100);
 
-    const scopeWhere = await this.buildScopeWhere('payment.create');
+    const scopeWhere = await paymentContractScope(this.prisma, this.authorizationContext);
     const contract = await this.prisma.contract.findFirst({
       where: { AND: [scopeWhere, { id: contractId, deletedAt: null }] },
     });

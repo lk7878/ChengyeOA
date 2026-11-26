@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   DatePicker,
+  Descriptions,
   Form,
   Input,
   InputNumber,
@@ -26,7 +27,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { get } from '@/features/workspaces/api';
 import type { Directory, Workspace } from '@/features/workspaces/types';
 import { moneyBalance, moneyMinor } from '@/features/workspaces/money';
-import FinanceChoicePicker, { type ChoiceLoader } from './FinanceChoicePicker';
+import FinanceChoicePicker, { type ChoiceLoader, type FinanceChoice } from './FinanceChoicePicker';
 import type { FinanceKind } from './FinanceRecordPage';
 
 const names = { payment: '登记收款', invoice: '申请发票', refund: '申请退款减免', cost: '登记成本' };
@@ -66,6 +67,7 @@ export default function FinanceCreatePage({ kind }: { kind: FinanceKind }) {
   const [form] = Form.useForm<Values>();
   const [workspaces, setWorkspaces] = useState<Workspace[]>();
   const [directory, setDirectory] = useState<{ workspaceId: string; data: Directory }>();
+  const [paymentContract, setPaymentContract] = useState<FinanceChoice>();
   const [boundContract, setBoundContract] = useState<ContractView>();
   const [boundCase, setBoundCase] = useState<{
     id: string;
@@ -80,7 +82,7 @@ export default function FinanceCreatePage({ kind }: { kind: FinanceKind }) {
   const attempt = useRef<{ body: string; key: string } | undefined>(undefined);
   const workspaceId = Form.useWatch('workspaceId', form) || params.get('workspace') || '';
   const branchId = Form.useWatch('branchId', form);
-  const contractId = Form.useWatch('contractId', form) || params.get('contract') || '';
+  const contractId = Form.useWatch('contractId', form) || '';
   const refundType = Form.useWatch('type', form) || 'REFUND';
   const category = Form.useWatch('category', form) || (params.get('case') ? 'CASE_HANDLING' : 'OFFICE');
   const boundContractId = params.get('contract');
@@ -172,11 +174,19 @@ export default function FinanceCreatePage({ kind }: { kind: FinanceKind }) {
       if (!workspaceId || !canReadContract) return { list: [], total: 0 };
       return get<{ list: { id: string; label: string }[]; total: number }>(
         '/collaboration/contract-choices?' +
-          new URLSearchParams({ workspaceId, page: String(page), ...(keyword ? { keyword } : {}) }),
+          new URLSearchParams({ workspaceId, page: String(page), ...(keyword ? { keyword } : {}), ...(kind === 'payment' ? { purpose: 'payment' } : {}) }),
       );
     },
-    [workspaceId, canReadContract],
+    [workspaceId, canReadContract, kind],
   );
+  useEffect(() => {
+    if (kind !== 'payment' || !contractId || !workspaceId || !canReadContract) return;
+    let active = true;
+    void get<{ list: FinanceChoice[] }>('/collaboration/contract-choices?' + new URLSearchParams({ workspaceId, id: contractId, purpose: 'payment' }))
+      .then(data => { if (active) { setPaymentContract(data.list[0]); if (!data.list.length) { form.setFieldValue('contractId', undefined); setError('该合同当前不可登记收款，请重新选择。'); } } })
+      .catch(e => { if (active) { setPaymentContract(undefined); setError(requestErrorMessage(e)); } });
+    return () => { active = false; };
+  }, [kind, contractId, workspaceId, canReadContract, form, revision]);
   const caseChoices: ChoiceLoader = useCallback(
     async (page, keyword) => {
       if (!branchId || !canReadCase) return { list: [], total: 0 };
@@ -267,9 +277,9 @@ export default function FinanceCreatePage({ kind }: { kind: FinanceKind }) {
         const target = (await contractApi.detail(values.contractId)).data;
         const available = await get<{ total: number }>(
           '/collaboration/contract-choices?' +
-            new URLSearchParams({ workspaceId: values.workspaceId, id: target.id }),
+            new URLSearchParams({ workspaceId: values.workspaceId, id: target.id, ...(kind === 'payment' ? { purpose: 'payment' } : {}) }),
         );
-        if (!available.total) throw new Error('合同不属于当前工作区的授权范围，请重新选择。');
+        if (!available.total) throw new Error('合同当前不可登记：请核对合同状态与授权后重新选择。');
         const common = {
           contractId: target.id,
           amount: values.amount,
@@ -392,7 +402,7 @@ export default function FinanceCreatePage({ kind }: { kind: FinanceKind }) {
               }}
             />
           </Form.Item>
-          {(!boundContractId || kind === 'cost') && (
+          {kind !== 'payment' && (!boundContractId || kind === 'cost') && (
             <Form.Item
               name="branchId"
               label="关联记录所属组织"
@@ -412,7 +422,7 @@ export default function FinanceCreatePage({ kind }: { kind: FinanceKind }) {
           )}
           {kind !== 'cost' && (
             <Form.Item name="contractId" label="关联合同" rules={[{ required: true }]}>
-              {boundContractId ? (
+              {boundContractId && kind !== 'payment' ? (
                 <Select
                   disabled
                   options={
@@ -428,14 +438,25 @@ export default function FinanceCreatePage({ kind }: { kind: FinanceKind }) {
                 />
               ) : (
                 <FinanceChoicePicker
-                  key={String(branchId)}
+                  key={kind === 'payment' ? workspaceId : String(branchId)}
                   label="关联合同"
                   load={contractChoices}
-                  disabled={!branchId || !canReadContract}
-                  onPick={resetAnchors}
+                  valueChoice={kind === 'payment' ? paymentContract : undefined}
+                  disabled={!(kind === 'payment' ? workspaceId : branchId) || !canReadContract}
+                  onPick={(row) => { resetAnchors(); setPaymentContract(row); }}
                 />
               )}
             </Form.Item>
+          )}
+          {kind === 'payment' && paymentContract?.id === contractId && (
+            <Descriptions size="small" column={2} items={[
+              { key: 'number', label: '合同编号', children: paymentContract.contractNo },
+              { key: 'customer', label: '客户', children: paymentContract.customerName },
+              { key: 'case', label: '关联案件', children: paymentContract.caseNo ? `${paymentContract.caseNo} · ${paymentContract.caseTitle}` : '无可展示案件' },
+              { key: 'amount', label: '合同金额', children: `${paymentContract.amount} 元` },
+              { key: 'status', label: '合同状态', children: paymentContract.status === 'SIGNED' ? '已签署' : '已生效' },
+              { key: 'org', label: '合同所属组织', children: paymentContract.organizationName },
+            ]} />
           )}
           {kind === 'payment' && (
             <Form.Item name="paymentPlanId" label="指定应收期次（可选）">

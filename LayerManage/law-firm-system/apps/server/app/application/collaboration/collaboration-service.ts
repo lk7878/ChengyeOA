@@ -1,3 +1,4 @@
+import { paymentContractChoices } from '../contract/payment-contract-choices';
 import { fieldProtection, fieldStopped, presentedField } from './field-management-policy';
 import { fieldDependencies } from './field-dependencies';
 import { assertRegistrationEditable } from '../case/registration-policy';
@@ -3590,11 +3591,13 @@ export class CollaborationService {
     });
   }
   async contractChoices(raw: unknown) {
-    const input = exact(raw, ['workspaceId', 'page', 'keyword', 'id']);
+    const input = exact(raw, ['workspaceId', 'page', 'keyword', 'id', 'purpose']);
     const access = await this.access(text(input.workspaceId));
     const page = input.page === undefined ? 1 : integer(Number(input.page));
     if (page < 1 || page > 100000) fail('COLLAB_INVALID_VALUE');
     const keyword = input.keyword ? text(input.keyword, 100) : '';
+    if (input.purpose !== undefined && input.purpose !== 'payment') fail('COLLAB_INVALID_VALUE');
+    if (input.purpose === 'payment') return paymentContractChoices(this.db, this.actor, { page, keyword, id: input.id ? text(input.id) : undefined });
     const source = new WorkspaceDomainSource(this.db, this.actor);
     const where = Prisma.sql`${await source.scope('CONTRACTS', access)} AND ${input.id ? Prisma.sql`b.id = ${text(input.id)}` : Prisma.sql`TRUE`} AND (b."contractNo" ILIKE ${'%' + keyword + '%'} OR b.title ILIKE ${'%' + keyword + '%'})`;
     const rows = await this.db.$queryRaw<Array<{ id: string; label: string }>>(
