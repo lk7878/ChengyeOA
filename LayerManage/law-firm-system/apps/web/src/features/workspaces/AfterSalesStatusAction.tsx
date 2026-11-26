@@ -23,7 +23,7 @@ export default function AfterSalesStatusAction({
       disabled={
         disabled || !status.writable || row.writable === false || row.readonlyFields?.includes(status.id)
       }
-      title="需办理退费时，将协商状态改为“协商未果 / 需退款”，再到退费管理表选择此记录。"
+      title="将协商状态改为“协商未果 / 需退款”并保存后，系统自动生成退费待办。"
       onClick={() => onEdit(status)}
     >
       协商状态：{label}
