@@ -100,8 +100,8 @@ test('case refund creates one financial application; approved execution writes b
   assert.equal((await svc.attachment(r.table.id,file.id)).id,file.id);
   assert.equal((await db.contract.findUniqueOrThrow({where:{id:contract.id}})).receivedAmount.toFixed(2),'220.00');
   assert.equal(await db.refundAllocation.count({where:{refundId:request.id}}),1);
-  await assert.rejects(svc.saveRecord(r.table.id,source.id,{schemaVersion:1,version:1,values:vals(r,{actualRefundAmount:'1'})},key()),/COLLAB_READONLY_FIELD/);
-  await assert.rejects(svc.saveRecord(r.table.id,source.id,{schemaVersion:1,version:1,archived:true},key()),/LIFECYCLE_FINANCE_LOCKED/);
+  await assert.rejects(svc.saveRecord(r.table.id,source.id,{schemaVersion:1,version:source.version,values:vals(r,{actualRefundAmount:'1'})},key()),/COLLAB_READONLY_FIELD/);
+  await assert.rejects(svc.saveRecord(r.table.id,source.id,{schemaVersion:1,version:source.version,archived:true},key()),/LIFECYCLE_FINANCE_LOCKED/);
   await assert.rejects(finance.voidPayment(payment.id,{reason:'不能覆盖退款历史'}),/FINANCE_RECEIPT_HAS_REFUND/);
   assert.equal(await db.refundRequest.count({where:{sourceRecordId:source.id}}),1);
 });
@@ -110,7 +110,7 @@ test('pending refund deletion cancels its application; undo and rejected resubmi
   const after=await create(a,{upstreamId:row.id,content:'协商失败',status:'REFUND_REQUIRED'});
   const source=await create(r,{upstreamId:after.id,content:'退款申请',amount:'100'});
   const request=await db.refundRequest.findUniqueOrThrow({where:{sourceRecordId:source.id}});
-  const removed=await svc.saveRecord(r.table.id,source.id,{schemaVersion:1,version:1,archived:true},key());
+  const removed=await svc.saveRecord(r.table.id,source.id,{schemaVersion:1,version:source.version,archived:true},key());
   assert.equal((await db.refundRequest.findUniqueOrThrow({where:{id:request.id}})).status,'REJECTED');
   await svc.reverseRecordOperation(r.table.id,removed.operationId,{direction:'undo'},key());
   assert.equal((await db.refundRequest.findUniqueOrThrow({where:{id:request.id}})).status,'PENDING');
@@ -223,13 +223,17 @@ async function setup() {
         v,
       ]),
     );
-  const create = (detail: typeof a, input: Record<string, unknown>) =>
-    svc.saveRecord(
+  const create = async (detail: typeof a, input: Record<string, unknown>) => {
+    const pending = detail.table.id === r.table.id ? await db.collabLifecycleLink.findFirst({
+      where: { tableId: r.table.id, parentRecordId: String(input.upstreamId), status: 'AUTO_PENDING' }, include: { record: true },
+    }) : null;
+    return svc.saveRecord(
       detail.table.id,
-      undefined,
-      { schemaVersion: detail.table.schemaVersion, values: vals(detail, input) },
+      pending?.recordId,
+      { schemaVersion: detail.table.schemaVersion, ...(pending ? { version: pending.record.version } : {}), values: vals(detail, input) },
       key(),
     );
+  };
   return { customer, contract, row, a, r, vals, create };
 }
 test('an empty misconfigured after-sales table can become a refund table without replacing field IDs', async () => {
@@ -297,7 +301,7 @@ test('linked worksheets query current upstream fields; edits, deletion and undo 
   assert.equal((await svc.query(a.table.id, {})).total, 1);
   assert.ok(undone);
 });
-test('refund requires unresolved after-sales; duplicates, orphan deletion and state rollback are rejected', async () => {
+test('refund todo follows after-sales status; duplicates and orphan deletion remain rejected', async () => {
   const { row, a, r, vals, create } = await setup();
   const after = await create(a, { upstreamId: row.id, content: '退款争议' });
   const pendingChoices = await svc.lifecycleChoices(r.table.id, {});
@@ -321,7 +325,8 @@ test('refund requires unresolved after-sales; duplicates, orphan deletion and st
   assert.equal(ready.id, after.id);
   assert.equal(ready.disabled, false);
   assert.equal(ready.disabledReason, undefined);
-  assert.equal((await svc.query(r.table.id, {})).total, 0, 'status changes alone must not invent a refund amount or record');
+  assert.equal((await svc.query(r.table.id, {})).total, 1, 'status changes create one pending todo');
+  assert.equal(await db.refundRequest.count(), 0, 'no financial application before amount is entered');
   const refund = await create(r, { upstreamId: after.id, content: '协商失败退款', amount: '100' });
   const linkedRefund = await db.collabLifecycleLink.findUniqueOrThrow({where:{recordId:refund.id}});
   assert.equal(linkedRefund.parentRecordId, after.id);
@@ -341,17 +346,18 @@ test('refund requires unresolved after-sales; duplicates, orphan deletion and st
     ),
     /LIFECYCLE_HAS_CHILDREN/,
   );
-  await assert.rejects(
-    svc.reverseRecordOperation(a.table.id, changed.operationId, { direction: 'undo' }, key()),
-    /LIFECYCLE_HAS_CHILDREN/,
-  );
+  await svc.reverseRecordOperation(a.table.id, changed.operationId, { direction: 'undo' }, key());
+  assert.equal((await svc.query(r.table.id, {})).total, 0);
+  assert.equal((await db.collabRecord.findUniqueOrThrow({where:{id:refund.id}})).archived,true);
+  await svc.reverseRecordOperation(a.table.id, changed.operationId, { direction: 'redo' }, key());
+  assert.equal((await svc.query(r.table.id, {})).total, 1);
   await assert.rejects(
     new CaseService(db, { actorUserId: user }, ctx).deleteCase(row.id, { version: 1 }),
     (e: unknown) => (e as { code: string }).code === 'CASE_IN_USE',
   );
   assert.ok(await db.collabRecord.findUnique({ where: { id: refund.id } }));
   const feeField = r.fields.find(f => f.options.lifecycleKey === 'feeTotalLookup')!;
-  await svc.saveRecord(a.table.id, after.id, {schemaVersion:1,version:changed.version,values:vals(a,{feeTotal:'3000'})}, key());
+  await svc.saveRecord(a.table.id, after.id, {schemaVersion:1,version:(await db.collabRecord.findUniqueOrThrow({where:{id:after.id}})).version,values:vals(a,{feeTotal:'3000'})}, key());
   assert.equal((await svc.record(r.table.id,refund.id)).record.values[feeField.id], '3000');
 
 });
@@ -650,7 +656,7 @@ test('standard fields synchronize case data and refund attachment lookup enforce
   assert.equal(view.values[rField('terminated').id],null);
   assert.equal((await svc.record(a.table.id,parent.id)).record.values[aField('terminated').id],null);
   assert.equal(rField('refundReceiptLookup').writable,false);
-  await assert.rejects(svc.saveRecord(r.table.id,refund.id,{schemaVersion:1,version:1,values:vals(r,{refundReceiptLookup:[]})},key()),/COLLAB_READONLY_FIELD/);
+  await assert.rejects(svc.saveRecord(r.table.id,refund.id,{schemaVersion:1,version:refund.version,values:vals(r,{refundReceiptLookup:[]})},key()),/COLLAB_READONLY_FIELD/);
   const other=(await db.user.create({data:{username:key(),password:'unused'}})).id;
   const actor={...ctx,userId:other,isSystemSuperAdmin:false};
   const ordinary=new CollaborationService(db,actor);
@@ -686,14 +692,14 @@ test('field layout upgrade preserves records and IDs while applying exact defaul
  assert.equal(await db.collabRecord.count({where:{id:saved.id}}),1);
  assert.equal(await db.collabField.count({where:{tableId:cases.id}}),oldFields.length);
  for(const f of oldFields)assert.ok(await db.collabField.findUnique({where:{id:f.id}}));
- assert.equal(await db.collabField.count({ where: { tableId: cases.id, archived: false } }), 27);
+ assert.equal(await db.collabField.count({ where: { tableId: cases.id, archived: false } }), 28);
  assert.equal((await db.collabField.findUniqueOrThrow({ where: { id: retired.id } })).archived, true);
  const updated=await svc.describe(cases.id);
- assert.equal(updated.fields.length, 27);
+ assert.equal(updated.fields.length, 28);
  assert.equal((updated.views[0].config as { filter?: unknown }).filter, undefined);
  await assert.rejects(svc.saveRecord(cases.id,row.id,{schemaVersion:updated.table.schemaVersion,version:1,values:{[retired.id]:'20'}},key()), /COLLAB_FIELD_UNAVAILABLE/);
  const ids=(updated.views[0].config as {visibleFields:string[]}).visibleFields;
- assert.deepEqual(ids.map(id=>updated.fields.find(f=>f.id===id)!.name),['合同ID','合同未回','签约日期','合同编号','客户姓名','地区','客户电话','对方当事人','案件类型','案由','代理程序','代理费收款方式','固定代理费','案件基础代理费','风险代理金额','风险代理比例','代理费付款特别约定','所属业务部门','主办律师','承办律师','合同附件','收款明细','累计收款总额','收款凭证（同步）','记录创建时间','最近修改时间','备注']);
+ assert.deepEqual(ids.map(id=>updated.fields.find(f=>f.id===id)!.name),['合同ID','合同未回','签约日期','合同编号','客户姓名','案件来源','地区','客户电话','对方当事人','案件类型','案由','代理程序','代理费收款方式','固定代理费','案件基础代理费','风险代理金额','风险代理比例','代理费付款特别约定','所属业务部门','主办律师','承办律师','合同附件','收款明细','累计收款总额','收款凭证（同步）','记录创建时间','最近修改时间','备注']);
  for(const t of [a,r])assert.equal(((await svc.describe(t.table.id)).views[0].config as {visibleFields:string[]}).visibleFields.length,t.table.lifecycleKind==='AFTER_SALES'?27:31);
  assert.ok((await svc.describe(r.table.id)).fields.some(f=>(f.options as Record<string,unknown>).lifecycleKey==='recipientBank'));
 });
@@ -736,7 +742,7 @@ test('linked cases fill authoritative intake; manual cases keep editable values'
   assert.equal(linked.intakeData.customerPhone,customer.phone);
   const table=await svc.createTable(base,{name:'案件管理',source:'CASES'},key());
   const description=await svc.describe(table.id);
-  assert.equal(description.fields.length,27);
+  assert.equal(description.fields.length,28);
   const field=(name:string)=>description.fields.find(f=>f.options.businessKey===name)!;
   const record=(await svc.record(table.id,linked.id)).record;
   for(const name of ['signedDate','region','customerPhone']) {
@@ -842,4 +848,99 @@ test('case overview reuses the primary lawyer, retaining custom view order, old 
   assert.equal(added.type, 'USER');
   assert.deepEqual((await db.collabView.findUniqueOrThrow({where:{id:view.id}})).config,
     { ...config, visibleFields: [remark.id, added.id, handler.id] });
+});
+
+
+test('automatic todos are idempotent, incomplete, permission-filtered and support deleting/restoring before filling amount', async () => {
+  const { a, r, row, vals, create, contract, customer } = await setup();
+  const after = await create(a, { upstreamId: row.id, status: 'REFUND_REQUIRED', content: '不应绕过售后字段授权复制的备注' });
+  const todo = await db.collabLifecycleLink.findFirstOrThrow({ where: { parentRecordId: after.id }, include: { record: true } });
+  const rf = (k: string) => r.fields.find(f => f.options.lifecycleKey === k)!.id;
+  assert.equal(todo.status, 'AUTO_PENDING');
+  assert.equal((todo.record.values as Record<string, unknown>)[rf('amount')], undefined);
+  assert.equal((todo.record.values as Record<string, unknown>)[rf('content')], '售后转退费，待补充退款信息');
+  assert.equal(await db.refundRequest.count(), 0);
+  const projected = (await svc.record(r.table.id, todo.recordId)).record;
+  assert.equal(projected.values[rf('contractNo')], contract.contractNo);
+  assert.equal(projected.values[rf('customerName')], customer.name);
+  assert.equal(projected.values[rf('refundStatus')], '待补充退款信息');
+  const limited = new CollaborationService(db, { ...ctx, isSystemSuperAdmin: false,
+    permissionCodes: ctx.permissionCodes.filter(p => !['customer.read', 'contract.read'].includes(p)),
+    grants: ctx.grants.filter(p => !['customer.read', 'contract.read'].includes(p.permissionCode)) });
+  const masked = (await limited.record(r.table.id, todo.recordId)).record;
+  assert.equal(masked.values[rf('customerName')], null);
+  assert.equal(masked.values[rf('customerPhone')], null);
+  assert.equal(masked.values[rf('contractNo')], null);
+  for (const amount of ['0', '-1', '1.001']) {
+    await assert.rejects(svc.saveRecord(r.table.id, todo.recordId, { schemaVersion: 1, version: todo.record.version, values: vals(r, { amount }) }, key()), /LIFECYCLE_INVALID_AMOUNT|COLLAB_INVALID_VALUE|COLLAB_INVALID_CURRENCY/);
+  }
+  await svc.saveRecord(a.table.id, after.id, { schemaVersion: 1, version: after.version, values: vals(a, { status: 'REFUND_REQUIRED', content: '更新协商备注' }) }, key());
+  assert.equal(await db.collabLifecycleLink.count({ where: { parentRecordId: after.id } }), 1);
+  const partial = await svc.saveRecord(r.table.id, todo.recordId, { schemaVersion: 1, version: todo.record.version, values: vals(r, { recipientName: '收款人甲' }) }, key());
+  assert.equal(await db.refundRequest.count(), 0);
+  const removed = await svc.saveRecord(r.table.id, todo.recordId, { schemaVersion: 1, version: partial.version, archived: true }, key());
+  await svc.reverseRecordOperation(r.table.id, removed.operationId, { direction: 'undo' }, key());
+  assert.equal(await db.refundRequest.count(), 0);
+  assert.equal((await svc.query(r.table.id, {})).total, 1);
+});
+
+test('withdraw and re-enter reuse the same todo and cancel pending finance without erasing user input', async () => {
+  const { a, r, row, vals, create } = await setup();
+  const after = await create(a, { upstreamId: row.id, status: 'REFUND_REQUIRED', content: '需要退款' });
+  const refund = await create(r, { upstreamId: after.id, amount: '123.45', content: '经办人填写', recipientName: '甲', recipientAccount: '12345' });
+  const original = await db.collabRecord.findUniqueOrThrow({ where: { id: refund.id } });
+  let version = after.version;
+  for (const status of ['OPEN', 'REFUND_REQUIRED', 'RESOLVED', 'REFUND_REQUIRED']) {
+    const changed = await svc.saveRecord(a.table.id, after.id, { schemaVersion: 1, version, values: vals(a, { status }) }, key());
+    version = changed.version;
+    assert.equal((await svc.query(r.table.id, {})).total, status === 'REFUND_REQUIRED' ? 1 : 0);
+    assert.equal((await db.collabRecord.findUniqueOrThrow({ where: { id: after.id } })).archived, false);
+    assert.deepEqual((await db.collabRecord.findUniqueOrThrow({ where: { id: refund.id } })).values, original.values);
+    assert.equal((await db.refundRequest.findUniqueOrThrow({ where: { sourceRecordId: refund.id } })).status, 'REJECTED');
+  }
+  assert.equal(await db.collabLifecycleLink.count({ where: { parentRecordId: after.id } }), 1);
+  const latest = await db.collabRecord.findUniqueOrThrow({ where: { id: refund.id } });
+  await svc.saveRecord(r.table.id, refund.id, { schemaVersion: 1, version: latest.version, values: vals(r, { content: '确认重新申请' }) }, key());
+  assert.equal((await db.refundRequest.findUniqueOrThrow({ where: { sourceRecordId: refund.id } })).status, 'PENDING');
+  assert.equal(await db.refundRequest.count(), 1);
+});
+
+test('approved finance atomically blocks status rollback and preserves the after-sales and refund records', async () => {
+  const { a, r, row, vals, create } = await setup();
+  const after = await create(a, { upstreamId: row.id, status: 'REFUND_REQUIRED', content: '需要退款' });
+  const refund = await create(r, { upstreamId: after.id, amount: '50', content: '退款申请' });
+  const request = await db.refundRequest.findUniqueOrThrow({ where: { sourceRecordId: refund.id } });
+  await new RefundService(db, { actorUserId: user }, ctx).approveRefundRequest(request.id, {});
+  await assert.rejects(svc.saveRecord(a.table.id, after.id, { schemaVersion: 1, version: after.version, values: vals(a, { status: 'RESOLVED' }) }, key()), /LIFECYCLE_FINANCE_LOCKED/);
+  assert.equal((await db.collabLifecycleLink.findUniqueOrThrow({ where: { recordId: after.id } })).status, 'REFUND_REQUIRED');
+  assert.equal((await db.collabRecord.findUniqueOrThrow({ where: { id: after.id } })).version, after.version);
+  assert.equal((await db.collabRecord.findUniqueOrThrow({ where: { id: refund.id } })).archived, false);
+});
+
+test('missing or ambiguous refund destination rolls back source save rather than silently dropping or duplicating todos', async () => {
+  const { a, r, row, vals, create } = await setup();
+  const after = await create(a, { upstreamId: row.id, content: '协商中' });
+  const transition = () => svc.saveRecord(a.table.id, after.id, { schemaVersion: 1, version: after.version, values: vals(a, { status: 'REFUND_REQUIRED' }) }, key());
+  await db.collabTable.update({ where: { id: r.table.id }, data: { archived: true } });
+  await assert.rejects(transition(), /LIFECYCLE_REFUND_TARGET_UNAVAILABLE/);
+  await db.collabTable.update({ where: { id: r.table.id }, data: { archived: false } });
+  await svc.createTable(base, { name: '第二个退费目标', template: 'CASE_REFUNDS' }, key());
+  await assert.rejects(transition(), /LIFECYCLE_REFUND_TARGET_UNAVAILABLE/);
+  assert.equal((await db.collabLifecycleLink.findUniqueOrThrow({ where: { recordId: after.id } })).status, 'OPEN');
+  assert.equal(await db.collabLifecycleLink.count({ where: { parentRecordId: after.id } }), 0);
+});
+
+test('concurrent source saves produce one todo and reject stale versions; no refund creation permission is delegated', async () => {
+  const { a, r, row, vals, create } = await setup();
+  const after = await create(a, { upstreamId: row.id, content: '协商中' });
+  const ordinary = { ...ctx, isSystemSuperAdmin: false,
+    permissionCodes: ctx.permissionCodes.filter(p => !p.startsWith('refund.')),
+    grants: ctx.grants.filter(p => !p.permissionCode.startsWith('refund.')) };
+  const writer = new CollaborationService(db, ordinary);
+  const results = await Promise.allSettled([1, 2].map(() => writer.saveRecord(a.table.id, after.id, { schemaVersion: 1, version: after.version, values: vals(a, { status: 'REFUND_REQUIRED' }) }, key())));
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
+  assert.equal(await db.collabLifecycleLink.count({ where: { parentRecordId: after.id } }), 1);
+  const todo = await db.collabLifecycleLink.findFirstOrThrow({ where: { parentRecordId: after.id }, include: { record: true } });
+  await assert.rejects(writer.saveRecord(r.table.id, todo.recordId, { schemaVersion: 1, version: todo.record.version, values: vals(r, { amount: '10' }) }, key()), /COLLAB_FORBIDDEN/);
+  assert.equal(await db.refundRequest.count(), 0);
 });

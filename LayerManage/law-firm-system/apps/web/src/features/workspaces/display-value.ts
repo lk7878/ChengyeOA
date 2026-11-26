@@ -30,7 +30,7 @@ export function fieldHint(field: Field) {
   if (field.options.businessSource === 'PAYMENTS' && ['invoiceNo','invoiceStatus'].includes(field.options.businessKey || '')) return '按关联合同的已完成开票申请同步；请在发票业务表办理开票。';
   if (['receiptDetails','receiptTotal','receiptFiles'].includes(field.options.businessKey || '') || ['actualRefundAmount','refundPaidAt','refundStatus','refundReceiptLookup'].includes(field.options.lifecycleKey || '')) return '财务数据仅限财务部录入，此处为自动同步。';
   if (field.options.lifecycleKey === 'status' && field.options.choices?.some(choice => choice.id === 'REFUND_REQUIRED'))
-    return '需要办理退费时，选择“协商未果 / 需退款”并保存，再到退费管理表选择该售后记录，填写退款信息。';
+    return '选择“协商未果 / 需退款”并保存后，自动生成退费待办；改回其他状态将撤回待办。已审批或已退款的记录不可自动撤回。';
   if (field.options.lifecycleKey === 'terminated') return '判断规则待补充；暂时保持只读空值。';
   if (
     field.options.businessSource === 'CASES' &&

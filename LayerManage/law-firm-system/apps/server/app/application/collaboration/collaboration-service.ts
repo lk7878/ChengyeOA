@@ -2912,7 +2912,7 @@ export class CollaborationService {
           await validateOfficeStock(tx, table, table.fields, restoredValues, row.id);
           await validateAdministrativeRecord(tx, table, table.fields, restoredValues, row.id);
           await validateCaseArchiveRecord(tx, table, table.fields, restoredValues, row.id);
-          for (const field of table.fields.filter((f) => !f.archived && !isSystemField(f))) {
+          for (const field of await this.lifecycle().pendingFields(tx, row.id, table.fields.filter((f) => !f.archived && !isSystemField(f)))) {
             if (restoredValues[field.id] === undefined && field.defaultValue !== null)
               restoredValues[field.id] = field.defaultValue;
             validateValue(field, restoredValues[field.id]);
@@ -2920,7 +2920,7 @@ export class CollaborationService {
           await this.values(
             tx,
             tableId,
-            table.fields.filter((f) => !f.archived),
+            await this.lifecycle().pendingFields(tx, row.id, table.fields.filter((f) => !f.archived)),
             access,
             {},
             restoredValues,
@@ -2937,6 +2937,10 @@ export class CollaborationService {
               },
             })
           ).version;
+          if(table.lifecycleKind==='AFTER_SALES') {
+            const link=await tx.collabLifecycleLink.findUniqueOrThrow({where:{recordId:row.id}});
+            await this.lifecycle().syncRefundTodo(tx,table,{...row,archived:false,version},link.caseId,link.status);
+          }
           if(table.lifecycleKind==='CASE_REFUNDS') {
             const link=await tx.collabLifecycleLink.findUniqueOrThrow({where:{recordId:row.id}});
             await this.lifecycle().syncFinancialApplication(tx,table,{...row,values:restoredValues as Prisma.JsonObject,archived:false,version},table.fields,link.caseId);
@@ -3430,7 +3434,7 @@ export class CollaborationService {
         const next = await this.values(
           tx,
           tableId,
-          fields,
+          table.lifecycleKind === 'CASE_REFUNDS' ? await this.lifecycle().pendingFields(tx, recordId, fields) : fields,
           access,
           prepared,
           previous ? hrValues(table.fields,previous.values,false) : {},
@@ -3468,6 +3472,7 @@ export class CollaborationService {
         if (lifecycleData) {
           await tx.collabLifecycleLink.upsert({ where: { recordId: record.id }, create: { ...lifecycleData, recordId: record.id }, update: lifecycleData });
           await this.lifecycle().syncFinancialApplication(tx,table,record,table.fields,lifecycleData.caseId);
+          await this.lifecycle().syncRefundTodo(tx,table,record,lifecycleData.caseId,lifecycleData.status);
           await tx.operationLog.create({ data: { userId: this.actor.userId, action: input.archived ? 'LIFECYCLE_DELETE' : previous ? 'LIFECYCLE_UPDATE' : 'LIFECYCLE_CREATE', targetType: 'COLLAB_RECORD', targetId: record.id, newValues: JSON.stringify({ ...lifecycleData, fields: Object.keys(object(input.values ?? {})), version: record.version }) } });
         }
         const changes = Object.fromEntries(

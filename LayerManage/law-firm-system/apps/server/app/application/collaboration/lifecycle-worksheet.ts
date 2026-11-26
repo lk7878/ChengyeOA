@@ -2,6 +2,7 @@ import { INTAKE_OPTIONS } from '../case/intake-contract';
 import { nextRefundNo } from '../contract/contract-number-service';
 import { PrismaEventOutboxWriter } from '../events/event-outbox-writer';
 import { randomUUID } from 'node:crypto';
+import { appendCollaborationChange } from './collaboration-change';
 import { notifyDeliveryChange } from './delivery-change';
 import { auditRawL3Access } from '../crm/lead-audit';
 import { AuthorizationService } from '../authorization/authorization-service';
@@ -283,7 +284,7 @@ export class LifecycleWorksheet {
       expressions.refundPaidAt=Prisma.sql`(SELECT f."paidAt"::text FROM refund_request f WHERE f."sourceRecordId"=r.id AND f.status='EXECUTED')`;
       expressions.refundReceiptLookup=Prisma.sql`(SELECT f."voucherFiles" FROM refund_request f WHERE f."sourceRecordId"=r.id AND f.status='EXECUTED')`;
       expressions.refundRequestNo=Prisma.sql`(SELECT f."requestNo" FROM refund_request f WHERE f."sourceRecordId"=r.id)`;
-      expressions.refundStatus=Prisma.sql`(SELECT CASE f.status WHEN 'EXECUTED' THEN '已退款' WHEN 'REJECTED' THEN '已驳回' WHEN 'APPROVED' THEN '待退款（已审批）' ELSE '待退款（待审批）' END FROM refund_request f WHERE f."sourceRecordId"=r.id)`;
+      expressions.refundStatus=Prisma.sql`CASE WHEN x.status='AUTO_PENDING' THEN '待补充退款信息' ELSE (SELECT CASE f.status WHEN 'EXECUTED' THEN '已退款' WHEN 'REJECTED' THEN '已驳回' WHEN 'APPROVED' THEN '待退款（已审批）' ELSE '待退款（待审批）' END FROM refund_request f WHERE f."sourceRecordId"=r.id) END`;
     }
     const visibleKeys = fields.map(lifecycleKey);
     const label = Prisma.sql`concat_ws(' · ', ${visibleKeys.includes('contractNo') || visibleKeys.includes('upstreamId') ? expressions.contractNo : Prisma.sql`NULL`}, ${visibleKeys.includes('caseNo') ? expressions.caseNo : Prisma.sql`NULL`}, ${visibleKeys.includes('caseTitle') ? expressions.caseTitle : Prisma.sql`NULL`})`;
@@ -401,9 +402,7 @@ export class LifecycleWorksheet {
     if (previous) {
       const old = await tx.collabLifecycleLink.findUnique({ where: { recordId: previous.id } });
       if (
-        (deleting ||
-          old?.caseId !== caseId ||
-          (old?.status === 'REFUND_REQUIRED' && get('status') !== 'REFUND_REQUIRED')) &&
+        (deleting || old?.caseId !== caseId) &&
         (await tx.collabLifecycleLink.count({ where: { parentRecordId: previous.id } }))
       )
         fail('LIFECYCLE_HAS_CHILDREN', 409);
@@ -412,7 +411,10 @@ export class LifecycleWorksheet {
       where: { tableId: table.id, caseId, ...(previous ? { recordId: { not: previous.id } } : {}) },
     });
     if (duplicate) fail('LIFECYCLE_DUPLICATE_CASE', 409);
+    let pending = false;
     if (table.lifecycleKind === 'CASE_REFUNDS') {
+      const link = previous ? await tx.collabLifecycleLink.findUnique({ where: { recordId: previous.id } }) : null;
+      pending = link?.status === 'AUTO_PENDING' && (get('amount') === undefined || get('amount') === null || get('amount') === '');
       if (previous) {
         const financial = await tx.refundRequest.findUnique({where:{sourceRecordId:previous.id}});
         if (financial && (!['PENDING','REJECTED'].includes(financial.status) || financial.contractId !== rows[0].contractId)) fail('LIFECYCLE_FINANCE_LOCKED',409);
@@ -433,9 +435,9 @@ export class LifecycleWorksheet {
         fail('LIFECYCLE_REFUND_CONTRACT_UNAVAILABLE', 403);
       const amount = String(get('amount') ?? '');
       if (
-        !/^\d+(\.\d{1,2})?$/.test(amount) ||
+        !pending && (!/^\d+(\.\d{1,2})?$/.test(amount) ||
         !new Prisma.Decimal(amount).greaterThan(0) ||
-        new Prisma.Decimal(amount).greaterThan('9999999999999999.99')
+        new Prisma.Decimal(amount).greaterThan('9999999999999999.99'))
       )
         fail('LIFECYCLE_INVALID_AMOUNT', 422);
     }
@@ -444,11 +446,88 @@ export class LifecycleWorksheet {
       caseId,
       parentRecordId,
       kind: table.lifecycleKind!,
-      status: text(get('status')),
+      status: pending ? 'AUTO_PENDING' : text(get('status')),
     };
+  }
+  /** System-created todos are intentionally incomplete, never a zero-value financial request. */
+  async pendingFields(tx: Tx, recordId: string | undefined, fields: CollabField[]) {
+    const link = recordId ? await tx.collabLifecycleLink.findUnique({ where: { recordId } }) : null;
+    return link?.kind === 'CASE_REFUNDS' && link.status === 'AUTO_PENDING'
+      ? fields.map(f => lifecycleKey(f) === 'amount' ? { ...f, required: false } : f)
+      : fields;
+  }
+
+  /** Runs in the source save transaction (including inline edits, batches and undo). */
+  async syncRefundTodo(tx: Tx, table: CollabTable, source: CollabRecord, caseId: string, status: string) {
+    if (table.lifecycleKind !== 'AFTER_SALES') return;
+    const children = await tx.collabLifecycleLink.findMany({
+      where: { parentRecordId: source.id, kind: 'CASE_REFUNDS' },
+      include: { record: { include: { table: true } } },
+    });
+    if (status !== 'REFUND_REQUIRED' || source.archived) {
+      for (const child of children.filter(c => !c.record.archived)) {
+        // Serialize against finance approval/execution, not just table edits.
+        await tx.$queryRaw`SELECT id FROM refund_request WHERE "sourceRecordId"=${child.recordId} FOR UPDATE`;
+        const financial = await tx.refundRequest.findUnique({ where: { sourceRecordId: child.recordId } });
+        if (financial && !['PENDING', 'REJECTED'].includes(financial.status)) fail('LIFECYCLE_FINANCE_LOCKED', 409);
+        if (financial) {
+          await tx.refundRequest.update({ where: { id: financial.id }, data: {
+            status: 'REJECTED', approvalComment: 'AFTER_SALES_WITHDRAWN', updatedBy: this.actor.userId, version: { increment: 1 },
+          } });
+          await notifyDeliveryChange(tx, this.actor.userId, financial.id);
+        }
+        const saved = await tx.collabRecord.update({ where: { id: child.recordId }, data: {
+          archived: true, updatedBy: this.actor.userId, version: { increment: 1 },
+        } });
+        await tx.collabLifecycleLink.update({ where: { recordId: saved.id }, data: { status: 'AUTO_WITHDRAWN' } });
+        await tx.collabRevision.create({ data: { recordId: saved.id, version: saved.version, actorId: this.actor.userId,
+          changes: { archived: { before: false, after: true } } } });
+        await appendCollaborationChange(tx, this.actor.userId, child.record.table.baseId, 'refund.todo.withdrawn', saved.id);
+      }
+      return;
+    }
+    if (children.length) {
+      for (const child of children.filter(c => c.status === 'AUTO_WITHDRAWN' && c.record.archived && !c.record.table.archived)) {
+        const saved = await tx.collabRecord.update({ where: { id: child.recordId }, data: {
+          archived: false, updatedBy: this.actor.userId, version: { increment: 1 },
+        } });
+        // Restore the same todo, with all user-entered fields intact. Finance resumes only after a user saves it.
+        await tx.collabLifecycleLink.update({ where: { recordId: saved.id }, data: { status: 'AUTO_PENDING' } });
+        await tx.collabRevision.create({ data: { recordId: saved.id, version: saved.version, actorId: this.actor.userId,
+          changes: { archived: { before: true, after: false } } } });
+        await appendCollaborationChange(tx, this.actor.userId, child.record.table.baseId, 'refund.todo.restored', saved.id);
+      }
+      return;
+    }
+    const targets = await tx.collabTable.findMany({ where: {
+      baseId: table.baseId, lifecycleKind: 'CASE_REFUNDS', source: 'CUSTOM', archived: false,
+    }, include: { fields: { where: { archived: false } } } });
+    if (targets.length !== 1) fail('LIFECYCLE_REFUND_TARGET_UNAVAILABLE', 409);
+    const target = targets[0];
+    if (await tx.collabLifecycleLink.findFirst({ where: { tableId: target.id, caseId } })) fail('LIFECYCLE_DUPLICATE_CASE', 409);
+    const values: Prisma.JsonObject = {};
+    for (const field of target.fields) {
+      const fieldKey = lifecycleKey(field);
+      if (fieldKey === 'upstreamId') values[field.id] = source.id;
+      else if (fieldKey === 'status') values[field.id] = 'OPEN';
+      else if (fieldKey === 'content') values[field.id] = '售后转退费，待补充退款信息';
+      else if (fieldKey === 'createdAt' || fieldKey === 'updatedAt') values[field.id] = new Date().toISOString();
+    }
+    if (!target.fields.some(f => lifecycleKey(f) === 'upstreamId') || !target.fields.some(f => lifecycleKey(f) === 'amount')) fail('LIFECYCLE_REFUND_TARGET_UNAVAILABLE', 409);
+    // Core case data stays a permission-filtered live projection, never a copied raw snapshot.
+    const saved = await tx.collabRecord.create({ data: {
+      tableId: target.id, values, createdBy: source.createdBy, ownerId: source.ownerId, updatedBy: this.actor.userId,
+    } });
+    await tx.collabLifecycleLink.create({ data: { recordId: saved.id, tableId: target.id, caseId,
+      parentRecordId: source.id, kind: 'CASE_REFUNDS', status: 'AUTO_PENDING' } });
+    await tx.collabRevision.create({ data: { recordId: saved.id, version: saved.version, actorId: this.actor.userId,
+      changes: Object.fromEntries(Object.entries(values).map(([id, value]) => [id, { before: null as Prisma.JsonValue, after: value }])) } });
+    await appendCollaborationChange(tx, this.actor.userId, target.baseId, 'refund.todo.created', saved.id);
   }
   async syncFinancialApplication(tx: Tx, table: CollabTable, record: CollabRecord, fields: CollabField[], caseId: string) {
     if (table.lifecycleKind !== 'CASE_REFUNDS') return;
+    const link = await tx.collabLifecycleLink.findUnique({ where: { recordId: record.id } });
+    if (link?.status === 'AUTO_PENDING') return;
     const values=object(record.values);
     const get=(key:string)=>values[fields.find(f=>lifecycleKey(f)===key)?.id??''];
     const linkedCase=await tx.case.findUniqueOrThrow({where:{id:caseId}});
