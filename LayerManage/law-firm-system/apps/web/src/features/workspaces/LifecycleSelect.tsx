@@ -119,7 +119,7 @@ export default function LifecycleSelect({
       {sourceKind === 'AFTER_SALES' && (
         <Typography.Text type="secondary">
           在售后管理表的行操作中，将“协商状态”设为“协商未果 /
-          需退款”并保存，再刷新关联项。选择售后记录并保存退款信息后，才会生成退费记录。
+          需退款”并保存后，系统自动生成退费待办。请在待办中补充退款信息；改回其他协商状态会撤回待办。已审批或已退款的记录不可自动撤回。
         </Typography.Text>
       )}
       <Button
