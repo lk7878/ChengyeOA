@@ -6,9 +6,8 @@ import { moduleOptions, isBusinessSource } from '../crm/business-sources';
 import { useUnifiedShell } from '../navigation/shell-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { Alert, Breadcrumb, Button, Dropdown, Empty, Input, Pagination, Select, Space, Spin, Tree } from 'antd';
+import { Alert, Breadcrumb, Button, Dropdown, Empty, Input, Pagination, Select, Space, Spin } from 'antd';
 import Drawer from '@/components/DraggableDrawer';
-import type { DataNode } from 'antd/es/tree';
 import {
   AppstoreOutlined,
   FolderOutlined,
@@ -118,7 +117,6 @@ export default function CloudDrivePage() {
   const listing = !tableOnly && snapshot?.key === directoryKey ? snapshot.value : undefined;
   const [loadedFolders, setFolders] = useState<DriveItem[]>([]);
   const folders = listing ? loadedFolders : [];
-  const [folderUserId, setFolderUserId] = useState('');
   const [directory, setDirectory] = useState<Directory>(emptyDirectory);
   const [directoryDenied, setDirectoryDenied] = useState(false);
   const [workspacesDenied, setWorkspacesDenied] = useState(false);
@@ -261,7 +259,6 @@ export default function CloudDrivePage() {
         hasDirectory.current = true;
         setListing({ key: directoryKey, value: list });
         setFolders(tree.folders);
-        setFolderUserId(tree.userId);
         setError('');
         if (parentId && visitedFolder.current !== workspaceId + ':' + parentId) {
           visitedFolder.current = workspaceId + ':' + parentId;
@@ -500,11 +497,6 @@ export default function CloudDrivePage() {
       setSaving(false);
     }
   };
-  const tree = (parent: string | null, nodes: DriveItem[]): DataNode[] =>
-    nodes
-      .filter((f) => f.parentId === parent)
-      .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
-      .map((f) => ({ key: f.id, title: f.name, icon: <FolderOutlined />, children: tree(f.id, nodes) }));
   const emptyActions = (
     <Space>
       <Button onClick={() => change({scope: 'mine', folder: '', q: ''})}>进入我的资源</Button>
@@ -548,28 +540,6 @@ export default function CloudDrivePage() {
           {label}
         </Button>
       ))}
-      {scope !== 'storage' && ['mine', 'shared'].map((group) => {
-        const ids = new Set(
-          folders
-            .filter((f) => (f.ownerId === folderUserId) === (group === 'mine'))
-            .flatMap((f) => f.path.map((p) => p.id)),
-        );
-        const nodes = folders.filter((f) => ids.has(f.id));
-        return (
-          <section key={group}>
-            <div className="drive-nav-title">{group === 'mine' ? '我的文件夹' : '共享文件夹'}</div>
-            <Tree
-              showIcon
-              blockNode
-              selectedKeys={parentId ? [parentId] : []}
-              treeData={tree(null, nodes)}
-              onSelect={(ids) => {
-                if (ids[0]) change({ folder: String(ids[0]), scope: 'all', q: '' });
-              }}
-            />
-          </section>
-        );
-      })}
     </>
   );
   return (
